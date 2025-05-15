@@ -1,6 +1,2 @@
 node_modules/
-<<<<<<< HEAD
 .next/
-=======
-.next/
->>>>>>> 00b279b (added .next/ to gitignore)
