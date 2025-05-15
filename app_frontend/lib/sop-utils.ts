@@ -1,6 +1,9 @@
 import { SOPDocument, SOPNode, SOPPublicData } from "./types/sop";
-import { Node as FlowNode, Edge as FlowEdge } from 'reactflow'; // Alias to avoid name collision with SOPNode
+import { Node as FlowNode, Edge as FlowEdge, Position } from 'reactflow'; // Alias to avoid name collision with SOPNode
 import { SOPEdge as AppSOPEdge, SOPNode as AppSOPNode } from "./types/sop"; // Explicitly import our types
+// Import ELK types for layout options
+import { ElkNode, ElkExtendedEdge } from 'elkjs';
+import { CustomElkNode, CustomElkEdge, CustomElkNodeData } from './types/sop'; // ADDED Custom types
 
 /**
  * Processes the raw SOP data to resolve child node references and ensure parentIds are set.
@@ -110,6 +113,135 @@ const getFlowStartNodeIds = (sopNodes: AppSOPNode[], sopEdges: AppSOPEdge[]): st
     .map(node => node.id);
 };
 
+export const getElkLayoutOptions = (
+  verticalNodeSpacing: number = 40, // Corresponds to 'elk.layered.spacing.nodeNodeBetweenLayers' for DOWN direction
+  horizontalBranchSpacing: number = 40, // Corresponds to 'elk.layered.spacing.nodeNodeBetweenLayers' for RIGHT direction
+  siblingInBranchSpacing: number = 30   // Corresponds to 'elk.spacing.nodeNode' for RIGHT direction
+) => {
+  const rootLayout: ElkNode['layoutOptions'] = {
+    'elk.algorithm': 'layered',
+    'elk.direction': 'DOWN',
+    'elk.alignment': 'CENTER',
+    'elk.layered.spacing.nodeNodeBetweenLayers': String(verticalNodeSpacing),
+    'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+    'elk.layered.edgeRouting': 'ORTHOGONAL',
+  };
+
+  const branchLayout: ElkNode['layoutOptions'] = {
+    'elk.direction': 'RIGHT',
+    'elk.layered.spacing.nodeNodeBetweenLayers': String(horizontalBranchSpacing), // Parent to first child in branch
+    'elk.spacing.nodeNode': String(siblingInBranchSpacing), // Between sibling children in branch
+    'elk.hierarchyHandling': 'INCLUDE_CHILDREN', 
+    'elk.layered.edgeRouting': 'ORTHOGONAL',
+  };
+
+  return { rootLayout, branchLayout };
+};
+
+export const transformSopToElkInput = (
+  sopDocument: SOPDocument,
+  layoutOptionsConfig: { rootLayout: ElkNode['layoutOptions'], branchLayout: ElkNode['layoutOptions'] }
+): { elkNodes: CustomElkNode[], elkEdges: CustomElkEdge[] } => {
+  if (!sopDocument?.public) {
+    return { elkNodes: [], elkEdges: [] };
+  }
+
+  const { triggers, nodes: sopNodesFromDoc, edges: sopEdgesFromDoc } = sopDocument.public;
+  const elkNodes: CustomElkNode[] = [];
+  const elkEdges: CustomElkEdge[] = [];
+
+  // 1. Create ELK nodes from sopDocument.public.triggers
+  triggers.forEach((trigger, index) => {
+    const triggerData: CustomElkNodeData = {
+      ...trigger, 
+      label: trigger.description || trigger.type, 
+      isTrigger: true, 
+      type: 'trigger' // Essential for ReactFlow nodeTypes mapping
+    };
+    elkNodes.push({
+      id: `trigger-${trigger.type}-${index}`,
+      width: 208, 
+      height: 112,
+      data: triggerData, // ASSIGN CustomElkNodeData
+      layoutOptions: { ...layoutOptionsConfig.rootLayout }, 
+    });
+  });
+
+  // 2. Create ELK nodes from sopDocument.public.nodes (AppSOPNode[])
+  sopNodesFromDoc.forEach(appNode => {
+    let nodeWidth = 240; 
+    let nodeHeight = 80;  
+
+    if (appNode.type === 'end') {
+      nodeWidth = 208; nodeHeight = 112;
+    } else if (appNode.type === 'decision') {
+      nodeWidth = 208; nodeHeight = 104;
+    }
+    
+    // Ensure all necessary fields for CustomElkNodeData are present
+    const nodeData: CustomElkNodeData = {
+        ...appNode, // Spreads all AppSOPNode properties
+        // type is already in appNode, label is appNode.label
+        // title and description can be mapped if needed for display consistency
+        title: appNode.label, 
+        description: appNode.intent || appNode.context,
+        // isTrigger, isExpanded, onToggleCollapse will be added in SOPFlowView if needed before passing to ReactFlow
+    };
+
+    elkNodes.push({
+      id: appNode.id,
+      width: nodeWidth,
+      height: nodeHeight,
+      data: nodeData, // ASSIGN CustomElkNodeData
+      layoutOptions: appNode.isBranchRoot ? { ...layoutOptionsConfig.branchLayout } : { ...layoutOptionsConfig.rootLayout },
+    });
+  });
+
+  // 3. Create ELK edges from sopDocument.public.edges (SOPEdge[])
+  sopEdgesFromDoc.forEach((edge, index) => {
+    elkEdges.push({
+      id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
+      sources: [edge.source],
+      targets: [edge.target],
+      data: { label: edge.condition, animated: edge.animated }, 
+    });
+  });
+
+  // 4. Create edges from Trigger nodes to actual start SOPNodes
+  const actualStartNodeIds = getFlowStartNodeIds(sopNodesFromDoc, sopEdgesFromDoc);
+  elkNodes.filter(en => en.data?.isTrigger).forEach(triggerElkNode => {
+    actualStartNodeIds.forEach(startNodeId => {
+      elkEdges.push({
+        id: `e-${triggerElkNode.id!}-to-${startNodeId}`,
+        sources: [triggerElkNode.id!], 
+        targets: [startNodeId],
+        // No specific data for these edges unless needed
+      });
+    });
+  });
+
+  // 5. Connect SOPNodes with parentId if not covered 
+  const elkTargetNodeIds = new Set(elkEdges.flatMap(edge => edge.targets));
+  sopNodesFromDoc.forEach(sopNode => {
+    if (sopNode.parentId && !elkTargetNodeIds.has(sopNode.id)) {
+      const edgeAlreadyExists = elkEdges.some(
+        edge => edge.sources.includes(sopNode.parentId!) && edge.targets.includes(sopNode.id)
+      );
+      if (!edgeAlreadyExists) {
+        elkEdges.push({
+          id: `e-parent-${sopNode.parentId}-to-${sopNode.id}`,
+          sources: [sopNode.parentId!],
+          targets: [sopNode.id],
+          // No specific data for these edges unless needed
+        });
+      }
+    }
+  });
+  return { elkNodes, elkEdges };
+};
+
+// Remove or comment out the old transformSopToFlowData function
+/*
 export const transformSopToFlowData = (
   sopDocument: SOPDocument
 ): { flowNodes: FlowNode[]; flowEdges: FlowEdge[] } => {
@@ -204,3 +336,4 @@ export const transformSopToFlowData = (
 
   return { flowNodes, flowEdges: reactFlowEdges };
 }; 
+*/ 

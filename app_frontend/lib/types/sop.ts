@@ -24,6 +24,7 @@ export interface SOPNode {
   exit_condition?: string; // For loop nodes
   children?: string[]; // IDs of child nodes
   parentId?: string; // ID of the parent node (useful for atomic steps)
+  isBranchRoot?: boolean; // ADDED: To flag nodes that start a new layout direction
   // Populated by processing function
   childNodes?: SOPNode[]; 
 }
@@ -82,4 +83,34 @@ export interface SOPDocument {
   meta: SOPMeta;
   public: SOPPublicData;
   private: SOPPrivateData;
+}
+
+// Custom ELK types to include application-specific data
+import { ElkNode, ElkExtendedEdge, LayoutOptions } from 'elkjs';
+// AppSOPNode and SOPTrigger are already defined above in this file
+
+// Data for ELK nodes can be a mix of SOPNode, SOPTrigger, or other UI state
+export type CustomElkNodeData = Partial<SOPNode> & Partial<SOPTrigger> & { // Use SOPNode directly
+  isTrigger?: boolean;
+  isExpanded?: boolean;
+  onToggleCollapse?: (nodeId: string) => void;
+  // Add other fields from SOPNode that you definitely expect in `data`
+  // 'type' is already in SOPNode, label, title (from AppSOPNode's label), description (from intent/context)
+  // Explicitly adding them here if their presence in `data` is guaranteed for ReactFlow mapping
+  type: string; // Make non-optional if always present for ReactFlow
+  label?: string; 
+  title?: string;
+  description?: string;
+};
+
+export interface CustomElkNode extends ElkNode {
+  data: CustomElkNodeData; // Make data non-optional if we always assign it.
+  layoutOptions?: LayoutOptions; 
+}
+
+export interface CustomElkEdge extends ElkExtendedEdge {
+  data?: { 
+    label?: string; 
+    animated?: boolean;
+  };
 } 
