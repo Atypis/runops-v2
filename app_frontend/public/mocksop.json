@@ -23,11 +23,7 @@
           "type": "task",
           "label": "Open Gmail Inbox",
           "intent": "Access emails to begin the review process.",
-          "context": "User clicks on the Gmail browser tab, typically labeled 'Inbox'. Example: (00:00:07.038).",
-          "position": {
-            "x": 0,
-            "y": 0
-          }
+          "context": "User clicks on the Gmail browser tab, typically labeled 'Inbox'. Example: (00:00:07.038)."
         },
         {
           "id": "L1_process_emails",
@@ -51,110 +47,70 @@
             "L1_C12_close_airtable_modal",
             "L1_C13_return_to_gmail_from_airtable",
             "L1_C14_return_to_gmail_from_email_view"
-          ],
-          "position": {
-            "x": 0,
-            "y": 100
-          }
+          ]
         },
         {
           "id": "T_post_task",
           "type": "task",
           "label": "Final Review",
           "intent": "Perform final review after the main process.",
-          "context": "This is another new root task for testing.",
-          "position": {
-            "x": 0,
-            "y": 200 
-          }
+          "context": "This is another new root task for testing."
         },
         {
           "id": "L1_C1_open_email",
           "type": "task",
           "label": "Open Next Email",
           "intent": "View the content of an individual email from the inbox list.",
-          "context": "User clicks on an email row in the Gmail inbox. Example: (00:00:41.478) clicking on Ben's email.",
-          "position": {
-            "x": 200,
-            "y": 100
-          }
+          "context": "User clicks on an email row in the Gmail inbox. Example: (00:00:41.478) clicking on Ben's email."
         },
         {
           "id": "L1_C2_review_email_content",
           "type": "task",
           "label": "Review Email Content",
           "intent": "Understand the email's sender, subject, body, and date to determine relevance and extract key information.",
-          "context": "User reads the email. Information like sender (e.g., 'ben@betacapital.com'), subject ('Re: Pitch Deck & Next Steps...'), content summary, and date ('Apr 22') are noted. Example: (00:00:42.672 - 01:05.382).",
-          "position": {
-            "x": 400,
-            "y": 100
-          }
+          "context": "User reads the email. Information like sender (e.g., 'ben@betacapital.com'), subject ('Re: Pitch Deck & Next Steps...'), content summary, and date ('Apr 22') are noted. Example: (00:00:42.672 - 01:05.382)."
         },
         {
           "id": "L1_D3_is_investor_email_decision",
           "type": "decision",
           "label": "Investor Related?",
           "intent": "Determine if the email pertains to investor relations.",
-          "context": "Based on the reviewed email content (sender, subject, body). \n- Criteria for 'investor related' needs clarification (Clarification C7). \n- Examples: Beta Capital, Gamma Fund, Alpha Ventures, Orion Ventures, Nova Cap emails are investor-related. HR, newsletters, billing emails are not (05:09:112).",
-          "position": {
-            "x": 600,
-            "y": 100
-          }
+          "context": "Based on the reviewed email content (sender, subject, body). \n- Criteria for 'investor related' needs clarification (Clarification C7). \n- Examples: Beta Capital, Gamma Fund, Alpha Ventures, Orion Ventures, Nova Cap emails are investor-related. HR, newsletters, billing emails are not (05:09:112)."
         },
         {
           "id": "L1_C4_open_airtable_or_switch_tab",
           "type": "task",
           "label": "Open/Switch to Airtable",
           "intent": "Access the Airtable application.",
-          "context": "If Airtable is not open, user opens a new browser tab and navigates to 'airtable.com' (00:06:258 - 00:07.258). If Airtable tab is already open, user switches to it (e.g., 01:26.438).",
-          "position": {
-            "x": 800,
-            "y": 0
-          }
+          "context": "If Airtable is not open, user opens a new browser tab and navigates to 'airtable.com' (00:06:258 - 00:07.258). If Airtable tab is already open, user switches to it (e.g., 01:26.438)."
         },
         {
           "id": "L1_C5_navigate_to_investor_db",
           "type": "task",
           "label": "Navigate to Investor DB",
           "intent": "Open the specific 'Investor Relationship Management App' base in Airtable.",
-          "context": "User clicks on the 'Investor Relationship Management App' base from the Airtable home/dashboard (00:10.088).",
-          "position": {
-            "x": 1000,
-            "y": 0
-          }
+          "context": "User clicks on the 'Investor Relationship Management App' base from the Airtable home/dashboard (00:10.088)."
         },
         {
           "id": "L1_C6_identify_investor_in_airtable",
           "type": "task",
           "label": "Identify Investor in Airtable Grid",
           "intent": "Locate the investor's record in the Airtable grid view, or confirm its absence.",
-          "context": "User visually scans the 'Investor Name' column or may use Airtable's search/filter features to find the relevant investor. Examples: finding Beta Capital (00:21.358), confirming Nova Cap is missing (04:05.372).",
-          "position": {
-            "x": 1200,
-            "y": 0
-          }
+          "context": "User visually scans the 'Investor Name' column or may use Airtable's search/filter features to find the relevant investor. Examples: finding Beta Capital (00:21.358), confirming Nova Cap is missing (04:05.372)."
         },
         {
           "id": "L1_D7_record_exists_decision",
           "type": "decision",
           "label": "Airtable Record Exists?",
           "intent": "Determine if a record for the current investor already exists in Airtable.",
-          "context": "Based on the outcome of the identification step (L1_C6).",
-          "position": {
-            "x": 1400,
-            "y": 0
-          }
+          "context": "Based on the outcome of the identification step (L1_C6)."
         },
         {
           "id": "L1_C8_open_existing_record_modal",
           "type": "task",
           "label": "Open Existing Investor Record Modal",
           "intent": "View or edit the full details of an existing investor record.",
-          "context": "User clicks the expand icon (two diagonal arrows) on the existing investor's row in Airtable (e.g., 00:28.088 for Beta Capital).",
-          "position": {
-            "x": 1600,
-            "y": -100
-          }
+          "context": "User clicks the expand icon (two diagonal arrows) on the existing investor's row in Airtable (e.g., 00:28.088 for Beta Capital)."
         },
         {
           "id": "L1_C9_update_existing_record",
@@ -166,11 +122,7 @@
             "L1_C9_A1_set_last_interaction_date",
             "L1_C9_A2_update_thread_summary",
             "L1_C9_A3_check_follow_up"
-          ],
-          "position": {
-            "x": 1800,
-            "y": -100
-          }
+          ]
         },
         {
           "id": "L1_C9_A1_set_last_interaction_date",
@@ -178,11 +130,7 @@
           "label": "Set 'Last Interaction' date",
           "intent": "Update the date of the last contact.",
           "context": "User clicks the date picker and selects the current date. Example: (02:37.928).",
-          "parentId": "L1_C9_update_existing_record",
-          "position": {
-            "x": 1900,
-            "y": -150
-          }
+          "parentId": "L1_C9_update_existing_record"
         },
         {
           "id": "L1_C9_A2_update_thread_summary",
@@ -190,11 +138,7 @@
           "label": "Update 'Thread Summary / Notes'",
           "intent": "Add notes about the interaction.",
           "context": "User types a summary of the email content and discussion. Example: (02:51.698).",
-          "parentId": "L1_C9_update_existing_record",
-          "position": {
-            "x": 1900,
-            "y": -120
-          }
+          "parentId": "L1_C9_update_existing_record"
         },
         {
           "id": "L1_C9_A3_check_follow_up",
@@ -202,76 +146,48 @@
           "label": "Set 'Follow-up Needed'",
           "intent": "Indicate if a follow-up action is required.",
           "context": "User checks or unchecks the 'Follow-up Needed' box. Example: (03:01.178).",
-          "parentId": "L1_C9_update_existing_record",
-          "position": {
-            "x": 1900,
-            "y": -90
-          }
+          "parentId": "L1_C9_update_existing_record"
         },
         {
           "id": "L1_C10_open_new_record_modal",
           "type": "task",
           "label": "Open New Investor Record Modal",
           "intent": "Open a modal to create a new investor record.",
-          "context": "If investor record not found, user clicks the expand icon on an empty row in Airtable to initiate new record creation (04:10.508 for Nova Cap).",
-          "position": {
-            "x": 1600,
-            "y": 100
-          }
+          "context": "If investor record not found, user clicks the expand icon on an empty row in Airtable to initiate new record creation (04:10.508 for Nova Cap)."
         },
         {
           "id": "L1_C11_populate_new_record",
           "type": "task",
           "label": "Populate New Airtable Record",
           "intent": "Fill in the details for a new investor record based on the email.",
-          "context": "User enters 'Investor Name' (04:25.978), 'Contact Person' (04:31.928), 'Email' (04:35.858), selects 'Stage' (04:38.858), sets 'Last Interaction' date (04:43.318), types 'Thread Summary / Notes' (04:49.668), checks 'Follow-up Needed' (04:50.158), and types 'Next Step / Action' (04:51.738). Example: Nova Cap.",
-          "position": {
-            "x": 1800,
-            "y": 100
-          }
+          "context": "User enters 'Investor Name' (04:25.978), 'Contact Person' (04:31.928), 'Email' (04:35.858), selects 'Stage' (04:38.858), sets 'Last Interaction' date (04:43.318), types 'Thread Summary / Notes' (04:49.668), checks 'Follow-up Needed' (04:50.158), and types 'Next Step / Action' (04:51.738). Example: Nova Cap."
         },
         {
           "id": "L1_C12_close_airtable_modal",
           "type": "task",
           "label": "Close Airtable Record Modal",
           "intent": "Save changes (implicitly done by Airtable) and return to the Airtable grid view.",
-          "context": "User clicks the 'X' icon on the Airtable record modal (e.g., 00:52.428 for Beta Capital modal). 'All changes saved' often appears.",
-          "position": {
-            "x": 2000,
-            "y": 0
-          }
+          "context": "User clicks the 'X' icon on the Airtable record modal (e.g., 00:52.428 for Beta Capital modal). 'All changes saved' often appears."
         },
         {
           "id": "L1_C13_return_to_gmail_from_airtable",
           "type": "task",
           "label": "Return to Gmail Inbox (from Airtable update)",
           "intent": "Navigate back to the Gmail inbox to process the next email.",
-          "context": "User clicks on the Gmail browser tab (e.g., 00:53.218), then clicks the back arrow icon within Gmail to return to the inbox list (e.g., 00:53.918).",
-          "position": {
-            "x": 2200,
-            "y": 0
-          }
+          "context": "User clicks on the Gmail browser tab (e.g., 00:53.218), then clicks the back arrow icon within Gmail to return to the inbox list (e.g., 00:53.918)."
         },
         {
           "id": "L1_C14_return_to_gmail_from_email_view",
           "type": "task",
           "label": "Return to Gmail Inbox (from email view)",
           "intent": "Navigate back to the Gmail inbox if the email was not investor-related.",
-          "context": "User clicks the back arrow icon within Gmail to return to the inbox list. This path is taken for non-investor emails. Example implied by processing non-investor emails like HR/Newsletter (05:09:112 - 05:16.218 where user opens, then immediately goes back). \n- Clarification C2: Handling of non-investor emails (archive/delete action).",
-          "position": {
-            "x": 800,
-            "y": 200
-          }
+          "context": "User clicks the back arrow icon within Gmail to return to the inbox list. This path is taken for non-investor emails. Example implied by processing non-investor emails like HR/Newsletter (05:09:112 - 05:16.218 where user opens, then immediately goes back). \n- Clarification C2: Handling of non-investor emails (archive/delete action)."
         },
         {
           "id": "E_end_sop",
           "type": "end",
           "label": "End SOP",
-          "intent": "All relevant daily emails have been processed and CRM updated.",
-          "position": {
-            "x": 0,
-            "y": 200
-          }
+          "intent": "All relevant daily emails have been processed and CRM updated."
         }
       ],
       "edges": [
