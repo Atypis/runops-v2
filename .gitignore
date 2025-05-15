@@ -1,8 +1,2 @@
 node_modules/
-<<<<<<< HEAD
-=======
-node_modules/
-node_modules/
-node_modules/
-node_modules/
->>>>>>> 4cc0af7 (feat: Implement ReactFlow diagram with BPMN-lite visuals & collapse/expand)
+.next/

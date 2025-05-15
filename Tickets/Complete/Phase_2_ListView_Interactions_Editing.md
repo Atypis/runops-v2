@@ -1,4 +1,4 @@
-# Ticket: Phase 2 - List View Interactions & Editing
+# Ticket: Phase 2 - List View Interactions & Editing (Complete)
 
 **Objective:** Enable user interaction with the SOP List View, including editing step content, deleting steps, and reordering steps via drag-and-drop.
 
