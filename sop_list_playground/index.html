@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOP List View Playground</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="sop-header">
+            <h1 id="sop-title"></h1>
+            <p id="sop-goal" class="sop-subtitle"></p>
+            <p id="sop-purpose"></p>
+            <div class="sop-meta-info">
+                <span>Owner: <strong id="sop-owner"></strong></span>
+                <span>Version: <strong id="sop-version"></strong></span>
+            </div>
+        </header>
+
+        <main class="sop-main-content">
+            <div class="sop-steps-column">
+                <div id="sop-trigger-display-area" class="sop-trigger-area">
+                    <!-- Triggers will be dynamically inserted here -->
+                </div>
+                <h2>SOP Steps</h2>
+                <ul id="sop-steps-list" class="sop-steps-list">
+                    <!-- SOP Steps will be dynamically inserted here -->
+                </ul>
+            </div>
+            <aside class="sop-sidebar">
+                <div class="sidebar-section">
+                    <h3>Variables</h3>
+                    <ul id="sop-variables-list">
+                        <!-- Variables will be dynamically inserted here -->
+                    </ul>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Clarification Requests</h3>
+                    <ul id="sop-clarifications-list">
+                        <!-- Clarifications will be dynamically inserted here -->
+                    </ul>
+                </div>
+                 <div class="sidebar-section">
+                    <h3>Artifacts</h3>
+                    <ul id="sop-artifacts-list">
+                        <!-- Artifacts will be dynamically inserted here -->
+                    </ul>
+                </div>
+            </aside>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,523 @@
+{
+  "meta": {
+    "id": "REPLACE_WITH_CRYPTO_RANDOMUUID",
+    "title": "Daily Investor Email Processing and CRM Update",
+    "version": "0.6.2",
+    "goal": "To review daily emails for investor-related communications and update the Airtable CRM accordingly.",
+    "purpose": "Ensures timely tracking of investor interactions, maintains an up-to-date CRM, and supports fundraising efforts by keeping all investor communication logged and actionable.",
+    "owner": [
+      "michaelburner5@..."
+    ]
+  },
+  "public": {
+    "triggers": [
+      {
+        "type": "cron",
+        "config": "0 20 * * *",
+        "description": "Intended to run 'every evening' as stated by the narrator (00:01:692). Exact time (e.g., 8 PM) needs confirmation via Clarification C3."
+      }
+    ],
+    "nodes": [
+      {
+        "id": "T0_open_gmail",
+        "type": "task",
+        "label": "Open Gmail Inbox",
+        "intent": "Access emails to begin the review process.",
+        "context": "User clicks on the Gmail browser tab, typically labeled 'Inbox'. Example: (00:00:07.038).",
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_process_emails",
+        "type": "loop",
+        "label": "Process Daily Emails",
+        "iterator": "email_in_inbox",
+        "context": "Iterate through emails received 'for the day' (00:00:10.972). \n- The exact method for identifying these emails (e.g., unread, date range, manual scan) needs clarification (Clarification C1).\n- The loop continues until all relevant emails for the day have been processed.",
+        "exit_condition": "All relevant emails for the day have been checked and processed.",
+        "children": [
+          "L1_C1_open_email",
+          "L1_C2_review_email_content",
+          "L1_D3_is_investor_email_decision",
+          "L1_C4_open_airtable_or_switch_tab",
+          "L1_C5_navigate_to_investor_db",
+          "L1_C6_identify_investor_in_airtable",
+          "L1_D7_record_exists_decision",
+          "L1_C8_open_existing_record_modal",
+          "L1_C9_update_existing_record",
+          "L1_C10_open_new_record_modal",
+          "L1_C11_populate_new_record",
+          "L1_C12_close_airtable_modal",
+          "L1_C13_return_to_gmail_from_airtable",
+          "L1_C14_return_to_gmail_from_email_view"
+        ],
+        "position": {
+          "x": 0,
+          "y": 100
+        }
+      },
+      {
+        "id": "L1_C1_open_email",
+        "type": "task",
+        "label": "Open Next Email",
+        "intent": "View the content of an individual email from the inbox list.",
+        "context": "User clicks on an email row in the Gmail inbox. Example: (00:00:41.478) clicking on Ben's email.",
+        "position": {
+          "x": 200,
+          "y": 100
+        }
+      },
+      {
+        "id": "L1_C2_review_email_content",
+        "type": "task",
+        "label": "Review Email Content",
+        "intent": "Understand the email's sender, subject, body, and date to determine relevance and extract key information.",
+        "context": "User reads the email. Information like sender (e.g., 'ben@betacapital.com'), subject ('Re: Pitch Deck & Next Steps...'), content summary, and date ('Apr 22') are noted. Example: (00:00:42.672 - 01:05.382).",
+        "position": {
+          "x": 400,
+          "y": 100
+        }
+      },
+      {
+        "id": "L1_D3_is_investor_email_decision",
+        "type": "decision",
+        "label": "Investor Related?",
+        "intent": "Determine if the email pertains to investor relations.",
+        "context": "Based on the reviewed email content (sender, subject, body). \n- Criteria for 'investor related' needs clarification (Clarification C7). \n- Examples: Beta Capital, Gamma Fund, Alpha Ventures, Orion Ventures, Nova Cap emails are investor-related. HR, newsletters, billing emails are not (05:09:112).",
+        "position": {
+          "x": 600,
+          "y": 100
+        }
+      },
+      {
+        "id": "L1_C4_open_airtable_or_switch_tab",
+        "type": "task",
+        "label": "Open/Switch to Airtable",
+        "intent": "Access the Airtable application.",
+        "context": "If Airtable is not open, user opens a new browser tab and navigates to 'airtable.com' (00:06:258 - 00:07.258). If Airtable tab is already open, user switches to it (e.g., 01:26.438).",
+        "position": {
+          "x": 800,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_C5_navigate_to_investor_db",
+        "type": "task",
+        "label": "Navigate to Investor DB",
+        "intent": "Open the specific 'Investor Relationship Management App' base in Airtable.",
+        "context": "User clicks on the 'Investor Relationship Management App' base from the Airtable home/dashboard (00:10.088).",
+        "position": {
+          "x": 1000,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_C6_identify_investor_in_airtable",
+        "type": "task",
+        "label": "Identify Investor in Airtable Grid",
+        "intent": "Locate the investor's record in the Airtable grid view, or confirm its absence.",
+        "context": "User visually scans the 'Investor Name' column or may use Airtable's search/filter features to find the relevant investor. Examples: finding Beta Capital (00:21.358), confirming Nova Cap is missing (04:05.372).",
+        "position": {
+          "x": 1200,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_D7_record_exists_decision",
+        "type": "decision",
+        "label": "Airtable Record Exists?",
+        "intent": "Determine if a record for the current investor already exists in Airtable.",
+        "context": "Based on the outcome of the identification step (L1_C6).",
+        "position": {
+          "x": 1400,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_C8_open_existing_record_modal",
+        "type": "task",
+        "label": "Open Existing Investor Record Modal",
+        "intent": "View or edit the full details of an existing investor record.",
+        "context": "User clicks the expand icon (two diagonal arrows) on the existing investor's row in Airtable (e.g., 00:28.088 for Beta Capital).",
+        "position": {
+          "x": 1600,
+          "y": -100
+        }
+      },
+      {
+        "id": "L1_C9_update_existing_record",
+        "type": "task",
+        "label": "Update Existing Airtable Record",
+        "intent": "Log the interaction and update relevant fields for an existing record.",
+        "context": "User updates fields such as 'Last Interaction' date (e.g., 02:37.928), 'Thread Summary / Notes' (e.g., 02:51.698), 'Stage' (checked for Alpha Ventures, 02:21.558, no change made), 'Follow-up Needed' (e.g., 03:01.178, unchecked for Alpha Ventures). \n- If no updates are needed (e.g. Beta Capital was already up-to-date, 00:40.152), this step might involve only verification. \n- Clarification C5: Logic for 'Follow-up Needed'. \n- Clarification C6: Behavior for 'Thread Summary / Notes' update (append vs. replace). \n- Clarification C4: Year 2025 in dates.",
+        "position": {
+          "x": 1800,
+          "y": -100
+        }
+      },
+      {
+        "id": "L1_C10_open_new_record_modal",
+        "type": "task",
+        "label": "Open New Investor Record Modal",
+        "intent": "Open a modal to create a new investor record.",
+        "context": "If investor record not found, user clicks the expand icon on an empty row in Airtable to initiate new record creation (04:10.508 for Nova Cap).",
+        "position": {
+          "x": 1600,
+          "y": 100
+        }
+      },
+      {
+        "id": "L1_C11_populate_new_record",
+        "type": "task",
+        "label": "Populate New Airtable Record",
+        "intent": "Fill in the details for a new investor record based on the email.",
+        "context": "User enters 'Investor Name' (04:25.978), 'Contact Person' (04:31.928), 'Email' (04:35.858), selects 'Stage' (04:38.858), sets 'Last Interaction' date (04:43.318), types 'Thread Summary / Notes' (04:49.668), checks 'Follow-up Needed' (04:50.158), and types 'Next Step / Action' (04:51.738). Example: Nova Cap.",
+        "position": {
+          "x": 1800,
+          "y": 100
+        }
+      },
+      {
+        "id": "L1_C12_close_airtable_modal",
+        "type": "task",
+        "label": "Close Airtable Record Modal",
+        "intent": "Save changes (implicitly done by Airtable) and return to the Airtable grid view.",
+        "context": "User clicks the 'X' icon on the Airtable record modal (e.g., 00:52.428 for Beta Capital modal). 'All changes saved' often appears.",
+        "position": {
+          "x": 2000,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_C13_return_to_gmail_from_airtable",
+        "type": "task",
+        "label": "Return to Gmail Inbox (from Airtable update)",
+        "intent": "Navigate back to the Gmail inbox to process the next email.",
+        "context": "User clicks on the Gmail browser tab (e.g., 00:53.218), then clicks the back arrow icon within Gmail to return to the inbox list (e.g., 00:53.918).",
+        "position": {
+          "x": 2200,
+          "y": 0
+        }
+      },
+      {
+        "id": "L1_C14_return_to_gmail_from_email_view",
+        "type": "task",
+        "label": "Return to Gmail Inbox (from email view)",
+        "intent": "Navigate back to the Gmail inbox if the email was not investor-related.",
+        "context": "User clicks the back arrow icon within Gmail to return to the inbox list. This path is taken for non-investor emails. Example implied by processing non-investor emails like HR/Newsletter (05:09:112 - 05:16.218 where user opens, then immediately goes back). \n- Clarification C2: Handling of non-investor emails (archive/delete action).",
+        "position": {
+          "x": 800,
+          "y": 200
+        }
+      },
+      {
+        "id": "E_end_sop",
+        "type": "end",
+        "label": "End SOP",
+        "intent": "All relevant daily emails have been processed and CRM updated.",
+        "position": {
+          "x": 0,
+          "y": 200
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "T0_open_gmail",
+        "target": "L1_process_emails",
+        "condition": "start"
+      },
+      {
+        "source": "L1_C1_open_email",
+        "target": "L1_C2_review_email_content",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C2_review_email_content",
+        "target": "L1_D3_is_investor_email_decision",
+        "condition": "next"
+      },
+      {
+        "source": "L1_D3_is_investor_email_decision",
+        "target": "L1_C4_open_airtable_or_switch_tab",
+        "condition": "yes"
+      },
+      {
+        "source": "L1_C4_open_airtable_or_switch_tab",
+        "target": "L1_C5_navigate_to_investor_db",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C5_navigate_to_investor_db",
+        "target": "L1_C6_identify_investor_in_airtable",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C6_identify_investor_in_airtable",
+        "target": "L1_D7_record_exists_decision",
+        "condition": "next"
+      },
+      {
+        "source": "L1_D7_record_exists_decision",
+        "target": "L1_C8_open_existing_record_modal",
+        "condition": "yes"
+      },
+      {
+        "source": "L1_C8_open_existing_record_modal",
+        "target": "L1_C9_update_existing_record",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C9_update_existing_record",
+        "target": "L1_C12_close_airtable_modal",
+        "condition": "next"
+      },
+      {
+        "source": "L1_D7_record_exists_decision",
+        "target": "L1_C10_open_new_record_modal",
+        "condition": "no"
+      },
+      {
+        "source": "L1_C10_open_new_record_modal",
+        "target": "L1_C11_populate_new_record",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C11_populate_new_record",
+        "target": "L1_C12_close_airtable_modal",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C12_close_airtable_modal",
+        "target": "L1_C13_return_to_gmail_from_airtable",
+        "condition": "next"
+      },
+      {
+        "source": "L1_C13_return_to_gmail_from_airtable",
+        "target": "L1_process_emails",
+        "condition": "next"
+      },
+      {
+        "source": "L1_D3_is_investor_email_decision",
+        "target": "L1_C14_return_to_gmail_from_email_view",
+        "condition": "no"
+      },
+      {
+        "source": "L1_C14_return_to_gmail_from_email_view",
+        "target": "L1_process_emails",
+        "condition": "next"
+      },
+      {
+        "source": "L1_process_emails",
+        "target": "E_end_sop",
+        "condition": "all_processed"
+      }
+    ],
+    "variables": {
+      "current_email_sender": "string (e.g., 'ben@betacapital.com')",
+      "current_email_subject": "string (e.g., 'Re: Pitch Deck & Next Steps with Beta Capital')",
+      "current_email_body_summary": "string (e.g., 'Positive response, numbers look strong. Inviting to partner call.')",
+      "current_email_date": "string (ISO 8601 format, e.g., '2025-04-22')",
+      "airtable_base_url": "string (URL of the 'Investor Relationship Management App' Airtable base)",
+      "investor_name": "string (e.g., 'Beta Capital')",
+      "contact_person_name": "string (e.g., 'Ben Zhou')",
+      "contact_person_email": "string (e.g., 'ben@betacapital.com')",
+      "airtable_record_exists": "boolean"
+    },
+    "clarification_requests": [
+      {
+        "id": "C1_email_filtering",
+        "question": "How are 'emails for the day' identified in Gmail for processing? Is there a specific search query (e.g., 'is:unread in:inbox', 'newer_than:1d'), or does the user manually scan all emails in the inbox?",
+        "importance": "high"
+      },
+      {
+        "id": "C2_non_investor_email_handling",
+        "question": "The SOP focuses on investor emails. The transcript briefly shows selecting non-investor emails at the end (05:16:978 - 05:23.118). Is handling these non-investor emails (e.g., archiving, deleting) part of this core SOP, or a separate/optional cleanup task? If part of this SOP, what specific action should be taken on them within the loop or as a final step?",
+        "importance": "medium"
+      },
+      {
+        "id": "C3_cron_schedule_specificity",
+        "question": "The narrator mentions this workflow is done 'every evening' (00:01:692). The cron is set to '0 20 * * *' (8 PM daily) as a placeholder. Can a more specific time or a different daily frequency rule be provided?",
+        "importance": "medium"
+      },
+      {
+        "id": "C4_airtable_date_year",
+        "question": "Dates observed being entered or present in Airtable (e.g., '22/4/2025' at 00:28:852) use the year 2025. Is this intentional (e.g., for test data), or should the current year be used dynamically when new interaction dates are recorded?",
+        "importance": "medium"
+      },
+      {
+        "id": "C5_follow_up_logic",
+        "question": "For the 'Alpha Ventures' record (02:16:652 - 03:02:592), the 'Follow-up Needed' checkbox was unchecked after updating notes. What is the precise logic or criteria for determining if 'Follow-up Needed' should be checked or unchecked for an investor interaction?",
+        "importance": "medium"
+      },
+      {
+        "id": "C6_notes_update_behavior",
+        "question": "When updating 'Thread Summary / Notes' for Alpha Ventures (02:43:718 ambiguity_note), the existing text 'Initial outreach email sent.' appeared to be cleared before new text 'Still reviewing the deck.' was added. Is the standard procedure to replace existing notes, or should new notes be appended to any pre-existing summary?",
+        "importance": "medium"
+      },
+      {
+        "id": "C7_investor_email_criteria",
+        "question": "What specific criteria determine if an email is 'investor related' (00:00:10.972)? Is it based on sender's email domain, keywords in the subject/body, or whether the sender is already a known contact in the Airtable CRM?",
+        "importance": "high"
+      }
+    ]
+  },
+  "private": {
+    "skills": [
+      {
+        "id": "skill_gmail_open_inbox_ui",
+        "app": "Google Chrome - Gmail",
+        "method_type": "ui"
+      },
+      {
+        "id": "skill_gmail_open_email_from_list_ui",
+        "app": "Google Chrome - Gmail",
+        "method_type": "ui"
+      },
+      {
+        "id": "skill_gmail_review_email_content_ui",
+        "app": "Google Chrome - Gmail",
+        "method_type": "ui",
+        "variables_out": ["current_email_sender", "current_email_subject", "current_email_body_summary", "current_email_date"]
+      },
+      {
+        "id": "skill_gmail_api_get_email_details",
+        "app": "Gmail API",
+        "method_type": "api",
+        "performance_hint": "placeholder – awaiting confirmation",
+        "variables_out": ["current_email_sender", "current_email_subject", "current_email_body_summary", "current_email_date"]
+      },
+      {
+        "id": "skill_gmail_return_to_inbox_ui",
+        "app": "Google Chrome - Gmail",
+        "method_type": "ui"
+      },
+      {
+        "id": "skill_chrome_navigate_to_url_or_switch_tab_ui",
+        "app": "Google Chrome",
+        "method_type": "ui",
+        "variables_in": ["target_url"]
+      },
+      {
+        "id": "skill_airtable_open_base_ui",
+        "app": "Google Chrome - Airtable",
+        "method_type": "ui",
+        "variables_in": ["airtable_base_name"]
+      },
+      {
+        "id": "skill_airtable_api_select_base",
+        "app": "Airtable API",
+        "method_type": "api",
+        "performance_hint": "placeholder – awaiting confirmation",
+        "variables_in": ["airtable_base_id"]
+      },
+      {
+        "id": "skill_airtable_identify_record_ui",
+        "app": "Google Chrome - Airtable",
+        "method_type": "ui",
+        "variables_in": ["investor_name"],
+        "variables_out": ["airtable_record_exists", "airtable_record_id_if_exists"]
+      },
+      {
+        "id": "skill_airtable_api_query_records",
+        "app": "Airtable API",
+        "method_type": "api",
+        "performance_hint": "placeholder – awaiting confirmation",
+        "variables_in": ["investor_name_query_params"],
+        "variables_out": ["airtable_record_exists", "airtable_record_data_if_exists"]
+      },
+      {
+        "id": "skill_airtable_open_record_modal_ui",
+        "app": "Google Chrome - Airtable",
+        "method_type": "ui"
+      },
+      {
+        "id": "skill_airtable_update_record_fields_ui",
+        "app": "Google Chrome - Airtable",
+        "method_type": "ui",
+        "variables_in": ["fields_to_update_map"]
+      },
+      {
+        "id": "skill_airtable_api_update_record",
+        "app": "Airtable API",
+        "method_type": "api",
+        "performance_hint": "placeholder – awaiting confirmation",
+        "variables_in": ["airtable_record_id", "fields_to_update_map"]
+      },
+      {
+        "id": "skill_airtable_api_create_record",
+        "app": "Airtable API",
+        "method_type": "api",
+        "performance_hint": "placeholder – awaiting confirmation",
+        "variables_in": ["fields_for_new_record_map"],
+        "variables_out": ["new_airtable_record_id"]
+      },
+      {
+        "id": "skill_airtable_close_modal_ui",
+        "app": "Google Chrome - Airtable",
+        "method_type": "ui"
+      }
+    ],
+    "steps": [
+      {
+        "node_id": "T0_open_gmail",
+        "primary_skill": "skill_gmail_open_inbox_ui"
+      },
+      {
+        "node_id": "L1_C1_open_email",
+        "primary_skill": "skill_gmail_open_email_from_list_ui"
+      },
+      {
+        "node_id": "L1_C2_review_email_content",
+        "primary_skill": "skill_gmail_review_email_content_ui",
+        "alt_skills": ["skill_gmail_api_get_email_details"]
+      },
+      {
+        "node_id": "L1_C4_open_airtable_or_switch_tab",
+        "primary_skill": "skill_chrome_navigate_to_url_or_switch_tab_ui"
+      },
+      {
+        "node_id": "L1_C5_navigate_to_investor_db",
+        "primary_skill": "skill_airtable_open_base_ui",
+        "alt_skills": ["skill_airtable_api_select_base"]
+      },
+      {
+        "node_id": "L1_C6_identify_investor_in_airtable",
+        "primary_skill": "skill_airtable_identify_record_ui",
+        "alt_skills": ["skill_airtable_api_query_records"]
+      },
+      {
+        "node_id": "L1_C8_open_existing_record_modal",
+        "primary_skill": "skill_airtable_open_record_modal_ui"
+      },
+      {
+        "node_id": "L1_C9_update_existing_record",
+        "primary_skill": "skill_airtable_update_record_fields_ui",
+        "alt_skills": ["skill_airtable_api_update_record"]
+      },
+      {
+        "node_id": "L1_C10_open_new_record_modal",
+        "primary_skill": "skill_airtable_open_record_modal_ui"
+      },
+      {
+        "node_id": "L1_C11_populate_new_record",
+        "primary_skill": "skill_airtable_update_record_fields_ui",
+        "alt_skills": ["skill_airtable_api_create_record"]
+      },
+      {
+        "node_id": "L1_C12_close_airtable_modal",
+        "primary_skill": "skill_airtable_close_modal_ui"
+      },
+      {
+        "node_id": "L1_C13_return_to_gmail_from_airtable",
+        "primary_skill": "skill_gmail_return_to_inbox_ui"
+      },
+      {
+        "node_id": "L1_C14_return_to_gmail_from_email_view",
+        "primary_skill": "skill_gmail_return_to_inbox_ui"
+      }
+    ],
+    "artifacts": []
+  }
+}
