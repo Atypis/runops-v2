@@ -19,17 +19,6 @@
       ],
       "nodes": [
         {
-          "id": "T_pre_task",
-          "type": "task",
-          "label": "Preliminary Check",
-          "intent": "Perform initial checks before starting the main process.",
-          "context": "This is a new root task for testing.",
-          "position": {
-            "x": 0,
-            "y": -100 
-          }
-        },
-        {
           "id": "T0_open_gmail",
           "type": "task",
           "label": "Open Gmail Inbox",
@@ -287,11 +276,6 @@
       ],
       "edges": [
         {
-          "source": "T_pre_task",
-          "target": "T0_open_gmail",
-          "condition": "start"
-        },
-        {
           "source": "T0_open_gmail",
           "target": "L1_process_emails",
           "condition": "start"
@@ -378,7 +362,7 @@
         },
         {
           "source": "L1_process_emails",
-          "target": "E_end_sop",
+          "target": "T_post_task",
           "condition": "all_processed"
         },
         {
@@ -533,10 +517,6 @@
         }
       ],
       "steps": [
-        {
-          "node_id": "T_pre_task",
-          "primary_skill": "skill_gmail_open_inbox_ui"
-        },
         {
           "node_id": "T0_open_gmail",
           "primary_skill": "skill_gmail_open_inbox_ui"

@@ -1,4 +1,6 @@
 import { SOPDocument, SOPNode, SOPPublicData } from "./types/sop";
+import { Node as FlowNode, Edge as FlowEdge } from 'reactflow'; // Alias to avoid name collision with SOPNode
+import { SOPEdge as AppSOPEdge, SOPNode as AppSOPNode } from "./types/sop"; // Explicitly import our types
 
 /**
  * Processes the raw SOP data to resolve child node references and ensure parentIds are set.
@@ -83,4 +85,122 @@ export function getRootNodes(publicData: SOPPublicData): SOPNode[] {
     // If it passes both conditions, it's a root node for our display.
     return true;
   });
-} 
+}
+
+// Function to identify actual start nodes for the flow diagram based on 3 conditions:
+// 1. Not a target in any sopDocument.public.edges.
+// 2. Does not have a parentId attribute.
+// 3. Is not listed in any other node's children array.
+const getFlowStartNodeIds = (sopNodes: AppSOPNode[], sopEdges: AppSOPEdge[]): string[] => {
+  const targetNodeIdsInEdges = new Set(sopEdges.map(edge => edge.target));
+  
+  const nodeIsChildInAnotherArray = (nodeId: string, allNodes: AppSOPNode[]): boolean => {
+    return allNodes.some(potentialParent =>
+      potentialParent.id !== nodeId &&
+      potentialParent.children?.includes(nodeId)
+    );
+  };
+
+  return sopNodes
+    .filter(node => 
+      !targetNodeIdsInEdges.has(node.id) &&         // Condition 1
+      !node.parentId &&                             // Condition 2
+      !nodeIsChildInAnotherArray(node.id, sopNodes) // Condition 3
+    )
+    .map(node => node.id);
+};
+
+export const transformSopToFlowData = (
+  sopDocument: SOPDocument
+): { flowNodes: FlowNode[]; flowEdges: FlowEdge[] } => {
+  if (!sopDocument || !sopDocument.public) {
+    return { flowNodes: [], flowEdges: [] };
+  }
+
+  const { triggers, nodes: sopNodesFromDoc, edges: sopEdgesFromDoc } = sopDocument.public;
+  let flowNodes: FlowNode[] = [];
+  let reactFlowEdges: FlowEdge[] = [];
+
+  // 1. Create ReactFlow nodes from sopDocument.public.triggers
+  triggers.forEach((trigger, index) => {
+    flowNodes.push({
+      id: `trigger-${trigger.type}-${index}`,
+      type: 'trigger',
+      data: { ...trigger, label: trigger.description || trigger.type },
+      position: { x: 0, y: 0 },
+    });
+  });
+
+  // 2. Create ReactFlow nodes from sopDocument.public.nodes (SOPNode[])
+  sopNodesFromDoc.forEach(node => {
+    let nodeType = 'step'; // Default type
+    if (node.type === 'end') {
+      nodeType = 'end';
+    } else if (node.type === 'decision') {
+      nodeType = 'decision';
+    }
+    // Add more type mappings here if needed (e.g., for 'loop')
+
+    flowNodes.push({
+      id: node.id,
+      type: nodeType,
+      data: { ...node, label: node.label, title: node.label, description: node.intent || node.context }, 
+      position: { x: 0, y: 0 }, 
+    });
+  });
+
+  // 3. Create ReactFlow edges from sopDocument.public.edges (SOPEdge[])
+  sopEdgesFromDoc.forEach((edge, index) => {
+    reactFlowEdges.push({
+      id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
+      source: edge.source,
+      target: edge.target,
+      label: edge.condition, 
+      type: 'smoothstep', 
+      animated: edge.animated || false,
+    });
+  });
+
+  // 4. Create edges from Trigger FlowNodes to actual start SOPNodes
+  // Use the new getFlowStartNodeIds function
+  const actualStartNodeIds = getFlowStartNodeIds(sopNodesFromDoc, sopEdgesFromDoc);
+  
+  flowNodes.filter(fn => fn.type === 'trigger').forEach(triggerNode => {
+    actualStartNodeIds.forEach(startNodeId => {
+      reactFlowEdges.push({
+        id: `e-${triggerNode.id}-to-${startNodeId}`,
+        source: triggerNode.id,
+        target: startNodeId,
+        type: 'smoothstep',
+      });
+    });
+  });
+
+  // 5. Connect SOPNodes that have a parentId but are not yet targeted by an existing edge.
+  // This ensures that explicit parent-child relationships (like atomic actions)
+  // are represented if not already covered by the main `edges` array.
+  const currentTargetNodeIds = new Set(reactFlowEdges.map(edge => edge.target));
+
+  sopNodesFromDoc.forEach(sopNode => {
+    if (sopNode.parentId && !currentTargetNodeIds.has(sopNode.id)) {
+      // Check if an edge from this parentId to this sopNode.id already exists to be super safe,
+      // though !currentTargetNodeIds.has(sopNode.id) should mostly cover it.
+      const edgeAlreadyExists = reactFlowEdges.some(
+        edge => edge.source === sopNode.parentId && edge.target === sopNode.id
+      );
+
+      if (!edgeAlreadyExists) {
+        reactFlowEdges.push({
+          id: `e-parent-${sopNode.parentId}-to-${sopNode.id}`,
+          source: sopNode.parentId,
+          target: sopNode.id,
+          type: 'smoothstep', // Or your default edge type
+        });
+        // Add to currentTargetNodeIds if we were to loop again, but not strictly necessary here
+        // currentTargetNodeIds.add(sopNode.id);
+      }
+    }
+  });
+
+  return { flowNodes, flowEdges: reactFlowEdges };
+}; 

@@ -225,7 +225,7 @@ const StepCardDisplay: React.FC<StepCardDisplayProps> = ({
           enter="transition-[max-height] ease-out duration-150"
           enterFrom="max-h-0"
           enterTo="max-h-[1000px]"
-          leave="transition-[max-height,opacity] ease-in duration-[300ms]"
+          leave="transition-[max-height,opacity] ease-in duration-300"
           leaveFrom="opacity-100 max-h-[1000px]"
           leaveTo="opacity-0 max-h-0"
         >
