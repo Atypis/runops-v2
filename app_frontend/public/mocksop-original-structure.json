@@ -19,7 +19,8 @@
         "id": "T0_open_gmail",
         "type": "task",
         "label": "Open Gmail Inbox",
-        "intent": "Access emails to begin the review process."
+        "intent": "Access emails to begin the review process.",
+        "id_path": "1"
       },
       {
         "id": "L1_process_emails",
@@ -28,6 +29,7 @@
         "iterator": "email_in_inbox",
         "context": "Iterate through all emails received for the day.",
         "exit_condition": "All emails for the day processed",
+        "id_path": "2",
         "children": [
           "L1_C1_open_email",
           "L1_C2_review_email_content",
@@ -50,56 +52,64 @@
         "type": "task",
         "label": "Open Next Email",
         "intent": "View the content of an individual email from the inbox list.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.1"
       },
       {
         "id": "L1_C2_review_email_content",
         "type": "task",
         "label": "Review Email Content",
         "intent": "Understand the email's sender, subject, body, and date.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.2"
       },
       {
         "id": "L1_D3_is_investor_email_decision",
         "type": "decision",
         "label": "Investor Related?",
         "intent": "Determine if the email pertains to investor relations.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.3"
       },
       {
         "id": "L1_C4_open_airtable_or_switch_tab",
         "type": "task",
         "label": "Open/Switch to Airtable",
         "intent": "Access the Airtable application.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.4"
       },
       {
         "id": "L1_C5_navigate_to_investor_db",
         "type": "task",
         "label": "Navigate to Investor DB",
         "intent": "Open the specific Investor Relationship Management base.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.5"
       },
       {
         "id": "L1_C6_identify_investor_in_airtable",
         "type": "task",
         "label": "Identify Investor in Airtable Grid",
         "intent": "Locate the investor's record in the Airtable grid view.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.6"
       },
       {
         "id": "L1_D7_record_exists_decision",
         "type": "decision",
         "label": "Airtable Record Exists?",
         "intent": "Determine if a record for the current investor already exists.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.7"
       },
       {
         "id": "L1_C8_open_existing_record_modal",
         "type": "task",
         "label": "Open Existing Investor Record",
         "intent": "View the full details of an existing investor record.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.8"
       },
       {
         "id": "L1_C9_update_existing_record",
@@ -107,6 +117,7 @@
         "label": "Update Existing Record",
         "intent": "Update the existing investor record with new information.",
         "parentId": "L1_process_emails",
+        "id_path": "2.9",
         "children": [
           "L1_C9_A1_set_last_interaction_date",
           "L1_C9_A2_update_thread_summary",
@@ -118,68 +129,78 @@
         "type": "task",
         "label": "Set 'Last Interaction' date",
         "intent": "Update the date of the last contact.",
-        "parentId": "L1_C9_update_existing_record"
+        "parentId": "L1_C9_update_existing_record",
+        "id_path": "2.9.1"
       },
       {
         "id": "L1_C9_A2_update_thread_summary",
         "type": "task",
         "label": "Update 'Thread Summary / Notes'",
         "intent": "Add notes about the interaction.",
-        "parentId": "L1_C9_update_existing_record"
+        "parentId": "L1_C9_update_existing_record",
+        "id_path": "2.9.2"
       },
       {
         "id": "L1_C9_A3_check_follow_up",
         "type": "task",
         "label": "Set 'Follow-up Needed'",
         "intent": "Indicate if a follow-up action is required.",
-        "parentId": "L1_C9_update_existing_record"
+        "parentId": "L1_C9_update_existing_record",
+        "id_path": "2.9.3"
       },
       {
         "id": "L1_C10_open_new_record_modal",
         "type": "task",
         "label": "Open New Investor Record Modal",
         "intent": "Open a modal to create a new investor record.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.10"
       },
       {
         "id": "L1_C11_populate_new_record",
         "type": "task",
         "label": "Populate New Airtable Record",
         "intent": "Fill in the details for a new investor record.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.11"
       },
       {
         "id": "L1_C12_close_airtable_modal",
         "type": "task",
         "label": "Close Airtable Record Modal",
         "intent": "Save changes and return to the Airtable grid view.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.12"
       },
       {
         "id": "L1_C13_return_to_gmail_from_airtable",
         "type": "task",
         "label": "Return to Gmail from Airtable",
         "intent": "Navigate back to Gmail to process the next email.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.13"
       },
       {
         "id": "L1_C14_return_to_gmail_from_email_view",
         "type": "task",
         "label": "Return to Gmail Inbox",
         "intent": "Navigate back to the Gmail inbox for non-investor emails.",
-        "parentId": "L1_process_emails"
+        "parentId": "L1_process_emails",
+        "id_path": "2.14"
       },
       {
         "id": "T_post_task",
         "type": "task",
         "label": "Final Review",
-        "intent": "Perform final review after the main process."
+        "intent": "Perform final review after the main process.",
+        "id_path": "3"
       },
       {
         "id": "E_end_sop",
         "type": "end",
         "label": "End SOP",
-        "intent": "All emails processed and CRM updated."
+        "intent": "All emails processed and CRM updated.",
+        "id_path": "4"
       }
     ],
     "edges": [
@@ -212,12 +233,14 @@
       {
         "source": "L1_D3_is_investor_email_decision",
         "target": "L1_C4_open_airtable_or_switch_tab",
-        "condition": "yes"
+        "condition": "yes",
+        "decision_path": "Y"
       },
       {
         "source": "L1_D3_is_investor_email_decision",
         "target": "L1_C14_return_to_gmail_from_email_view",
-        "condition": "no"
+        "condition": "no",
+        "decision_path": "N"
       },
       {
         "source": "L1_C4_open_airtable_or_switch_tab",
@@ -237,12 +260,14 @@
       {
         "source": "L1_D7_record_exists_decision",
         "target": "L1_C8_open_existing_record_modal",
-        "condition": "yes"
+        "condition": "yes",
+        "decision_path": "Y"
       },
       {
         "source": "L1_D7_record_exists_decision",
         "target": "L1_C10_open_new_record_modal",
-        "condition": "no"
+        "condition": "no",
+        "decision_path": "N"
       },
       {
         "source": "L1_C8_open_existing_record_modal",
