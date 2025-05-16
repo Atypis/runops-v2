@@ -292,9 +292,10 @@ export const transformSopToFlowData = (
       nodeType = 'loop'; 
     }
 
+    // Create a formatted label with ID path if available - REMOVE THIS
+    // Let the node components handle the formatting instead
     const flowNodeData: any = { 
       ...appNode, 
-      label: appNode.label, 
       title: appNode.label, 
       description: appNode.intent || appNode.context,
       // parentNodeId: undefined, // Initialize, will be set if it's a child of a safe compound parent
@@ -379,13 +380,51 @@ export const transformSopToFlowData = (
 
   // 3. Create ReactFlow edges from sopDocument.public.edges (SOPEdge[])
   sopEdgesFromDoc.forEach((edge, index) => {
+    const sourceNode = sopNodesFromDoc.find(n => n.id === edge.source);
+    const targetNode = sopNodesFromDoc.find(n => n.id === edge.target);
+    
+    // Determine if this is a decision-related edge
+    const isFromDecision = sourceNode?.type === 'decision';
+    
+    // Normalize common condition values for better visualization
+    let edgeLabel = edge.condition;
+    if (edgeLabel) {
+      // Standardize yes/no variants
+      if (/^(yes|true|y|1)$/i.test(edgeLabel)) {
+        edgeLabel = 'yes';
+      } else if (/^(no|false|n|0)$/i.test(edgeLabel)) {
+        edgeLabel = 'no';
+      } else if (/^next$/i.test(edgeLabel)) {
+        edgeLabel = 'next';
+      }
+    }
+    
+    // Add decision path suffix for decision nodes with ID paths
+    if (isFromDecision && sourceNode?.id_path && edge.decision_path) {
+      // Include source node ID path in the edge label, e.g., "2.3Y"
+      edgeLabel = edgeLabel?.toUpperCase() || '';
+    }
+    
+    // Special case for decision path edges to display ID path in label
+    const edgeLabelWithPath = (isFromDecision && sourceNode?.id_path && edgeLabel) ? 
+      `${edgeLabel}` : 
+      edgeLabel;
+    
     reactFlowEdges.push({
       id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
       source: edge.source,
       target: edge.target,
-      label: edge.condition, 
-      type: 'smoothstep', 
+      label: edgeLabelWithPath, 
+      type: 'custom-edge', 
       animated: edge.animated || false,
+      data: {
+        condition: !!edgeLabel || isFromDecision,
+        fromDecision: isFromDecision,
+        sourceType: sourceNode?.type,
+        targetType: targetNode?.type,
+        sourceIdPath: sourceNode?.id_path,
+        decisionPath: edge.decision_path
+      }
     });
   });
 
@@ -395,11 +434,17 @@ export const transformSopToFlowData = (
   
   flowNodes.filter(fn => fn.type === 'trigger').forEach(triggerNode => {
     actualStartNodeIds.forEach(startNodeId => {
+      const targetNode = sopNodesFromDoc.find(n => n.id === startNodeId);
+      
       reactFlowEdges.push({
         id: `e-${triggerNode.id}-to-${startNodeId}`,
         source: triggerNode.id,
         target: startNodeId,
-        type: 'smoothstep',
+        type: 'custom-edge',
+        data: {
+          sourceType: 'trigger',
+          targetType: targetNode?.type,
+        }
       });
     });
   });
@@ -418,11 +463,18 @@ export const transformSopToFlowData = (
       );
 
       if (!edgeAlreadyExists) {
+        const parentNode = sopNodesFromDoc.find(n => n.id === sopNode.parentId);
+        
         reactFlowEdges.push({
           id: `e-parent-${sopNode.parentId}-to-${sopNode.id}`,
           source: sopNode.parentId,
           target: sopNode.id,
-          type: 'smoothstep', // Or your default edge type
+          type: 'custom-edge',
+          data: {
+            sourceType: parentNode?.type,
+            targetType: sopNode.type,
+            isParentChild: true
+          }
         });
         // Add to currentTargetNodeIds if we were to loop again, but not strictly necessary here
         // currentTargetNodeIds.add(sopNode.id);

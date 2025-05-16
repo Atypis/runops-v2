@@ -10,6 +10,7 @@ interface StepNodeData {
   description?: string;
   parentId?: string;
   parentNode?: string; // This is set by ReactFlow
+  id_path?: string; // Hierarchical ID for visual display
   [key: string]: any; // Allow other properties
 }
 
@@ -19,6 +20,11 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
   
   // For debugging
   console.log(`Rendering StepNode: ${id}, parentId: ${data.parentId}, parentNode: ${data.parentNode || 'none'}`);
+  
+  // Format the label with ID path if available but avoid double brackets
+  const formattedLabel = data.id_path 
+    ? (!data.id_path.startsWith('[') ? `[${data.id_path}]` : data.id_path) + ` ${data.label}`
+    : data.label;
   
   return (
     <div 
@@ -38,12 +44,16 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
       className={hasParent ? 'child-node' : 'regular-node'}
     >
       <Handle
+        id="top"
         type="target"
         position={Position.Top}
         style={{ 
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
+          top: '-5px',
+          zIndex: 1,
+          border: '2px solid white'
         }}
         isConnectable={isConnectable}
       />
@@ -56,7 +66,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           fontWeight: 600,
           lineHeight: 1.2,
         }}>
-          {data.label}
+          {formattedLabel}
         </strong>
         
         {data.description && (
@@ -90,17 +100,56 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
             {hasParent ? `Parent: ${data.parentNode || data.parentId}` : 'No parent'}
             <br/>
             ID: {id}
+            {data.id_path && <><br/>Path: {data.id_path}</>}
           </div>
         )}
       </div>
       
       <Handle 
+        id="bottom"
         type="source" 
         position={Position.Bottom} 
         style={{ 
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
+          bottom: '-5px',
+          zIndex: 1,
+          border: '2px solid white'
+        }}
+        isConnectable={isConnectable} 
+      />
+      
+      {/* Add side handles for alternative connection points with proper transform */}
+      <Handle 
+        id="right"
+        type="source" 
+        position={Position.Right} 
+        style={{ 
+          background: hasParent ? '#ef4444' : '#555',
+          width: hasParent ? '8px' : '10px',
+          height: hasParent ? '8px' : '10px',
+          top: '50%',
+          right: '-5px',
+          transform: 'translateY(-50%)',
+          zIndex: 1,
+          border: '2px solid white'
+        }}
+        isConnectable={isConnectable} 
+      />
+      <Handle 
+        id="left"
+        type="target" 
+        position={Position.Left} 
+        style={{ 
+          background: hasParent ? '#ef4444' : '#555',
+          width: hasParent ? '8px' : '10px',
+          height: hasParent ? '8px' : '10px',
+          top: '50%',
+          left: '-5px',
+          transform: 'translateY(-50%)',
+          zIndex: 1,
+          border: '2px solid white'
         }}
         isConnectable={isConnectable} 
       />

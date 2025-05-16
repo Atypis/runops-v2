@@ -12,6 +12,10 @@ import ReactFlow, {
   useEdgesState,
   EdgeTypes,
   MarkerType,
+  ConnectionLineType,
+  getBezierPath,
+  EdgeProps,
+  EdgeMarker
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -33,32 +37,317 @@ const nodeTypesConfig = {
   loop: LoopNode,
 };
 
+// Custom edge component to improve edge appearance and routing
+const CustomEdge: React.FC<EdgeProps> = ({ 
+  id, 
+  source, 
+  target, 
+  sourceX, 
+  sourceY, 
+  targetX, 
+  targetY, 
+  sourcePosition, 
+  targetPosition, 
+  style = {}, 
+  markerEnd,
+  data
+}) => {
+  // Determine edge path type and color based on connection
+  const isYesPath = data?.condition && (data?.label?.toLowerCase() === 'yes' || data?.label?.toLowerCase() === 'true');
+  const isNoPath = data?.condition && (data?.label?.toLowerCase() === 'no' || data?.label?.toLowerCase() === 'false');
+  const isNextPath = data?.label?.toLowerCase() === 'next';
+  const isTriggerPath = data?.sourceType === 'trigger';
+  const isParentChildPath = data?.isParentChild === true;
+  
+  // Get decision path information
+  const sourceIdPath = data?.sourceIdPath;
+  const decisionPath = data?.decisionPath;
+  
+  // Create decision path label if applicable
+  let labelText = data?.label || '';
+  if (sourceIdPath && isYesPath && decisionPath) {
+    labelText = `${sourceIdPath}Y`;
+  } else if (sourceIdPath && isNoPath && decisionPath) {
+    labelText = `${sourceIdPath}N`;
+  }
+  
+  // Color scheme based on path type
+  const strokeColor = isYesPath ? '#15803d' :   // Green for "yes" paths
+                      isNoPath ? '#b91c1c' :    // Red for "no" paths
+                      isNextPath ? '#0284c7' :  // Blue for "next" paths
+                      isTriggerPath ? '#f59e0b' : // Orange for trigger paths
+                      isParentChildPath ? '#6366f1' : // Indigo for parent-child relationships
+                      data?.condition ? '#7c3aed' : // Purple for other conditions
+                      '#64748b'; // Default gray for standard flow
+  
+  // Set line styles based on path type
+  const strokeWidth = isYesPath || isNoPath ? 2 : 
+                     isNextPath ? 1.7 : 
+                     isParentChildPath ? 1.3 :
+                     data?.condition ? 1.8 : 1.5;
+                     
+  const dashArray = isNoPath ? '5,5' : 
+                   isParentChildPath ? '3,3' : 
+                   undefined; // Dashed lines for specific path types
+  
+  const isDecisionEdge = data?.fromDecision || source.includes('decision') || source.includes('Airtable_Record_Exists');
+  const isLongPath = Math.abs(targetX - sourceX) > 300 || Math.abs(targetY - sourceY) > 300;
+  
+  // Calculate curvature based on edge type
+  const curvature = isLongPath ? 0.3 : 
+                   isYesPath ? 0.3 : 
+                   isNoPath ? 0.5 : 
+                   isNextPath ? 0.2 :
+                   isParentChildPath ? 0.1 :
+                   isDecisionEdge ? 0.4 : 0.2;
+  
+  // Use a lower curvature for side connections (horizontal)
+  const isSideConnection = sourcePosition === Position.Left || sourcePosition === Position.Right;
+  const effectiveCurvature = isSideConnection ? 0.1 : curvature;
+  
+  // Adjust source and target points to better connect to the handles
+  let adjustedSourceX = sourceX;
+  let adjustedSourceY = sourceY;
+  let adjustedTargetX = targetX;
+  let adjustedTargetY = targetY;
+  
+  // Offset the source and target points to start/end at the edge of the handle
+  // This makes arrows connect visually to the handle edge
+  if (sourcePosition === Position.Left) {
+    adjustedSourceX += 3;
+  } else if (sourcePosition === Position.Right) {
+    adjustedSourceX -= 3;
+  } else if (sourcePosition === Position.Top) {
+    adjustedSourceY += 3;
+  } else if (sourcePosition === Position.Bottom) {
+    adjustedSourceY -= 3;
+  }
+  
+  if (targetPosition === Position.Left) {
+    adjustedTargetX += 3;
+  } else if (targetPosition === Position.Right) {
+    adjustedTargetX -= 3;
+  } else if (targetPosition === Position.Top) {
+    adjustedTargetY += 3;
+  } else if (targetPosition === Position.Bottom) {
+    adjustedTargetY -= 3;
+  }
+  
+  // Add horizontal offset to separate parallel paths if they're going vertically
+  let offsetX = 0;
+  if (!isSideConnection) {
+    const offsetDirection = (sourceX < targetX) ? 1 : -1;
+    
+    if (isDecisionEdge) {
+      offsetX = offsetDirection * 25;
+    } else if (isYesPath) {
+      offsetX = offsetDirection * 15;
+    } else if (isNoPath) {
+      offsetX = offsetDirection * 30;
+    } else if (isNextPath) {
+      offsetX = offsetDirection * 8;
+    }
+  }
+  
+  // Generate edge path using getBezierPath
+  const [edgePath] = getBezierPath({
+    sourceX: adjustedSourceX,
+    sourceY: adjustedSourceY,
+    sourcePosition,
+    targetX: adjustedTargetX - offsetX,
+    targetY: adjustedTargetY,
+    targetPosition,
+    curvature: effectiveCurvature,
+  });
+
+  // Calculate optimal label position
+  const labelX = (sourceX + targetX) / 2;
+  const labelY = (sourceY + targetY) / 2 - 10;
+  
+  // Log handle usage in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`Edge ${id}: source=${source}, target=${target}, sourcePos=${sourcePosition}, targetPos=${targetPosition}`);
+  }
+  
+  // Determine label text color and style based on path type
+  const textColor = isYesPath ? '#15803d' : 
+                   isNoPath ? '#b91c1c' : 
+                   isNextPath ? '#0284c7' :
+                   isTriggerPath ? '#ca8a04' :
+                   isDecisionEdge ? '#7c3aed' : '#475569';
+  
+  const textFontWeight = (isYesPath || isNoPath) ? 600 : 
+                        isNextPath ? 500 :
+                        isDecisionEdge ? 500 : 400;
+  
+  // Add visual emphasis for important paths
+  const textTransform = (isYesPath || isNoPath) ? 'uppercase' : 'none';
+  
+  return (
+    <>
+      <path
+        id={id}
+        style={{
+          ...style,
+          stroke: strokeColor,
+          strokeWidth,
+          strokeDasharray: dashArray,
+          transition: 'stroke-width 0.2s, opacity 0.2s',
+        }}
+        className="react-flow__edge-path"
+        d={edgePath}
+        markerEnd={markerEnd}
+      />
+      
+      {/* CSS trick - add a mask/shadow element that overlaps where arrow meets handle */}
+      <circle
+        cx={targetPosition === Position.Left ? targetX + 2 : 
+            targetPosition === Position.Right ? targetX - 2 : 
+            targetX}
+        cy={targetPosition === Position.Top ? targetY + 2 : 
+            targetPosition === Position.Bottom ? targetY - 2 : 
+            targetY}
+        r={4}
+        fill="white"
+        opacity={0.85}
+        style={{ pointerEvents: 'none' }}
+      />
+      
+      {labelText && (
+        <text
+          x={labelX}
+          y={labelY}
+          style={{
+            fontSize: '11px',
+            fill: textColor,
+            fontWeight: textFontWeight,
+            textShadow: '0 0 3px white, 0 0 3px white, 0 0 3px white, 0 0 3px white',
+            userSelect: 'none',
+            textTransform,
+          }}
+          textAnchor="middle"
+          dominantBaseline="middle"
+        >
+          {labelText}
+        </text>
+      )}
+    </>
+  );
+};
+
 // Define custom edge types
 const edgeTypesConfig: EdgeTypes = {
-  // You can add custom edge components here if needed
+  'custom-edge': CustomEdge,
 };
 
 // Default edge styling options for all edges
 const defaultEdgeOptions = {
-  style: { strokeWidth: 2, stroke: '#64748b' },
+  type: 'custom-edge',
+  animated: false,
   markerEnd: {
     type: MarkerType.ArrowClosed,
-    width: 18,
-    height: 18,
-    color: '#64748b',
+    width: 14,
+    height: 14,
+    // Do not set color here - we'll use CSS to match the edge color
   },
-  animated: false,
+  // Make sure we don't overwrite the handle selections
+  updatable: false,
 };
 
 // Constants for compound node layout - can be tuned
 const COMPOUND_NODE_PADDING_X_VIEW = 50; // Increased from 40 for more space
 const COMPOUND_NODE_PADDING_Y_VIEW = 50; // Increased from 40 for more space
 const AVG_RANKSEP_VIEW = 100; // Increased from 80 for more vertical separation
-const AVG_NODESEP_VIEW = 80;  // Increased from 60 for more horizontal separation
+const AVG_NODESEP_VIEW = 120;  // Increased from 80 for more horizontal separation
 
 // Initialize dagre graph instance (globally or outside component if preferred for stability)
 // const dagreGraph = new dagre.graphlib.Graph({ compound: true }); // Keep this commented or remove
 // dagreGraph.setDefaultEdgeLabel(() => ({})); // Keep this commented or remove
+
+// Add the port selection helper function
+const pickOptimalPorts = (
+  nodes: FlowNode[],  
+  edges: FlowEdge[]
+): FlowEdge[] => {
+  // Create a lookup map of node positions by ID
+  const nodePositions = new Map(nodes.map(node => [node.id, node.position]));
+  
+  // For each edge, determine the optimal source and target handles
+  return edges.map(edge => {
+    const sourcePos = nodePositions.get(edge.source);
+    const targetPos = nodePositions.get(edge.target);
+    
+    // Skip if we don't have positions for both nodes
+    if (!sourcePos || !targetPos) {
+      return edge;
+    }
+    
+    // Calculate the delta between nodes
+    const dx = targetPos.x - sourcePos.x;
+    const dy = targetPos.y - sourcePos.y;
+    
+    // Determine whether the arrangement is more horizontal or vertical
+    const isHorizontal = Math.abs(dx) > Math.abs(dy);
+    
+    let sourceHandle, targetHandle;
+    let sourcePosition, targetPosition;
+    
+    // Special case for decision edges - they always go top/bottom
+    const isDecisionEdge = edge.data?.fromDecision || 
+                          edge.source.includes('decision') || 
+                          edge.source.includes('Airtable_Record_Exists');
+    const isYesPath = edge.data?.condition && (edge.data?.label?.toLowerCase() === 'yes' || edge.data?.label?.toLowerCase() === 'true');
+    const isNoPath = edge.data?.condition && (edge.data?.label?.toLowerCase() === 'no' || edge.data?.label?.toLowerCase() === 'false');
+                          
+    // Decision node Yes/No paths always use top/bottom to maintain the yes/no pattern
+    if (isDecisionEdge && (isYesPath || isNoPath)) {
+      // From decision nodes, we'll use bottom to target's top
+      sourceHandle = 'bottom';
+      targetHandle = 'top';
+      sourcePosition = Position.Bottom;
+      targetPosition = Position.Top;
+    } else if (isHorizontal) {
+      // For horizontal arrangements, use the left/right handles
+      if (dx > 0) {
+        // Target is to the right of source
+        sourceHandle = 'right';
+        targetHandle = 'left';
+        sourcePosition = Position.Right;
+        targetPosition = Position.Left;
+      } else {
+        // Target is to the left of source
+        sourceHandle = 'left';
+        targetHandle = 'right';
+        sourcePosition = Position.Left;
+        targetPosition = Position.Right;
+      }
+    } else {
+      // For vertical arrangements, use the top/bottom handles
+      if (dy > 0) {
+        // Target is below source
+        sourceHandle = 'bottom';
+        targetHandle = 'top';
+        sourcePosition = Position.Bottom;
+        targetPosition = Position.Top;
+      } else {
+        // Target is above source
+        sourceHandle = 'top';
+        targetHandle = 'bottom';
+        sourcePosition = Position.Top;
+        targetPosition = Position.Bottom;
+      }
+    }
+    
+    // Return the updated edge with optimal handle settings
+    return {
+      ...edge,
+      sourceHandle,
+      targetHandle,
+      sourcePosition,
+      targetPosition
+    };
+  });
+};
 
 const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = 'TB') => {
   // Create a new Dagre graph instance for each layout to ensure a clean state
@@ -68,12 +357,13 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
   // Reset graph by removing all nodes and edges before new layout
   // dagreGraph.nodes().forEach(nodeId => dagreGraph.removeNode(nodeId)); // No longer needed with new instance
 
+  // Increase nodesep to encourage more horizontal spacing between nodes
   dagreGraphInstance.setGraph({ 
     rankdir: direction, 
     ranksep: AVG_RANKSEP_VIEW, 
     nodesep: AVG_NODESEP_VIEW, 
-    marginx: COMPOUND_NODE_PADDING_X_VIEW / 2, 
-    marginy: COMPOUND_NODE_PADDING_Y_VIEW / 2
+    marginx: COMPOUND_NODE_PADDING_X_VIEW, // Increased for more horizontal space 
+    marginy: COMPOUND_NODE_PADDING_Y_VIEW / 2,
     // REMOVED: compound: true,
   });
 
@@ -142,6 +432,36 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     console.error('Dagre layout error:', error);
     return { nodes, edges }; // Return nodes/edges without layout if error occurs
   }
+
+  // Enhance edges with additional metadata for better visualization
+  const enhancedEdges = edges.map(edge => {
+    // Find source and target nodes to determine relationship type
+    const sourceNode = nodes.find(node => node.id === edge.source);
+    const targetNode = nodes.find(node => node.id === edge.target);
+    
+    // Add metadata based on node types and edge properties
+    const isFromDecision = sourceNode?.type === 'decision';
+    const isToDecision = targetNode?.type === 'decision';
+    const isConditionEdge = !!edge.label || isFromDecision;
+    
+    // Get edge type based on the flow semantics
+    let edgeType: string = edge.type || 'custom-edge';
+    
+    // Add additional data for the custom edge renderer
+    return {
+      ...edge,
+      type: edgeType,
+      data: {
+        ...edge.data,
+        fromDecision: isFromDecision,
+        toDecision: isToDecision,
+        condition: isConditionEdge,
+        sourceType: sourceNode?.type,
+        targetType: targetNode?.type,
+        label: edge.label,
+      },
+    };
+  });
 
   // Position the non-child nodes based on Dagre layout
   const layoutedNodes = nonChildNodes.map((node): FlowNode => {
@@ -340,7 +660,29 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     }
   });
 
-  return { nodes: allLayoutedNodes, edges };
+  // When applying the layout, adjust position to encourage more horizontal spacing
+  const nodesWithHorizontalVariance = allLayoutedNodes.map(node => {
+    // For non-special nodes, slightly adjust position to add horizontal variance
+    if (!node.parentNode && node.type !== 'decision' && node.type !== 'trigger' && node.type !== 'end') {
+      const randomHorizontalOffset = Math.random() * 40 - 20; // -20 to +20 pixels
+      return {
+        ...node,
+        position: {
+          x: node.position.x + randomHorizontalOffset,
+          y: node.position.y
+        }
+      };
+    }
+    return node;
+  });
+  
+  // Apply the port selection helper to optimize handle choices
+  const optimizedEdges = pickOptimalPorts(nodesWithHorizontalVariance, enhancedEdges);
+  
+  return { 
+    nodes: nodesWithHorizontalVariance, 
+    edges: optimizedEdges
+  };
 };
 
 // Helper to get all child node IDs recursively (needed for filtering)
@@ -371,12 +713,19 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   // Add detection of complex SOPs
   const [isComplexSOP, setIsComplexSOP] = useState<boolean>(false);
+  // Add state for layout direction
+  const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
 
   const handleToggleCollapse = useCallback((nodeId: string) => {
     setExpandedNodes(prev => ({
       ...prev,
       [nodeId]: !prev[nodeId],
     }));
+  }, []);
+
+  // Add handler for toggling layout direction
+  const toggleLayoutDirection = useCallback(() => {
+    setLayoutDirection(prev => prev === 'TB' ? 'LR' : 'TB');
   }, []);
 
   useEffect(() => {
@@ -433,7 +782,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
         nodesWithCollapseProps,
         initialFlowEdges,
-        'TB'
+        layoutDirection // Use the current layout direction
       );
       setNodes(layoutedNodes);
       setEdges(layoutedEdges);
@@ -444,7 +793,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       setExpandedNodes({});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sopData, handleToggleCollapse]);
+  }, [sopData, handleToggleCollapse, layoutDirection]); // Add layoutDirection as dependency
 
   // Effect to re-filter and re-layout when expandedNodes changes
   useEffect(() => {
@@ -488,12 +837,12 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
         visibleNodes,
         visibleEdges,
-        'TB'
+        layoutDirection // Use the current layout direction
       );
       setNodes(layoutedNodes);
       setEdges(layoutedEdges);
     }
-  }, [sopData, expandedNodes, handleToggleCollapse, setNodes, setEdges]);
+  }, [sopData, expandedNodes, handleToggleCollapse, setNodes, setEdges, layoutDirection]); // Add layoutDirection as dependency
 
   if (!sopData) {
     return <div className="flex items-center justify-center h-full"><p className="text-muted-foreground">Loading diagram data...</p></div>;
@@ -526,6 +875,8 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           nodeTypes={nodeTypesConfig}
           edgeTypes={edgeTypesConfig}
           defaultEdgeOptions={defaultEdgeOptions}
+          elementsSelectable={true}
+          connectionLineType={ConnectionLineType.SmoothStep}
           fitView
           fitViewOptions={{ 
             padding: 0.2,
@@ -536,6 +887,21 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           maxZoom={2}
           defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
           className="bg-neutral-100"
+          onEdgeMouseEnter={(event, edge) => {
+            // Highlight edge on hover
+            const edgeElement = document.querySelector(`[data-testid="rf__edge-${edge.id}"] path`);
+            if (edgeElement) {
+              edgeElement.setAttribute('stroke-width', '3');
+            }
+          }}
+          onEdgeMouseLeave={(event, edge) => {
+            // Restore normal edge width on mouse leave
+            const edgeElement = document.querySelector(`[data-testid="rf__edge-${edge.id}"] path`);
+            if (edgeElement) {
+              const originalWidth = edge.data?.condition ? '2' : '1.5';
+              edgeElement.setAttribute('stroke-width', originalWidth);
+            }
+          }}
         >
           <Controls 
             showInteractive={true}
@@ -550,7 +916,87 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
               padding: '6px',
               boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
             }}
+            showZoom={true}
+            showFitView={true}
+            fitViewOptions={{ padding: 0.2 }}
           />
+          
+          {/* Layout direction control */}
+          <button 
+            onClick={toggleLayoutDirection}
+            style={{
+              position: 'absolute',
+              top: '10px',
+              right: '10px',
+              padding: '8px 12px',
+              background: 'rgba(255, 255, 255, 0.9)',
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              fontSize: '12px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              cursor: 'pointer',
+              zIndex: 10,
+            }}
+          >
+            {layoutDirection === 'TB' ? 'Switch to Horizontal Layout' : 'Switch to Vertical Layout'}
+          </button>
+          
+          {/* Path type legend */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '10px',
+              left: '10px',
+              padding: '8px 12px',
+              background: 'rgba(255, 255, 255, 0.9)',
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              fontSize: '12px',
+              display: 'flex',
+              gap: '10px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              zIndex: 5,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ width: '12px', height: '2px', background: '#15803d' }}></div>
+              <span>Yes</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ width: '12px', height: '2px', background: '#b91c1c', borderTop: '1px dashed #b91c1c' }}></div>
+              <span>No</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ width: '12px', height: '2px', background: '#0284c7' }}></div>
+              <span>Next</span>
+            </div>
+          </div>
+          
+          {/* ID system explanation - move when in horizontal layout */}
+          <div
+            style={{
+              position: 'absolute',
+              top: layoutDirection === 'TB' ? '10px' : '60px',
+              right: '10px',
+              padding: '8px 12px',
+              background: 'rgba(255, 255, 255, 0.9)',
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              fontSize: '12px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              zIndex: 5,
+              maxWidth: '250px',
+            }}
+          >
+            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>ID Reference</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <div>[2] Main Process</div>
+              <div>[2.1] First Step</div>
+              <div>[2.3Y] Yes Path from Decision</div>
+              <div>[2.3N] No Path from Decision</div>
+            </div>
+          </div>
+          
           <MiniMap 
             nodeStrokeWidth={3} 
             zoomable 
