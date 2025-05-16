@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "id": "simple-test",
+    "title": "Minimal Parent-Child Test",
+    "version": "0.1"
+  },
+  "public": {
+    "triggers": [],
+    "nodes": [
+      {
+        "id": "parent1",
+        "type": "loop",
+        "label": "Parent Loop",
+        "context": "Test Parent",
+        "children": ["child1"]
+      },
+      {
+        "id": "child1",
+        "type": "task",
+        "label": "Child Step",
+        "parentId": "parent1"
+      }
+    ],
+    "edges": []
+  },
+  "private": {}
+} 

@@ -2,92 +2,107 @@
 
 import React from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { SOPNode } from '@/lib/types/sop'; // Original SOPNode type
-import { Terminal, GitMerge, ChevronDown, ChevronRight } from 'lucide-react'; // Example icons
 
-// Data passed to StepNode includes fields from SOPNode, plus title & description
-interface StepNodeData extends SOPNode {
-  title: string;
+// The data shape will match what's in our SOPNode from the data model
+interface StepNodeData {
+  id?: string;
+  label: string;
   description?: string;
-  isExpanded?: boolean; // Passed from SOPFlowView for parent nodes
-  onToggleCollapse?: (nodeId: string) => void; // Passed from SOPFlowView
+  parentId?: string;
+  parentNode?: string; // This is set by ReactFlow
+  [key: string]: any; // Allow other properties
 }
 
-const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, selected }) => {
-  // Debugging for specific node
-  if (data.id === 'L1_process_emails') {
-    console.log('[StepNode] L1_process_emails data:', data);
-    console.log('[StepNode] L1_process_emails childNodes:', data.childNodes);
-    console.log('[StepNode] L1_process_emails onToggleCollapse present:', !!data.onToggleCollapse);
-  }
-
-  const iconSize = 20; // Standardized icon size
-  const isParent = data.childNodes && data.childNodes.length > 0;
-
-  if (data.id === 'L1_process_emails') {
-    console.log('[StepNode] L1_process_emails isParent:', isParent);
-  }
-
-  // Choose an icon based on SOPNode type
-  const NodeIcon = () => {
-    switch (data.type) {
-      case 'task':
-        return <Terminal size={iconSize} className="mr-2 text-sky-600 shrink-0" />;
-      case 'loop':
-        return <GitMerge size={iconSize} className="mr-2 text-fuchsia-600 shrink-0" />;
-      default:
-        return <Terminal size={iconSize} className="mr-2 text-gray-500 shrink-0" />;
-    }
-  };
+const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }) => {
+  // Check if this node has a parent
+  const hasParent = !!data.parentNode || !!data.parentId;
   
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent node selection/drag when clicking button
-    if (data.onToggleCollapse) {
-      data.onToggleCollapse(data.id);
-    }
-  };
-
+  // For debugging
+  console.log(`Rendering StepNode: ${id}, parentId: ${data.parentId}, parentNode: ${data.parentNode || 'none'}`);
+  
   return (
     <div 
-      className={`bg-white p-3 rounded-lg border shadow-sm hover:shadow-md transition-shadow w-60 
-                  ${selected ? 'border-neutral-500 ring-2 ring-offset-1 ring-neutral-400' : 'border-neutral-300'}`}
-      style={{ minHeight: '80px' }} // Ensure a minimum height
+      style={{
+        background: hasParent ? 'rgba(255, 248, 248, 0.97)' : '#ffffff',
+        border: hasParent ? '1px solid #ef4444' : '1px solid #e2e8f0',
+        borderRadius: hasParent ? '8px' : '6px',
+        padding: hasParent ? '12px' : '14px',
+        width: hasParent ? 220 : 240, // Adjusted based on new layout dimensions
+        fontSize: '12px',
+        boxShadow: hasParent 
+          ? '0 2px 6px rgba(239, 68, 68, 0.15)' 
+          : '0 2px 5px rgba(0, 0, 0, 0.08)',
+        transition: 'all 0.2s ease',
+        position: 'relative',
+      }}
+      className={hasParent ? 'child-node' : 'regular-node'}
     >
-      <div className="flex items-start mb-1">
-        <NodeIcon />
-        <div className="flex-grow min-w-0">
-          <div className="flex items-center">
-            <div className="font-semibold text-sm text-neutral-800 truncate" title={data.title}>{data.title}</div>
-            {isParent && data.onToggleCollapse && (
-              <button 
-                onClick={handleToggle} 
-                className="ml-auto p-1 rounded-sm hover:bg-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-                aria-label={data.isExpanded ? 'Collapse' : 'Expand'}
-              >
-                {data.isExpanded ? (
-                  <ChevronDown size={16} className="text-muted-foreground" />
-                ) : (
-                  <ChevronRight size={16} className="text-muted-foreground" />
-                )}
-              </button>
-            )}
-          </div>
-          {data.description && (
-            <p className="text-xs text-neutral-600 mt-1 line-clamp-2" title={data.description}>
-              {data.description}
-            </p>
-          )}
-        </div>
-      </div>
-      <Handle 
-        type="target" 
-        position={Position.Left} 
-        className="!bg-gray-400 w-2.5 h-2.5"
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ 
+          background: hasParent ? '#ef4444' : '#555',
+          width: hasParent ? '8px' : '10px',
+          height: hasParent ? '8px' : '10px',
+        }}
+        isConnectable={isConnectable}
       />
+      <div>
+        <strong style={{ 
+          fontSize: hasParent ? '12px' : '13px', 
+          color: hasParent ? '#991b1b' : '#333',
+          display: 'block',
+          marginBottom: '5px',
+          fontWeight: 600,
+          lineHeight: 1.2,
+        }}>
+          {data.label}
+        </strong>
+        
+        {data.description && (
+          <div style={{ 
+            fontSize: hasParent ? '10px' : '11px', 
+            marginTop: '6px',
+            color: hasParent ? '#666' : '#555',
+            lineHeight: 1.3,
+            maxHeight: hasParent ? '3.9em' : '4.5em', // About 3 lines of text
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+          }}>
+            {data.description}
+          </div>
+        )}
+        
+        {/* Debug info - only in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{ 
+            fontSize: '9px', 
+            marginTop: '5px', 
+            color: hasParent ? '#dc2626' : '#888',
+            border: '1px dotted #ddd',
+            padding: '2px 4px',
+            background: 'rgba(255,255,255,0.8)',
+            borderRadius: '3px',
+          }}>
+            {hasParent ? `Parent: ${data.parentNode || data.parentId}` : 'No parent'}
+            <br/>
+            ID: {id}
+          </div>
+        )}
+      </div>
+      
       <Handle 
         type="source" 
-        position={Position.Right} 
-        className="!bg-gray-400 w-2.5 h-2.5"
+        position={Position.Bottom} 
+        style={{ 
+          background: hasParent ? '#ef4444' : '#555',
+          width: hasParent ? '8px' : '10px',
+          height: hasParent ? '8px' : '10px',
+        }}
+        isConnectable={isConnectable} 
       />
     </div>
   );

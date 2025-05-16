@@ -8,15 +8,26 @@ import { Flag } from 'lucide-react';
 interface EndNodeData extends SOPNode {
   label: string;
   title?: string;
+  parentNode?: string;
 }
 
 const EndNode: React.FC<NodeProps<EndNodeData>> = ({ data, selected }) => {
-  const displayText = data.label || data.title || data.intent || "End";
+  const displayText = data.label || data.title || data.intent || "End Process";
+  const hasParent = !!data.parentNode || !!data.parentId;
+  
+  // Make the node smaller when it's a child
+  const width = hasParent ? 120 : 208;
+  
   return (
     <div 
       className={`flex flex-col items-center group/endnode 
                   ${selected ? 'outline outline-2 outline-offset-2 outline-red-500 rounded-lg' : ''}`}
       title={displayText}
+      style={{
+        width: width + 'px',
+        transform: hasParent ? 'scale(0.8)' : 'scale(1)',
+        transformOrigin: 'center center'
+      }}
     >
       {/* Circular Icon Part */}
       <div 
@@ -27,7 +38,8 @@ const EndNode: React.FC<NodeProps<EndNodeData>> = ({ data, selected }) => {
 
       {/* Rectangular Text Part Below Icon */}
       {displayText && (
-        <div className="mt-[-10px] pt-[18px] pb-2 px-3 bg-white border border-neutral-300 rounded-lg shadow-sm w-52 min-h-[40px] flex items-center justify-center group-hover/endnode:shadow-md transition-shadow">
+        <div className="mt-[-10px] pt-[18px] pb-2 px-3 bg-white border border-neutral-300 rounded-lg shadow-sm min-h-[40px] flex items-center justify-center group-hover/endnode:shadow-md transition-shadow"
+             style={{ width: hasParent ? '100%' : '208px' }}>
           <p className="text-xs font-medium text-neutral-700 text-center" title={displayText}>
             {displayText}
           </p>
@@ -36,9 +48,8 @@ const EndNode: React.FC<NodeProps<EndNodeData>> = ({ data, selected }) => {
       
       <Handle 
         type="target" 
-        position={Position.Left} 
-        className="!bg-red-500 !w-3 !h-3 react-flow__handle-left"
-        style={{ top: '50%', transform: 'translateY(-50%)' }} // Center on the overall node height
+        position={Position.Top}
+        className="!bg-red-500 !w-3 !h-3 react-flow__handle-top"
       />
     </div>
   );
