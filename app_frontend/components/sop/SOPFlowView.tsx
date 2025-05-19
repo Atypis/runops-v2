@@ -769,6 +769,9 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   
   // Modified handler for node selection
   const handleNodeClick = useCallback((event: React.MouseEvent, node: FlowNode) => {
+    // Check if this is an open-immediately click from our Edit button in StepNode
+    const shouldOpenEditor = event.currentTarget.getAttribute('data-open-editor') === 'true';
+    
     // Clear previous selection highlights
     const prevHighlights = document.querySelectorAll('.node-selected-highlight');
     prevHighlights.forEach(el => el.remove());
@@ -778,7 +781,14 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
     
     // Set the selected node in state
     setSelectedNode(node);
-    setShowNodeEditor(false);
+    
+    // If we should open the editor immediately, do so
+    if (shouldOpenEditor) {
+      setShowNodeEditor(true);
+      return; // Skip adding highlight and expand button
+    } else {
+      setShowNodeEditor(false);
+    }
     
     // Find the DOM element for the clicked node
     const nodeElement = document.querySelector(`[data-id="${node.id}"]`);
