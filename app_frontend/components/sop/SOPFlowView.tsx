@@ -195,23 +195,24 @@ const CustomEdge: React.FC<EdgeProps> = ({
   let adjustedTargetX = targetX;
   let adjustedTargetY = targetY;
   
-  // Check if the target node is a child node inside a parent (compound node)
-  const isTargetChildNode = data?.targetParentNode || target.includes('parent');
-  const isSourceChildNode = data?.sourceParentNode || source.includes('parent');
+  // Check if the node is inside a parent container
+  const isTargetChildNode = data?.isTargetChildNode || data?.targetParentNode;
+  const isSourceChildNode = data?.isSourceChildNode || data?.sourceParentNode;
   
   // Additional offset for connections to/from child nodes in compound containers
-  const childNodeAdjustment = 2;
+  // Increased for better arrow alignment
+  const childNodeAdjustment = isTargetChildNode ? 6 : 2;
   
   // Offset the source and target points to start/end at the edge of the handle
   // This makes arrows connect visually to the handle edge
   if (sourcePosition === Position.Left) {
-    adjustedSourceX += 3;
+    adjustedSourceX += 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
   } else if (sourcePosition === Position.Right) {
-    adjustedSourceX -= 3;
+    adjustedSourceX -= 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
   } else if (sourcePosition === Position.Top) {
-    adjustedSourceY += 3;
+    adjustedSourceY += 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
   } else if (sourcePosition === Position.Bottom) {
-    adjustedSourceY -= 3;
+    adjustedSourceY -= 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
   }
   
   if (targetPosition === Position.Left) {
@@ -260,11 +261,6 @@ const CustomEdge: React.FC<EdgeProps> = ({
   const labelX = (sourceX + targetX) / 2;
   const labelY = (sourceY + targetY) / 2 - 10;
   
-  // Log handle usage in development mode
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`Edge ${id}: source=${source}, target=${target}, sourcePos=${sourcePosition}, targetPos=${targetPosition}`);
-  }
-  
   // Determine label text color and style based on path type
   const textColor = isYesPath ? '#15803d' : 
                    isNoPath ? '#b91c1c' : 
@@ -303,18 +299,18 @@ const CustomEdge: React.FC<EdgeProps> = ({
         cy={targetPosition === Position.Top ? targetY + 2 : 
             targetPosition === Position.Bottom ? targetY - 2 : 
             targetY}
-        r={isTargetChildNode ? 5 : 4}
+        r={isTargetChildNode ? 6 : 4}
         fill="white"
         opacity={0.85}
         style={{ pointerEvents: 'none' }}
       />
       
       {/* For child nodes, add an additional larger background circle for better visibility */}
-      {isTargetChildNode && targetPosition === Position.Top && (
+      {isTargetChildNode && (
         <circle
           cx={targetX}
           cy={targetY}
-          r={8}
+          r={9}
           fill="white"
           opacity={0.5}
           style={{ pointerEvents: 'none' }}
@@ -420,7 +416,7 @@ const pickOptimalPorts = (
                           edge.source.includes('Airtable_Record_Exists');
     const isYesPath = edge.data?.condition && (edge.data?.label?.toLowerCase() === 'yes' || edge.data?.label?.toLowerCase() === 'true');
     const isNoPath = edge.data?.condition && (edge.data?.label?.toLowerCase() === 'no' || edge.data?.label?.toLowerCase() === 'false');
-                          
+    
     // Decision node Yes/No paths always use top/bottom to maintain the yes/no pattern
     if (isDecisionEdge && (isYesPath || isNoPath)) {
       // From decision nodes, we'll use bottom to target's top
@@ -429,12 +425,54 @@ const pickOptimalPorts = (
       sourcePosition = Position.Bottom;
       targetPosition = Position.Top;
     } 
-    // Special case: connection to a child node inside a loop - prefer top connection
-    else if (isTargetChildNode && !isSourceChildNode && !isHorizontal) {
+    // Special case: connection TO a child node inside a loop - strongly prefer top
+    else if (isTargetChildNode && !isSourceChildNode) {
+      // Always connect to child nodes from the top when coming from outside
       sourceHandle = 'bottom';
       targetHandle = 'top';
       sourcePosition = Position.Bottom;
       targetPosition = Position.Top;
+    }
+    // Special case: connection FROM a child node inside a loop - prefer bottom
+    else if (isSourceChildNode && !isTargetChildNode) {
+      // Prefer bottom connections when going out of a child node
+      sourceHandle = 'bottom';
+      targetHandle = 'top';
+      sourcePosition = Position.Bottom;
+      targetPosition = Position.Top;
+    }
+    // For connections between two child nodes in the same parent
+    else if (isSourceChildNode && isTargetChildNode && sourceParentNode === targetParentNode) {
+      // If they're in the same vertical column (similar X), use top/bottom
+      if (Math.abs(dx) < 40) {
+        if (dy > 0) {
+          // Target is below source
+          sourceHandle = 'bottom';
+          targetHandle = 'top';
+          sourcePosition = Position.Bottom;
+          targetPosition = Position.Top;
+        } else {
+          // Target is above source
+          sourceHandle = 'top';
+          targetHandle = 'bottom';
+          sourcePosition = Position.Top;
+          targetPosition = Position.Bottom;
+        }
+      }
+      // Otherwise use left/right for nodes side by side
+      else if (dx > 0) {
+        // Target is to the right of source
+        sourceHandle = 'right';
+        targetHandle = 'left';
+        sourcePosition = Position.Right;
+        targetPosition = Position.Left;
+      } else {
+        // Target is to the left of source
+        sourceHandle = 'left';
+        targetHandle = 'right';
+        sourcePosition = Position.Left;
+        targetPosition = Position.Right;
+      }
     }
     else if (isHorizontal) {
       // For horizontal arrangements, use the left/right handles

@@ -18,9 +18,6 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
   // Check if this node has a parent
   const hasParent = !!data.parentNode || !!data.parentId;
   
-  // For debugging
-  console.log(`Rendering StepNode: ${id}, parentId: ${data.parentId}, parentNode: ${data.parentNode || 'none'}`);
-  
   // Format the label with ID path if available but avoid double brackets
   const formattedLabel = data.id_path 
     ? (!data.id_path.startsWith('[') ? `[${data.id_path}]` : data.id_path) + ` ${data.label}`
@@ -28,6 +25,10 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
   
   // Node dimensions - explicitly set to ensure consistent layout
   const nodeWidth = hasParent ? 220 : 240;
+
+  // Calculate additional offset for handles when inside a parent container
+  // This adjustment helps align the handles with the actual connection points
+  const handleOffset = hasParent ? 4 : 0;
 
   return (
     <div 
@@ -55,7 +56,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
-          top: hasParent ? -6 : -5,
+          top: hasParent ? -4 - handleOffset : -5,
           zIndex: 1,
           border: '2px solid white',
           transform: 'translate(-50%, 0)',
@@ -91,24 +92,6 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
             {data.description}
           </div>
         )}
-        
-        {/* Debug info - only in development */}
-        {process.env.NODE_ENV === 'development' && (
-          <div style={{ 
-            fontSize: '9px', 
-            marginTop: '5px', 
-            color: hasParent ? '#dc2626' : '#888',
-            border: '1px dotted #ddd',
-            padding: '2px 4px',
-            background: 'rgba(255,255,255,0.8)',
-            borderRadius: '3px',
-          }}>
-            {hasParent ? `Parent: ${data.parentNode || data.parentId}` : 'No parent'}
-            <br/>
-            ID: {id}
-            {data.id_path && <><br/>Path: {data.id_path}</>}
-          </div>
-        )}
       </div>
       
       <Handle 
@@ -119,7 +102,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
-          bottom: hasParent ? -6 : -5,
+          bottom: hasParent ? -4 - handleOffset : -5,
           zIndex: 1,
           border: '2px solid white',
           transform: 'translate(-50%, 0)',
@@ -138,7 +121,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
           top: '50%',
-          right: hasParent ? -6 : -5,
+          right: hasParent ? -4 - handleOffset : -5,
           transform: 'translateY(-50%)',
           zIndex: 1,
           border: '2px solid white',
@@ -155,7 +138,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
           top: '50%',
-          left: hasParent ? -6 : -5,
+          left: hasParent ? -4 - handleOffset : -5,
           transform: 'translateY(-50%)',
           zIndex: 1,
           border: '2px solid white',

@@ -171,7 +171,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
         position={Position.Top}
         className="!bg-purple-600 !w-3 !h-3 react-flow__handle-top"
         style={{ 
-          top: '-5px',
+          top: '-7px',
           zIndex: 1,
           border: '2px solid white'
         }}
@@ -182,7 +182,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
         position={Position.Bottom}
         className="!bg-purple-600 !w-3 !h-3 react-flow__handle-bottom"
         style={{ 
-          bottom: '-5px',
+          bottom: '-7px',
           zIndex: 1,
           border: '2px solid white'
         }}
@@ -195,7 +195,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
         className="!bg-purple-600 !w-3 !h-3 react-flow__handle-right"
         style={{ 
           top: '50%', 
-          right: '-5px', 
+          right: '-7px', 
           transform: 'translateY(-50%)',
           zIndex: 1,
           border: '2px solid white'
@@ -208,7 +208,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
         className="!bg-purple-600 !w-3 !h-3 react-flow__handle-left"
         style={{ 
           top: '50%', 
-          left: '-5px', 
+          left: '-7px', 
           transform: 'translateY(-50%)',
           zIndex: 1,
           border: '2px solid white'
