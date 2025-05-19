@@ -26,6 +26,9 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
     ? (!data.id_path.startsWith('[') ? `[${data.id_path}]` : data.id_path) + ` ${data.label}`
     : data.label;
   
+  // Node dimensions - explicitly set to ensure consistent layout
+  const nodeWidth = hasParent ? 220 : 240;
+
   return (
     <div 
       style={{
@@ -33,7 +36,8 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
         border: hasParent ? '1px solid #ef4444' : '1px solid #e2e8f0',
         borderRadius: hasParent ? '8px' : '6px',
         padding: hasParent ? '12px' : '14px',
-        width: hasParent ? 220 : 240, // Adjusted based on new layout dimensions
+        width: nodeWidth,
+        boxSizing: 'border-box', // Make sure padding doesn't add to width
         fontSize: '12px',
         boxShadow: hasParent 
           ? '0 2px 6px rgba(239, 68, 68, 0.15)' 
@@ -51,7 +55,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
-          top: '-5px',
+          top: -5,
           zIndex: 1,
           border: '2px solid white'
         }}
@@ -113,14 +117,14 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
-          bottom: '-5px',
+          bottom: -5,
           zIndex: 1,
           border: '2px solid white'
         }}
         isConnectable={isConnectable} 
       />
       
-      {/* Add side handles for alternative connection points with proper transform */}
+      {/* Add side handles for alternative connection points */}
       <Handle 
         id="right"
         type="source" 
@@ -130,7 +134,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
           top: '50%',
-          right: '-5px',
+          right: -5,
           transform: 'translateY(-50%)',
           zIndex: 1,
           border: '2px solid white'
@@ -146,7 +150,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
           top: '50%',
-          left: '-5px',
+          left: -5,
           transform: 'translateY(-50%)',
           zIndex: 1,
           border: '2px solid white'

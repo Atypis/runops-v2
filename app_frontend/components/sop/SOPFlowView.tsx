@@ -605,8 +605,8 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     const parentPosition = parentNode.position;
     const childCount = children.length;
     
-    // Define sizes for child nodes - increased for better readability
-    const childWidth = 220; // Increased from 200
+    // Define sizes for child nodes - ensure exact match with StepNode component
+    const childWidth = 220; // Must match the width defined in StepNode.tsx
     const childHeight = 100; // Increased from 90
     const horizontalSpacing = 80; // Increased from 60
     const verticalSpacing = 90; // Increased from 70
@@ -685,11 +685,8 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
           y: yPosition,
         },
         style: { 
-          ...childNode.style, 
+          ...childNode.style,
           backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque background
-          border: '1px solid #bbb',
-          padding: '8px',
-          borderRadius: '6px',
           boxShadow: '0 2px 6px rgba(0,0,0,0.1)', // Add subtle shadow for depth
         }
       };
