@@ -11,7 +11,6 @@ export default function OriginalStructureSopPage() {
   const [processedSopData, setProcessedSopData] = useState<SOPDocument | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSopData = async () => {
@@ -28,20 +27,6 @@ export default function OriginalStructureSopPage() {
         
         const processed = processSopData(data);
         setProcessedSopData(processed);
-
-        // Debug information
-        const parentNodes = processed.public.nodes.filter(n => n.children && n.children.length > 0);
-        const childNodes = processed.public.nodes.filter(n => n.parentId);
-        
-        const debugText = `
-            Total nodes: ${processed.public.nodes.length}
-            Parent nodes: ${parentNodes.length}
-            Parent IDs: ${parentNodes.map(n => n.id).join(', ')}
-            Child nodes: ${childNodes.length}
-            Child Node Details: ${childNodes.map(n => `${n.id} (parent: ${n.parentId})`).join(', ')}
-        `;
-          
-        setDebugInfo(debugText);
       } catch (e: any) {
         setError(e.message || 'Failed to load SOP data.');
         console.error(e);
@@ -88,12 +73,6 @@ export default function OriginalStructureSopPage() {
               <span className="text-xs text-gray-600 mr-2">Click on a node to view and edit its details</span>
               <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse"></div>
             </div>
-            
-            {debugInfo && (
-              <div className="text-xs font-mono mt-2 p-2 bg-gray-100 rounded overflow-auto max-h-40">
-                <pre>{debugInfo}</pre>
-              </div>
-            )}
           </div>
           
           <div className="flex-1 overflow-y-auto">
