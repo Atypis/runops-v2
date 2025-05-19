@@ -25,41 +25,26 @@ export default function SopPage({ params }: SopPageProps) {
   const [listProcessedSopData, setListProcessedSopData] = useState<SOPDocument | null>(null);
   const [listRootNodes, setListRootNodes] = useState<SOPNode[]>([]);
 
-  // Flow view specific data (using original-structure)
-  const [flowSopData, setFlowSopData] = useState<SOPDocument | null>(null);
-  const [flowProcessedSopData, setFlowProcessedSopData] = useState<SOPDocument | null>(null);
-
   useEffect(() => {
     const fetchSopData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // For list view - fetch the standard mocksop.json
-        const listResponse = await fetch('/mocksop.json');
-        if (!listResponse.ok) {
-          throw new Error(`HTTP error! status: ${listResponse.status}`);
+        // Using the combined JSON file for both views
+        const response = await fetch('/mocksop-original-structure.json');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const listData: SOPDocument = await listResponse.json();
-        setSopData(listData);
+        const combinedData: SOPDocument = await response.json();
+        setSopData(combinedData);
         
-        const processed = processSopData(listData); // Process once for list view
+        const processed = processSopData(combinedData); // Process once for both views
         setProcessedSopData(processed);
         setListProcessedSopData(processed); // Initialize for list view
 
         const roots = getRootNodes(processed.public);
         setRootNodes(roots);
         setListRootNodes(roots); // Initialize for list view
-
-        // For flow view - fetch the original-structure version
-        const flowResponse = await fetch('/mocksop-original-structure.json');
-        if (!flowResponse.ok) {
-          throw new Error(`HTTP error! status: ${flowResponse.status}`);
-        }
-        const flowData: SOPDocument = await flowResponse.json();
-        setFlowSopData(flowData);
-        
-        const flowProcessed = processSopData(flowData); // Process separately for flow view
-        setFlowProcessedSopData(flowProcessed);
 
       } catch (e: any) {
         setError(e.message || 'Failed to load SOP data.');
@@ -92,7 +77,7 @@ export default function SopPage({ params }: SopPageProps) {
     return <div className="flex justify-center items-center h-screen"><p className="text-red-500">Error: {error}</p></div>;
   }
 
-  if (!processedSopData || !listProcessedSopData || !flowProcessedSopData) {
+  if (!processedSopData || !listProcessedSopData) {
     return <div className="flex justify-center items-center h-screen"><p>No SOP data available.</p></div>;
   }
 
@@ -113,7 +98,7 @@ export default function SopPage({ params }: SopPageProps) {
         <div className="flex-grow-[2] bg-white shadow-lg rounded-card-radius overflow-hidden flex flex-col">
           <div className="p-4 border-b border-neutral-surface-3 flex justify-between items-center">
             <h1 className="text-xl font-semibold text-foreground">
-              {currentView === 'list' ? sopData?.meta.title || 'SOP' : flowSopData?.meta.title || 'SOP'}
+              {sopData?.meta.title || 'SOP'}
             </h1>
             <div className="flex gap-2">
               <Button variant={currentView === 'list' ? 'default' : 'outline'} onClick={() => setCurrentView('list')} size="sm">List View</Button>
@@ -129,7 +114,7 @@ export default function SopPage({ params }: SopPageProps) {
                 onUpdate={handleListUpdate} 
               />
             ) : (
-              <SOPFlowView sopData={flowProcessedSopData} />
+              <SOPFlowView sopData={processedSopData} />
             )}
           </div>
         </div>

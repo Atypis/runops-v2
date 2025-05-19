@@ -68,26 +68,26 @@ Each node type has a dedicated component with custom styling and behavior:
   - Distinctive styling
   - Single input handle
 
-## Implementation Variations
+## Implementation
 
-Different implementations of the SOP visualization exist to test variations:
+The SOP visualization is integrated directly into the main SOP viewer:
 
-- **`app/sop/original-structure/`**  
-  Maintains the original hierarchical structure with one main loop containing all steps.
-
-- **`app/sop/compound-fixed/`**  
-  Enhanced implementation with proper parent-child relationships and bounding boxes.
-
-- **`app/sop/reactflow-optimized/`**  
-  Specialized version with optimized edge routing and layout algorithms.
-
-- **`app/sop/test-compound/`**  
-  Simplified test environment focused on compound node behavior.
+- **`app/sop/[sopId]/page.tsx`**  
+  The main implementation with:
+  - Toggle between List View and Flow View
+  - List View shows detailed step information in a linear format
+  - Flow View renders the interactive ReactFlow diagram with compound nodes
+  - Each view uses separate optimized data sources
 
 ## Mock Data
 
+Two primary data sources are used:
+
+- **`public/mocksop.json`**  
+  Used by the List View to display detailed SOP information.
+
 - **`public/mocksop-original-structure.json`**  
-  Example SOP document used for testing and development with a complete workflow for "Daily Investor Email Processing and CRM Update".
+  Used by the Flow View to render the ReactFlow diagram with proper parent-child relationships and compound nodes.
 
 ## Key Technical Features
 
