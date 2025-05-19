@@ -29,6 +29,20 @@ import EndNode from './EndNode';
 import DecisionNode from './DecisionNode';
 import LoopNode from './LoopNode';
 import ExpandedNodeEditor from './ExpandedNodeEditor';
+import { 
+  getConnectionType, 
+  transformCoordinates, 
+  getPathParams,
+  ConnectionType,
+  getOptimalHandles
+} from './utils/edgeUtils';
+import CompoundNodeMarker from './utils/CompoundNodeMarker';
+
+// Debug utility to track edge processing pipeline
+const debugEdgeProcessing = (stage: string, edges: FlowEdge[], showFullEdge: boolean = false) => {
+  // All debug logging is now disabled
+  return;
+};
 
 // Add a custom CSS class to disable React Flow's default selection styling and add our own
 const reactFlowCustomStyles = css`
@@ -134,16 +148,28 @@ const CustomEdge: React.FC<EdgeProps> = ({
   targetPosition, 
   style = {}, 
   markerEnd,
-  data
+  data,
+  sourceHandleId,
+  targetHandleId
 }) => {
-  // Determine edge path type and color based on connection
+  // Determine connection type and path properties
+  const connectionType = data?.connectionType || ConnectionType.STANDARD;
+  
+  // Get path styling based on type
   const isYesPath = data?.condition && (data?.label?.toLowerCase() === 'yes' || data?.label?.toLowerCase() === 'true');
   const isNoPath = data?.condition && (data?.label?.toLowerCase() === 'no' || data?.label?.toLowerCase() === 'false');
   const isNextPath = data?.label?.toLowerCase() === 'next';
   const isTriggerPath = data?.sourceType === 'trigger';
-  const isParentChildPath = data?.isParentChild === true;
+  const isParentChildPath = connectionType === ConnectionType.PARENT_TO_CHILD || 
+                           connectionType === ConnectionType.CHILD_TO_PARENT;
   
-  // Get decision path information
+  // Check if target or source are inside compound nodes
+  const isTargetChildNode = data?.isTargetChildNode;
+  const isSourceChildNode = data?.isSourceChildNode;
+  const sourceParentNode = data?.sourceParentNode;
+  const targetParentNode = data?.targetParentNode;
+  
+  // Get decision path information for labels
   const sourceIdPath = data?.sourceIdPath;
   const decisionPath = data?.decisionPath;
   
@@ -157,14 +183,14 @@ const CustomEdge: React.FC<EdgeProps> = ({
   
   // Color scheme based on path type
   const strokeColor = isYesPath ? '#15803d' :   // Green for "yes" paths
-                      isNoPath ? '#b91c1c' :    // Red for "no" paths
-                      isNextPath ? '#0284c7' :  // Blue for "next" paths
-                      isTriggerPath ? '#f59e0b' : // Orange for trigger paths
-                      isParentChildPath ? '#6366f1' : // Indigo for parent-child relationships
-                      data?.condition ? '#7c3aed' : // Purple for other conditions
-                      '#64748b'; // Default gray for standard flow
+                     isNoPath ? '#b91c1c' :    // Red for "no" paths
+                     isNextPath ? '#0284c7' :  // Blue for "next" paths
+                     isTriggerPath ? '#f59e0b' : // Orange for trigger paths
+                     isParentChildPath ? '#6366f1' : // Indigo for parent-child relationships
+                     data?.condition ? '#7c3aed' : // Purple for other conditions
+                     '#64748b'; // Default gray for standard flow
   
-  // Set line styles based on path type
+  // Line styles based on path type
   const strokeWidth = isYesPath || isNoPath ? 2 : 
                      isNextPath ? 1.7 : 
                      isParentChildPath ? 1.3 :
@@ -174,109 +200,85 @@ const CustomEdge: React.FC<EdgeProps> = ({
                    isParentChildPath ? '3,3' : 
                    undefined; // Dashed lines for specific path types
   
-  const isDecisionEdge = data?.fromDecision || source.includes('decision') || source.includes('Airtable_Record_Exists');
-  const isLongPath = Math.abs(targetX - sourceX) > 300 || Math.abs(targetY - sourceY) > 300;
+  // Transform coordinates based on connection type
+  const { 
+    adjustedSourceX, 
+    adjustedSourceY, 
+    adjustedTargetX, 
+    adjustedTargetY 
+  } = transformCoordinates(
+    { x: sourceX, y: sourceY },
+    { x: targetX, y: targetY },
+    connectionType,
+    sourceHandleId || null,
+    targetHandleId || null,
+    sourcePosition,
+    targetPosition,
+    sourceParentNode || null,
+    targetParentNode || null
+  );
   
-  // Calculate curvature based on edge type
-  const curvature = isLongPath ? 0.3 : 
-                   isYesPath ? 0.3 : 
-                   isNoPath ? 0.5 : 
-                   isNextPath ? 0.2 :
-                   isParentChildPath ? 0.1 :
-                   isDecisionEdge ? 0.4 : 0.2;
+  // Get path parameters based on connection type
+  const { curvature, offsetX } = getPathParams(
+    connectionType,
+    adjustedSourceX,
+    adjustedSourceY,
+    adjustedTargetX,
+    adjustedTargetY,
+    sourcePosition,
+    targetPosition,
+    data
+  );
   
-  // Use a lower curvature for side connections (horizontal)
-  const isSideConnection = sourcePosition === Position.Left || sourcePosition === Position.Right;
-  const effectiveCurvature = isSideConnection ? 0.1 : curvature;
-  
-  // Adjust source and target points to better connect to the handles
-  let adjustedSourceX = sourceX;
-  let adjustedSourceY = sourceY;
-  let adjustedTargetX = targetX;
-  let adjustedTargetY = targetY;
-  
-  // Check if the node is inside a parent container
-  const isTargetChildNode = data?.isTargetChildNode || data?.targetParentNode;
-  const isSourceChildNode = data?.isSourceChildNode || data?.sourceParentNode;
-  
-  // Additional offset for connections to/from child nodes in compound containers
-  // Increased for better arrow alignment
-  const childNodeAdjustment = isTargetChildNode ? 6 : 2;
-  
-  // Offset the source and target points to start/end at the edge of the handle
-  // This makes arrows connect visually to the handle edge
-  if (sourcePosition === Position.Left) {
-    adjustedSourceX += 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
-  } else if (sourcePosition === Position.Right) {
-    adjustedSourceX -= 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
-  } else if (sourcePosition === Position.Top) {
-    adjustedSourceY += 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
-  } else if (sourcePosition === Position.Bottom) {
-    adjustedSourceY -= 3 + (isSourceChildNode ? childNodeAdjustment/2 : 0);
-  }
-  
-  if (targetPosition === Position.Left) {
-    adjustedTargetX += 3 + (isTargetChildNode ? childNodeAdjustment : 0);
-  } else if (targetPosition === Position.Right) {
-    adjustedTargetX -= 3 + (isTargetChildNode ? childNodeAdjustment : 0);
-  } else if (targetPosition === Position.Top) {
-    adjustedTargetY += 3 + (isTargetChildNode ? childNodeAdjustment : 0);
-  } else if (targetPosition === Position.Bottom) {
-    adjustedTargetY -= 3 + (isTargetChildNode ? childNodeAdjustment : 0);
-  }
-  
-  // Add horizontal offset to separate parallel paths if they're going vertically
-  let offsetX = 0;
-  if (!isSideConnection) {
-    const offsetDirection = (sourceX < targetX) ? 1 : -1;
-    
-    if (isDecisionEdge) {
-      offsetX = offsetDirection * 25;
-    } else if (isYesPath) {
-      offsetX = offsetDirection * 15;
-    } else if (isNoPath) {
-      offsetX = offsetDirection * 30;
-    } else if (isNextPath) {
-      offsetX = offsetDirection * 8;
-    }
-    
-    // Adjust offset for child nodes in compound containers
-    if (isTargetChildNode && targetPosition === Position.Top) {
-      offsetX = offsetDirection * Math.max(5, Math.abs(offsetX) * 0.5);
-    }
-  }
-  
-  // Generate edge path using getBezierPath
+  // Generate edge path using getBezierPath with our transformed coordinates
   const [edgePath] = getBezierPath({
     sourceX: adjustedSourceX,
     sourceY: adjustedSourceY,
     sourcePosition,
-    targetX: adjustedTargetX - offsetX,
+    targetX: adjustedTargetX, // No offsetX: keep endpoint centered for decision paths
     targetY: adjustedTargetY,
     targetPosition,
-    curvature: effectiveCurvature,
+    curvature,
   });
-
-  // Calculate optimal label position
-  const labelX = (sourceX + targetX) / 2;
-  const labelY = (sourceY + targetY) / 2 - 10;
+  
+  // Calculate optimal label position in the middle of the path
+  const labelX = (adjustedSourceX + adjustedTargetX) / 2; // No offsetX
+  const labelY = (adjustedSourceY + adjustedTargetY) / 2 - 10;
   
   // Determine label text color and style based on path type
   const textColor = isYesPath ? '#15803d' : 
                    isNoPath ? '#b91c1c' : 
                    isNextPath ? '#0284c7' :
                    isTriggerPath ? '#ca8a04' :
-                   isDecisionEdge ? '#7c3aed' : '#475569';
+                   connectionType === ConnectionType.DECISION_PATH ? '#7c3aed' : '#475569';
   
   const textFontWeight = (isYesPath || isNoPath) ? 600 : 
                         isNextPath ? 500 :
-                        isDecisionEdge ? 500 : 400;
+                        connectionType === ConnectionType.DECISION_PATH ? 500 : 400;
   
-  // Add visual emphasis for important paths
+  // Visual emphasis for important paths
   const textTransform = (isYesPath || isNoPath) ? 'uppercase' : 'none';
   
+  // Calculate marker positions for source and target
+  const sourceMarkerX = sourcePosition === Position.Left ? adjustedSourceX + 3 : 
+                       sourcePosition === Position.Right ? adjustedSourceX - 3 : 
+                       adjustedSourceX;
+  
+  const sourceMarkerY = sourcePosition === Position.Top ? adjustedSourceY + 3 : 
+                       sourcePosition === Position.Bottom ? adjustedSourceY - 3 : 
+                       adjustedSourceY;
+  
+  const targetMarkerX = targetPosition === Position.Left ? adjustedTargetX + 3 : 
+                       targetPosition === Position.Right ? adjustedTargetX - 3 : 
+                       adjustedTargetX;
+  
+  const targetMarkerY = targetPosition === Position.Top ? adjustedTargetY + 3 : 
+                       targetPosition === Position.Bottom ? adjustedTargetY - 3 : 
+                       adjustedTargetY;
+                       
   return (
     <>
+      {/* The actual edge path */}
       <path
         id={id}
         style={{
@@ -291,32 +293,31 @@ const CustomEdge: React.FC<EdgeProps> = ({
         markerEnd={markerEnd}
       />
       
-      {/* CSS trick - add a mask/shadow element that overlaps where arrow meets handle */}
-      <circle
-        cx={targetPosition === Position.Left ? targetX + 2 : 
-            targetPosition === Position.Right ? targetX - 2 : 
-            targetX}
-        cy={targetPosition === Position.Top ? targetY + 2 : 
-            targetPosition === Position.Bottom ? targetY - 2 : 
-            targetY}
-        r={isTargetChildNode ? 6 : 4}
-        fill="white"
-        opacity={0.85}
-        style={{ pointerEvents: 'none' }}
-      />
-      
-      {/* For child nodes, add an additional larger background circle for better visibility */}
-      {isTargetChildNode && (
-        <circle
-          cx={targetX}
-          cy={targetY}
-          r={9}
-          fill="white"
-          opacity={0.5}
-          style={{ pointerEvents: 'none' }}
+      {/* Source marker */}
+      {isSourceChildNode && (
+        <CompoundNodeMarker
+          cx={sourceMarkerX}
+          cy={sourceMarkerY}
+          connectionType={connectionType}
+          isSource={true}
+          isChildNode={isSourceChildNode}
+          position={sourcePosition}
+          color={isSourceChildNode ? "#ef4444" : strokeColor}
         />
       )}
-  
+      
+      {/* Target marker - always render for better visibility */}
+      <CompoundNodeMarker
+        cx={targetMarkerX}
+        cy={targetMarkerY}
+        connectionType={connectionType}
+        isSource={false}
+        isChildNode={isTargetChildNode}
+        position={targetPosition}
+        color={isTargetChildNode ? "#ef4444" : strokeColor}
+      />
+      
+      {/* Text label */}
       {labelText && (
         <text
           x={labelX}
@@ -373,155 +374,9 @@ const pickOptimalPorts = (
   nodes: FlowNode[],  
   edges: FlowEdge[]
 ): FlowEdge[] => {
-  // Create a lookup map of node positions by ID
-  const nodePositions = new Map(nodes.map(node => [node.id, node.position]));
-  
-  // Create a map of parent nodes for quick lookup
-  const parentNodeMap = new Map();
-  nodes.forEach(node => {
-    if (node.parentNode) {
-      parentNodeMap.set(node.id, node.parentNode);
-    }
-  });
-  
-  // For each edge, determine the optimal source and target handles
-  return edges.map(edge => {
-    const sourcePos = nodePositions.get(edge.source);
-    const targetPos = nodePositions.get(edge.target);
-    
-    // Skip if we don't have positions for both nodes
-    if (!sourcePos || !targetPos) {
-      return edge;
-    }
-    
-    // Check if either source or target is a child node
-    const sourceParentNode = parentNodeMap.get(edge.source);
-    const targetParentNode = parentNodeMap.get(edge.target);
-    const isSourceChildNode = !!sourceParentNode;
-    const isTargetChildNode = !!targetParentNode;
-    
-    // Calculate the delta between nodes
-    const dx = targetPos.x - sourcePos.x;
-    const dy = targetPos.y - sourcePos.y;
-    
-    // Determine whether the arrangement is more horizontal or vertical
-    const isHorizontal = Math.abs(dx) > Math.abs(dy);
-    
-    let sourceHandle, targetHandle;
-    let sourcePosition, targetPosition;
-    
-    // Special case for decision edges - they always go top/bottom
-    const isDecisionEdge = edge.data?.fromDecision || 
-                          edge.source.includes('decision') || 
-                          edge.source.includes('Airtable_Record_Exists');
-    const isYesPath = edge.data?.condition && (edge.data?.label?.toLowerCase() === 'yes' || edge.data?.label?.toLowerCase() === 'true');
-    const isNoPath = edge.data?.condition && (edge.data?.label?.toLowerCase() === 'no' || edge.data?.label?.toLowerCase() === 'false');
-    
-    // Decision node Yes/No paths always use top/bottom to maintain the yes/no pattern
-    if (isDecisionEdge && (isYesPath || isNoPath)) {
-      // From decision nodes, we'll use bottom to target's top
-      sourceHandle = 'bottom';
-      targetHandle = 'top';
-      sourcePosition = Position.Bottom;
-      targetPosition = Position.Top;
-    } 
-    // Special case: connection TO a child node inside a loop - strongly prefer top
-    else if (isTargetChildNode && !isSourceChildNode) {
-      // Always connect to child nodes from the top when coming from outside
-      sourceHandle = 'bottom';
-      targetHandle = 'top';
-      sourcePosition = Position.Bottom;
-      targetPosition = Position.Top;
-    }
-    // Special case: connection FROM a child node inside a loop - prefer bottom
-    else if (isSourceChildNode && !isTargetChildNode) {
-      // Prefer bottom connections when going out of a child node
-      sourceHandle = 'bottom';
-      targetHandle = 'top';
-      sourcePosition = Position.Bottom;
-      targetPosition = Position.Top;
-    }
-    // For connections between two child nodes in the same parent
-    else if (isSourceChildNode && isTargetChildNode && sourceParentNode === targetParentNode) {
-      // If they're in the same vertical column (similar X), use top/bottom
-      if (Math.abs(dx) < 40) {
-        if (dy > 0) {
-          // Target is below source
-          sourceHandle = 'bottom';
-          targetHandle = 'top';
-          sourcePosition = Position.Bottom;
-          targetPosition = Position.Top;
-        } else {
-          // Target is above source
-          sourceHandle = 'top';
-          targetHandle = 'bottom';
-          sourcePosition = Position.Top;
-          targetPosition = Position.Bottom;
-        }
-      }
-      // Otherwise use left/right for nodes side by side
-      else if (dx > 0) {
-        // Target is to the right of source
-        sourceHandle = 'right';
-        targetHandle = 'left';
-        sourcePosition = Position.Right;
-        targetPosition = Position.Left;
-      } else {
-        // Target is to the left of source
-        sourceHandle = 'left';
-        targetHandle = 'right';
-        sourcePosition = Position.Left;
-        targetPosition = Position.Right;
-      }
-    }
-    else if (isHorizontal) {
-      // For horizontal arrangements, use the left/right handles
-      if (dx > 0) {
-        // Target is to the right of source
-        sourceHandle = 'right';
-        targetHandle = 'left';
-        sourcePosition = Position.Right;
-        targetPosition = Position.Left;
-      } else {
-        // Target is to the left of source
-        sourceHandle = 'left';
-        targetHandle = 'right';
-        sourcePosition = Position.Left;
-        targetPosition = Position.Right;
-      }
-    } else {
-      // For vertical arrangements, use the top/bottom handles
-      if (dy > 0) {
-        // Target is below source
-        sourceHandle = 'bottom';
-        targetHandle = 'top';
-        sourcePosition = Position.Bottom;
-        targetPosition = Position.Top;
-      } else {
-        // Target is above source
-        sourceHandle = 'top';
-        targetHandle = 'bottom';
-        sourcePosition = Position.Top;
-        targetPosition = Position.Bottom;
-      }
-    }
-    
-    // Return the updated edge with optimal handle settings
-    return {
-      ...edge,
-      sourceHandle,
-      targetHandle,
-      sourcePosition,
-      targetPosition,
-      data: {
-        ...edge.data,
-        sourceParentNode,
-        targetParentNode,
-        isSourceChildNode,
-        isTargetChildNode
-      }
-    };
-  });
+  // Use the implementation from edgeUtils.ts
+  const optimizedEdges = getOptimalHandles(nodes, edges);
+  return optimizedEdges;
 };
 
 const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = 'TB') => {
@@ -614,10 +469,21 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     const sourceNode = nodes.find(node => node.id === edge.source);
     const targetNode = nodes.find(node => node.id === edge.target);
     
+    if (!sourceNode || !targetNode) {
+      return edge;
+    }
+    
     // Add metadata based on node types and edge properties
     const isFromDecision = sourceNode?.type === 'decision';
     const isToDecision = targetNode?.type === 'decision';
     const isConditionEdge = !!edge.label || isFromDecision;
+    
+    // Check for parent-child relationships
+    const isSourceChildNode = !!sourceNode?.parentNode;
+    const isTargetChildNode = !!targetNode?.parentNode;
+    
+    // Explicitly determine connection type early
+    const connectionType = getConnectionType(sourceNode, targetNode, edge);
     
     // Get edge type based on the flow semantics
     let edgeType: string = edge.type || 'custom-edge';
@@ -628,12 +494,18 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
       type: edgeType,
       data: {
         ...edge.data,
+        connectionType, // Explicitly set connection type
         fromDecision: isFromDecision,
         toDecision: isToDecision,
         condition: isConditionEdge,
         sourceType: sourceNode?.type,
         targetType: targetNode?.type,
         label: edge.label,
+        // Add parent-child relationship data
+        isSourceChildNode,
+        isTargetChildNode,
+        sourceParentNode: sourceNode?.parentNode,
+        targetParentNode: targetNode?.parentNode,
       },
     };
   });
@@ -732,8 +604,6 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     const totalChildWidth = (maxChildrenPerRow * childWidth) + ((maxChildrenPerRow - 1) * horizontalSpacing);
     const totalChildHeight = (rows * childHeight) + ((rows - 1) * verticalSpacing);
     
-    console.log(`Layout for parent ${parentNodeId}: childCount=${childCount}, cols=${maxChildrenPerRow}, rows=${rows}, totalWidth=${totalChildWidth}, totalHeight=${totalChildHeight}`);
-    
     // Position each child node
     children.forEach((childNode, index) => {
       const row = Math.floor(index / maxChildrenPerRow);
@@ -782,8 +652,6 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
         }
       };
       
-      console.log(`Manual positioning: Child ${childNode.id} at row ${row}, col ${col} -> x: ${layoutedChildNode.position.x}, y: ${layoutedChildNode.position.y}, parent: ${childNode.parentNode}`);
-      
       childNodes.push(layoutedChildNode);
     });
     
@@ -815,8 +683,6 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
       parentNode.data.calculatedWidth = Math.max(requiredWidth, parentNode.data.calculatedWidth);
       parentNode.data.calculatedHeight = Math.max(requiredHeight, parentNode.data.calculatedHeight);
       
-      console.log(`Resizing parent ${parentNodeId}: width=${parentNode.data.calculatedWidth}, height=${parentNode.data.calculatedHeight}, childCount=${childCount}, rows=${rows}, cols=${maxChildrenPerRow}`);
-      
       // Update the node in the positionedNodesById map
       positionedNodesById[parentNodeId] = parentNode;
     }
@@ -824,13 +690,6 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
 
   // Combine the layout results
   const allLayoutedNodes = [...layoutedNodes, ...childNodes];
-
-  console.log(`Final node count: ${allLayoutedNodes.length}`);
-  allLayoutedNodes.forEach(node => {
-    if (node.parentNode) {
-      console.log(`Node ${node.id} has parent ${node.parentNode}, position: x=${node.position.x}, y=${node.position.y}`);
-    }
-  });
 
   // When applying the layout, adjust position to encourage more horizontal spacing
   const nodesWithHorizontalVariance = allLayoutedNodes.map(node => {
@@ -848,9 +707,9 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     return node;
   });
   
-  // Apply the port selection helper to optimize handle choices
+  // Optimize edge port selection using helper function
   const optimizedEdges = pickOptimalPorts(nodesWithHorizontalVariance, enhancedEdges);
-  
+
   return { 
     nodes: nodesWithHorizontalVariance, 
     edges: optimizedEdges
@@ -974,8 +833,6 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   
   // Handler for saving edited node data
   const handleSaveNodeData = useCallback((nodeId: string, updatedData: Partial<SOPNode>) => {
-    console.log('Saving node data:', nodeId, updatedData);
-    
     // Update the node in the local state
     setNodes(currentNodes => 
       currentNodes.map(node => {
@@ -992,12 +849,6 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       })
     );
     
-    // Mock API call - in a real implementation, this would call an API
-    console.log('Mock API call to save node data:', {
-      id: nodeId,
-      updates: updatedData
-    });
-    
     // In a real implementation, we would update the sopData state via an API call
     // and then re-fetch or update the parent component's state
   }, [setNodes]);
@@ -1010,22 +861,9 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       );
       
       setIsComplexSOP(hasComplexStructure);
-      console.log(`SOP complexity detection: ${hasComplexStructure ? 'Complex' : 'Simple'} SOP`);
 
       const { flowNodes: initialFlowNodes, flowEdges: initialFlowEdges } = transformSopToFlowData(sopData);
 
-      // Debugging: Check for parent/child relationships
-      console.log("Initial flow nodes:", initialFlowNodes);
-      const parentNodes = initialFlowNodes.filter(node => node.type === 'loop');
-      const childNodes = initialFlowNodes.filter(node => node.parentNode);
-      console.log("Parent nodes:", parentNodes);
-      console.log("Child nodes:", childNodes);
-      
-      // Log detailed parent-child relationships for debugging
-      childNodes.forEach(child => {
-        console.log(`Child node ${child.id} has parent ${child.parentNode}`);
-      });
-      
       // Initialize expanded state: all parent nodes are expanded by default
       const initialExpandedState: Record<string, boolean> = {};
       initialFlowNodes.forEach(node => {

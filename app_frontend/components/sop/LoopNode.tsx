@@ -48,12 +48,66 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
   const useWidth = data.calculatedWidth || (childCount > 0 ? Math.max(450, childCount * 120) : 240);
   const useHeight = data.calculatedHeight || (childCount > 0 ? Math.max(250, childCount * 80) : 120);
   
+  // Standardized handle styling that matches StepNode styling
+  const getHandleStyle = (position: Position) => {
+    // Base handle size and color for loop nodes
+    const size = 12;
+    const color = '#6366f1'; // Indigo color for loop handles
+    
+    const baseStyle = {
+      background: color,
+      width: size,
+      height: size,
+      border: '2px solid white',
+      zIndex: 2, // Just below child node handles
+      borderRadius: '50%'
+    };
+    
+    // Position-specific styling
+    // Handles are now centered on the node's border
+    switch (position) {
+      case Position.Top:
+        return {
+          ...baseStyle,
+          top: '0px',
+          left: '50%', 
+          transform: 'translate(-50%, -50%)', // Center handle on the top edge
+        };
+      case Position.Bottom:
+        return {
+          ...baseStyle,
+          bottom: '0px',
+          left: '50%',
+          transform: 'translate(-50%, 50%)', // Center handle on the bottom edge
+        };
+      case Position.Left:
+        return {
+          ...baseStyle,
+          left: '0px',
+          top: '50%',
+          transform: 'translate(-50%, -50%)', // Center handle on the left edge
+        };
+      case Position.Right:
+        return {
+          ...baseStyle,
+          right: '0px',
+          top: '50%',
+          transform: 'translate(50%, -50%)', // Center handle on the right edge
+        };
+      default:
+        return baseStyle;
+    }
+  };
+  
   return (
     <div
       className={`
         flex flex-col items-center
         ${selected ? 'outline outline-2 outline-offset-2 outline-purple-500 rounded-lg' : ''}
       `}
+      data-node-type="loop"
+      data-is-compound={isCompound ? 'true' : 'false'}
+      data-child-count={childCount}
     >
       <div
         className={`
@@ -169,50 +223,29 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
         id="top"
         type="target"
         position={Position.Top}
-        className="!bg-purple-600 !w-3 !h-3 react-flow__handle-top"
-        style={{ 
-          top: '-7px',
-          zIndex: 1,
-          border: '2px solid white'
-        }}
+        style={getHandleStyle(Position.Top)}
+        isConnectable={true}
       />
       <Handle
         id="bottom"
         type="source"
         position={Position.Bottom}
-        className="!bg-purple-600 !w-3 !h-3 react-flow__handle-bottom"
-        style={{ 
-          bottom: '-7px',
-          zIndex: 1,
-          border: '2px solid white'
-        }}
+        style={getHandleStyle(Position.Bottom)}
+        isConnectable={true}
       />
-      {/* Add side handles for alternative connection points */}
       <Handle
         id="right"
         type="source"
         position={Position.Right}
-        className="!bg-purple-600 !w-3 !h-3 react-flow__handle-right"
-        style={{ 
-          top: '50%', 
-          right: '-7px', 
-          transform: 'translateY(-50%)',
-          zIndex: 1,
-          border: '2px solid white'
-        }}
+        style={getHandleStyle(Position.Right)}
+        isConnectable={true}
       />
       <Handle
         id="left"
         type="target"
         position={Position.Left}
-        className="!bg-purple-600 !w-3 !h-3 react-flow__handle-left"
-        style={{ 
-          top: '50%', 
-          left: '-7px', 
-          transform: 'translateY(-50%)',
-          zIndex: 1,
-          border: '2px solid white'
-        }}
+        style={getHandleStyle(Position.Left)}
+        isConnectable={true}
       />
     </div>
   );

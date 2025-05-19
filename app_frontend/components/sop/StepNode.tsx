@@ -25,10 +25,57 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
   
   // Node dimensions - explicitly set to ensure consistent layout
   const nodeWidth = hasParent ? 220 : 240;
-
-  // Calculate additional offset for handles when inside a parent container
-  // This adjustment helps align the handles with the actual connection points
-  const handleOffset = hasParent ? 4 : 0;
+  
+  // Handle styling based on parent status
+  const getHandleStyle = (position: Position) => {
+    // Base handle size and color
+    const size = hasParent ? 8 : 10;
+    const color = hasParent ? '#ef4444' : '#555';
+    
+    const baseStyle = {
+      background: color,
+      width: size,
+      height: size,
+      border: '2px solid white',
+      zIndex: 3, // Increased z-index for better stacking
+      borderRadius: '50%'
+    };
+    
+    // Position-specific styling
+    // Handles are now centered on the node's border
+    switch (position) {
+      case Position.Top:
+        return {
+          ...baseStyle,
+          top: '0px',
+          left: '50%', // Ensure horizontal centering too
+          transform: 'translate(-50%, -50%)', // Center handle on the top edge
+        };
+      case Position.Bottom:
+        return {
+          ...baseStyle,
+          bottom: '0px',
+          left: '50%', // Ensure horizontal centering
+          transform: 'translate(-50%, 50%)', // Center handle on the bottom edge
+        };
+      case Position.Left:
+        return {
+          ...baseStyle,
+          left: '0px',
+          top: '50%',
+          transform: 'translate(-50%, -50%)', // Center handle on the left edge
+        };
+      case Position.Right:
+        return {
+          ...baseStyle,
+          right: '0px',
+          top: '50%',
+          transform: 'translate(50%, -50%)', // Center handle on the right edge
+        };
+      default:
+        return baseStyle;
+    }
+  };
 
   return (
     <div 
@@ -47,21 +94,14 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
         position: 'relative',
       }}
       className={hasParent ? 'child-node' : 'regular-node'}
+      data-node-type="step" 
+      data-is-child={hasParent ? 'true' : 'false'}
     >
       <Handle
         id="top"
         type="target"
         position={Position.Top}
-        style={{ 
-          background: hasParent ? '#ef4444' : '#555',
-          width: hasParent ? '8px' : '10px',
-          height: hasParent ? '8px' : '10px',
-          top: hasParent ? -4 - handleOffset : -5,
-          zIndex: 1,
-          border: '2px solid white',
-          transform: 'translate(-50%, 0)',
-          borderRadius: '50%'
-        }}
+        style={getHandleStyle(Position.Top)}
         isConnectable={isConnectable}
       />
       <div>
@@ -98,16 +138,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
         id="bottom"
         type="source" 
         position={Position.Bottom} 
-        style={{ 
-          background: hasParent ? '#ef4444' : '#555',
-          width: hasParent ? '8px' : '10px',
-          height: hasParent ? '8px' : '10px',
-          bottom: hasParent ? -4 - handleOffset : -5,
-          zIndex: 1,
-          border: '2px solid white',
-          transform: 'translate(-50%, 0)',
-          borderRadius: '50%'
-        }}
+        style={getHandleStyle(Position.Bottom)}
         isConnectable={isConnectable} 
       />
       
@@ -116,34 +147,14 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
         id="right"
         type="source" 
         position={Position.Right} 
-        style={{ 
-          background: hasParent ? '#ef4444' : '#555',
-          width: hasParent ? '8px' : '10px',
-          height: hasParent ? '8px' : '10px',
-          top: '50%',
-          right: hasParent ? -4 - handleOffset : -5,
-          transform: 'translateY(-50%)',
-          zIndex: 1,
-          border: '2px solid white',
-          borderRadius: '50%'
-        }}
+        style={getHandleStyle(Position.Right)}
         isConnectable={isConnectable} 
       />
       <Handle 
         id="left"
         type="target" 
         position={Position.Left} 
-        style={{ 
-          background: hasParent ? '#ef4444' : '#555',
-          width: hasParent ? '8px' : '10px',
-          height: hasParent ? '8px' : '10px',
-          top: '50%',
-          left: hasParent ? -4 - handleOffset : -5,
-          transform: 'translateY(-50%)',
-          zIndex: 1,
-          border: '2px solid white',
-          borderRadius: '50%'
-        }}
+        style={getHandleStyle(Position.Left)}
         isConnectable={isConnectable} 
       />
     </div>
