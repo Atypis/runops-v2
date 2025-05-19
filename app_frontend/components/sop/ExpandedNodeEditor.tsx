@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Node as FlowNode, useReactFlow, useStoreApi } from 'reactflow';
 import { SOPNode } from '@/lib/types/sop';
-import { X, Save, Edit2, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Save, Edit2, ChevronDown, ChevronUp, Maximize2, Minimize2, GripVertical } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 // Define the type for the size state
@@ -52,6 +52,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
     left: 0,
   });
   const [isResizing, setIsResizing] = useState<ResizeDirection | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [startSize, setStartSize] = useState<SizeState>({ ...size });
 
@@ -109,6 +110,61 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
       setSize({ width: currentWidth, height: currentHeight, top, left });
     }
   }, [isExpanded, selectedNode, nodeBounds]); // Dependencies
+
+  // Handle starting dragging
+  const startDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setIsDragging(true);
+    setStartPos({ x: e.clientX, y: e.clientY });
+    setStartSize({...size});
+    
+    // Event listeners are managed by the useEffect based on isDragging state
+  }, [size]);
+
+  // Handle dragging operation during mouse movement
+  const handleDrag = useCallback((e: MouseEvent) => {
+    if (!isDragging) return;
+
+    const deltaX = e.clientX - startPos.x;
+    const deltaY = e.clientY - startPos.y;
+    
+    // Calculate new position
+    let newTop = startSize.top + deltaY;
+    let newLeft = startSize.left + deltaX;
+    
+    // Constrain to viewport
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // Keep at least 20px of the editor visible on each edge
+    newTop = Math.max(10, Math.min(viewportHeight - 100, newTop));
+    newLeft = Math.max(10, Math.min(viewportWidth - 100, newLeft));
+    
+    // Update position with a subtle scale effect when dragging
+    setSize({
+      ...startSize,
+      top: newTop,
+      left: newLeft,
+    });
+  }, [isDragging, startPos.x, startPos.y, startSize]);
+
+  const stopDrag = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Add effect for drag handling
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleDrag);
+      document.addEventListener('mouseup', stopDrag);
+      return () => {
+        document.removeEventListener('mousemove', handleDrag);
+        document.removeEventListener('mouseup', stopDrag);
+      };
+    }
+  }, [isDragging, handleDrag, stopDrag]);
 
   // Handle starting resize from any direction
   const startResize = useCallback((direction: ResizeDirection) => (e: React.MouseEvent) => {
@@ -186,8 +242,10 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
     return () => {
       document.removeEventListener('mousemove', handleResize);
       document.removeEventListener('mouseup', stopResize);
+      document.removeEventListener('mousemove', handleDrag);
+      document.removeEventListener('mouseup', stopDrag);
     };
-  }, [handleResize, stopResize]);
+  }, [handleResize, stopResize, handleDrag, stopDrag]);
 
   if (!selectedNode) {
     return null;
@@ -246,6 +304,38 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
     return field in editedData ? editedData[field] : nodeData[field];
   };
 
+  // Get button color based on node type
+  const getButtonColor = () => {
+    switch (nodeType) {
+      case 'trigger':
+        return 'bg-amber-500 hover:bg-amber-600';
+      case 'decision':
+        return 'bg-yellow-500 hover:bg-yellow-600';
+      case 'loop':
+        return 'bg-purple-500 hover:bg-purple-600';
+      case 'end':
+        return 'bg-blue-500 hover:bg-blue-600';
+      default:
+        return 'bg-neutral-500 hover:bg-neutral-600';
+    }
+  };
+
+  // Get shadow glow based on node type
+  const getShadowGlow = () => {
+    switch (nodeType) {
+      case 'trigger':
+        return 'rgba(251, 191, 36, 0.1)'; // amber
+      case 'decision':
+        return 'rgba(234, 179, 8, 0.1)';  // yellow
+      case 'loop':
+        return 'rgba(147, 51, 234, 0.1)'; // purple
+      case 'end':
+        return 'rgba(59, 130, 246, 0.1)'; // blue
+      default:
+        return 'rgba(107, 114, 128, 0.1)'; // neutral
+    }
+  };
+
   // Background color based on node type
   const getNodeColor = () => {
     switch (nodeType) {
@@ -259,6 +349,22 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
         return 'bg-blue-50 border-blue-300';
       default:
         return 'bg-neutral-50 border-neutral-300';
+    }
+  };
+
+  // Get additional inner border color based on node type
+  const getInnerBorderColor = () => {
+    switch (nodeType) {
+      case 'trigger':
+        return 'border-amber-200';
+      case 'decision':
+        return 'border-yellow-200';
+      case 'loop':
+        return 'border-purple-200';
+      case 'end':
+        return 'border-blue-200';
+      default:
+        return 'border-neutral-200';
     }
   };
 
@@ -373,7 +479,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
       {/* Node Editor Popover */}
       <div
         ref={editorRef}
-        className={`absolute flex flex-col overflow-hidden rounded-xl shadow-2xl transition-opacity duration-300 ease-in-out ${getNodeColor()} pointer-events-auto`}
+        className={`absolute flex flex-col overflow-hidden rounded-xl transition-all duration-300 ease-in-out ${getNodeColor()} pointer-events-auto border backdrop-blur-[2px]`}
         style={{
           left: size.left,
           top: size.top,
@@ -384,8 +490,19 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
           zIndex: 10000,
           transformOrigin: arrowPosition === 'left' ? 'left center' :
                           arrowPosition === 'right' ? 'right center' : 'center top',
+          boxShadow: `0 10px 25px -5px rgba(0, 0, 0, 0.08), 
+                      0 8px 10px -6px rgba(0, 0, 0, 0.05), 
+                      0 0 0 1px rgba(0, 0, 0, 0.02),
+                      0 0 15px ${getShadowGlow()}`,
+          transition: isDragging 
+            ? 'transform 0.05s ease-out, box-shadow 0.2s ease-in-out' 
+            : 'box-shadow 0.2s ease-in-out, transform 0.2s ease-out, opacity 0.3s ease-in-out',
+          transform: isDragging ? 'scale(1.01)' : 'scale(1)'
         }}
       >
+        {/* Inner border for refined look */}
+        <div className={`absolute inset-[3px] rounded-lg border ${getInnerBorderColor()} pointer-events-none opacity-70`}></div>
+      
         {/* Arrow pointing to the node */}
         <div
           className="absolute w-3 h-3 rotate-45 border-t border-l" // Only top and left for arrow shape
@@ -402,6 +519,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
             borderLeftStyle: arrowPosition === 'right' || arrowPosition === 'bottom' ? 'none' : 'solid',
             borderTopStyle: arrowPosition === 'right' || arrowPosition === 'bottom' ? 'none' : 'solid',
             zIndex: -1, // Behind the editor
+            boxShadow: '-1px -1px 1px rgba(0, 0, 0, 0.05)'
           }}
         />
 
@@ -423,10 +541,18 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
         {/* Bottom-right corner (visual indicator) */}
         <div style={resizeHandleStyle('se')} onMouseDown={startResize('se')} />
 
-        {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b shrink-0">
+        {/* Header - Now with dragging functionality */}
+        <div 
+          className="flex items-center justify-between p-3 border-b shrink-0 cursor-move relative z-10 bg-white/30"
+          onMouseDown={startDrag}
+        >
           <div className="flex items-start space-x-2 mr-2 max-w-[70%]">
-            <div className="mt-0.5 shrink-0">{getNodeIcon()}</div>
+            <div className="mt-0.5 shrink-0 flex items-center gap-2">
+              <div title="Drag to move" className="hover:bg-white/40 p-0.5 rounded transition-colors">
+                <GripVertical size={16} className="text-neutral-400" />
+              </div>
+              {getNodeIcon()}
+            </div>
             <div>
               <h3 className="font-semibold leading-tight line-clamp-2">
                 <span className="text-neutral-600">{nodeTitle}: </span>
@@ -436,15 +562,24 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
           </div>
           <div className="flex items-center space-x-1 shrink-0">
             <button
-              onClick={toggleMoreInfo}
-              className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/80 transition-colors text-neutral-600"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleMoreInfo();
+              }}
+              className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/80 transition-colors text-neutral-600 cursor-pointer"
               title={showMoreInfo ? "Show less" : "Show more"}
+              onMouseDown={(e) => e.stopPropagation()}
             >
               {showMoreInfo ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             <button
-              onClick={onClose}
-              className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/80 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/80 transition-colors cursor-pointer"
+              title="Close"
+              onMouseDown={(e) => e.stopPropagation()}
             >
               <X size={16} />
             </button>
@@ -452,7 +587,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-4 overflow-y-auto grow">
+        <div className="p-4 overflow-y-auto grow relative z-10 bg-white/50">
           {/* Node Identifier - always visible */}
           <div className="mb-3 pb-2 border-b border-neutral-200/50">
             <div className="text-xs text-neutral-500 mb-1">ID</div>
@@ -681,7 +816,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="mt-auto p-3 border-t flex justify-end space-x-2 shrink-0">
+        <div className="mt-auto p-3 border-t flex justify-end space-x-2 shrink-0 relative z-10 bg-white/30">
           {isEditing ? (
             <>
               <button
@@ -692,7 +827,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
               </button>
               <button
                 onClick={handleSave}
-                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors flex items-center"
+                className={`px-3 py-1.5 text-sm ${getButtonColor()} text-white rounded-md transition-colors flex items-center`}
               >
                 <Save size={14} className="mr-1" /> Save
               </button>
@@ -700,7 +835,7 @@ const ExpandedNodeEditor: React.FC<ExpandedNodeEditorProps> = ({
           ) : (
             <button
               onClick={handleEdit}
-              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors flex items-center"
+              className={`px-3 py-1.5 text-sm ${getButtonColor()} text-white rounded-md transition-colors flex items-center`}
             >
               <Edit2 size={14} className="mr-1" /> Edit Node
             </button>
