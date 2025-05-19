@@ -77,17 +77,19 @@ The SOP visualization is integrated directly into the main SOP viewer:
   - Toggle between List View and Flow View
   - List View shows detailed step information in a linear format
   - Flow View renders the interactive ReactFlow diagram with compound nodes
-  - Each view uses separate optimized data sources
+  - Both views now use a single unified data source
 
-## Mock Data
+## Data Source
 
-Two primary data sources are used:
-
-- **`public/mocksop.json`**  
-  Used by the List View to display detailed SOP information.
+We've implemented a unified data source approach:
 
 - **`public/mocksop-original-structure.json`**  
-  Used by the Flow View to render the ReactFlow diagram with proper parent-child relationships and compound nodes.
+  Serves as the single source of truth for both views. This file combines:
+  - Detailed descriptions, context, and clarifications needed for the List View
+  - Hierarchical structure with parent-child relationships and ID paths needed for the Flow View
+  - Complete edge definitions with decision paths for visual flow representation
+  
+  Using a single source of truth ensures consistency between views and simplifies data maintenance.
 
 ## Key Technical Features
 
