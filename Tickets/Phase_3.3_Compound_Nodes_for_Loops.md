@@ -34,6 +34,12 @@
    - Added white circle overlays at connection points for seamless transitions
    - Adjusted arrow markers for better alignment with handles
 
+6. **Node Selection & Expanded Editor:**
+   - Implemented type-specific selection highlighting (trigger nodes green, decision nodes yellow, etc.)
+   - Added expand button to selected nodes for triggering detailed editing cards
+   - Developed ExpandedNodeEditor component with arrow pointing to selected node
+   - Fixed resize functionality with handles on all edges and corners for flexible editor sizing
+
 ### Testing Sites
 We tested these changes across several specific test files:
 
@@ -72,6 +78,11 @@ Current work was implemented in `app/sop/reactflow-optimized/` as our primary ta
    - Refine arrow markers for better visibility
    - Investigate custom SVG markers for different connection types
    - Consider animated paths for active or highlighted flows
+
+4. **Node Editing Interface:**
+   - Further improve node editing with specialized field types
+   - Add validation for node properties
+   - Consider drag-and-drop for rearranging node connections
 
 ### Advanced Compound Node Features
 1. **Nested Compound Nodes:**
@@ -113,6 +124,12 @@ Current work was implemented in `app/sop/reactflow-optimized/` as our primary ta
    - Compound support in Dagre requires careful handling
    - Manual layout adjustments still needed for optimal results
    - Consider ELK as future alternative for more sophisticated layouts
+
+4. **Expanded Node Editor:**
+   - Implemented with React portals for proper DOM positioning
+   - Used DOM measurements for precise positioning relative to selected nodes
+   - Fixed resize functionality by properly handling closure scope in event handlers
+   - Improved title display with multi-line truncation for long node labels
 
 ---
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import ReactFlow, {
   Controls,
   MiniMap,
@@ -19,14 +19,98 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
+import { css } from '@emotion/css';
 
-import { SOPDocument, SOPNode as AppSOPNode } from '@/lib/types/sop';
+import { SOPDocument, SOPNode, SOPNode as AppSOPNode } from '@/lib/types/sop';
 import { transformSopToFlowData } from '@/lib/sop-utils';
 import TriggerNode from './TriggerNode';
 import StepNode from './StepNode';
 import EndNode from './EndNode';
 import DecisionNode from './DecisionNode';
 import LoopNode from './LoopNode';
+import ExpandedNodeEditor from './ExpandedNodeEditor';
+
+// Add a custom CSS class to disable React Flow's default selection styling and add our own
+const reactFlowCustomStyles = css`
+  .react-flow__node {
+    transition: all 0.2s;
+  }
+  
+  .react-flow__node.selected {
+    /* Override React Flow's default selection styling */
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+  
+  .react-flow__node.selected::after {
+    display: none !important;
+  }
+  
+  /* Custom selection styling - more subtle than before */
+  .node-selected-highlight {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    border: 1.5px solid;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.8;
+  }
+  
+  /* Type-specific highlighting */
+  .node-selected-highlight.trigger {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4);
+  }
+  
+  .node-selected-highlight.decision {
+    border-color: #eab308;
+    box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.4);
+  }
+  
+  .node-selected-highlight.loop {
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.4);
+  }
+  
+  .node-selected-highlight.end {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);
+  }
+  
+  .node-selected-highlight.step {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.4);
+  }
+  
+  /* Expand button styling - now integrated within the node */
+  .node-expand-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 24px;
+    height: 24px;
+    background-color: rgba(255, 255, 255, 0.9);
+    color: #64748b; /* slate-500 for a subtle look */
+    border: 1px solid #e2e8f0; /* slate-200 */
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: all 0.2s;
+  }
+  
+  .node-expand-button:hover {
+    background-color: #f8fafc; /* slate-50 */
+    color: #0f172a; /* slate-900 */
+    transform: scale(1.05);
+  }
+`;
 
 // Define nodeTypes outside the component to prevent re-creation on every render
 const nodeTypesConfig = {
@@ -715,6 +799,13 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   const [isComplexSOP, setIsComplexSOP] = useState<boolean>(false);
   // Add state for layout direction
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
+  // Add state for node selection and editing
+  const [selectedNode, setSelectedNode] = useState<FlowNode<SOPNode> | null>(null);
+  const [showNodeEditor, setShowNodeEditor] = useState<boolean>(false);
+  const [isAdvancedMode, setIsAdvancedMode] = useState<boolean>(false);
+  // Add ref for the ReactFlow wrapper
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
 
   const handleToggleCollapse = useCallback((nodeId: string) => {
     setExpandedNodes(prev => ({
@@ -727,6 +818,101 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   const toggleLayoutDirection = useCallback(() => {
     setLayoutDirection(prev => prev === 'TB' ? 'LR' : 'TB');
   }, []);
+  
+  // Modified handler for node selection
+  const handleNodeClick = useCallback((event: React.MouseEvent, node: FlowNode) => {
+    // Clear previous selection highlights
+    const prevHighlights = document.querySelectorAll('.node-selected-highlight');
+    prevHighlights.forEach(el => el.remove());
+    
+    const prevButtons = document.querySelectorAll('.node-expand-button');
+    prevButtons.forEach(el => el.remove());
+    
+    // Set the selected node in state
+    setSelectedNode(node);
+    setShowNodeEditor(false);
+    
+    // Find the DOM element for the clicked node
+    const nodeElement = document.querySelector(`[data-id="${node.id}"]`);
+    if (!nodeElement) return;
+    
+    // Create and add highlight element with type-specific class
+    const highlight = document.createElement('div');
+    highlight.className = `node-selected-highlight ${node.type || 'step'}`;
+    nodeElement.appendChild(highlight);
+    
+    // Create and add expand button
+    const expandButton = document.createElement('button');
+    expandButton.className = 'node-expand-button';
+    expandButton.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 5L10 10M19 19L14 14M5 5H10M5 5V10M19 19H14M19 19V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+    expandButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleOpenNodeEditor();
+    });
+    nodeElement.appendChild(expandButton);
+  }, []);
+  
+  // Handler for opening the node editor
+  const handleOpenNodeEditor = useCallback(() => {
+    setShowNodeEditor(true);
+  }, []);
+  
+  // Handler for closing the editor
+  const handleCloseEditor = useCallback(() => {
+    setShowNodeEditor(false);
+  }, []);
+  
+  // Handler for deselecting node
+  const handleDeselectNode = useCallback(() => {
+    // Clear any selection highlights
+    const highlights = document.querySelectorAll('.node-selected-highlight');
+    highlights.forEach(el => el.remove());
+    
+    const buttons = document.querySelectorAll('.node-expand-button');
+    buttons.forEach(el => el.remove());
+    
+    setSelectedNode(null);
+    setShowNodeEditor(false);
+  }, []);
+  
+  // Handler for toggling advanced mode
+  const toggleAdvancedMode = useCallback(() => {
+    setIsAdvancedMode(prev => !prev);
+  }, []);
+  
+  // Handler for saving edited node data
+  const handleSaveNodeData = useCallback((nodeId: string, updatedData: Partial<SOPNode>) => {
+    console.log('Saving node data:', nodeId, updatedData);
+    
+    // Update the node in the local state
+    setNodes(currentNodes => 
+      currentNodes.map(node => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              ...updatedData
+            }
+          };
+        }
+        return node;
+      })
+    );
+    
+    // Mock API call - in a real implementation, this would call an API
+    console.log('Mock API call to save node data:', {
+      id: nodeId,
+      updates: updatedData
+    });
+    
+    // In a real implementation, we would update the sopData state via an API call
+    // and then re-fetch or update the parent component's state
+  }, [setNodes]);
 
   useEffect(() => {
     if (sopData && sopData.public) {
@@ -849,7 +1035,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   }
 
   return (
-    <div style={{ height: '100%', width: '100%', minHeight: '500px' }} data-testid="sop-flow-view"> 
+    <div style={{ height: '100%', width: '100%', minHeight: '500px' }} data-testid="sop-flow-view" ref={reactFlowWrapper}> 
       {isComplexSOP && (
         <div style={{
           position: 'absolute',
@@ -866,6 +1052,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           Complex SOP detected: Nested compound nodes temporarily disabled
         </div>
       )}
+      
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
@@ -877,6 +1064,9 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           defaultEdgeOptions={defaultEdgeOptions}
           elementsSelectable={true}
           connectionLineType={ConnectionLineType.SmoothStep}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handleDeselectNode}
+          onInit={setReactFlowInstance}
           fitView
           fitViewOptions={{ 
             padding: 0.2,
@@ -886,7 +1076,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           minZoom={0.2}
           maxZoom={2}
           defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-          className="bg-neutral-100"
+          className={`bg-neutral-100 ${reactFlowCustomStyles}`}
           onEdgeMouseEnter={(event, edge) => {
             // Highlight edge on hover
             const edgeElement = document.querySelector(`[data-testid="rf__edge-${edge.id}"] path`);
@@ -1016,6 +1206,16 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
               return '#94a3b8'; // Default for step nodes
             }}
           />
+          
+          {/* Only show the editor when explicitly opened */}
+          {selectedNode && showNodeEditor && (
+            <ExpandedNodeEditor
+              selectedNode={selectedNode}
+              isAdvancedMode={isAdvancedMode}
+              onClose={handleCloseEditor}
+              onSave={handleSaveNodeData}
+            />
+          )}
         </ReactFlow>
       </ReactFlowProvider>
     </div>
