@@ -55,9 +55,11 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
-          top: -5,
+          top: hasParent ? -6 : -5,
           zIndex: 1,
-          border: '2px solid white'
+          border: '2px solid white',
+          transform: 'translate(-50%, 0)',
+          borderRadius: '50%'
         }}
         isConnectable={isConnectable}
       />
@@ -117,9 +119,11 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           background: hasParent ? '#ef4444' : '#555',
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
-          bottom: -5,
+          bottom: hasParent ? -6 : -5,
           zIndex: 1,
-          border: '2px solid white'
+          border: '2px solid white',
+          transform: 'translate(-50%, 0)',
+          borderRadius: '50%'
         }}
         isConnectable={isConnectable} 
       />
@@ -134,10 +138,11 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
           top: '50%',
-          right: -5,
+          right: hasParent ? -6 : -5,
           transform: 'translateY(-50%)',
           zIndex: 1,
-          border: '2px solid white'
+          border: '2px solid white',
+          borderRadius: '50%'
         }}
         isConnectable={isConnectable} 
       />
@@ -150,10 +155,11 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           width: hasParent ? '8px' : '10px',
           height: hasParent ? '8px' : '10px',
           top: '50%',
-          left: -5,
+          left: hasParent ? -6 : -5,
           transform: 'translateY(-50%)',
           zIndex: 1,
-          border: '2px solid white'
+          border: '2px solid white',
+          borderRadius: '50%'
         }}
         isConnectable={isConnectable} 
       />

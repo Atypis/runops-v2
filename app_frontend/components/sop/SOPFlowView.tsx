@@ -195,6 +195,13 @@ const CustomEdge: React.FC<EdgeProps> = ({
   let adjustedTargetX = targetX;
   let adjustedTargetY = targetY;
   
+  // Check if the target node is a child node inside a parent (compound node)
+  const isTargetChildNode = data?.targetParentNode || target.includes('parent');
+  const isSourceChildNode = data?.sourceParentNode || source.includes('parent');
+  
+  // Additional offset for connections to/from child nodes in compound containers
+  const childNodeAdjustment = 2;
+  
   // Offset the source and target points to start/end at the edge of the handle
   // This makes arrows connect visually to the handle edge
   if (sourcePosition === Position.Left) {
@@ -208,13 +215,13 @@ const CustomEdge: React.FC<EdgeProps> = ({
   }
   
   if (targetPosition === Position.Left) {
-    adjustedTargetX += 3;
+    adjustedTargetX += 3 + (isTargetChildNode ? childNodeAdjustment : 0);
   } else if (targetPosition === Position.Right) {
-    adjustedTargetX -= 3;
+    adjustedTargetX -= 3 + (isTargetChildNode ? childNodeAdjustment : 0);
   } else if (targetPosition === Position.Top) {
-    adjustedTargetY += 3;
+    adjustedTargetY += 3 + (isTargetChildNode ? childNodeAdjustment : 0);
   } else if (targetPosition === Position.Bottom) {
-    adjustedTargetY -= 3;
+    adjustedTargetY -= 3 + (isTargetChildNode ? childNodeAdjustment : 0);
   }
   
   // Add horizontal offset to separate parallel paths if they're going vertically
@@ -230,6 +237,11 @@ const CustomEdge: React.FC<EdgeProps> = ({
       offsetX = offsetDirection * 30;
     } else if (isNextPath) {
       offsetX = offsetDirection * 8;
+    }
+    
+    // Adjust offset for child nodes in compound containers
+    if (isTargetChildNode && targetPosition === Position.Top) {
+      offsetX = offsetDirection * Math.max(5, Math.abs(offsetX) * 0.5);
     }
   }
   
@@ -291,12 +303,24 @@ const CustomEdge: React.FC<EdgeProps> = ({
         cy={targetPosition === Position.Top ? targetY + 2 : 
             targetPosition === Position.Bottom ? targetY - 2 : 
             targetY}
-        r={4}
+        r={isTargetChildNode ? 5 : 4}
         fill="white"
         opacity={0.85}
         style={{ pointerEvents: 'none' }}
       />
       
+      {/* For child nodes, add an additional larger background circle for better visibility */}
+      {isTargetChildNode && targetPosition === Position.Top && (
+        <circle
+          cx={targetX}
+          cy={targetY}
+          r={8}
+          fill="white"
+          opacity={0.5}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+  
       {labelText && (
         <text
           x={labelX}
@@ -356,6 +380,14 @@ const pickOptimalPorts = (
   // Create a lookup map of node positions by ID
   const nodePositions = new Map(nodes.map(node => [node.id, node.position]));
   
+  // Create a map of parent nodes for quick lookup
+  const parentNodeMap = new Map();
+  nodes.forEach(node => {
+    if (node.parentNode) {
+      parentNodeMap.set(node.id, node.parentNode);
+    }
+  });
+  
   // For each edge, determine the optimal source and target handles
   return edges.map(edge => {
     const sourcePos = nodePositions.get(edge.source);
@@ -365,6 +397,12 @@ const pickOptimalPorts = (
     if (!sourcePos || !targetPos) {
       return edge;
     }
+    
+    // Check if either source or target is a child node
+    const sourceParentNode = parentNodeMap.get(edge.source);
+    const targetParentNode = parentNodeMap.get(edge.target);
+    const isSourceChildNode = !!sourceParentNode;
+    const isTargetChildNode = !!targetParentNode;
     
     // Calculate the delta between nodes
     const dx = targetPos.x - sourcePos.x;
@@ -390,7 +428,15 @@ const pickOptimalPorts = (
       targetHandle = 'top';
       sourcePosition = Position.Bottom;
       targetPosition = Position.Top;
-    } else if (isHorizontal) {
+    } 
+    // Special case: connection to a child node inside a loop - prefer top connection
+    else if (isTargetChildNode && !isSourceChildNode && !isHorizontal) {
+      sourceHandle = 'bottom';
+      targetHandle = 'top';
+      sourcePosition = Position.Bottom;
+      targetPosition = Position.Top;
+    }
+    else if (isHorizontal) {
       // For horizontal arrangements, use the left/right handles
       if (dx > 0) {
         // Target is to the right of source
@@ -428,7 +474,14 @@ const pickOptimalPorts = (
       sourceHandle,
       targetHandle,
       sourcePosition,
-      targetPosition
+      targetPosition,
+      data: {
+        ...edge.data,
+        sourceParentNode,
+        targetParentNode,
+        isSourceChildNode,
+        isTargetChildNode
+      }
     };
   });
 };
