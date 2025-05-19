@@ -84,6 +84,11 @@ export default function OriginalStructureSopPage() {
               This SOP maintains the original structure with one main loop containing all the steps.
             </p>
             
+            <div className="mt-2 flex items-center">
+              <span className="text-xs text-gray-600 mr-2">Click on a node to view and edit its details</span>
+              <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse"></div>
+            </div>
+            
             {debugInfo && (
               <div className="text-xs font-mono mt-2 p-2 bg-gray-100 rounded overflow-auto max-h-40">
                 <pre>{debugInfo}</pre>
