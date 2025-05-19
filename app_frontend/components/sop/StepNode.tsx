@@ -92,6 +92,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable }
           : '0 2px 5px rgba(0, 0, 0, 0.08)',
         transition: 'all 0.2s ease',
         position: 'relative',
+        overflow: 'hidden', // Prevent content from spilling outside rounded corners
       }}
       className={hasParent ? 'child-node' : 'regular-node'}
       data-node-type="step" 

@@ -649,6 +649,7 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
           ...childNode.style,
           backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque background
           boxShadow: '0 2px 6px rgba(0,0,0,0.1)', // Add subtle shadow for depth
+          borderRadius: '8px', // Match the parent container's rounded corners
         }
       };
       

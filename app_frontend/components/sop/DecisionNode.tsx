@@ -48,7 +48,7 @@ const DecisionNode: React.FC<NodeProps<DecisionNodeData>> = ({ data, selected })
 
       {/* Rectangular Text Part Below Icon */}
       {data.label && (
-        <div className="mt-[-20px] pt-[28px] pb-2 px-3 bg-white border border-neutral-300 rounded-lg shadow-sm w-52 min-h-[40px] flex items-center justify-center group-hover/decisionnode:shadow-md transition-shadow">
+        <div className="mt-[-20px] pt-[28px] pb-2 px-3 bg-white border border-neutral-300 rounded-lg shadow-sm w-52 min-h-[40px] flex items-center justify-center group-hover/decisionnode:shadow-md transition-shadow overflow-hidden">
           <p className="text-xs font-medium text-neutral-700 text-center" title={formattedLabel}>
             {formattedLabel}
           </p>
