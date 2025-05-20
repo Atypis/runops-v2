@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { TestComponent } from '@/components/test-component';
 
 // Validation constants
 const MAX_FILE_SIZE = 750 * 1024 * 1024; // 750MB in bytes
@@ -14,6 +12,9 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [fileInfo, setFileInfo] = useState<{ name: string; size: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   
@@ -129,94 +130,160 @@ export default function Home() {
     fileInputRef.current?.click();
   };
   
+  // Process video 
+  const handleProcessVideo = () => {
+    if (!file) return;
+    
+    setIsUploading(true);
+    
+    // Simulate upload progress for demo purposes
+    const interval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setIsUploading(false);
+          setIsProcessing(true);
+          
+          // Simulate processing delay
+          setTimeout(() => {
+            // In a real app, we would redirect to the SOP view here
+            setIsProcessing(false);
+            alert('SOP created successfully! (Demo only)');
+          }, 5000);
+          
+          return 100;
+        }
+        return prev + 5;
+      });
+    }, 300);
+  };
+  
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-white">
-      <TestComponent />
-      <div className="w-full max-w-3xl space-y-6 mt-6">
-        <h1 className="text-3xl font-bold text-center">
-          Standard Operating Procedures
-        </h1>
-        
-        <p className="text-center text-gray-500">
-          Upload your video to create a new Standard Operating Procedure.
-        </p>
+      <div className="w-full max-w-2xl space-y-8">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-light tracking-tight">
+            Standard Operating Procedures
+          </h1>
+          
+          <p className="text-gray-500">
+            Transform your workflow video into a clear, structured SOP
+          </p>
+        </div>
         
         {/* Hidden video element for duration validation */}
         <video ref={videoRef} className="hidden" />
         
-        {/* Upload zone */}
-        <div
-          className={cn(
-            "border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors",
-            isDragging 
-              ? "border-blue-500 bg-blue-50" 
-              : "border-gray-300 hover:border-blue-500/50 hover:bg-gray-50",
-            fileInfo ? "bg-gray-50" : ""
-          )}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onClick={handleChooseFileClick}
-        >
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileInputChange}
-            accept="video/*"
-            className="hidden"
-          />
-          
-          {fileInfo ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-center text-green-600">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                </svg>
-              </div>
-              <h3 className="font-medium">{fileInfo.name}</h3>
-              <p className="text-sm text-gray-500">{fileInfo.size}</p>
+        {/* Status indicator */}
+        {isUploading && (
+          <div className="w-full mt-4 space-y-2">
+            <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-blue-500 transition-all duration-300 ease-in-out" 
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-              </div>
-              <div>
-                <p className="font-medium">
-                  Drag and drop your video here
-                </p>
-                <p className="text-sm text-gray-500">
-                  or click to browse your files
-                </p>
-              </div>
-              <div className="pt-2">
-                <button className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md text-sm">
-                  Choose file
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        {/* Error message */}
-        {error && (
-          <div className="text-red-500 text-center p-2 rounded bg-red-50">
-            {error}
+            <p className="text-sm text-gray-500 text-center">
+              {uploadProgress < 100 ? `Uploading: ${uploadProgress}%` : 'Upload complete'}
+            </p>
           </div>
         )}
         
-        {/* File requirements */}
-        <div className="text-sm text-gray-500 text-center">
-          <p>Accepted file types: MP4, MOV, AVI</p>
-          <p>Maximum file size: 750 MB</p>
-          <p>Maximum duration: 20 minutes</p>
-        </div>
+        {isProcessing && (
+          <div className="flex flex-col items-center justify-center py-6">
+            <div className="relative w-14 h-14">
+              <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-blue-500 animate-spin"></div>
+            </div>
+            <p className="text-gray-500 mt-4">AI magic in progress...</p>
+          </div>
+        )}
+        
+        {/* Main content - controls visibility based on state */}
+        {!isUploading && !isProcessing && (
+          <>
+            {/* Upload zone */}
+            <div
+              className={cn(
+                "border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300",
+                "shadow-sm hover:shadow-md",
+                isDragging 
+                  ? "border-blue-500 bg-blue-50" 
+                  : "border-gray-200 hover:border-blue-400 hover:bg-gray-50",
+                fileInfo ? "bg-gray-50" : ""
+              )}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onClick={fileInfo ? undefined : handleChooseFileClick}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileInputChange}
+                accept="video/*"
+                className="hidden"
+              />
+              
+              {fileInfo ? (
+                <div className="space-y-4">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-gray-800">{fileInfo.name}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{fileInfo.size}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-gray-50 flex items-center justify-center text-gray-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-800">
+                      Drag and drop your video
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      or click to browse your files
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Error message */}
+            {error && (
+              <div className="text-red-500 text-center p-3 rounded-lg bg-red-50 border border-red-100">
+                {error}
+              </div>
+            )}
+            
+            {/* File requirements */}
+            <div className="text-sm text-gray-400 text-center flex flex-col gap-1">
+              <p>Accepted file types: MP4, MOV, AVI</p>
+              <p>Maximum file size: 750 MB • Maximum duration: 20 minutes</p>
+            </div>
+            
+            {/* Process button - only shown when file is selected */}
+            {fileInfo && (
+              <div className="flex justify-center mt-6">
+                <button 
+                  onClick={handleProcessVideo} 
+                  className="bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white py-3 px-8 rounded-lg transition-colors duration-200 font-medium shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+                >
+                  Create SOP
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </main>
   );
