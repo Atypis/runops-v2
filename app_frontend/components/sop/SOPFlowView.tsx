@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useReducer } from 'react';
 import ReactFlow, {
   Controls,
   MiniMap,
@@ -16,7 +16,8 @@ import ReactFlow, {
   getBezierPath,
   EdgeProps,
   EdgeMarker,
-  NodeChange
+  NodeChange,
+  useUpdateNodeInternals
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -824,7 +825,42 @@ interface SOPFlowViewProps {
 const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const positionCacheRef = useRef<Record<string, { x: number; y: number }>>({});
+
+  interface FlowState {
+    expanded: Record<string, boolean>;
+    isTransitioning: boolean;
+  }
+
+  type FlowAction =
+    | { type: 'INIT_EXPANDED'; expanded: Record<string, boolean> }
+    | { type: 'TOGGLE_NODE'; id: string }
+    | { type: 'END_TRANSITION' };
+
+  const flowReducer = (state: FlowState, action: FlowAction): FlowState => {
+    switch (action.type) {
+      case 'INIT_EXPANDED':
+        return { ...state, expanded: action.expanded };
+      case 'TOGGLE_NODE':
+        return {
+          ...state,
+          expanded: {
+            ...state.expanded,
+            [action.id]: !state.expanded[action.id],
+          },
+          isTransitioning: true,
+        };
+      case 'END_TRANSITION':
+        return { ...state, isTransitioning: false };
+      default:
+        return state;
+    }
+  };
+
+  const [flowState, dispatch] = useReducer(flowReducer, {
+    expanded: {},
+    isTransitioning: false,
+  });
   // Add detection of complex SOPs
   const [isComplexSOP, setIsComplexSOP] = useState<boolean>(false);
   // Add state for layout direction
@@ -837,12 +873,88 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
 
-  const handleToggleCollapse = useCallback((nodeId: string) => {
-    setExpandedNodes(prev => ({
-      ...prev,
-      [nodeId]: !prev[nodeId],
-    }));
-  }, []);
+  const applyLayout = useCallback(
+    (
+      expandedMap: Record<string, boolean>,
+      toggleFn: (id: string) => void
+    ) => {
+      if (!sopData || !sopData.public) return;
+      const { flowNodes: allFlowNodes, flowEdges: allFlowEdges } =
+        transformSopToFlowData(sopData);
+
+      let processedNodes = allFlowNodes.map((node) => {
+        const appNode = node.data as AppSOPNode;
+        if (appNode.childNodes && appNode.childNodes.length > 0) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              isExpanded:
+                expandedMap[node.id] === undefined
+                  ? true
+                  : expandedMap[node.id],
+              onToggleCollapse: toggleFn,
+            },
+          };
+        }
+        return node;
+      });
+
+      let visibleNodes = processedNodes;
+      let visibleEdges = allFlowEdges;
+
+      processedNodes.forEach((node) => {
+        if (node.data.isExpanded === false) {
+          const appNode = node.data as AppSOPNode;
+          if (appNode.childNodes && appNode.childNodes.length > 0) {
+            const descendantsToHide = getAllDescendantIds(node.id, processedNodes);
+            visibleNodes = visibleNodes.filter((n) => !descendantsToHide.includes(n.id));
+            visibleEdges = visibleEdges.filter(
+              (edge) =>
+                !descendantsToHide.includes(edge.source) &&
+                !descendantsToHide.includes(edge.target)
+            );
+          }
+        }
+      });
+
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+        visibleNodes,
+        visibleEdges,
+        layoutDirection
+      );
+
+      const headerHeights = getHeaderHeights(layoutedNodes);
+      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
+
+      setNodes(offsettedNodes);
+      setEdges(layoutedEdges);
+    },
+    [sopData, layoutDirection, setNodes, setEdges]
+  );
+
+  const handleToggleCollapse = useCallback(
+    (nodeId: string) => {
+      if (flowState.isTransitioning || !sopData) return;
+
+      positionCacheRef.current = nodes.reduce<Record<string, { x: number; y: number }>>(
+        (acc, n) => {
+          acc[n.id] = { x: n.position.x, y: n.position.y };
+          return acc;
+        },
+        {}
+      );
+
+      const newExpanded = {
+        ...flowState.expanded,
+        [nodeId]: !flowState.expanded[nodeId],
+      };
+
+      applyLayout(newExpanded, handleToggleCollapse);
+      dispatch({ type: 'TOGGLE_NODE', id: nodeId });
+    },
+    [nodes, flowState, applyLayout, sopData]
+  );
 
   // Create a safe onNodesChange handler that maintains the header offset
   const safeOnNodesChange = useCallback((changes: NodeChange[]) => {
@@ -1019,7 +1131,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           initialExpandedState[node.id] = true; // Default to expanded
         }
       });
-      setExpandedNodes(initialExpandedState);
+      dispatch({ type: 'INIT_EXPANDED', expanded: initialExpandedState });
       
       // Attach toggle handler and expansion state to node data
       const nodesWithCollapseProps = initialFlowNodes.map(node => {
@@ -1056,66 +1168,47 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
     } else {
       setNodes([]);
       setEdges([]);
-      setExpandedNodes({});
+      dispatch({ type: 'INIT_EXPANDED', expanded: {} });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sopData, handleToggleCollapse, layoutDirection]); // Add layoutDirection as dependency
 
-  // Effect to re-filter and re-layout when expandedNodes changes
+  // Re-layout when expanded state, SOP data, or layout direction changes
   useEffect(() => {
-    if (sopData && sopData.public) {
-      const { flowNodes: allFlowNodes, flowEdges: allFlowEdges } = transformSopToFlowData(sopData);
-      
-      // Attach toggle handler and expansion state to node data
-      let processedNodes = allFlowNodes.map(node => {
-        const appNode = node.data as AppSOPNode;
-        if (appNode.childNodes && appNode.childNodes.length > 0) {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              isExpanded: expandedNodes[node.id] === undefined ? true : expandedNodes[node.id],
-              onToggleCollapse: handleToggleCollapse,
-            },
-          };
-        }
-        return node;
-      });
+    if (!sopData || !sopData.public || flowState.isTransitioning) return;
+    applyLayout(flowState.expanded, handleToggleCollapse);
+  }, [sopData, flowState.expanded, layoutDirection, flowState.isTransitioning, applyLayout, handleToggleCollapse]);
 
-      // Filtering logic
-      let visibleNodes = processedNodes;
-      let visibleEdges = allFlowEdges;
+  const updateNodeInternals = useUpdateNodeInternals();
 
-      processedNodes.forEach(node => {
-        if (node.data.isExpanded === false) { // Node is collapsed
-          const appNode = node.data as AppSOPNode;
-          if (appNode.childNodes && appNode.childNodes.length > 0) {
-            const descendantsToHide = getAllDescendantIds(node.id, processedNodes);
-            visibleNodes = visibleNodes.filter(n => !descendantsToHide.includes(n.id));
-            visibleEdges = visibleEdges.filter(edge => 
-              !descendantsToHide.includes(edge.source) && 
-              !descendantsToHide.includes(edge.target)
-            );
-          }
-        }
-      });
+  useEffect(() => {
+    if (!flowState.isTransitioning) return;
 
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-        visibleNodes,
-        visibleEdges,
-        layoutDirection // Use the current layout direction
-      );
-      
-      // Get dynamic header heights based on node types and states
-      const headerHeights = getHeaderHeights(layoutedNodes);
-      
-      // Apply header offset to prevent child nodes from overlapping with parent headers
-      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
-      
-      setNodes(offsettedNodes);
-      setEdges(layoutedEdges);
-    }
-  }, [sopData, expandedNodes, handleToggleCollapse, setNodes, setEdges, layoutDirection]); // Add layoutDirection as dependency
+    const movedNodes = nodes.filter((n) => {
+      const prev = positionCacheRef.current[n.id];
+      return prev && prev.y !== n.position.y;
+    });
+
+    movedNodes.forEach((n) => {
+      const prev = positionCacheRef.current[n.id];
+      const el = document.querySelector(`[data-id="${n.id}"]`) as HTMLElement | null;
+      if (el && prev) {
+        const deltaY = prev.y - n.position.y;
+        el.style.transition = 'transform 0.3s';
+        el.style.transform = `translateY(${deltaY}px)`;
+        requestAnimationFrame(() => {
+          el.style.transform = 'translateY(0px)';
+        });
+      }
+    });
+
+    const timer = setTimeout(() => {
+      movedNodes.forEach((n) => updateNodeInternals(n.id));
+      dispatch({ type: 'END_TRANSITION' });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [flowState.isTransitioning, nodes, updateNodeInternals]);
 
   if (!sopData) {
     return <div className="flex items-center justify-center h-full"><p className="text-muted-foreground">Loading diagram data...</p></div>;
