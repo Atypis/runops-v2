@@ -1,5 +1,5 @@
 'use client'; // Make this a Client Component
-import React, { useState, useEffect } from 'react'; // Import useState and useEffect
+import React, { useState, useEffect, useRef } from 'react'; // Add useRef for polling interval
 import SOPListView from '@/components/sop/SOPListView';
 import SOPFlowView from '@/components/sop/SOPFlowView'; // Uncomment and import
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ interface SopPageProps {
   };
 }
 
+type JobStatus = 'queued' | 'processing' | 'completed' | 'error' | 'unknown';
+
 export default function SopPage({ params }: SopPageProps) {
   const [currentView, setCurrentView] = useState<'list' | 'flow'>('list');
   const [sopData, setSopData] = useState<SOPDocument | null>(null);
@@ -19,43 +21,103 @@ export default function SopPage({ params }: SopPageProps) {
   const [rootNodes, setRootNodes] = useState<SOPNode[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus>('unknown');
+  
+  // Polling interval reference
+  const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
   // States for list view interactions (will be passed to SOPListView)
   // These were previously managed within SOPListView, lifting them up.
   const [listProcessedSopData, setListProcessedSopData] = useState<SOPDocument | null>(null);
   const [listRootNodes, setListRootNodes] = useState<SOPNode[]>([]);
 
-  useEffect(() => {
-    const fetchSopData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        // Using the combined JSON file for both views
-        const response = await fetch('/mocksop-original-structure.json');
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+  // Function to check job status
+  const checkJobStatus = async () => {
+    try {
+      const response = await fetch(`/api/job-status/${params.sopId}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch job status');
+      }
+      
+      const data = await response.json();
+      setJobStatus(data.status || 'unknown');
+      
+      // If job is complete, clear polling interval and load SOP data
+      if (data.status === 'completed') {
+        if (pollingInterval.current) {
+          clearInterval(pollingInterval.current);
+          pollingInterval.current = null;
         }
-        const combinedData: SOPDocument = await response.json();
-        setSopData(combinedData);
-        
-        const processed = processSopData(combinedData); // Process once for both views
-        setProcessedSopData(processed);
-        setListProcessedSopData(processed); // Initialize for list view
-
-        const roots = getRootNodes(processed.public);
-        setRootNodes(roots);
-        setListRootNodes(roots); // Initialize for list view
-
-      } catch (e: any) {
-        setError(e.message || 'Failed to load SOP data.');
-        console.error(e);
-      } finally {
+        fetchSopData();
+      } else if (data.status === 'error') {
+        // If job failed, clear polling interval and show error
+        if (pollingInterval.current) {
+          clearInterval(pollingInterval.current);
+          pollingInterval.current = null;
+        }
+        setError(data.error || 'An error occurred during video processing');
         setIsLoading(false);
       }
-    };
+    } catch (e: any) {
+      console.error('Error checking job status:', e);
+      // Don't set error here - we want to keep polling even if a request fails
+    }
+  };
+  
+  // Function to start polling for job status
+  const startStatusPolling = () => {
+    // Clear any existing polling
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+    }
+    
+    // Start polling immediately
+    checkJobStatus();
+    
+    // Then set up interval for every 3 seconds
+    pollingInterval.current = setInterval(checkJobStatus, 3000);
+  };
 
-    fetchSopData();
-  }, [params.sopId]); // Reload if sopId changes, though mocksop is static for now
+  // Fetch SOP data when available
+  const fetchSopData = async () => {
+    try {
+      // Using the combined JSON file for both views
+      const response = await fetch('/mocksop-original-structure.json');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const combinedData: SOPDocument = await response.json();
+      setSopData(combinedData);
+      
+      const processed = processSopData(combinedData); // Process once for both views
+      setProcessedSopData(processed);
+      setListProcessedSopData(processed); // Initialize for list view
+
+      const roots = getRootNodes(processed.public);
+      setRootNodes(roots);
+      setListRootNodes(roots); // Initialize for list view
+      
+      setIsLoading(false);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load SOP data.');
+      console.error(e);
+      setIsLoading(false);
+    }
+  };
+
+  // On mount, start polling for job status
+  useEffect(() => {
+    startStatusPolling();
+    
+    // Clean up on unmount
+    return () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
+    };
+  }, [params.sopId]);
 
   // Handler for updates from SOPListView (editing/deleting nodes)
   // This will update listProcessedSopData and listRootNodes
@@ -68,17 +130,50 @@ export default function SopPage({ params }: SopPageProps) {
     setRootNodes(newRoots);
   };
 
+  // Show processing state
+  if (isLoading && (jobStatus === 'queued' || jobStatus === 'processing')) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-white">
+        <div className="relative w-16 h-16 mb-6">
+          <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-blue-500 animate-spin"></div>
+        </div>
+        <p className="text-xl text-gray-700 mb-3">AI magic in progress...</p>
+        <p className="text-sm text-gray-500">
+          {jobStatus === 'queued' ? 'Your video is waiting to be processed' : 'Analyzing your workflow video'}
+        </p>
+      </div>
+    );
+  }
 
+  // Show general loading state
   if (isLoading) {
-    return <div className="flex justify-center items-center h-screen"><p>Loading SOP data...</p></div>;
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p>Loading SOP data...</p>
+      </div>
+    );
   }
 
+  // Show error state
   if (error) {
-    return <div className="flex justify-center items-center h-screen"><p className="text-red-500">Error: {error}</p></div>;
+    return (
+      <div className="flex flex-col justify-center items-center h-screen">
+        <p className="text-red-500 text-xl mb-4">Error</p>
+        <p className="text-gray-700">{error}</p>
+        <Button className="mt-6" onClick={() => window.location.href = '/'}>
+          Return to Upload Page
+        </Button>
+      </div>
+    );
   }
 
+  // Show "no data" state
   if (!processedSopData || !listProcessedSopData) {
-    return <div className="flex justify-center items-center h-screen"><p>No SOP data available.</p></div>;
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p>No SOP data available.</p>
+      </div>
+    );
   }
 
   return (

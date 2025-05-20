@@ -26,6 +26,14 @@ This approach separates immediate user interactions from longer-running backgrou
   - Queues processing jobs after successful upload
   - Provides real-time feedback via progress bar and status indicators
 
+- **`app/sop/[sopId]/page.tsx`**  
+  The SOP viewer page that:
+  - Polls the job status endpoint every 3 seconds
+  - Shows an "AI magic in progress..." spinner during processing
+  - Displays a ReactFlow diagram or list view when processing completes
+  - Handles error states with appropriate user feedback
+  - Provides toggle between list view and flow view
+
 ### API Endpoints
 
 - **`app/api/get-upload-url/route.ts`**  
@@ -114,12 +122,36 @@ This approach separates immediate user interactions from longer-running backgrou
    - Background worker polls for new jobs (future implementation)
 
 2. **Status Updates**
-   - Worker updates job status as processing progresses
-   - Frontend polls `/api/job-status/[jobId]` for updates
+   - SOP view polls `/api/job-status/[jobId]` every 3 seconds
+   - Processing states handled: queued, processing, completed, error
+   - Different UI displayed based on job status
 
 3. **Completion**
-   - When processing completes, job status changes to "completed"
-   - SOP JSON is stored and made available to the frontend
+   - When processing completes, SOP view displays the diagram
+   - Users can toggle between list and flow visualizations
+
+## Current Implementation Status
+
+### Completed Components
+
+- ✅ Video upload with validation and progress tracking
+- ✅ Signed URL generation for secure direct-to-storage uploads
+- ✅ Job queue system with database tracking
+- ✅ Status polling API endpoint
+- ✅ SOP viewer with status polling and UI states
+
+### Pending Components
+
+- ⏳ Background worker (Ticket 1.6)
+  - This component will process queued jobs
+  - Until implemented, uploaded videos will remain in "queued" status
+  - The SOP view will show the "AI magic in progress..." spinner indefinitely
+  
+- ⏳ Video processing with ffmpeg
+  - Down-sample videos as specified in architecture
+  
+- ⏳ Gemini API integration
+  - Process videos to extract SOP steps
 
 ## Security Considerations
 
@@ -155,4 +187,17 @@ This approach separates immediate user interactions from longer-running backgrou
 
 4. **User Authentication**
    - Associate uploads with specific user accounts
-   - Implement access control for private SOPs 
+   - Implement access control for private SOPs
+
+## Testing Notes
+
+Currently, without the background worker implementation, the system can be tested up to the job queuing stage:
+
+1. Upload a video through the landing page
+2. Verify the file appears in Supabase Storage under `videos/raw/[jobId].mp4`
+3. Check that a job record is created in the `jobs` table with status "queued"
+4. The SOP view will show the "AI magic in progress..." spinner
+
+To complete the testing loop, you would need to:
+1. Manually update a job's status to "completed" in the Supabase dashboard
+2. Ensure a mock SOP JSON is available at the expected location 
