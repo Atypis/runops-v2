@@ -15,6 +15,7 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   
@@ -131,31 +132,89 @@ export default function Home() {
   };
   
   // Process video 
-  const handleProcessVideo = () => {
+  const handleProcessVideo = async () => {
     if (!file) return;
     
-    setIsUploading(true);
-    
-    // Simulate upload progress for demo purposes
-    const interval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
+    try {
+      setIsUploading(true);
+      setError(null);
+      
+      // Step 1: Get a signed upload URL from our API
+      const response = await fetch('/api/get-upload-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to get upload URL');
+      }
+      
+      const { jobId, url } = await response.json();
+      setJobId(jobId); // Save jobId for status polling
+      
+      // Step 2: Upload the file to the signed URL using PUT with XMLHttpRequest to track progress
+      const xhr = new XMLHttpRequest();
+      
+      // Set up progress tracking
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded * 100) / event.total);
+          setUploadProgress(progress);
+        }
+      };
+      
+      // Set up completion and error handlers
+      xhr.onload = async () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // Upload completed successfully
+          setUploadProgress(100);
           setIsUploading(false);
           setIsProcessing(true);
           
-          // Simulate processing delay
-          setTimeout(() => {
-            // In a real app, we would redirect to the SOP view here
+          try {
+            // Queue the job for processing
+            const queueResponse = await fetch('/api/queue-job', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ jobId }),
+            });
+            
+            if (!queueResponse.ok) {
+              const errorData = await queueResponse.json();
+              throw new Error(errorData.error || 'Failed to queue job for processing');
+            }
+            
+            // Job queued successfully - redirect to SOP view
+            window.location.href = `/sop/${jobId}`;
+          } catch (queueError: any) {
             setIsProcessing(false);
-            alert('SOP created successfully! (Demo only)');
-          }, 5000);
-          
-          return 100;
+            setError(queueError.message || 'Error starting video processing. Please try again.');
+            console.error('Queue error:', queueError);
+          }
+        } else {
+          throw new Error('Failed to upload file');
         }
-        return prev + 5;
-      });
-    }, 300);
+      };
+      
+      xhr.onerror = () => {
+        throw new Error('Network error occurred during upload');
+      };
+      
+      // Initialize request and send file
+      xhr.open('PUT', url);
+      xhr.setRequestHeader('Content-Type', file.type);
+      xhr.send(file);
+      
+    } catch (error: any) {
+      setIsUploading(false);
+      setError(error.message || 'Something went wrong. Please try again.');
+      console.error('Upload error:', error);
+    }
   };
   
   return (
