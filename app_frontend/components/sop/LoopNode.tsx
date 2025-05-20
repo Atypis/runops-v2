@@ -27,7 +27,6 @@ interface LoopNodeProps extends NodeProps {
 
 // Display state enum
 enum DisplayState {
-  Collapsed,
   SemiExpanded,
   FullyExpanded
 }
@@ -36,6 +35,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
   // References for measuring content area height
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
   
   // Track ReactFlow's expansion state
   const isFlowExpanded = data.isExpanded !== false;
@@ -74,6 +74,15 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
     };
   }, [displayState, data.intent, data.context]);
   
+  // Effect to keep display state in sync with ReactFlow's expansion state
+  useEffect(() => {
+    if (isFlowExpanded && displayState !== DisplayState.FullyExpanded) {
+      setDisplayState(DisplayState.FullyExpanded);
+    } else if (!isFlowExpanded && displayState === DisplayState.FullyExpanded) {
+      setDisplayState(DisplayState.SemiExpanded);
+    }
+  }, [isFlowExpanded, displayState]);
+  
   // Format the label with ID path if available but avoid double brackets
   const formattedLabel = data.id_path 
     ? (!data.id_path.startsWith('[') ? `[${data.id_path}]` : data.id_path) + ` ${data.label}`
@@ -89,30 +98,25 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
   const estimatedTimeMinutes = childCount * 3; // Simple heuristic: 3 min per child
   const complexityLevel = childCount <= 2 ? "Simple" : childCount <= 5 ? "Moderate" : "Complex";
   
-  // Handle expansion state cycling 
-  const handleExpansionToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  // Handle expansion state toggling with direct click (no selection needed)
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent ReactFlow's default selection behavior
     
-    // Special case: if we're in semi-expanded state but ReactFlow already shows children
-    if (displayState === DisplayState.SemiExpanded && isFlowExpanded) {
-      // Just go to fully expanded state visually without toggling ReactFlow
-      setDisplayState(DisplayState.FullyExpanded);
-      return;
-    }
+    // Always toggle between fully expanded and semi-expanded
+    const newDisplayState = displayState === DisplayState.FullyExpanded 
+      ? DisplayState.SemiExpanded 
+      : DisplayState.FullyExpanded;
     
-    // Regular state cycling
-    if (displayState === DisplayState.Collapsed) {
-      setDisplayState(DisplayState.SemiExpanded);
-    } else if (displayState === DisplayState.SemiExpanded) {
-      setDisplayState(DisplayState.FullyExpanded);
-      // Notify ReactFlow to expand
-      if (data.onToggleCollapse && isCompound && !isFlowExpanded) {
-        data.onToggleCollapse(id);
-      }
-    } else {
-      setDisplayState(DisplayState.Collapsed);
-      // Notify ReactFlow to collapse if needed
-      if (data.onToggleCollapse && isCompound && isFlowExpanded) {
+    setDisplayState(newDisplayState);
+    
+    // Notify ReactFlow about the collapse/expand state for child nodes layout
+    if (data.onToggleCollapse && isCompound) {
+      // If we're going to semi-expanded, collapse in ReactFlow
+      // If we're going to fully expanded, expand in ReactFlow
+      const shouldBeExpanded = newDisplayState === DisplayState.FullyExpanded;
+      
+      // Only trigger if there's a state change
+      if (shouldBeExpanded !== isFlowExpanded) {
         data.onToggleCollapse(id);
       }
     }
@@ -120,7 +124,8 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
   
   // Open detailed editor (for a more comprehensive view)
   const openDetailedEditor = (e: React.MouseEvent) => {
-    e.stopPropagation();
+    e.stopPropagation(); // Prevent triggering parent click handlers
+    
     // Find the node element
     const nodeElement = document.querySelector(`[data-id="${id}"]`);
     if (!nodeElement) return;
@@ -144,18 +149,26 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
     }, 100);
   };
   
-  // Calculate the width and height for the container based on child count and display state
+  // Calculate the width and height for the container based on display state
   let useWidth: number;
   let useHeight: number;
   
-  // Always calculate the full size needed for children
-  useWidth = data.calculatedWidth || (childCount > 0 ? Math.max(450, childCount * 120) : 320);
+  // Use smaller size for preview card, larger size for expanded content
+  const previewWidth = 320; // Fixed width for preview card
+  const previewHeight = Math.max(contentHeight + 30, 150); // Height based on content for preview
   
-  // Calculate minimum height based on content + children
-  // Add reasonable padding (60px) to accommodate the header and some spacing
-  const contentBasedMinHeight = contentHeight + (childCount > 0 ? 240 : 60);
-  useHeight = data.calculatedHeight || 
-    (childCount > 0 ? Math.max(contentBasedMinHeight, childCount * 80) : contentBasedMinHeight);
+  if (displayState === DisplayState.SemiExpanded) {
+    // Use preview card dimensions
+    useWidth = previewWidth;
+    useHeight = previewHeight;
+  } else {
+    // Use full expanded dimensions for children
+    useWidth = data.calculatedWidth || (childCount > 0 ? Math.max(450, childCount * 120) : 320);
+    // Calculate minimum height based on content + children
+    const contentBasedMinHeight = contentHeight + (childCount > 0 ? 240 : 60);
+    useHeight = data.calculatedHeight || 
+      (childCount > 0 ? Math.max(contentBasedMinHeight, childCount * 80) : contentBasedMinHeight);
+  }
   
   // Standardized handle styling that matches other nodes
   const getHandleStyle = (position: Position) => {
@@ -212,51 +225,47 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
     // Base style
     const baseStyle = {
       width: useWidth,
+      height: useHeight,
       minHeight: useHeight,
+      maxHeight: displayState === DisplayState.SemiExpanded ? previewHeight : undefined,
       border: '2px solid',
       borderColor: '#d1d5f6',
+      transition: 'all 0.4s cubic-bezier(0.25, 1, 0.5, 1)'
     };
     
     // Style adjustments based on display state
-    if (displayState === DisplayState.Collapsed) {
-      return {
-        ...baseStyle,
-        backgroundColor: 'rgba(243, 232, 255, 0.1)',
-        boxShadow: '0 2px 6px rgba(99, 102, 241, 0.08)',
-        borderImage: 'linear-gradient(to bottom, #8287eb, #d1d5f6) 1'
-      };
-    } else if (displayState === DisplayState.SemiExpanded) {
+    if (displayState === DisplayState.SemiExpanded) {
       return {
         ...baseStyle,
         backgroundColor: 'rgba(243, 232, 255, 0.2)',
-        boxShadow: '0 6px 12px rgba(99, 102, 241, 0.12), 0 2px 4px rgba(99, 102, 241, 0.1)'
+        boxShadow: isHovered 
+          ? '0 8px 16px rgba(99, 102, 241, 0.18), 0 3px 6px rgba(99, 102, 241, 0.15)'
+          : '0 6px 12px rgba(99, 102, 241, 0.12), 0 2px 4px rgba(99, 102, 241, 0.1)'
       };
     } else {
       // Fully expanded
       return {
         ...baseStyle,
         backgroundColor: 'rgba(243, 232, 255, 0.3)',
-        boxShadow: '0 8px 20px rgba(99, 102, 241, 0.15), 0 2px 6px rgba(99, 102, 241, 0.18)'
+        boxShadow: '0 8px 20px rgba(99, 102, 241, 0.15), 0 3px 8px rgba(99, 102, 241, 0.18)'
       };
     }
   };
 
   // Determine whether we should show the preview section
-  const shouldShowPreview = displayState === DisplayState.SemiExpanded && 
-                            childCount > 0 && 
-                            !isFlowExpanded;
+  const shouldShowPreview = displayState === DisplayState.SemiExpanded && childCount > 0;
   
   return (
     <div
-      className={`
-        flex flex-col items-center
-        ${selected ? 'outline outline-2 outline-offset-2 outline-purple-500 rounded-lg' : ''}
-      `}
+      className="flex flex-col items-center"
       data-node-type="loop"
       data-is-compound={isCompound ? 'true' : 'false'}
       data-display-state={displayState}
       data-child-count={childCount}
       data-flow-expanded={isFlowExpanded ? 'true' : 'false'}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={(e) => e.stopPropagation()} // Prevent ReactFlow selection
     >
       <div
         className={`
@@ -266,6 +275,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
           relative
           overflow-hidden
           group/loop
+          ${displayState === DisplayState.SemiExpanded ? 'scale-in' : 'scale-normal'}
         `}
         style={getNodeStyle()}
         title={tooltipText}
@@ -294,9 +304,9 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
               transition-colors
               ${selected ? 'bg-purple-50' : 'bg-white'} 
               group-hover/loop:bg-purple-50
-              ${displayState !== DisplayState.Collapsed ? 'border-purple-200' : 'border-transparent'}
+              ${displayState !== DisplayState.SemiExpanded ? 'border-purple-200' : 'border-transparent'}
             `}
-            onClick={handleExpansionToggle}
+            onClick={handleToggle}
           >
             <div className="flex items-center space-x-2">
               <div
@@ -323,8 +333,9 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
             </div>
             
             <div className="flex items-center space-x-1">
-              {/* Edit button - shows if expanded */}
-              {displayState === DisplayState.SemiExpanded && (
+              {/* Edit button - shows on hover in semi-expanded, always in fully expanded */}
+              {((displayState === DisplayState.SemiExpanded && isHovered) || 
+                displayState === DisplayState.FullyExpanded) && (
                 <button
                   onClick={openDetailedEditor}
                   className="p-1 rounded-md hover:bg-purple-100 text-purple-600 transition-colors"
@@ -337,14 +348,10 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
               {/* Toggle button with state-appropriate icon and tooltip */}
               <button
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-purple-100 text-purple-600 transition-colors"
-                title={
-                  displayState === DisplayState.Collapsed ? "Show details" : 
-                  (displayState === DisplayState.SemiExpanded && !isFlowExpanded) ? "Show child nodes" : 
-                  "Collapse"
-                }
+                title={displayState === DisplayState.SemiExpanded ? "Show child nodes" : "Collapse"}
+                onClick={handleToggle}
               >
-                {displayState === DisplayState.FullyExpanded || 
-                 (displayState === DisplayState.SemiExpanded && isFlowExpanded) ? (
+                {displayState === DisplayState.FullyExpanded ? (
                   <ChevronUp size={16} />
                 ) : (
                   <ChevronDown size={16} />
@@ -353,43 +360,41 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
             </div>
           </div>
           
-          {/* Intent and Context Section - Only in semi-expanded and fully expanded states */}
-          {(displayState === DisplayState.SemiExpanded || displayState === DisplayState.FullyExpanded) && (
-            <div className="px-4 py-3 border-b border-purple-100 bg-white">
-              {data.intent && (
-                <p className="text-sm text-gray-700 mb-2">
-                  {data.intent}
-                </p>
-              )}
-              
-              {data.context && (
-                <p className="text-xs text-gray-600 leading-relaxed">
-                  {data.context}
-                </p>
-              )}
-              
-              {/* Quick metrics about children - helps provide context */}
-              {childCount > 0 && (
-                <div className="flex items-center space-x-3 mt-3 text-xs text-purple-600">
-                  <div className="flex items-center">
-                    <Layers size={12} className="mr-1" />
-                    <span>{childCount} {childCount === 1 ? 'step' : 'steps'}</span>
-                  </div>
-                  
-                  <div className="flex items-center">
-                    <Clock size={12} className="mr-1" />
-                    <span>~{estimatedTimeMinutes} min</span>
-                  </div>
-                  
-                  <div className="flex items-center opacity-80">
-                    <span>{complexityLevel}</span>
-                  </div>
+          {/* Intent and Context Section - Always show in both states */}
+          <div className="px-4 py-3 border-b border-purple-100 bg-white">
+            {data.intent && (
+              <p className="text-sm text-gray-700 mb-2">
+                {data.intent}
+              </p>
+            )}
+            
+            {data.context && (
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {data.context}
+              </p>
+            )}
+            
+            {/* Quick metrics about children - helps provide context */}
+            {childCount > 0 && (
+              <div className="flex items-center space-x-3 mt-3 text-xs text-purple-600">
+                <div className="flex items-center">
+                  <Layers size={12} className="mr-1" />
+                  <span>{childCount} {childCount === 1 ? 'step' : 'steps'}</span>
                 </div>
-              )}
-            </div>
-          )}
+                
+                <div className="flex items-center">
+                  <Clock size={12} className="mr-1" />
+                  <span>~{estimatedTimeMinutes} min</span>
+                </div>
+                
+                <div className="flex items-center opacity-80">
+                  <span>{complexityLevel}</span>
+                </div>
+              </div>
+            )}
+          </div>
           
-          {/* Preview of child nodes - Only shown when appropriate */}
+          {/* Preview of child nodes - Only shown when in semi-expanded state */}
           {shouldShowPreview && (
             <div className="p-3 bg-purple-50/50 hover:bg-purple-50 transition-colors">
               <div className="flex items-center justify-between">
@@ -399,7 +404,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 
                 <button 
                   className="text-xs text-purple-600 hover:text-purple-800 transition-colors"
-                  onClick={handleExpansionToggle}
+                  onClick={handleToggle}
                 >
                   View all {childCount} steps &rarr;
                 </button>
@@ -412,30 +417,30 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
           )}
         </div>
         
-        {/* Container for child nodes - Always present for ReactFlow but has dynamic positioning */}
-        <div 
-          className={`relative w-full transition-opacity duration-300 bg-purple-50/30
-                     ${displayState === DisplayState.FullyExpanded || isFlowExpanded ? 'opacity-100' : 'opacity-0'}`} 
-          style={{ 
-            minHeight: Math.max(useHeight - contentHeight, 200),
-            // Create space for content above the child nodes
-            marginTop: isFlowExpanded ? contentHeight + 'px' : '0',
-            paddingTop: isFlowExpanded && displayState !== DisplayState.FullyExpanded ? '60px' : '20px',
-            paddingBottom: '20px',
-            paddingLeft: '20px',
-            paddingRight: '20px',
-            // Control visibility based on states
-            display: (isFlowExpanded || displayState === DisplayState.FullyExpanded) ? 'block' : 'none',
-            position: 'relative',
-            zIndex: 2
-          }}
-          data-child-container="true"
-        >
-          {/* ReactFlow renders children in this container */}
-        </div>
+        {/* Container for child nodes - Only visible when fully expanded */}
+        {displayState === DisplayState.FullyExpanded && (
+          <div 
+            className="relative w-full bg-purple-50/30" 
+            style={{ 
+              minHeight: Math.max(useHeight - contentHeight, 200),
+              paddingTop: '20px',
+              paddingBottom: '20px',
+              paddingLeft: '20px',
+              paddingRight: '20px',
+              position: 'relative',
+              zIndex: 2,
+              opacity: 0,
+              animation: 'fadeIn 0.3s ease-in-out forwards',
+              animationDelay: '0.1s'
+            }}
+            data-child-container="true"
+          >
+            {/* ReactFlow renders children in this container */}
+          </div>
+        )}
         
         {/* Indicator for child items when fully expanded and has children */}
-        {(displayState === DisplayState.FullyExpanded || isFlowExpanded) && isCompound && (
+        {displayState === DisplayState.FullyExpanded && isCompound && (
           <div 
             className="
               absolute bottom-0 left-0 right-0
@@ -484,5 +489,40 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
     </div>
   );
 };
+
+// Add CSS keyframes for animations
+const styleEl = document.createElement('style');
+styleEl.textContent = `
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .scale-in {
+    transform-origin: center center;
+    animation: scaleIn 0.3s ease-out forwards;
+  }
+  
+  .scale-normal {
+    transform-origin: center center;
+    animation: scaleNormal 0.3s ease-out forwards;
+  }
+  
+  @keyframes scaleIn {
+    from { transform: scale(1.02); }
+    to { transform: scale(1); }
+  }
+  
+  @keyframes scaleNormal {
+    from { transform: scale(0.98); }
+    to { transform: scale(1); }
+  }
+`;
+
+// Only add once to avoid duplicates
+if (typeof document !== 'undefined' && !document.head.querySelector('style[data-loop-node-animations]')) {
+  styleEl.setAttribute('data-loop-node-animations', 'true');
+  document.head.appendChild(styleEl);
+}
 
 export default LoopNode; 
