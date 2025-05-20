@@ -15,7 +15,8 @@ import ReactFlow, {
   ConnectionLineType,
   getBezierPath,
   EdgeProps,
-  EdgeMarker
+  EdgeMarker,
+  NodeChange
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -717,22 +718,103 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
   };
 };
 
-// Helper to get all child node IDs recursively (needed for filtering)
 const getAllDescendantIds = (nodeId: string, allNodes: FlowNode<AppSOPNode>[]): string[] => {
-  let descendantIds: string[] = [];
-  const currentNode = allNodes.find(n => n.id === nodeId);
-
-  // Use childSopNodeIds if available (populated for compound parents in transformSopToFlowData)
-  // Cast currentNode.data to any to access dynamically added childSopNodeIds
-  const directChildrenIds = (currentNode?.data as any)?.childSopNodeIds || 
-                            currentNode?.data?.childNodes?.map(child => child.id) || [];
+  const descendants: string[] = [];
   
-  directChildrenIds.forEach((childId: string) => { // Explicitly type childId
-    descendantIds.push(childId);
-    const grandChildren = getAllDescendantIds(childId, allNodes);
-    descendantIds = descendantIds.concat(grandChildren);
+  const nodeToCheck = allNodes.find(n => n.id === nodeId);
+  if (!nodeToCheck) return descendants;
+  
+  const childNodes = allNodes.filter(n => n.parentNode === nodeId);
+  
+  childNodes.forEach(child => {
+    descendants.push(child.id);
+    // Recursively add descendants of this child
+    descendants.push(...getAllDescendantIds(child.id, allNodes));
   });
-  return descendantIds;
+  
+  return descendants;
+};
+
+/**
+ * Shifts child nodes vertically to account for parent node headers
+ * and prevents them from being positioned in the header area.
+ * 
+ * @param nodes The array of nodes to process
+ * @param headerHeights Optional map of parent node IDs to their header heights
+ * @returns A new array of nodes with adjusted positions
+ */
+const withHeaderOffset = (
+  nodes: FlowNode[], 
+  headerHeights: Record<string, number> = {}
+): FlowNode[] => {
+  // Default header height if not specified for a particular parent
+  const DEFAULT_HEADER_HEIGHT = 60;
+  
+  return nodes.map(node => {
+    // Only process child nodes
+    if (!node.parentNode) return node;
+    
+    // Get the header height for this node's parent
+    const headerHeight = headerHeights[node.parentNode] || DEFAULT_HEADER_HEIGHT;
+    
+    // Create a new node with adjusted position and extent
+    return {
+      ...node,
+      position: {
+        ...node.position,
+        y: Math.max(node.position.y, 0) + headerHeight
+      },
+      // Set extent to prevent dragging into the header area
+      extent: [
+        [0, headerHeight], 
+        [Infinity, Infinity]
+      ]
+    };
+  });
+};
+
+/**
+ * Helper function to get header heights based on node type and display state.
+ * Can be extended to handle more complex logic as needed.
+ */
+const getHeaderHeights = (nodes: FlowNode[]): Record<string, number> => {
+  const headerHeights: Record<string, number> = {};
+  
+  nodes.forEach(node => {
+    if (node.data?.childNodes?.length || node.data?.childSopNodeIds?.length) {
+      // Default header height
+      let headerHeight = 60;
+      
+      // Adjust based on node type
+      switch (node.type) {
+        case 'loop':
+          // For loop nodes, header height depends on display state
+          if (node.data?.isExpanded === false) {
+            // Collapsed state - just the header
+            headerHeight = 45;
+          } else {
+            // Expanded state - header + content area (varies based on content)
+            const hasIntent = !!node.data?.intent;
+            const hasContext = !!node.data?.context;
+            
+            // Base header (45px) + content area based on content
+            headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
+          }
+          break;
+          
+        case 'decision':
+          headerHeight = 70; // Decision nodes have taller headers
+          break;
+          
+        default:
+          headerHeight = 60; // Default for other node types
+      }
+      
+      headerHeights[node.id] = headerHeight;
+    }
+  });
+  
+  return headerHeights;
 };
 
 interface SOPFlowViewProps {
@@ -761,6 +843,60 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       [nodeId]: !prev[nodeId],
     }));
   }, []);
+
+  // Create a safe onNodesChange handler that maintains the header offset
+  const safeOnNodesChange = useCallback((changes: NodeChange[]) => {
+    // Process position changes to ensure children don't go into parent headers
+    const safeChanges = changes.map(change => {
+      // Check if this is a position change for a child node
+      if (change.type === 'position' && change.position) {
+        // Find the node being moved to check if it has a parent
+        const nodeBeingMoved = nodes.find(node => node.id === change.id);
+        if (nodeBeingMoved?.parentNode) {
+          // Get the header height for this node's parent - dynamic calculation
+          const parentNode = nodes.find(n => n.id === nodeBeingMoved.parentNode);
+          
+          // Default header height if parent not found
+          let headerHeight = 60;
+          
+          if (parentNode) {
+            // Determine header height based on parent node type and state
+            switch (parentNode.type) {
+              case 'loop':
+                // For loop nodes, header depends on state
+                if (parentNode.data?.isExpanded === false) {
+                  headerHeight = 45; // Collapsed - just header
+                } else {
+                  // Expanded - header + content
+                  const hasIntent = !!parentNode.data?.intent;
+                  const hasContext = !!parentNode.data?.context;
+                  headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
+                }
+                break;
+              case 'decision':
+                headerHeight = 70; // Decision nodes have taller headers
+                break;
+              default:
+                headerHeight = 60; // Default for other types
+            }
+          }
+          
+          // Ensure y position is at least the header height
+          return {
+            ...change,
+            position: {
+              ...change.position,
+              y: Math.max(change.position.y, headerHeight)
+            }
+          };
+        }
+      }
+      return change;
+    });
+    
+    // Apply the safe changes
+    onNodesChange(safeChanges);
+  }, [onNodesChange, nodes]);
 
   // Add handler for toggling layout direction
   const toggleLayoutDirection = useCallback(() => {
@@ -907,7 +1043,14 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
         initialFlowEdges,
         layoutDirection // Use the current layout direction
       );
-      setNodes(layoutedNodes);
+      
+      // Get dynamic header heights based on node types and states
+      const headerHeights = getHeaderHeights(layoutedNodes);
+      
+      // Apply header offset to prevent child nodes from overlapping with parent headers
+      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
+      
+      setNodes(offsettedNodes);
       setEdges(layoutedEdges);
 
     } else {
@@ -962,7 +1105,14 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
         visibleEdges,
         layoutDirection // Use the current layout direction
       );
-      setNodes(layoutedNodes);
+      
+      // Get dynamic header heights based on node types and states
+      const headerHeights = getHeaderHeights(layoutedNodes);
+      
+      // Apply header offset to prevent child nodes from overlapping with parent headers
+      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
+      
+      setNodes(offsettedNodes);
       setEdges(layoutedEdges);
     }
   }, [sopData, expandedNodes, handleToggleCollapse, setNodes, setEdges, layoutDirection]); // Add layoutDirection as dependency
@@ -994,7 +1144,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
+          onNodesChange={safeOnNodesChange}
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypesConfig}
           edgeTypes={edgeTypesConfig}
