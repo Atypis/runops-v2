@@ -13,7 +13,7 @@ interface LoopNodeData {
   calculatedWidth?: number; // Added to access Dagre-calculated width
   calculatedHeight?: number; // Added to access Dagre-calculated height
   childSopNodeIds?: string[]; // IDs of direct child nodes
-  parentNodeId?: string; // If this node is a child of another compound node
+  parentId?: string; // If this node is a child of another compound node
   // Add any other specific props your loop node might need from appNode.data
   id_path?: string; // Hierarchical ID for visual display
   intent?: string;
@@ -273,8 +273,32 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
     }
   };
   
+  // NEW: Calculate nesting depth by counting the dots in id_path
+  const getNestingDepth = (): number => {
+    if (!data.id_path) return 0;
+    const dotCount = (data.id_path.match(/\./g) || []).length;
+    return dotCount;
+  };
+  
+  // NEW: Get color shades based on nesting depth
+  const getDepthColors = () => {
+    const depth = getNestingDepth();
+    
+    // Base color is purple/indigo
+    switch (depth) {
+      case 0: return { border: '#d1d5f6', bg: 'rgba(243, 232, 255, 0.2)', headerBg: 'rgb(243, 232, 255)' };
+      case 1: return { border: '#c7a5ff', bg: 'rgba(237, 220, 255, 0.25)', headerBg: 'rgb(237, 220, 255)' };
+      case 2: return { border: '#b388ff', bg: 'rgba(230, 208, 255, 0.3)', headerBg: 'rgb(230, 208, 255)' };
+      case 3: return { border: '#9966ff', bg: 'rgba(224, 195, 255, 0.35)', headerBg: 'rgb(224, 195, 255)' };
+      default: return { border: '#7c45ff', bg: 'rgba(218, 183, 255, 0.4)', headerBg: 'rgb(218, 183, 255)' };
+    }
+  };
+  
   // Determine the visual styling based on display state
   const getNodeStyle = () => {
+    // Get colors based on nesting depth
+    const depthColors = getDepthColors();
+    
     // Base style
     const baseStyle = {
       width: useWidth,
@@ -282,7 +306,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
       minHeight: useHeight,
       maxHeight: displayState === DisplayState.SemiExpanded ? previewHeight : undefined,
       border: '2px solid',
-      borderColor: '#d1d5f6',
+      borderColor: depthColors.border,
       transition: 'all 0.4s cubic-bezier(0.25, 1, 0.5, 1)'
     };
     
@@ -290,7 +314,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
     if (displayState === DisplayState.SemiExpanded) {
       return {
         ...baseStyle,
-        backgroundColor: 'rgba(243, 232, 255, 0.2)',
+        backgroundColor: depthColors.bg,
         boxShadow: isHovered 
           ? '0 8px 16px rgba(99, 102, 241, 0.18), 0 3px 6px rgba(99, 102, 241, 0.15)'
           : '0 6px 12px rgba(99, 102, 241, 0.12), 0 2px 4px rgba(99, 102, 241, 0.1)'
@@ -299,10 +323,52 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
       // Fully expanded
       return {
         ...baseStyle,
-        backgroundColor: 'rgba(243, 232, 255, 0.3)',
-        boxShadow: '0 8px 20px rgba(99, 102, 241, 0.15), 0 3px 8px rgba(99, 102, 241, 0.18)'
+        backgroundColor: depthColors.bg,
+        boxShadow: '0 8px 20px rgba(99, 102, 241, 0.15), 0 3px 8px rgba(99, 102, 241, 0.18)',
+        // Ensure loop node is large enough for children
+        width: data.calculatedWidth || useWidth,
+        height: data.calculatedHeight || useHeight,
       };
     }
+  };
+
+  // NEW: Get header style based on nesting depth
+  const getHeaderStyle = () => {
+    const depthColors = getDepthColors();
+    
+    if (selected) {
+      return {
+        backgroundColor: depthColors.headerBg,
+        borderColor: displayState !== DisplayState.SemiExpanded ? depthColors.border : 'transparent'
+      };
+    }
+    
+    return {
+      backgroundColor: isHovered ? depthColors.headerBg : 'white',
+      borderColor: displayState !== DisplayState.SemiExpanded ? depthColors.border : 'transparent'
+    };
+  };
+  
+  // NEW: Get depth indicator style
+  const getDepthIndicatorStyle = () => {
+    const depth = getNestingDepth();
+    
+    // No indicator for top level
+    if (depth === 0) return undefined;
+    
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#8b5cf6',
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: '10px',
+      width: '16px',
+      height: '16px',
+      borderRadius: '50%',
+      marginRight: '4px'
+    };
   };
 
   // Determine whether we should show the preview section
@@ -318,6 +384,12 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
         data-display-state={displayState}
         data-child-count={childCount}
         data-flow-expanded={isFlowExpanded ? 'true' : 'false'}
+        data-nesting-depth={getNestingDepth()}
+        style={{
+          // Ensure the node takes up the full space if it has explicit dimensions
+          width: data.calculatedWidth ? data.calculatedWidth : 'auto',
+          height: data.calculatedHeight ? data.calculatedHeight : 'auto',
+        }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={(e) => e.stopPropagation()} // Prevent ReactFlow selection
@@ -338,11 +410,12 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
           {/* Folded corner decoration - visual cue for compound nodes */}
           {childCount > 0 && (
             <div 
-              className="absolute top-0 right-0 w-8 h-8 bg-purple-50"
+              className="absolute top-0 right-0 w-8 h-8"
               style={{
+                background: getDepthColors().headerBg,
                 clipPath: 'polygon(100% 0, 100% 100%, 0 0)',
-                borderLeft: '1px solid #d1d5f6',
-                borderBottom: '1px solid #d1d5f6',
+                borderLeft: `1px solid ${getDepthColors().border}`,
+                borderBottom: `1px solid ${getDepthColors().border}`,
                 zIndex: 1
               }}
             />
@@ -357,10 +430,9 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 border-b
                 cursor-pointer
                 transition-colors
-                ${selected ? 'bg-purple-50' : 'bg-white'} 
                 group-hover/loop:bg-purple-50
-                ${displayState !== DisplayState.SemiExpanded ? 'border-purple-200' : 'border-transparent'}
               `}
+              style={getHeaderStyle()}
               onClick={handleToggle}
             >
               <div className="flex items-center space-x-2">
@@ -380,9 +452,13 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 </div>
                 
                 <h3 
-                  className="font-medium text-sm text-purple-900 truncate max-w-[160px]"
+                  className="font-medium text-sm text-purple-900 truncate max-w-[160px] flex items-center"
                   title={formattedLabel}
                 >
+                  {/* NEW: Depth indicator */}
+                  {getNestingDepth() > 0 && (
+                    <span style={getDepthIndicatorStyle()}>{getNestingDepth()}</span>
+                  )}
                   {formattedLabel}
                 </h3>
               </div>
@@ -475,9 +551,10 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
           {/* Container for child nodes - Only visible when fully expanded */}
           {displayState === DisplayState.FullyExpanded && (
             <div 
-              className="relative w-full bg-purple-50/30" 
+              className="relative w-full" 
               style={{ 
                 minHeight: Math.max(useHeight - contentHeight, 200),
+                height: data.calculatedHeight ? data.calculatedHeight - contentHeight - 40 : 200,
                 paddingTop: '20px',
                 paddingBottom: '20px',
                 paddingLeft: '20px',
@@ -486,7 +563,11 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 zIndex: 2,
                 opacity: 0,
                 animation: 'fadeIn 0.3s ease-in-out forwards',
-                animationDelay: '0.1s'
+                animationDelay: '0.1s',
+                backgroundColor: `${getDepthColors().bg}`,
+                border: '1px dashed rgba(99, 102, 241, 0.3)',
+                borderRadius: '8px',
+                margin: '0 10px 10px 10px',
               }}
               data-child-container="true"
             >
@@ -501,10 +582,11 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 absolute bottom-0 left-0 right-0
                 text-center text-xs text-purple-600
                 pb-1 pt-1
-                border-t border-purple-100
+                border-t
                 bg-white/80 backdrop-blur-sm
                 z-10
               "
+              style={{ borderColor: getDepthColors().border }}
             >
               <span className="px-2 rounded-full">
                 {childCount} {childCount === 1 ? 'item' : 'items'} shown

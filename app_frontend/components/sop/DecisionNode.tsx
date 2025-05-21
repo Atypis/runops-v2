@@ -66,106 +66,85 @@ const DecisionNode: React.FC<NodeProps<DecisionNodeData>> = ({ data, id, selecte
     }, 100);
   }, [id]);
 
+  // NEW: Calculate nesting depth by counting the dots in id_path
+  const getNestingDepth = (): number => {
+    if (!data.id_path) return 0;
+    const dotCount = (data.id_path.match(/\./g) || []).length;
+    return dotCount;
+  };
+  
+  // NEW: Get color shades based on nesting depth
+  const getDepthColors = () => {
+    const depth = getNestingDepth();
+    
+    // Base color for decisions is yellow/amber
+    switch (depth) {
+      case 0: return { border: '#fcd34d', bg: 'rgba(254, 249, 195, 0.8)', headerBg: 'rgb(254, 240, 138)' };
+      case 1: return { border: '#fbbf24', bg: 'rgba(254, 243, 199, 0.85)', headerBg: 'rgb(253, 230, 138)' };
+      case 2: return { border: '#f59e0b', bg: 'rgba(255, 237, 203, 0.9)', headerBg: 'rgb(252, 220, 138)' };
+      case 3: return { border: '#d97706', bg: 'rgba(255, 233, 207, 0.95)', headerBg: 'rgb(251, 211, 138)' };
+      default: return { border: '#b45309', bg: 'rgba(255, 229, 211, 1)', headerBg: 'rgb(250, 202, 138)' };
+    }
+  };
+
+  // NEW: Get depth indicator style
+  const getDepthIndicatorStyle = () => {
+    const depth = getNestingDepth();
+    
+    // No indicator for top level
+    if (depth === 0) return undefined;
+    
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#d97706',
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: '10px',
+      width: '16px',
+      height: '16px',
+      borderRadius: '50%',
+      marginRight: '4px'
+    };
+  };
+
   return (
     <div 
-      className={`flex flex-col items-center ${isExpanded ? 'scale-[1.02]' : 'scale-1'} transition-all duration-200`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={toggleExpand}
-      style={{ cursor: 'pointer', background: 'transparent' }}
-      data-is-expanded={isExpanded ? 'true' : 'false'}
+      className={`
+        relative
+        group
+        ${selected ? 'node-selected' : ''}
+      `}
+      data-node-type="decision"
+      data-nesting-depth={getNestingDepth()}
+      style={{ transform: 'rotate(45deg)', width: '140px', height: '140px' }}
     >
-      {/* Integrated Card + Diamond Design */}
       <div 
-        className={`w-52 card-with-diamond relative ${isExpanded ? 'shadow-md' : 'shadow-sm'} transition-all duration-200`}
+        className="absolute inset-0"
+        style={{
+          border: '2px solid',
+          borderColor: getDepthColors().border,
+          backgroundColor: getDepthColors().bg,
+          borderRadius: '4px'
+        }}
+      ></div>
+      
+      {/* Content wrapper rotated back */}
+      <div 
+        className="absolute inset-0 flex items-center justify-center" 
+        style={{ transform: 'rotate(-45deg)' }}
       >
-        {/* Diamond Header */}
-        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
-          <div 
-            className={`bg-yellow-200 flex items-center justify-center w-10 h-10 
-                       border-2 border-yellow-400 ${isExpanded ? 'shadow-md border-yellow-500' : 'shadow-sm'}
-                       transition-all duration-200`}
-            style={{
-              clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)', // Diamond shape
-            }}
-          >
-            <DiamondIcon size={18} className="text-yellow-700" />
-          </div>
-        </div>
-        
-        {/* Card Body with Top Padding for Diamond Space */}
-        <div 
-          className={`bg-white border border-neutral-300 rounded-lg px-3 pt-7 pb-2
-                     ${isExpanded ? 'min-h-[60px] border-yellow-300' : 'min-h-[40px]'}`}
-        >
-          {/* Title and content wrapper */}
-          <div className="flex flex-col">
-            <div className="flex justify-between items-start">
-              <p className="text-xs font-semibold text-neutral-700" title={formattedLabel}>
-                {formattedLabel}
-              </p>
-              
-              {/* Edit button - only shows when expanded */}
-              {isExpanded && hasExpandableContent && (
-                <button 
-                  onClick={openDetailedEditor}
-                  className="bg-yellow-50 border border-yellow-200 rounded p-[3px] w-[22px] h-[22px]
-                           flex items-center justify-center text-yellow-700 opacity-85 hover:opacity-100
-                           transition-all duration-200 z-10"
-                  title="Open detailed editor"
-                >
-                  <Edit2 size={14} strokeWidth={2} />
-                </button>
-              )}
-            </div>
-            
-            {/* Intent Section (Always visible) */}
-            {intentText && (
-              <div className={`text-[10px] text-neutral-600 mt-1 line-clamp-2 transition-all duration-200
-                             ${isExpanded ? 'line-clamp-none' : ''}`}>
-                {intentText}
-              </div>
+        <div className="text-center px-2">
+          <div className="flex items-center justify-center">
+            {/* NEW: Depth indicator */}
+            {getNestingDepth() > 0 && (
+              <span style={getDepthIndicatorStyle()}>{getNestingDepth()}</span>
             )}
-            
-            {/* Context Section (Only visible when expanded) */}
-            <div 
-              className={`overflow-hidden transition-all duration-300
-                        ${isExpanded ? 'max-h-[200px] opacity-100 mt-2' : 'max-h-0 opacity-0'}`}
-            >
-              {contextText && (
-                <>
-                  {/* Divider */}
-                  <div className="h-px bg-yellow-100 my-1"></div>
-                  
-                  <div className="text-[9px] text-neutral-600 py-1 opacity-85">
-                    {contextText}
-                  </div>
-                </>
-              )}
-            </div>
+            <span className="font-medium text-sm text-amber-800">
+              {formattedLabel}
+            </span>
           </div>
-          
-          {/* Collapse button - only visible when expanded */}
-          {isExpanded && (
-            <div 
-              className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 
-                        bg-yellow-50 border border-yellow-200 rounded-md p-[2px] 
-                        flex items-center justify-center opacity-80 cursor-pointer z-10"
-              onClick={toggleExpand}
-              title="Collapse"
-            >
-              <ChevronUp size={12} strokeWidth={2.5} className="text-yellow-700" />
-            </div>
-          )}
-          
-          {/* Visual indicator for expandable content - only shown when not expanded and not hovered */}
-          {hasExpandableContent && !isExpanded && !isHovered && (
-            <div 
-              className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 
-                        w-1 h-1 rounded-full bg-yellow-400 opacity-60"
-              title="Click to expand"
-            />
-          )}
         </div>
       </div>
       
