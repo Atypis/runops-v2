@@ -91,6 +91,8 @@ We've implemented a unified data source approach:
   
   Using a single source of truth ensures consistency between views and simplifies data maintenance.
 
+> **Direct Visualization:** You can view this reference file directly at `http://localhost:3000/direct-sop/original-structure` without authentication. See [MockSOPVisualization.md](./MockSOPVisualization.md) for details.
+
 ## Key Technical Features
 
 1. **Compound Node Rendering**  
