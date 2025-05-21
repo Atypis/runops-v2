@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export async function POST(request: Request) {
   try {
@@ -16,6 +16,9 @@ export async function POST(request: Request) {
     // Create a Supabase server client
     const supabase = createSupabaseServerClient();
     
+    // Get the current user
+    const { data: { user } } = await supabase.auth.getUser();
+    
     // Check if the file exists in storage
     const { data: fileExists, error: fileCheckError } = await supabase.storage
       .from('videos')
@@ -31,26 +34,28 @@ export async function POST(request: Request) {
       );
     }
     
-    // For MVP, we're simulating job queueing
-    // In a production app, this would create a record in a jobs table
-    // or send a message to a queue service
+    // Prepare metadata with user information if available
+    const metadata = user ? { user_id: user.id } : {};
     
-    // Example: Insert job record into database
+    // Insert job record into database
     const { data: job, error: jobError } = await supabase
       .from('jobs')
       .insert([
         { 
           job_id: jobId,
           status: 'queued',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          metadata
         }
       ])
       .select();
       
     if (jobError) {
-      // For MVP development, we'll continue even if DB insertion fails
-      // This allows testing without requiring the full jobs table setup
-      console.warn('Could not insert job record:', jobError);
+      console.error('Could not insert job record:', jobError);
+      return NextResponse.json(
+        { error: 'Failed to queue processing job' },
+        { status: 500 }
+      );
     }
     
     // Return success with jobId

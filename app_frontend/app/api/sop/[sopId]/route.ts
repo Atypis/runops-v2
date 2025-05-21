@@ -1,23 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createDirectSupabaseClient } from '@/lib/supabase';
+import { createDirectSupabaseClient, createSupabaseServerClient } from '@/lib/supabase-server';
 import { cookies } from 'next/headers';
 
 /**
  * GET /api/sop/[sopId]
  * Retrieves a SOP document from the database
- * 
- * Note: Authentication will be added in Ticket 1.8
- * Currently, this endpoint does not verify user ownership of the SOP
+ * Authentication required - users can only access their own SOPs
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { sopId: string } }
 ) {
   try {
-    const supabase = createDirectSupabaseClient();
+    // Create authenticated client
+    const supabase = createSupabaseServerClient();
     
-    // TODO: Add authentication check in Ticket 1.8
-    // This should verify the user is authenticated and has access to this SOP
+    // Get authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
     
     // Get the job_id (which is the sopId in our case)
     const { sopId } = params;
@@ -32,6 +38,7 @@ export async function GET(
     console.log(`Fetching SOP data for job ID: ${sopId}`);
 
     // Query the sops table to get the SOP data with the given job_id
+    // With RLS enabled, this will automatically filter to show only the user's SOPs
     const { data: sop, error } = await supabase
       .from('sops')
       .select('*')
@@ -41,13 +48,12 @@ export async function GET(
     if (error) {
       console.error('Error fetching SOP:', error);
       
-      // Additional debug query to check if the SOP exists
-      const { data: allSops } = await supabase
-        .from('sops')
-        .select('id, job_id')
-        .eq('job_id', sopId);
-        
-      console.log('Debug - SOP query result:', allSops);
+      if (error.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'SOP not found or you don\'t have permission to access it' },
+          { status: 404 }
+        );
+      }
       
       return NextResponse.json(
         { error: 'Failed to fetch SOP data' },
@@ -83,9 +89,7 @@ export async function GET(
 /**
  * PATCH /api/sop/[sopId]
  * Updates a SOP document (step titles or deletions)
- * 
- * Note: Authentication will be added in Ticket 1.8
- * Currently, this endpoint does not verify user ownership of the SOP
+ * Authentication required - users can only update their own SOPs
  * 
  * Request body example:
  * {
@@ -106,10 +110,18 @@ export async function PATCH(
   { params }: { params: { sopId: string } }
 ) {
   try {
-    const supabase = createDirectSupabaseClient();
+    // Create authenticated client
+    const supabase = createSupabaseServerClient();
     
-    // TODO: Add authentication check in Ticket 1.8
-    // This should verify the user is authenticated and has access to this SOP
+    // Get authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
     
     const { sopId } = params;
     
@@ -133,17 +145,33 @@ export async function PATCH(
     console.log(`PATCH operation on SOP ${sopId}, type: ${body.type}, nodeId: ${body.nodeId}`);
 
     // Fetch the current SOP data
+    // With RLS enabled, this will automatically filter to show only the user's SOPs
     const { data: sop, error: fetchError } = await supabase
       .from('sops')
       .select('*')
       .eq('job_id', sopId)
       .single();
 
-    if (fetchError || !sop) {
+    if (fetchError) {
       console.error('Error fetching SOP:', fetchError);
+      
+      if (fetchError.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'SOP not found or you don\'t have permission to access it' },
+          { status: 404 }
+        );
+      }
+      
       return NextResponse.json(
         { error: 'Failed to fetch SOP data' },
         { status: 500 }
+      );
+    }
+    
+    if (!sop) {
+      return NextResponse.json(
+        { error: 'SOP not found' },
+        { status: 404 }
       );
     }
 
@@ -208,6 +236,7 @@ export async function PATCH(
     }
 
     // Update the SOP in the database
+    // With RLS enabled, this will automatically prevent users from updating SOPs they don't own
     const { data: updatedSop, error: updateError } = await supabase
       .from('sops')
       .update({ 
@@ -220,6 +249,14 @@ export async function PATCH(
 
     if (updateError) {
       console.error('Error updating SOP:', updateError);
+      
+      if (updateError.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'SOP not found or you don\'t have permission to update it' },
+          { status: 404 }
+        );
+      }
+      
       return NextResponse.json(
         { error: 'Failed to update SOP data' },
         { status: 500 }

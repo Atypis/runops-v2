@@ -89,15 +89,16 @@ If the API consistently reports incorrect or stale job status:
 The worker processes jobs in the following steps:
 
 1. **Job Polling**: Queries the `jobs` table for entries with `status = 'queued'`
-2. **Video Download**: Retrieves the raw video from `videos/raw/{jobId}.mp4`
-3. **Video Processing**: Uses ffmpeg to create a slim version with 1fps, 720p resolution, and CRF 32
-4. **Storage Upload**: Uploads processed video to `videos/slim/{jobId}.mp4`
-5. **SOP Generation (two-step process)**:
+2. **User ID Extraction**: Gets the user_id from job metadata if available
+3. **Video Download**: Retrieves the raw video from `videos/raw/{jobId}.mp4`
+4. **Video Processing**: Uses ffmpeg to create a slim version with 1fps, 720p resolution, and CRF 32
+5. **Storage Upload**: Uploads processed video to `videos/slim/{jobId}.mp4`
+6. **SOP Generation (two-step process)**:
    - **Step 1: Transcription** - Sends the video to Gemini API to generate a detailed transcript with timestamps
    - **Step 2: SOP Extraction** - Sends the transcript to Gemini API with the SOP parsing prompt
-6. **Database Update**: 
+7. **Database Update**: 
    - Saves the transcript to the `transcripts` table
-   - Saves the SOP to the `sops` table 
+   - Saves the SOP to the `sops` table with the user_id if available
    - Updates job status in the `jobs` table
 
 ## Maintenance
@@ -130,5 +131,70 @@ To update either prompt:
 The worker interacts with three main tables:
 
 1. **`jobs`** - Tracks processing status
+   ```sql
+   CREATE TABLE public.jobs (
+     id SERIAL PRIMARY KEY,
+     job_id UUID NOT NULL UNIQUE,
+     status VARCHAR(50) NOT NULL DEFAULT 'queued',
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     completed_at TIMESTAMPTZ,
+     error TEXT,
+     metadata JSONB
+   );
+   ```
+
 2. **`transcripts`** - Stores raw video transcriptions
-3. **`sops`** - Stores final processed SOPs 
+   ```sql
+   CREATE TABLE public.transcripts (
+     id SERIAL PRIMARY KEY,
+     job_id UUID NOT NULL REFERENCES public.jobs(job_id),
+     transcript JSONB NOT NULL,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );
+   ```
+
+3. **`sops`** - Stores final processed SOPs
+   ```sql
+   CREATE TABLE public.sops (
+     id SERIAL PRIMARY KEY,
+     job_id UUID NOT NULL REFERENCES public.jobs(job_id),
+     data JSONB NOT NULL,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     user_id UUID REFERENCES auth.users(id)
+   );
+   ```
+
+The `metadata` field in the `jobs` table contains the `user_id` which is extracted and used when creating SOPs. This ensures SOPs are associated with the user who created them.
+
+## Row Level Security (RLS)
+
+The database uses Row Level Security to control access to data. This affects how the worker interacts with the database:
+
+1. **Service Role Access**: The worker uses the service role key (`SUPABASE_SERVICE_ROLE_KEY`) which bypasses RLS restrictions, allowing it to:
+   - Read all jobs regardless of user
+   - Write SOPs for any user_id
+
+2. **RLS Policies**: For reference, the following policies are in place:
+   ```sql
+   -- Policy for the service role to access all SOPs
+   CREATE POLICY service_all_sops ON public.sops
+       FOR ALL
+       TO service_role
+       USING (true);
+   
+   -- Policy for authenticated users to only see their own SOPs (plus NULL user_id SOPs)
+   CREATE POLICY select_own_sops ON public.sops
+       FOR SELECT
+       TO authenticated
+       USING (user_id = auth.uid() OR user_id IS NULL);
+   ```
+
+3. **Worker Responsibility**: The worker must:
+   - Extract user_id from job metadata if available
+   - Store the user_id in the sops table when creating new SOPs
+   - This ensures proper access control when users later view their SOPs
+
+When troubleshooting permission issues, remember that the worker should not encounter RLS restrictions due to its service role, but clients accessing the API will be subject to these policies. 

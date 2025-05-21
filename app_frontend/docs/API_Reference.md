@@ -6,6 +6,14 @@ This document provides information on the available API endpoints in the Runops 
 
 Most API endpoints require authentication. To authenticate requests, include a valid JWT from Supabase Auth in the cookies. The frontend handles this automatically when using `createClientComponentClient` or `createRouteHandlerClient`.
 
+Authentication is implemented using Supabase Auth with Google OAuth. The application includes:
+
+- JWT-based authentication via cookies (handled by Supabase Auth)
+- Protected routes that require authentication (via Next.js middleware)
+- Row Level Security (RLS) policies to ensure users can only access their own data
+
+Unauthenticated requests to protected API endpoints will receive a 401 Unauthorized response.
+
 ## Cache Control
 
 All API endpoints include strong cache control headers to prevent stale data:
@@ -55,7 +63,8 @@ Retrieves a SOP document from the database.
     }
   },
   "created_at": "2025-05-21T10:15:30.123Z",
-  "updated_at": "2025-05-21T10:15:30.123Z"
+  "updated_at": "2025-05-21T10:15:30.123Z",
+  "user_id": "d4af97b1-4994-41fe-8635-19d539afb4a2"
 }
 ```
 

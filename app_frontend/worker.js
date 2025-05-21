@@ -522,12 +522,27 @@ async function saveSopToDatabase(jobId, sopData) {
   console.log(`Saving SOP data to database for job ${jobId}...`);
   
   try {
+    // Get the user_id from the job if available
+    const { data: jobData, error: jobError } = await supabase
+      .from('jobs')
+      .select('metadata')
+      .eq('job_id', jobId)
+      .single();
+    
+    if (jobError) {
+      console.error(`Error getting job metadata:`, jobError);
+    }
+    
+    const user_id = jobData?.metadata?.user_id || null;
+    console.log(`User ID for job ${jobId}: ${user_id || 'Not available'}`);
+    
     // Insert the SOP data into the sops table
     const { data, error } = await supabase
       .from('sops')
       .insert([
         {
           job_id: jobId,
+          user_id: user_id,
           data: sopData,
           created_at: new Date().toISOString()
         }

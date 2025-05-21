@@ -92,7 +92,8 @@ The system currently uses the following database structure:
     job_id UUID NOT NULL REFERENCES public.jobs(job_id),
     data JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id UUID REFERENCES auth.users(id)
   );
   ```
 
@@ -147,7 +148,8 @@ The system currently uses the following database structure:
 
 1. **Job Creation**
    - Jobs start in "queued" status
-   - Background worker polls for new jobs (future implementation)
+   - User ID is stored in the job metadata (if authenticated)
+   - Background worker polls for new jobs
 
 2. **Status Updates**
    - SOP view polls `/api/job-status/[jobId]` every 3 seconds
@@ -158,6 +160,7 @@ The system currently uses the following database structure:
 3. **Completion**
    - When processing completes, SOP view displays the diagram
    - Users can toggle between list and flow visualizations
+   - SOPs are associated with the user who created them via user_id
 
 ## Current Implementation Status
 
@@ -177,12 +180,18 @@ The system currently uses the following database structure:
 - ✅ SOP Editing API (Ticket 1.7)
   - API endpoints for retrieving and updating SOPs
   - Robust caching prevention to ensure fresh data
+- ✅ Integration with Authentication system (Ticket 1.8)
+  - Google OAuth authentication via Supabase Auth
+  - "My SOPs" page for viewing user's SOPs
+  - Row Level Security (RLS) for user data privacy
+  - Middleware protection for API routes and sensitive pages
+  - User ID tracking throughout the upload and processing pipeline
 
 ### Pending Components
 
-- ⏳ Integration with Authentication system (Ticket 1.8)
-  - Link SOPs with specific user accounts
-  - Implement access control for private SOPs
+- ⏳ SOP Deletion functionality
+- ⏳ Enhanced user interface feedback
+- ⏳ Pagination for users with many SOPs
 
 ## Security Considerations
 
@@ -206,6 +215,12 @@ The system currently uses the following database structure:
    - Strong cache control headers on all API responses
    - Cache-busting parameters in all API requests
    - Prevents browsers or proxies from serving stale data
+
+6. **Row Level Security (RLS)**
+   - Database tables have RLS policies enabled
+   - Users can only access their own SOPs
+   - Service role bypasses RLS for worker operations
+   - Special policy for backward compatibility allows viewing SOPs with NULL user_id
 
 ## Future Enhancements
 
