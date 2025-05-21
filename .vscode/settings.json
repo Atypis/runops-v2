@@ -1,0 +1,30 @@
+{
+  "yaml.validate": {
+    "github-actions": false
+  },
+  "yaml.customTags": ["!reference sequence"],
+  "yaml.schemas": {
+    "https://json.schemastore.org/github-workflow.json": "/.github/workflows/*.yml"
+  },
+  "yaml.disableAdditionalProperties": false,
+  "yaml.format.enable": true,
+  "yaml.validate.enable": true,
+  "yaml.hover": true,
+  "yaml.completion": true,
+  "[yaml]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "problems.decorations.enabled": false,
+  "github-actions.workflows.pinned.workflows": [".github/workflows/scheduled-cleanup.yml"],
+  "github-actions.workflows.ignoredWorkflows": [],
+  "yaml.extension.recommendations": false,
+  "yaml.doNotPromptForYamlSchemas": true,
+  "problems.defaultSeverity": "warning",
+  "files.associations": {
+    ".github/workflows/*.yml": "github-actions-workflow"
+  },
+  "_generated_diagnostic_collection_name_#0.enabled": false,
+  "_generated_diagnostic_collection_name_#1.enabled": false,
+  "_generated_diagnostic_collection_name_#4.enabled": false
+} 
