@@ -33,6 +33,7 @@ This approach separates immediate user interactions from longer-running backgrou
   - Displays a ReactFlow diagram or list view when processing completes
   - Handles error states with appropriate user feedback
   - Provides toggle between list view and flow view
+  - Uses cache-busting parameters to prevent stale data
 
 ### API Endpoints
 
@@ -54,13 +55,22 @@ This approach separates immediate user interactions from longer-running backgrou
   Provides processing status information:
   - Queries the jobs table for current status
   - Returns detailed job information (status, timestamps, errors)
-  - Fallback file existence check if job record isn't found
+  - Includes strong cache control headers to prevent stale data
   - Standardized error responses
+
+- **`app/api/sop/[sopId]/route.ts`**  
+  Retrieves and updates SOP data:
+  - Queries the sops table using the job_id
+  - Returns the SOP data in JSON format 
+  - Supports PATCH requests for updating and deleting nodes
+  - Includes strong cache control headers to prevent stale data
 
 ### Database Schema
 
+The system currently uses the following database structure:
+
 - **`jobs` Table**  
-  Persistent storage for job tracking:
+  Tracks the status of video processing jobs:
   ```sql
   CREATE TABLE public.jobs (
     id SERIAL PRIMARY KEY,
@@ -74,19 +84,37 @@ This approach separates immediate user interactions from longer-running backgrou
   );
   ```
 
-  Key fields:
-  - `job_id`: UUID matching the uploaded file name
-  - `status`: Current processing state (queued, processing, completed, error)
-  - Timestamps for creation, updates, and completion
-  - Error message storage for failed processing
+- **`sops` Table**  
+  Stores the extracted Standard Operating Procedures:
+  ```sql
+  CREATE TABLE public.sops (
+    id SERIAL PRIMARY KEY,
+    job_id UUID NOT NULL REFERENCES public.jobs(job_id),
+    data JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  ```
+
+- **`transcripts` Table**  
+  Stores the raw video transcriptions (intermediate processing step):
+  ```sql
+  CREATE TABLE public.transcripts (
+    id SERIAL PRIMARY KEY,
+    job_id UUID NOT NULL REFERENCES public.jobs(job_id),
+    transcript JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  ```
 
 ### Storage Configuration
 
 - **Supabase Storage Bucket: `videos`**  
-  Organized storage for video assets:
   - `/raw` - Original uploaded videos
-  - `/slim` - Processed videos (planned)
-  - `/sops` - Generated SOP JSON files (planned)
+  - `/slim` - Processed videos (1fps, 720p, CRF 32)
+  - `/sops` - Generated SOP JSON files (backup of database records)
+  - `/transcripts` - Detailed video transcripts (intermediate step of processing)
 
 - **Security Policies**
   - Upload allowed via signed URLs (no auth required)
@@ -125,6 +153,7 @@ This approach separates immediate user interactions from longer-running backgrou
    - SOP view polls `/api/job-status/[jobId]` every 3 seconds
    - Processing states handled: queued, processing, completed, error
    - Different UI displayed based on job status
+   - Cache-busting parameters and cache control headers prevent stale data
 
 3. **Completion**
    - When processing completes, SOP view displays the diagram
@@ -139,19 +168,21 @@ This approach separates immediate user interactions from longer-running backgrou
 - ✅ Job queue system with database tracking
 - ✅ Status polling API endpoint
 - ✅ SOP viewer with status polling and UI states
+- ✅ Background worker (Ticket 1.6)
+  - Node.js worker that polls the job queue every 10 seconds
+  - Downloads raw videos, processes with ffmpeg (1fps, 720p, CRF 32)
+  - Uploads processed videos to the slim/ folder
+  - Extracts SOPs using Gemini 2.5 Flash Preview API
+  - Saves results to database and storage
+- ✅ SOP Editing API (Ticket 1.7)
+  - API endpoints for retrieving and updating SOPs
+  - Robust caching prevention to ensure fresh data
 
 ### Pending Components
 
-- ⏳ Background worker (Ticket 1.6)
-  - This component will process queued jobs
-  - Until implemented, uploaded videos will remain in "queued" status
-  - The SOP view will show the "AI magic in progress..." spinner indefinitely
-  
-- ⏳ Video processing with ffmpeg
-  - Down-sample videos as specified in architecture
-  
-- ⏳ Gemini API integration
-  - Process videos to extract SOP steps
+- ⏳ Integration with Authentication system (Ticket 1.8)
+  - Link SOPs with specific user accounts
+  - Implement access control for private SOPs
 
 ## Security Considerations
 
@@ -170,6 +201,11 @@ This approach separates immediate user interactions from longer-running backgrou
 4. **Temporary Signed URLs**
    - Upload URLs expire after a short period
    - Each URL is specific to a single file path
+
+5. **Cache Control**
+   - Strong cache control headers on all API responses
+   - Cache-busting parameters in all API requests
+   - Prevents browsers or proxies from serving stale data
 
 ## Future Enhancements
 
@@ -195,9 +231,3 @@ Currently, without the background worker implementation, the system can be teste
 
 1. Upload a video through the landing page
 2. Verify the file appears in Supabase Storage under `videos/raw/[jobId].mp4`
-3. Check that a job record is created in the `jobs` table with status "queued"
-4. The SOP view will show the "AI magic in progress..." spinner
-
-To complete the testing loop, you would need to:
-1. Manually update a job's status to "completed" in the Supabase dashboard
-2. Ensure a mock SOP JSON is available at the expected location 

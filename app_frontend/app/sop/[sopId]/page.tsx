@@ -34,7 +34,22 @@ export default function SopPage({ params }: SopPageProps) {
   // Function to check job status
   const checkJobStatus = async () => {
     try {
-      const response = await fetch(`/api/job-status/${params.sopId}`);
+      // Add cache-busting parameter to prevent caching
+      const timestamp = new Date().getTime();
+      const random = Math.random().toString(36).substring(2, 15);
+      
+      // Use the main endpoint
+      const endpointPath = `/api/job-status/${params.sopId}?_=${timestamp}&r=${random}`;
+      
+      console.log('Checking job status');
+      
+      const response = await fetch(endpointPath, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -42,10 +57,12 @@ export default function SopPage({ params }: SopPageProps) {
       }
       
       const data = await response.json();
+      console.log('Job status response:', data); // Debug log
       setJobStatus(data.status || 'unknown');
       
       // If job is complete, clear polling interval and load SOP data
       if (data.status === 'completed') {
+        console.log('Job is completed, loading SOP data'); // Debug log
         if (pollingInterval.current) {
           clearInterval(pollingInterval.current);
           pollingInterval.current = null;
@@ -53,6 +70,7 @@ export default function SopPage({ params }: SopPageProps) {
         fetchSopData();
       } else if (data.status === 'error') {
         // If job failed, clear polling interval and show error
+        console.log('Job has error status:', data.error); // Debug log
         if (pollingInterval.current) {
           clearInterval(pollingInterval.current);
           pollingInterval.current = null;
@@ -83,12 +101,28 @@ export default function SopPage({ params }: SopPageProps) {
   // Fetch SOP data when available
   const fetchSopData = async () => {
     try {
-      // Using the combined JSON file for both views
-      const response = await fetch('/mocksop-original-structure.json');
+      // Determine which endpoint to use
+      const timestamp = new Date().getTime();
+      const random = Math.random().toString(36).substring(2, 15);
+      const endpointPath = `/api/sop/${params.sopId}?_=${timestamp}&r=${random}`;
+      
+      console.log('Fetching SOP data');
+      
+      const response = await fetch(endpointPath, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const combinedData: SOPDocument = await response.json();
+      
+      const sopResponse = await response.json();
+      console.log('Fetched SOP data:', sopResponse); // Debug log
+      const combinedData: SOPDocument = sopResponse.data;
       setSopData(combinedData);
       
       const processed = processSopData(combinedData); // Process once for both views
@@ -109,6 +143,7 @@ export default function SopPage({ params }: SopPageProps) {
 
   // On mount, start polling for job status
   useEffect(() => {
+    // Start polling with the selected endpoint
     startStatusPolling();
     
     // Clean up on unmount

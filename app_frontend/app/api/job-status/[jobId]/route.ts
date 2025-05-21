@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase';
+import { createDirectSupabaseClient } from '@/lib/supabase';
 
 export async function GET(
   request: Request,
@@ -15,55 +15,79 @@ export async function GET(
       );
     }
     
-    // Create a Supabase server client
-    const supabase = createSupabaseServerClient();
+    // Use our improved direct client
+    const supabase = createDirectSupabaseClient();
     
     // Query the jobs table for this job's status
+    console.log(`Querying status for job ID: ${jobId}`);
     const { data: job, error: jobError } = await supabase
       .from('jobs')
       .select('*')
       .eq('job_id', jobId)
       .single();
-      
+    
     if (jobError) {
-      // If we can't find the job, check if the file exists in storage
-      // This handles cases where the job wasn't properly created in the database
-      const { data: fileExists } = await supabase.storage
-        .from('videos')
-        .list('raw', {
-          search: `${jobId}.mp4`
-        });
-      
-      if (fileExists && fileExists.length > 0) {
-        // File exists but job record doesn't
-        return NextResponse.json({
-          jobId,
-          status: 'uploaded',
-          message: 'File uploaded but processing not started'
-        });
-      }
-      
+      console.error('Error querying job status:', jobError);
       return NextResponse.json(
-        { error: 'Job not found' },
-        { status: 404 }
+        { error: 'Error retrieving job status' },
+        { 
+          status: 500,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          }
+        }
       );
     }
     
-    // Return the job status
+    if (!job) {
+      console.log(`Job ${jobId} not found in database`);
+      return NextResponse.json(
+        { 
+          jobId,
+          status: 'unknown',
+          error: 'Job not found' 
+        },
+        { 
+          status: 404,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          }
+        }
+      );
+    }
+    
+    console.log(`Job ${jobId} status from database: ${job.status}`);
+    
     return NextResponse.json({
-      jobId,
+      jobId: job.job_id,
       status: job.status,
       createdAt: job.created_at,
       updatedAt: job.updated_at,
       completedAt: job.completed_at,
       error: job.error
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      }
     });
-  } catch (error) {
-    console.error('Error in job-status API:', error);
-    
+  } catch (e: any) {
+    console.error('Error in job status endpoint:', e);
     return NextResponse.json(
-      { error: 'Failed to retrieve job status' },
-      { status: 500 }
+      { error: e.message || 'An unexpected error occurred' },
+      { 
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        }
+      }
     );
   }
 } 

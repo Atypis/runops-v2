@@ -71,40 +71,79 @@ const SOPListView: React.FC<SOPListViewProps> = ({ initialProcessedSopData, init
     });
   };
 
-  const handleUpdateNode = (nodeId: string, updatedProperties: Partial<SOPNode>) => {
+  const handleUpdateNode = async (nodeId: string, updatedProperties: Partial<SOPNode>) => {
     if (!processedSopData || !processedSopData.public || !processedSopData.public.nodes) {
       console.warn("Cannot update node: processedSopData or its public nodes are not available.");
       return;
     }
 
-    // Create a deep copy of the nodes array from the current state to avoid direct mutation
-    // This is important because processedSopData state might be shared or derived from props.
-    const currentNodesCopy = JSON.parse(JSON.stringify(processedSopData.public.nodes)) as SOPNode[];
+    try {
+      // Get the sopId from the URL
+      const pathname = window.location.pathname;
+      const sopId = pathname.split('/').pop();
 
-    const updatedNodes = updateNodeRecursively(
-      currentNodesCopy, // Use the copy
-      nodeId,
-      updatedProperties
-    );
+      if (!sopId) {
+        console.error("Failed to extract SOP ID from URL");
+        return;
+      }
 
-    const newPublicSop: SOPPublicData = {
-      ...processedSopData.public,
-      nodes: updatedNodes
-    };
+      // Call the PATCH endpoint
+      const response = await fetch(`/api/sop/${sopId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'update',
+          nodeId,
+          updates: updatedProperties,
+        }),
+      });
 
-    // Create a new SOPDocument object for the new state
-    const newProcessedData: SOPDocument = {
-      ...processedSopData, // Spread the existing processedSopData
-      meta: processedSopData.meta, // Ensure meta is carried over
-      public: newPublicSop, // Assign the new public data
-      // private data should also be carried over if it exists and is part of SOPDocument
-      private: processedSopData.private 
-    };
-    
-    setProcessedSopData(newProcessedData);
-    const newRoots = getRootNodes(newProcessedData.public);
-    setRootNodes(newRoots);
-    onUpdate(newProcessedData); // Call the callback
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update SOP node');
+      }
+
+      // Get the updated SOP data from the response
+      const updatedSopData = await response.json();
+
+      // Update the local state
+      const newProcessedData = processSopData(updatedSopData.data);
+      setProcessedSopData(newProcessedData);
+      const newRoots = getRootNodes(newProcessedData.public);
+      setRootNodes(newRoots);
+      onUpdate(newProcessedData); // Call the callback
+    } catch (error) {
+      console.error('Error updating node:', error);
+      // Still update the UI locally even if the API call fails
+      // This provides a better user experience while still trying to sync with the server
+      // Create a deep copy of the nodes array from the current state to avoid direct mutation
+      const currentNodesCopy = JSON.parse(JSON.stringify(processedSopData.public.nodes)) as SOPNode[];
+
+      const updatedNodes = updateNodeRecursively(
+        currentNodesCopy,
+        nodeId,
+        updatedProperties
+      );
+
+      const newPublicSop: SOPPublicData = {
+        ...processedSopData.public,
+        nodes: updatedNodes
+      };
+
+      const newProcessedData: SOPDocument = {
+        ...processedSopData,
+        meta: processedSopData.meta,
+        public: newPublicSop,
+        private: processedSopData.private 
+      };
+      
+      setProcessedSopData(newProcessedData);
+      const newRoots = getRootNodes(newProcessedData.public);
+      setRootNodes(newRoots);
+      onUpdate(newProcessedData);
+    }
   };
 
   // Helper function to recursively collect all child IDs of a given node
@@ -135,69 +174,85 @@ const SOPListView: React.FC<SOPListViewProps> = ({ initialProcessedSopData, init
       });
   };
 
-  const handleDeleteNode = (nodeIdToDelete: string) => {
+  const handleDeleteNode = async (nodeIdToDelete: string) => {
     if (!processedSopData || !processedSopData.public || !processedSopData.public.nodes) {
       console.warn("Cannot delete node: data prerequisites not met.");
       return;
     }
-    
-    // Get the original sopData from initialProcessedSopData to ensure we're working from a clean slate
-    // This avoids issues if processedSopData has been modified multiple times in ways that affect processSopData's expectations
-    // However, for deletions, we need to work with the *current* state of nodes if they've been reordered or edited.
-    // The key is that processSopData needs the *full original list* of nodes (even if their content changed)
-    // minus the deleted ones.
-    // The parent component (SopPage) now holds the "source of truth" sopData (unprocessed)
-    // and the initialProcessedSopData passed here is already processed.
-    // For delete, we should reconstruct from the most recent "full" representation available,
-    // which is `initialProcessedSopData` if we assume no intermediate processing outside `processSopData`.
 
-    // Let's use the current `processedSopData` as the base for finding all nodes,
-    // as it reflects any prior edits (like title changes).
-    const allCurrentNodes = processedSopData.public.nodes;
-    const nodeToDelete = allCurrentNodes.find(node => node.id === nodeIdToDelete);
+    try {
+      // Get the sopId from the URL
+      const pathname = window.location.pathname;
+      const sopId = pathname.split('/').pop();
 
-    if (!nodeToDelete) {
-      console.warn(`Cannot delete node: Node with id ${nodeIdToDelete} not found in current processed data.`);
-      return;
-    }
-
-    const idsToRemove = new Set<string>([nodeIdToDelete]);
-    // Use allCurrentNodes (flat list from current processed data) for collecting descendant IDs accurately
-    const descendantIds = getAllChildIds(nodeToDelete, allCurrentNodes);
-    descendantIds.forEach(id => idsToRemove.add(id));
-
-    // Filter the current flat list of nodes
-    const updatedNodes = allCurrentNodes.filter(node => !idsToRemove.has(node.id));
-    
-    // Filter edges
-    const updatedEdges = processedSopData.public.edges.filter(edge => !idsToRemove.has(edge.source) && !idsToRemove.has(edge.target));
-
-    // Create a temporary SOPDocument with the filtered nodes and edges to re-process.
-    // We use the structure of the initial prop `initialProcessedSopData` for meta and other parts,
-    // but replace nodes and edges with our filtered versions.
-    const tempSopDocumentForReprocessing: SOPDocument = {
-      ...initialProcessedSopData, // Use the initial structure for meta, private, etc.
-      public: {
-        ...initialProcessedSopData.public,
-        nodes: updatedNodes.map(n => { // We need to ensure these nodes are "clean" for processSopData
-                                      // processSopData expects nodes without childNodes pre-populated
-                                      // and will rebuild parentId based on 'children' arrays.
-                                      // So, strip childNodes and potentially parentId if it was added by previous processing
-                                      const { childNodes, parentId, ...rest } = n;
-                                      // Keep parentId if it was in the original JSON from mocksop.json
-                                      // The `children` array in `rest` is what `processSopData` uses.
-                                      const originalNodeFromInitial = initialProcessedSopData.public.nodes.find(on => on.id === rest.id);
-                                      return { ...rest, parentId: originalNodeFromInitial?.parentId }; 
-                                    }),
-        edges: updatedEdges
+      if (!sopId) {
+        console.error("Failed to extract SOP ID from URL");
+        return;
       }
-    };
-    
-    const newProcessedData = processSopData(tempSopDocumentForReprocessing);
-    setProcessedSopData(newProcessedData);
-    const newRoots = getRootNodes(newProcessedData.public);
-    setRootNodes(newRoots);
-    onUpdate(newProcessedData); // Call the callback
+
+      // Call the PATCH endpoint for deletion
+      const response = await fetch(`/api/sop/${sopId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'delete',
+          nodeId: nodeIdToDelete,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete SOP node');
+      }
+
+      // Get the updated SOP data from the response
+      const updatedSopData = await response.json();
+
+      // Update the local state
+      const newProcessedData = processSopData(updatedSopData.data);
+      setProcessedSopData(newProcessedData);
+      const newRoots = getRootNodes(newProcessedData.public);
+      setRootNodes(newRoots);
+      onUpdate(newProcessedData); // Call the callback
+    } catch (error) {
+      console.error('Error deleting node:', error);
+      // Still update the UI locally if the API call fails for better UX
+      const allCurrentNodes = processedSopData.public.nodes;
+      const nodeToDelete = allCurrentNodes.find(node => node.id === nodeIdToDelete);
+
+      if (!nodeToDelete) {
+        console.warn(`Cannot delete node: Node with id ${nodeIdToDelete} not found in current processed data.`);
+        return;
+      }
+
+      const idsToRemove = new Set<string>([nodeIdToDelete]);
+      const descendantIds = getAllChildIds(nodeToDelete, allCurrentNodes);
+      descendantIds.forEach(id => idsToRemove.add(id));
+
+      const updatedNodes = allCurrentNodes.filter(node => !idsToRemove.has(node.id));
+      const updatedEdges = processedSopData.public.edges.filter(edge => !idsToRemove.has(edge.source) && !idsToRemove.has(edge.target));
+
+      const tempSopDocumentForReprocessing: SOPDocument = {
+        ...initialProcessedSopData,
+        public: {
+          ...initialProcessedSopData.public,
+          nodes: updatedNodes.map(n => {
+            const { childNodes, parentId, ...rest } = n;
+            const originalNodeFromInitial = initialProcessedSopData.public.nodes.find(on => on.id === rest.id);
+            return { ...rest, parentId: originalNodeFromInitial?.parentId }; 
+          }),
+          edges: updatedEdges
+        }
+      };
+      
+      const newProcessedData = processSopData(tempSopDocumentForReprocessing);
+      setProcessedSopData(newProcessedData);
+      const newRoots = getRootNodes(newProcessedData.public);
+      setRootNodes(newRoots);
+      onUpdate(newProcessedData);
+    }
   };
 
   function handleDragEnd(event: DragEndEvent) {

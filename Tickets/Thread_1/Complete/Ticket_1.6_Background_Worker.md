@@ -1,4 +1,4 @@
-# Ticket 1.6 - Background Worker for Video Processing ✅
+# Ticket 1.6 - Background Worker for Video Processing > Need one complete run that works and check tradeoffs java script worker vs. typescript and cleanup
 
 **Objective:** Implement a worker process that down-samples uploaded videos, extracts SOP steps via Gemini, and updates job records accordingly.
 
