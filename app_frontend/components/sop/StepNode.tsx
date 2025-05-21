@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { ChevronUp, Edit2 } from 'lucide-react';
+import { ChevronUp, Edit2, ListTodo } from 'lucide-react';
 
 // The data shape will match what's in our SOPNode from the data model
 interface StepNodeData {
@@ -25,8 +25,13 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
   // Get ReactFlow instance to access its methods
   const { getNodes } = useReactFlow();
   
+  // Check if this node is a parent container
+  const isContainer = !!data.isContainer;
+  const childCount = data.childCount || 0;
+  
   // Check if this node has a parent
   const hasParent = !!data.parentNode || !!data.parentId;
+  const isChild = data.isChildNode === true;
   
   // Format the label with ID path if available but avoid double brackets
   const formattedLabel = data.id_path 
@@ -34,7 +39,8 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
     : data.label;
   
   // Node dimensions - explicitly set to ensure consistent layout
-  const nodeWidth = hasParent ? 220 : 240;
+  const nodeWidth = hasParent ? 220 : (isContainer ? data.calculatedWidth || 450 : 240);
+  const nodeHeight = isContainer ? data.calculatedHeight || 300 : 'auto';
 
   // Use intent or description for primary content display
   const intentText = data.intent || data.description || '';
@@ -43,6 +49,49 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
   
   // Has expandable content
   const hasExpandableContent = !!contextText;
+  
+  // NEW: Calculate nesting depth by counting the dots in id_path
+  const getNestingDepth = (): number => {
+    if (!data.id_path) return 0;
+    const dotCount = (data.id_path.match(/\./g) || []).length;
+    return dotCount;
+  };
+  
+  // NEW: Get color shades based on nesting depth
+  const getDepthColors = () => {
+    const depth = getNestingDepth();
+    
+    // Base color for steps is blue/cyan
+    switch (depth) {
+      case 0: return { border: '#a5d8ff', bg: 'rgba(240, 249, 255, 0.8)', headerBg: 'rgb(224, 242, 254)' };
+      case 1: return { border: '#7cc2ff', bg: 'rgba(235, 246, 255, 0.85)', headerBg: 'rgb(219, 239, 251)' };
+      case 2: return { border: '#59acff', bg: 'rgba(230, 243, 255, 0.9)', headerBg: 'rgb(214, 236, 249)' };
+      case 3: return { border: '#3b96ff', bg: 'rgba(225, 240, 255, 0.95)', headerBg: 'rgb(209, 233, 247)' };
+      default: return { border: '#1c80ff', bg: 'rgba(220, 237, 255, 1)', headerBg: 'rgb(204, 230, 245)' };
+    }
+  };
+
+  // NEW: Get depth indicator style
+  const getDepthIndicatorStyle = () => {
+    const depth = getNestingDepth();
+    
+    // No indicator for top level
+    if (depth === 0) return undefined;
+    
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#0ea5e9',
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: '10px',
+      width: '16px',
+      height: '16px',
+      borderRadius: '50%',
+      marginRight: '4px'
+    };
+  };
   
   // Handle styling based on parent status
   const getHandleStyle = (position: Position) => {
@@ -127,29 +176,43 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
     }, 100);
   }, [id]);
 
+  // Use nesting colors instead of fixed colors
+  const nodeStyle = {
+    backgroundColor: getDepthColors().bg,
+    borderColor: getDepthColors().border,
+    // Keep other style properties
+  };
+
   return (
     <div 
       style={{
-        background: hasParent ? 'rgba(255, 248, 248, 0.97)' : '#ffffff',
-        border: hasParent ? '1px solid #ef4444' : '1px solid #e2e8f0',
-        borderRadius: hasParent ? '8px' : '6px',
-        padding: hasParent ? '12px' : '14px',
+        background: isChild ? 'rgba(255, 248, 248, 0.97)' : '#ffffff',
+        border: isChild ? '1px solid #ef4444' : isContainer ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
+        borderRadius: isChild ? '8px' : '6px',
+        padding: isChild ? '12px' : '14px',
         width: nodeWidth,
+        height: nodeHeight,
         boxSizing: 'border-box',
         fontSize: '12px',
-        boxShadow: hasParent 
+        boxShadow: isChild 
           ? '0 2px 6px rgba(239, 68, 68, 0.15)' 
-          : '0 2px 5px rgba(0, 0, 0, 0.08)',
+          : isContainer ? '0 4px 8px rgba(14, 165, 233, 0.15)' : '0 2px 5px rgba(0, 0, 0, 0.08)',
         transition: 'all 0.2s ease',
         position: 'relative',
         overflow: 'hidden',
         cursor: 'pointer', // Indicate it's clickable
         transform: isExpanded ? 'scale(1.02)' : 'scale(1)', // Subtle scaling when expanded
       }}
-      className={`${hasParent ? 'child-node' : 'regular-node'} ${isExpanded ? 'expanded' : ''}`}
+      className={`
+        relative
+        group
+        ${selected ? 'node-selected' : ''}
+      `}
       data-node-type="step" 
-      data-is-child={hasParent ? 'true' : 'false'}
+      data-is-child={isChild ? 'true' : 'false'}
+      data-is-container={isContainer ? 'true' : 'false'}
       data-is-expanded={isExpanded ? 'true' : 'false'}
+      data-nesting-depth={getNestingDepth()}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={toggleExpand} // Directly toggle on click
@@ -161,7 +224,14 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
         style={getHandleStyle(Position.Top)}
         isConnectable={isConnectable}
       />
-      <div style={{ position: 'relative' }}>
+
+      {/* Header section with clear padding for container nodes */}
+      <div style={{ 
+        position: 'relative',
+        padding: isContainer ? '0 0 20px 0' : '0',
+        marginBottom: isContainer ? '15px' : '0',
+        borderBottom: isContainer ? '1px dashed rgba(14, 165, 233, 0.3)' : 'none',
+      }}>
         {/* Node Title */}
         <div style={{ 
           display: 'flex', 
@@ -170,14 +240,18 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
           marginBottom: '4px'
         }}>
           <strong style={{ 
-            fontSize: hasParent ? '12px' : '13px', 
-            color: hasParent ? '#991b1b' : '#333',
+            fontSize: isChild ? '12px' : '13px', 
+            color: isChild ? '#991b1b' : isContainer ? '#0369a1' : '#333',
             fontWeight: 600,
             lineHeight: 1.2,
             marginRight: '4px',
             flex: 1,
             transition: 'color 0.2s',
           }}>
+            {/* Add depth indicator */}
+            {getNestingDepth() > 0 && (
+              <span style={getDepthIndicatorStyle()}>{getNestingDepth()}</span>
+            )}
             {formattedLabel}
           </strong>
           
@@ -186,8 +260,8 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
             <button 
               onClick={openDetailedEditor}
               style={{
-                background: hasParent ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                border: hasParent ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid rgba(0, 0, 0, 0.1)',
+                background: isChild ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                border: isChild ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid rgba(0, 0, 0, 0.1)',
                 cursor: 'pointer',
                 padding: '3px',
                 width: '22px',
@@ -196,7 +270,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: '4px',
-                color: hasParent ? '#991b1b' : '#555',
+                color: isChild ? '#991b1b' : '#555',
                 opacity: 0.85,
                 transition: 'all 0.2s ease',
                 zIndex: 5,
@@ -213,10 +287,10 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
         {/* Intent Section (Always visible) */}
         {intentText && (
           <div style={{ 
-            fontSize: hasParent ? '10px' : '11px', 
-            color: hasParent ? '#666' : '#555',
+            fontSize: isChild ? '10px' : '11px', 
+            color: isChild ? '#666' : '#555',
             lineHeight: 1.3,
-            maxHeight: isExpanded ? 'none' : (hasParent ? '2.6em' : '2.6em'), 
+            maxHeight: isExpanded ? 'none' : (isChild ? '2.6em' : '2.6em'), 
             overflow: 'hidden',
             textOverflow: isExpanded ? 'clip' : 'ellipsis',
             display: isExpanded ? 'block' : '-webkit-box',
@@ -243,13 +317,13 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
               {/* Divider */}
               <div style={{
                 height: '1px',
-                background: hasParent ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                background: isChild ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                 margin: '2px 0 6px 0',
               }} />
               
               <div style={{ 
-                fontSize: hasParent ? '9px' : '10px', 
-                color: hasParent ? '#666' : '#555',
+                fontSize: isChild ? '9px' : '10px', 
+                color: isChild ? '#666' : '#555',
                 lineHeight: 1.3,
                 padding: '2px 0',
                 fontStyle: 'normal',
@@ -261,51 +335,87 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
           )}
         </div>
         
-        {/* Collapse button - only visible when expanded */}
-        {isExpanded && (
-          <div 
-            style={{
-              position: 'absolute',
-              bottom: '-10px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              cursor: 'pointer',
-              zIndex: 2,
-              background: hasParent ? 'rgba(239, 68, 68, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-              borderRadius: '8px',
-              padding: '2px 4px',
-              border: hasParent ? '1px solid rgba(239, 68, 68, 0.15)' : '1px solid rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onClick={toggleExpand}
-            title="Collapse"
-          >
-            <ChevronUp size={12} style={{ strokeWidth: 2.5, color: hasParent ? '#991b1b' : '#555' }} />
+        {/* Child container indication for parent nodes */}
+        {isContainer && childCount > 0 && (
+          <div style={{
+            marginTop: '8px',
+            padding: '4px 8px',
+            background: 'rgba(14, 165, 233, 0.08)',
+            borderRadius: '4px',
+            fontSize: '11px',
+            color: '#0369a1',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            border: '1px dashed rgba(14, 165, 233, 0.3)'
+          }}>
+            <span>
+              <ListTodo size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+              Contains {childCount} steps
+            </span>
           </div>
         )}
-        
-        {/* Visual indicator for expandable content - only shown when not expanded and not hovered */}
-        {hasExpandableContent && !isExpanded && !isHovered && (
-          <div 
-            style={{
-              position: 'absolute',
-              bottom: '-2px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: '4px',
-              height: '4px',
-              borderRadius: '50%',
-              background: hasParent ? 'rgba(239, 68, 68, 0.3)' : 'rgba(0, 0, 0, 0.15)',
-              opacity: 0.6,
-              transition: 'opacity 0.2s',
-            }}
-            title="Click to expand"
-          />
-        )}
       </div>
+      
+      {/* Container for child nodes - only visible for container nodes */}
+      {isContainer && (
+        <div style={{
+          position: 'absolute',
+          top: '100px', // Below header
+          left: '10px',
+          right: '10px',
+          bottom: '10px',
+          background: 'rgba(14, 165, 233, 0.04)',
+          borderRadius: '6px',
+          border: '1px dashed rgba(14, 165, 233, 0.2)',
+          zIndex: 0
+        }} />
+      )}
+      
+      {/* Collapse button - only visible when expanded */}
+      {isExpanded && (
+        <div 
+          style={{
+            position: 'absolute',
+            bottom: '-10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            cursor: 'pointer',
+            zIndex: 6,
+            background: isChild ? 'rgba(239, 68, 68, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+            borderRadius: '8px',
+            padding: '2px 4px',
+            border: isChild ? '1px solid rgba(239, 68, 68, 0.15)' : '1px solid rgba(0, 0, 0, 0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: 0.8,
+          }}
+          onClick={toggleExpand}
+          title="Collapse"
+        >
+          <ChevronUp size={12} style={{ strokeWidth: 2.5, color: isChild ? '#991b1b' : '#555' }} />
+        </div>
+      )}
+      
+      {/* Visual indicator for expandable content - only shown when not expanded and not hovered */}
+      {hasExpandableContent && !isExpanded && !isHovered && (
+        <div 
+          style={{
+            position: 'absolute',
+            bottom: '-2px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '4px',
+            height: '4px',
+            borderRadius: '50%',
+            background: isChild ? 'rgba(239, 68, 68, 0.3)' : 'rgba(0, 0, 0, 0.15)',
+            opacity: 0.6,
+            transition: 'opacity 0.2s',
+          }}
+          title="Click to expand"
+        />
+      )}
       
       <Handle 
         id="bottom"

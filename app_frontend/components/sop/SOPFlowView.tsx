@@ -381,89 +381,228 @@ const pickOptimalPorts = (
 };
 
 const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = 'TB') => {
-  // Create a new Dagre graph instance for each layout to ensure a clean state
-  const dagreGraphInstance = new dagre.graphlib.Graph();  // REMOVE compound: true to avoid Dagre errors
-  dagreGraphInstance.setDefaultEdgeLabel(() => ({}));
-
-  // Reset graph by removing all nodes and edges before new layout
-  // dagreGraph.nodes().forEach(nodeId => dagreGraph.removeNode(nodeId)); // No longer needed with new instance
-
-  // Increase nodesep to encourage more horizontal spacing between nodes
-  dagreGraphInstance.setGraph({ 
-    rankdir: direction, 
-    ranksep: AVG_RANKSEP_VIEW, 
-    nodesep: AVG_NODESEP_VIEW, 
-    marginx: COMPOUND_NODE_PADDING_X_VIEW, // Increased for more horizontal space 
-    marginy: COMPOUND_NODE_PADDING_Y_VIEW / 2,
-    // REMOVED: compound: true,
+  if (!nodes.length) return { nodes, edges };
+  
+  console.log("Using custom hierarchical layout");
+  
+  // First, build a graph representation to determine levels
+  const graph: Record<string, string[]> = {};
+  const incomingEdges: Record<string, number> = {};
+  const nodeMap: Record<string, FlowNode> = {};
+  
+  // Initialize graph structures
+  nodes.forEach(node => {
+    graph[node.id] = [];
+    incomingEdges[node.id] = 0;
+    nodeMap[node.id] = node;
   });
-
-  const nodeIds = new Set(nodes.map(node => node.id));
   
-  // Extract parent and child nodes for manual positioning later
-  const parentNodes = nodes.filter(node => !node.parentNode && nodes.some(n => n.parentNode === node.id));
-  const childNodesByParent: Record<string, FlowNode[]> = {};
+  // Add edges to graph
+  edges.forEach(edge => {
+    // Only count edges between different nodes and not parent-child edges
+    if (edge.source !== edge.target) {
+      // Skip parent-child relationships in the graph structure
+      const sourceNode = nodeMap[edge.source];
+      const targetNode = nodeMap[edge.target];
+      
+      // Only add edge if target is not a child of source in the DOM
+      if (!targetNode.parentNode || targetNode.parentNode !== edge.source) {
+        graph[edge.source].push(edge.target);
+        incomingEdges[edge.target]++;
+      }
+    }
+  });
   
+  // Find root nodes (nodes with no incoming edges)
+  const rootIds: string[] = [];
+  Object.keys(incomingEdges).forEach(nodeId => {
+    if (incomingEdges[nodeId] === 0 && !nodeMap[nodeId].parentNode) {
+      rootIds.push(nodeId);
+    }
+  });
+  
+  // Group nodes by level using topological sort
+  const levels: string[][] = [];
+  const visited = new Set<string>();
+  
+  // Start with root nodes
+  levels.push([...rootIds]);
+  rootIds.forEach(id => visited.add(id));
+  
+  // Process each level
+  let currentLevel = 0;
+  while (levels[currentLevel] && levels[currentLevel].length > 0) {
+    const nextLevel: string[] = [];
+    
+    // For each node in current level
+    levels[currentLevel].forEach(nodeId => {
+      // Find child nodes in the graph (not parent-child in DOM)
+      graph[nodeId].forEach(childId => {
+        // Decrement incoming edge count
+        incomingEdges[childId]--;
+        
+        // If all incoming edges processed and not yet visited
+        if (incomingEdges[childId] === 0 && !visited.has(childId) && !nodeMap[childId].parentNode) {
+          nextLevel.push(childId);
+          visited.add(childId);
+        }
+      });
+    });
+    
+    if (nextLevel.length > 0) {
+      levels.push(nextLevel);
+    }
+    
+    currentLevel++;
+  }
+  
+  // Layout constants
+  const LEVEL_HEIGHT = 250;  // Vertical space between levels
+  const NODE_SPACING = 300;  // Horizontal space between nodes in a level
+  const TOP_MARGIN = 100;    // Starting Y position
+  
+  // Container node padding
+  const HEADER_HEIGHT = 80;
+  const CONTAINER_PADDING_X = 80; 
+  const CONTAINER_PADDING_TOP = 100;
+  const CONTAINER_PADDING_BOTTOM = 50;
+  
+  // Child node constants
+  const CHILD_NODE_WIDTH = 200;
+  const CHILD_NODE_HEIGHT = 100;
+  const CHILD_SPACING_X = 50;
+  const CHILD_SPACING_Y = 50;
+  
+  // Create a copy of nodes to modify positions
+  const layoutedNodes = [...nodes];
+  
+  // Map to track node positions and dimensions
+  const nodePositions: Record<string, { x: number, y: number, width: number, height: number }> = {};
+  
+  // Position nodes by level
+  levels.forEach((levelNodes, levelIndex) => {
+    const levelY = TOP_MARGIN + (levelIndex * LEVEL_HEIGHT);
+    
+    // Position nodes in this level horizontally
+    levelNodes.forEach((nodeId, nodeIndex) => {
+      const node = nodeMap[nodeId];
+      
+      // Calculate center position for this node
+      const nodeX = 100 + (nodeIndex * NODE_SPACING);
+      
+      // Set dimensions based on node type and children
+      let nodeWidth = 200;
+      let nodeHeight = 100;
+      
+      // If node is a container (has children), calculate its dimensions
+      if (node.data && node.data.isContainer) {
+        // Find any children in the DOM hierarchy (ReactFlow parent-child)
+        const childNodes = nodes.filter(n => n.parentNode === node.id);
+        
+        if (childNodes.length > 0) {
+          // Calculate dimensions needed to fit all children with padding
+          const childCount = childNodes.length;
+          const childrenPerRow = Math.min(childCount, 2); // Max 2 children per row
+          const rows = Math.ceil(childCount / childrenPerRow);
+          
+          nodeWidth = Math.max(
+            400, // Min width
+            (childrenPerRow * CHILD_NODE_WIDTH) + ((childrenPerRow - 1) * CHILD_SPACING_X) + (CONTAINER_PADDING_X * 2)
+          );
+          
+          nodeHeight = Math.max(
+            250, // Min height
+            (rows * CHILD_NODE_HEIGHT) + ((rows - 1) * CHILD_SPACING_Y) + CONTAINER_PADDING_TOP + CONTAINER_PADDING_BOTTOM
+          );
+        }
+      }
+      
+      // Special dimensions for certain node types
+      if (node.type === 'decision') {
+        nodeWidth = 150;
+        nodeHeight = 150;
+      } else if (node.type === 'trigger' || node.type === 'end') {
+        nodeWidth = 180;
+        nodeHeight = 80;
+      }
+      
+      // Find node in layoutedNodes and update position
+      const layoutNodeIndex = layoutedNodes.findIndex(n => n.id === nodeId);
+      if (layoutNodeIndex !== -1) {
+        // Center the node at its position
+        layoutedNodes[layoutNodeIndex] = {
+          ...layoutedNodes[layoutNodeIndex],
+          position: { 
+            x: nodeX - (nodeWidth / 2), 
+            y: levelY 
+          },
+          // Store calculated dimensions in node data
+          data: {
+            ...layoutedNodes[layoutNodeIndex].data,
+            calculatedWidth: nodeWidth,
+            calculatedHeight: nodeHeight
+          }
+        };
+        
+        // Track node position and size for child positioning
+        nodePositions[nodeId] = {
+          x: nodeX - (nodeWidth / 2),
+          y: levelY,
+          width: nodeWidth,
+          height: nodeHeight
+        };
+        
+        console.log(`Positioned node ${nodeId} (${node.type}) at level ${levelIndex} position (${nodeX - (nodeWidth / 2)}, ${levelY}) with size ${nodeWidth}x${nodeHeight}`);
+      }
+    });
+  });
+  
+  // Second pass: Position child nodes inside their parent containers
   nodes.forEach(node => {
     if (node.parentNode) {
-      if (!childNodesByParent[node.parentNode]) {
-        childNodesByParent[node.parentNode] = [];
+      const parentPos = nodePositions[node.parentNode];
+      
+      if (parentPos) {
+        // Find this node and all its siblings
+        const siblings = nodes.filter(n => n.parentNode === node.parentNode);
+        const siblingIndex = siblings.findIndex(n => n.id === node.id);
+        
+        if (siblingIndex !== -1) {
+          // Layout children in a grid within parent
+          const childrenPerRow = Math.min(siblings.length, 2);
+          const row = Math.floor(siblingIndex / childrenPerRow);
+          const col = siblingIndex % childrenPerRow;
+          
+          // Set child dimensions
+          let childWidth = CHILD_NODE_WIDTH;
+          let childHeight = CHILD_NODE_HEIGHT;
+          
+          if (node.type === 'decision') {
+            childWidth = 120;
+            childHeight = 120;
+          }
+          
+          // Calculate position inside parent
+          const childX = CONTAINER_PADDING_X + (col * (childWidth + CHILD_SPACING_X));
+          const childY = CONTAINER_PADDING_TOP + (row * (childHeight + CHILD_SPACING_Y));
+          
+          // Update position in layoutedNodes
+          const childNodeIndex = layoutedNodes.findIndex(n => n.id === node.id);
+          if (childNodeIndex !== -1) {
+            layoutedNodes[childNodeIndex] = {
+              ...layoutedNodes[childNodeIndex],
+              position: { x: childX, y: childY },
+              parentNode: node.parentNode,
+              extent: 'parent'
+            };
+            
+            console.log(`Positioned child node ${node.id} inside parent ${node.parentNode} at (${childX}, ${childY})`);
+          }
+        }
       }
-      childNodesByParent[node.parentNode].push(node);
     }
   });
-
-  // Create a mapping of all child node IDs for edge handling
-  const childNodeIds = new Set(
-    Object.values(childNodesByParent).flatMap(children => children.map(child => child.id))
-  );
-
-  // First pass: add only non-child nodes to Dagre - we'll position children manually
-  const nonChildNodes = nodes.filter(node => !node.parentNode);
-  nonChildNodes.forEach((node) => {
-    let width = 208;
-    let height = 112;
-
-    if (node.data?.calculatedWidth && node.data?.calculatedHeight) {
-      width = node.data.calculatedWidth;
-      height = node.data.calculatedHeight;
-    } else {
-      if (node.type === 'trigger') { width = 208; height = 112; }
-      else if (node.type === 'step') { width = 240; height = 80; }
-      else if (node.type === 'end') { width = 208; height = 112; }
-      else if (node.type === 'decision') { width = 208; height = 104; }
-      else if (node.type === 'loop') { width = 240; height = 80; }
-    }
-
-    if (node.id) {
-      dagreGraphInstance.setNode(node.id, { width, height, label: node.data?.label || node.id }); 
-    }
-  });
-
-  // REMOVED: Second pass for setting parent relationships - no longer using Dagre's compound layout
-
-  // Add edges between non-child nodes only for Dagre layout
-  // BUT keep all edges for rendering
-  const layoutEdges: FlowEdge[] = [];
-  edges.forEach((edge) => {
-    // Only add edges between nodes that are both in the Dagre graph (non-children)
-    if (edge.source && edge.target && 
-        !childNodeIds.has(edge.source) && 
-        !childNodeIds.has(edge.target) &&
-        nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
-      dagreGraphInstance.setEdge(edge.source, edge.target);
-      layoutEdges.push(edge);
-    }
-  });
-
-  // Run the layout for non-child nodes
-  try {
-    dagre.layout(dagreGraphInstance);
-  } catch (error) {
-    console.error('Dagre layout error:', error);
-    return { nodes, edges }; // Return nodes/edges without layout if error occurs
-  }
-
+  
   // Enhance edges with additional metadata for better visualization
   const enhancedEdges = edges.map(edge => {
     // Find source and target nodes to determine relationship type
@@ -511,211 +650,7 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     };
   });
 
-  // Position the non-child nodes based on Dagre layout
-  const layoutedNodes = nonChildNodes.map((node): FlowNode => {
-    if (!node.id || !dagreGraphInstance.hasNode(node.id)) {
-      return { ...node, position: node.position || { x: 0, y: 0 } };
-    }
-    const nodeWithPosition = dagreGraphInstance.node(node.id);
-    if (!nodeWithPosition || typeof nodeWithPosition.x !== 'number' || typeof nodeWithPosition.y !== 'number') {
-      console.warn(`Node ${node.id} missing position after layout, using default.`);
-      return { ...node, position: node.position || { x: Math.random() * 200, y: Math.random() * 200 } };
-    }
-
-    const isHorizontal = direction === 'LR';
-    const nodeSpecificWidth = nodeWithPosition.width || 240;
-    const nodeSpecificHeight = nodeWithPosition.height || 80;
-
-    return {
-      ...node,
-      targetPosition: isHorizontal ? Position.Left : Position.Top,
-      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
-      position: {
-        x: nodeWithPosition.x - nodeSpecificWidth / 2, 
-        y: nodeWithPosition.y - nodeSpecificHeight / 2,
-      },
-    };
-  });
-
-  // Create a map of positioned nodes by ID for lookup
-  const positionedNodesById = layoutedNodes.reduce<Record<string, FlowNode>>((acc, node) => {
-    if (node.id) acc[node.id] = node;
-    return acc;
-  }, {});
-
-  // Now handle child nodes with fixed positions relative to their parents
-  const childNodes: FlowNode[] = [];
-  
-  Object.entries(childNodesByParent).forEach(([parentNodeId, children]) => {
-    const parentNode = positionedNodesById[parentNodeId];
-    
-    if (!parentNode || !parentNode.position) {
-      console.warn(`Parent node ${parentNodeId} not found or has no position, using fallback positioning`);
-      // If parent not found in positioned nodes, use fallback positioning
-      children.forEach((childNode, index) => {
-        const layoutedChildNode: FlowNode = {
-          ...childNode,
-          // Keep parentNode reference for ReactFlow
-          position: {
-            x: 300 + (index * 150),  // Horizontal fallback layout
-            y: 400,
-          }
-        };
-        childNodes.push(layoutedChildNode);
-      });
-      return;
-    }
-    
-    const parentPosition = parentNode.position;
-    const childCount = children.length;
-    
-    // Define sizes for child nodes - ensure exact match with StepNode component
-    const childWidth = 220; // Must match the width defined in StepNode.tsx
-    const childHeight = 100; // Increased from 90
-    const horizontalSpacing = 80; // Increased from 60
-    const verticalSpacing = 90; // Increased from 70
-    
-    // Determine optimal layout based on number of children and their types
-    let maxChildrenPerRow = 2; // Default to 2 for most cases
-    
-    // For many nodes, determine optimal layout - more columns for more children
-    if (childCount > 14) {
-      maxChildrenPerRow = 4; // Use 4 columns for very large parents
-    } else if (childCount > 8) {
-      maxChildrenPerRow = 3; // Use 3 columns for large parents
-    } else if (childCount <= 3) {
-      maxChildrenPerRow = childCount; // For 1-3 nodes, use one row
-    }
-    
-    // Check if there are decision nodes which need more space horizontally
-    const hasDecisionNodes = children.some(node => node.type === 'decision');
-    if (hasDecisionNodes && maxChildrenPerRow > 2 && childCount <= 6) {
-      // Only reduce columns for smaller sets with decision nodes
-      maxChildrenPerRow = Math.max(2, maxChildrenPerRow - 1);
-    }
-    
-    // For very large child counts, ensure we don't create unnecessarily tall containers
-    if (childCount > 16 && maxChildrenPerRow < 4) {
-      maxChildrenPerRow = 4;
-    }
-    
-    const rows = Math.ceil(childCount / maxChildrenPerRow);
-    
-    // Calculate total width and height needed for all children
-    const totalChildWidth = (maxChildrenPerRow * childWidth) + ((maxChildrenPerRow - 1) * horizontalSpacing);
-    const totalChildHeight = (rows * childHeight) + ((rows - 1) * verticalSpacing);
-    
-    // Position each child node
-    children.forEach((childNode, index) => {
-      const row = Math.floor(index / maxChildrenPerRow);
-      const col = index % maxChildrenPerRow;
-
-      // Calculate the initial offset to center the child nodes
-      const initialXOffset = (parentNode.type === 'loop') ? 80 : 60;
-      const initialYOffset = (parentNode.type === 'loop') ? 100 : 80;
-      
-      // For decision nodes, adjust position to account for diamond shape
-      let xPosition = (col * (childWidth + horizontalSpacing)) + initialXOffset;
-      let yPosition = (row * (childHeight + verticalSpacing)) + initialYOffset;
-      
-      // Center the nodes if there's extra space in the last row
-      const nodesInLastRow = childCount % maxChildrenPerRow || maxChildrenPerRow;
-      if (row === rows - 1 && nodesInLastRow < maxChildrenPerRow) {
-        // Center the last row if it's not full
-        const lastRowWidth = (nodesInLastRow * childWidth) + ((nodesInLastRow - 1) * horizontalSpacing);
-        const extraSpace = totalChildWidth - lastRowWidth;
-        if (extraSpace > 0 && row === rows - 1) {
-          xPosition += extraSpace / 2;
-        }
-      }
-      
-      // Adjust position based on node type
-      if (childNode.type === 'decision') {
-        xPosition += 20; // Give decision nodes a bit more horizontal room
-        yPosition += 10; // And vertical room
-      }
-      
-      // Create positioned child node with parent reference intact
-      const layoutedChildNode: FlowNode = {
-        ...childNode,
-        parentNode: parentNodeId, // Explicitly maintain the parent-child relationship
-        extent: 'parent', // Make child stay within parent boundaries
-        targetPosition: direction === 'LR' ? Position.Left : Position.Top,
-        sourcePosition: direction === 'LR' ? Position.Right : Position.Bottom,
-        position: {
-          x: xPosition,
-          y: yPosition,
-        },
-        style: { 
-          ...childNode.style,
-          backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque background
-          boxShadow: '0 2px 6px rgba(0,0,0,0.1)', // Add subtle shadow for depth
-          borderRadius: '8px', // Match the parent container's rounded corners
-        }
-      };
-      
-      childNodes.push(layoutedChildNode);
-    });
-    
-    // Increase parent node size to accommodate children if needed
-    if (parentNode.type === 'loop') {
-      // Use the same initialXOffset and initialYOffset as defined above
-      const parentInitialXOffset = (parentNode.type === 'loop') ? 80 : 60;
-      const parentInitialYOffset = (parentNode.type === 'loop') ? 100 : 80;
-      
-      // Add extra padding based on child count 
-      const extraPadding = childCount > 12 ? 80 : (childCount > 8 ? 60 : 40);
-      const requiredWidth = totalChildWidth + (parentInitialXOffset * 2) + extraPadding;
-      const requiredHeight = totalChildHeight + (parentInitialYOffset * 2) + extraPadding;
-      
-      // Always ensure the parent node has data.calculatedWidth and data.calculatedHeight
-      if (!parentNode.data) {
-        parentNode.data = {};
-      }
-      
-      if (!parentNode.data.calculatedWidth) {
-        parentNode.data.calculatedWidth = 0;
-      }
-      
-      if (!parentNode.data.calculatedHeight) {
-        parentNode.data.calculatedHeight = 0;
-      }
-      
-      // Force the size to be large enough regardless of previous calculations
-      parentNode.data.calculatedWidth = Math.max(requiredWidth, parentNode.data.calculatedWidth);
-      parentNode.data.calculatedHeight = Math.max(requiredHeight, parentNode.data.calculatedHeight);
-      
-      // Update the node in the positionedNodesById map
-      positionedNodesById[parentNodeId] = parentNode;
-    }
-  });
-
-  // Combine the layout results
-  const allLayoutedNodes = [...layoutedNodes, ...childNodes];
-
-  // When applying the layout, adjust position to encourage more horizontal spacing
-  const nodesWithHorizontalVariance = allLayoutedNodes.map(node => {
-    // For non-special nodes, slightly adjust position to add horizontal variance
-    if (!node.parentNode && node.type !== 'decision' && node.type !== 'trigger' && node.type !== 'end') {
-      const randomHorizontalOffset = Math.random() * 40 - 20; // -20 to +20 pixels
-      return {
-        ...node,
-        position: {
-          x: node.position.x + randomHorizontalOffset,
-          y: node.position.y
-        }
-      };
-    }
-    return node;
-  });
-  
-  // Optimize edge port selection using helper function
-  const optimizedEdges = pickOptimalPorts(nodesWithHorizontalVariance, enhancedEdges);
-
-  return { 
-    nodes: nodesWithHorizontalVariance, 
-    edges: optimizedEdges
-  };
+  return { nodes: layoutedNodes, edges: enhancedEdges };
 };
 
 const getAllDescendantIds = (nodeId: string, allNodes: FlowNode<AppSOPNode>[]): string[] => {
@@ -1014,8 +949,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       // Initialize expanded state: all parent nodes are expanded by default
       const initialExpandedState: Record<string, boolean> = {};
       initialFlowNodes.forEach(node => {
-        const appNode = node.data as AppSOPNode; // Cast to access childNodes
-        if (appNode.childNodes && appNode.childNodes.length > 0) {
+        if (node.data.isContainer || (node.data.childSopNodeIds && node.data.childSopNodeIds.length > 0)) {
           initialExpandedState[node.id] = true; // Default to expanded
         }
       });
@@ -1023,8 +957,8 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       
       // Attach toggle handler and expansion state to node data
       const nodesWithCollapseProps = initialFlowNodes.map(node => {
-        const appNode = node.data as AppSOPNode;
-        if (appNode.childNodes && appNode.childNodes.length > 0) {
+        // If node has children or is marked as container, add collapse props
+        if (node.data.isContainer || (node.data.childSopNodeIds && node.data.childSopNodeIds.length > 0)) {
           return {
             ...node,
             data: {
@@ -1037,27 +971,34 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
         return node;
       });
       
-      // Use the nodesWithCollapseProps for the initial layout
+      // Use our custom layout algorithm
       const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
         nodesWithCollapseProps,
         initialFlowEdges,
-        layoutDirection // Use the current layout direction
+        layoutDirection
       );
       
-      // Get dynamic header heights based on node types and states
-      const headerHeights = getHeaderHeights(layoutedNodes);
+      // Debug some node positions
+      console.log("Sample of nodes after layout:");
+      layoutedNodes.slice(0, 5).forEach(node => {
+        console.log(`Node ${node.id}: pos=${JSON.stringify(node.position)}, parentNode=${node.parentNode}, extent=${node.extent}`);
+      });
       
-      // Apply header offset to prevent child nodes from overlapping with parent headers
-      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
-      
-      setNodes(offsettedNodes);
+      setNodes(layoutedNodes);
       setEdges(layoutedEdges);
+      
+      // Force ReactFlow to re-render and fit view after a brief delay
+      setTimeout(() => {
+        if (reactFlowInstance) {
+          reactFlowInstance.fitView({ padding: 0.2 });
+        }
+      }, 300);
     } else {
       setNodes([]);
       setEdges([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sopData, handleToggleCollapse, layoutDirection]); // Add layoutDirection as dependency
+  }, [sopData, handleToggleCollapse, layoutDirection]);
 
   if (!sopData) {
     return <div className="flex items-center justify-center h-full"><p className="text-muted-foreground">Loading diagram data...</p></div>;
