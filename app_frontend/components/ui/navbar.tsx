@@ -12,9 +12,12 @@ import {
   DropdownMenuTrigger 
 } from './dropdown-menu'
 import { useAuth } from '@/lib/auth-context'
+import { useState } from 'react'
+import { AuthModal } from './auth-modal'
 
 export function Navbar() {
-  const { user, loading, signIn, signOut } = useAuth()
+  const { user, loading, signOut } = useAuth()
+  const [showAuthModal, setShowAuthModal] = useState(false)
 
   // Get user initials for avatar fallback
   const getUserInitials = (user: any): string => {
@@ -35,15 +38,22 @@ export function Navbar() {
           {loading ? (
             <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse"></div>
           ) : !user ? (
-            <Button variant="outline" onClick={signIn}>
-              Sign in with Google
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setShowAuthModal(true)}>
+                Sign in
+              </Button>
+              <AuthModal 
+                open={showAuthModal} 
+                onOpenChange={setShowAuthModal} 
+                context="navbar" 
+              />
+            </>
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Avatar className="cursor-pointer">
+                <Avatar className="cursor-pointer border-2 border-gray-200 hover:border-gray-300 transition-colors">
                   <AvatarImage src={user.user_metadata?.avatar_url} />
-                  <AvatarFallback>{getUserInitials(user)}</AvatarFallback>
+                  <AvatarFallback className="bg-gray-100 text-gray-800">{getUserInitials(user)}</AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

@@ -11,6 +11,8 @@ type AuthContextType = {
   loading: boolean
   signIn: () => Promise<void>
   signOut: () => Promise<void>
+  signInWithEmail: (email: string, password: string) => Promise<void>
+  signUpWithEmail: (email: string, password: string) => Promise<{ success: boolean, error?: string }>
 }
 
 // Create context with default values
@@ -19,6 +21,8 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signIn: async () => {},
   signOut: async () => {},
+  signInWithEmail: async () => {},
+  signUpWithEmail: async () => ({ success: false }),
 })
 
 // Hook to use the auth context
@@ -124,6 +128,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Handles sign in with email and password
+   * Uses a popup for email verification to maintain consistent UX with OAuth flow
+   */
+  const signInWithEmail = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+      
+      if (error) {
+        throw error
+      }
+      
+      toast({
+        title: "Signed in",
+        description: "You have successfully signed in."
+      })
+    } catch (error: any) {
+      toast({
+        title: "Authentication error",
+        description: error.message || "Failed to sign in",
+        variant: "destructive"
+      })
+    }
+  }
+
+  /**
+   * Handles sign up with email and password
+   * Uses a popup for email verification to maintain consistent UX with OAuth flow
+   * @returns Object indicating success or failure with error message
+   */
+  const signUpWithEmail = async (email: string, password: string) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/popup-callback?type=email`,
+          data: {
+            email_confirmed: false
+          }
+        }
+      })
+      
+      if (error) {
+        throw error
+      }
+      
+      // Check if user already exists
+      if (data.user?.identities?.length === 0) {
+        toast({
+          title: "Email already in use",
+          description: "This email is already registered. Please sign in instead.",
+          variant: "destructive"
+        })
+        return { success: false, error: "Email already in use" }
+      }
+      
+      // Check if email confirmation is required
+      if (data.user?.email_confirmed_at) {
+        // Email already confirmed
+        toast({
+          title: "Account created",
+          description: "Your account was created and you are now signed in."
+        })
+      } else {
+        // Email confirmation required
+        toast({
+          title: "Verification email sent",
+          description: "Please check your email to verify your account."
+        })
+      }
+      
+      return { success: true }
+    } catch (error: any) {
+      toast({
+        title: "Sign up error",
+        description: error.message || "Failed to sign up",
+        variant: "destructive"
+      })
+      return { success: false, error: error.message || "Failed to sign up" }
+    }
+  }
+
   // Handle sign out
   const signOut = async () => {
     try {
@@ -143,7 +233,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      signIn, 
+      signOut, 
+      signInWithEmail, 
+      signUpWithEmail 
+    }}>
       {children}
     </AuthContext.Provider>
   )
