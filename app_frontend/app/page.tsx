@@ -2,6 +2,8 @@
 
 import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth-context';
+import { AuthModal } from '@/components/ui/auth-modal';
 
 // Validation constants
 const MAX_FILE_SIZE = 750 * 1024 * 1024; // 750MB in bytes
@@ -16,8 +18,10 @@ export default function Home() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { user } = useAuth();
   
   // Format bytes to human-readable format
   const formatBytes = (bytes: number): string => {
@@ -135,9 +139,15 @@ export default function Home() {
   const handleProcessVideo = async () => {
     if (!file) return;
     
+    // Check if user is authenticated
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
+    
     try {
-      setIsUploading(true);
-      setError(null);
+      setIsUploading(true)
+      setError(null)
       
       // Step 1: Get a signed upload URL from our API
       const response = await fetch('/api/get-upload-url', {
@@ -232,6 +242,12 @@ export default function Home() {
         
         {/* Hidden video element for duration validation */}
         <video ref={videoRef} className="hidden" />
+        
+        {/* Authentication Modal */}
+        <AuthModal 
+          open={showAuthModal} 
+          onOpenChange={setShowAuthModal} 
+        />
         
         {/* Status indicator */}
         {isUploading && (
