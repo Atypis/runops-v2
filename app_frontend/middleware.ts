@@ -58,8 +58,11 @@ export async function middleware(request: NextRequest) {
 
   // Check if the route requires authentication
   const isProtectedRoute = request.nextUrl.pathname.startsWith('/my-sops') || 
-                          request.nextUrl.pathname.startsWith('/api/') && 
-                          !request.nextUrl.pathname.startsWith('/api/get-upload-url')
+                          (request.nextUrl.pathname.startsWith('/api/') && 
+                          !request.nextUrl.pathname.startsWith('/api/get-upload-url') &&
+                          !request.nextUrl.pathname.startsWith('/api/direct-sop')) ||
+                          (request.nextUrl.pathname.startsWith('/sop/') &&
+                          !request.nextUrl.pathname.startsWith('/direct-sop/'))
 
   // If no session and trying to access protected route
   if (!session && isProtectedRoute) {
@@ -82,6 +85,7 @@ export const config = {
   matcher: [
     '/my-sops',
     '/api/:path*',
-    '/sop/:path*'
+    '/sop/:path*',
+    '/direct-sop/:path*'
   ],
 } 

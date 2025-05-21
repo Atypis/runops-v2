@@ -116,7 +116,7 @@ The worker uses two separate prompt files:
    - Used in Step 1 to extract a detailed transcript from the video
    - Includes guidelines for capturing visual events and audio segments
 
-2. **SOP Parsing Prompt** (`prompts/sop_parser_v0.7.md`)
+2. **SOP Parsing Prompt** (`prompts/sop_parser_v0.8.md`)
    - Used in Step 2 to convert the transcript into a structured SOP
    - Includes the JSON schema for the SOP format
 
