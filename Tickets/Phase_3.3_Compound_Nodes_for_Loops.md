@@ -1,42 +1,136 @@
 # Ticket: Phase 3.3 - Compound Nodes for Loops
 
+## Status: Completed ✅
+
 **Objective:** Improve diagram clarity and reduce visual clutter in the ReactFlow view by implementing compound/subgraph nodes for loop structures (e.g., "Process Daily Emails"), visually containing their child steps.
 
-**Depends On:** Phase 3.1 (BPMN-lite Visuals), Phase 3.2 (Collapse/Expand), Removal of hardcoded positions from `mocksop.json`.
+## Implemented Changes
 
-**Key Tasks:**
+### Compound Node Structure
+1. **Enhanced Loop Node Styling:**
+   - Redesigned `LoopNode.tsx` with a dedicated container for child nodes
+   - Added proper background, borders, and visual indicators for parent-child relationships
+   - Implemented better sizing based on child count and arrangement
 
-1.  **Enable `compound: true` in Dagre Configuration:**
-    *   In `app_frontend/components/sop/SOPFlowView.tsx`, modify the Dagre graph initialization: `new dagre.graphlib.Graph({ compound: true })`.
+2. **Parent-Child Relationship Management:**
+   - Added explicit parent/child relationship tracking in `transformSopToFlowData`
+   - Fixed child node positioning within parent containers
+   - Generated unique IDs and maintained consistent hierarchies
 
-2.  **Update `transformSopToFlowData` in `app_frontend/lib/sop-utils.ts`:**
-    *   Identify nodes that are parents of sub-flows (e.g., `L1_process_emails` based on its `children` array in `mocksop.json`).
-    *   For these parent nodes, assign appropriate `style: { width: ..., height: ... }` values to ensure they are large enough to contain their children. This might require estimation or a dynamic calculation strategy in the future.
-    *   For each child node that belongs to such a parent loop/sub-flow:
-        *   Set the `parentNode` property in its ReactFlow node data to the ID of its respective parent node (e.g., `parentNode: 'L1_process_emails'`).
-        *   Ensure these child nodes do not also try to set a `parentNode` if they are themselves parents of "atomic" steps already handled by `parentId` (the `children` array in `mocksop.json` defines the primary grouping for compound nodes).
+3. **Edge Connections & Routing:**
+   - Implemented intelligent port selection based on node positions
+   - Added side ports (left/right) for all node types to improve horizontal connections
+   - Improved edge path calculations to reduce crossing lines
+   - Added visual cues for different connection types (yes/no, next, parent-child)
 
-3.  **Adjust Parent Node Styling (If Necessary):**
-    *   Review the custom node component used for loops (likely `StepNode.tsx` or a similar component if loops have a dedicated type).
-    *   Ensure its styling (padding, borders) works well when acting as a container for child nodes.
+4. **Handle Positioning & Styling:**
+   - Added unique IDs to all handles ('top', 'bottom', 'left', 'right')
+   - Positioned handles precisely at edges with proper transform offsets
+   - Added white borders around handles for clean visual transitions
+   - Applied z-index to ensure proper layering
 
-4.  **Test and Refine Layout:**
-    *   Verify that child nodes are rendered within their parent compound node.
-    *   Observe the effect on edge routing and overall diagram readability.
-    *   Adjust parent node dimensions in `transformSopToFlowData` as needed for a good fit.
-    *   Re-evaluate Dagre layout parameters (`nodesep`, `ranksep`) if necessary, in conjunction with compound nodes.
+5. **Edge-Handle Connections:**
+   - Modified edge paths to connect directly to handles
+   - Added white circle overlays at connection points for seamless transitions
+   - Adjusted arrow markers for better alignment with handles
 
-**Acceptance Criteria:**
+6. **Node Selection & Expanded Editor:**
+   - Implemented type-specific selection highlighting (trigger nodes green, decision nodes yellow, etc.)
+   - Added expand button to selected nodes for triggering detailed editing cards
+   - Developed ExpandedNodeEditor component with arrow pointing to selected node
+   - Fixed resize functionality with handles on all edges and corners for flexible editor sizing
 
-*   Loop nodes like "Process Daily Emails" visually contain their child steps in the ReactFlow diagram.
-*   The overall diagram layout is significantly cleaner, with fewer long, crossing edges related to loop structures.
-*   Collapse/expand functionality continues to work correctly with compound nodes.
-*   Edges connecting to and from the compound node and its children are routed clearly.
+### Testing Sites
+We tested these changes across several specific test files:
+
+1. **Original Structure (`app/sop/original-structure/`):**
+   - Baseline reference preserving the original SOP structure
+   - Used to compare before/after layout quality
+
+2. **Compound Fixed (`app/sop/compound-fixed/`):**
+   - Primary implementation site for our compound node features
+   - Contains proper parent-child relationships and bounding boxes
+
+3. **ReactFlow Optimized (`app/sop/reactflow-optimized/`):**
+   - Specialized version with optimized edge routing
+   - Used to test different layout algorithms and port selection strategies
+
+4. **Test Compound (`app/sop/test-compound/`):**
+   - Simplified test case focused specifically on compound node behavior
+   - Controlled environment to isolate and troubleshoot parent-child rendering
+
+Current work was implemented in `app/sop/reactflow-optimized/` as our primary target.
+
+## Future Enhancements
+
+### Visual Appearance
+1. **Child Node Connection Points:**
+   - PRIORITY: Improve connection point visibility for child nodes
+   - Target specifically children of parent nodes and decision nodes
+   - Edge arrow endpoints currently "disappear" into white padding
+
+2. **Edge Routing Around Nodes:**
+   - Implement rules to prevent edges from crossing through nodes
+   - Research orthogonal path finding algorithms to route edges around obstacles
+   - Balance visual cleanliness with readability for complex diagrams
+
+3. **Arrow Styling Improvements:**
+   - Refine arrow markers for better visibility
+   - Investigate custom SVG markers for different connection types
+   - Consider animated paths for active or highlighted flows
+
+4. **Node Editing Interface:**
+   - Further improve node editing with specialized field types
+   - Add validation for node properties
+   - Consider drag-and-drop for rearranging node connections
+
+### Advanced Compound Node Features
+1. **Nested Compound Nodes:**
+   - Support for multi-level hierarchy (boxes inside boxes)
+   - Proper scaling and positioning for nested containers
+   - Clear visual distinction between different hierarchy levels
+
+2. **Non-Loop Bounded Boxes:**
+   - Extend compound node behavior to non-loop structures
+   - Create visual groupings for related steps based on different criteria
+
+3. **Loop Information Display:**
+   - Add metadata display for loop count/conditions
+   - Incorporate loop status indicators (completed vs. in progress)
+
+### Interaction & Behavior
+1. **Enhanced Collapsing Logic:**
+   - Implement minimization of boxes when collapsed
+   - Adapt flow and layout dynamically based on collapsed state
+   - Maintain edge connections to collapsed nodes in sensible ways
+
+2. **End SOP Button Styling:**
+   - Redesign end SOP button for better visibility and usability
+   - Align visual style with overall diagram aesthetic
+
+## Technical Implementation Notes
+
+1. **React Flow & Handle Management:**
+   - ReactFlow requires both handle IDs and positions to be explicitly set
+   - Edge `sourceHandle` and `targetHandle` must match the corresponding handle IDs
+   - Port selection should be calculated based on relative node positions
+
+2. **Edge Routing Strategy:**
+   - Pick ports for horizontal vs. vertical connections based on node arrangement
+   - Adjust curvature for different connection types
+   - Add visual emphasis to different edge conditions (yes/no paths)
+
+3. **Dagre Layout Engine Limitations:**
+   - Compound support in Dagre requires careful handling
+   - Manual layout adjustments still needed for optimal results
+   - Consider ELK as future alternative for more sophisticated layouts
+
+4. **Expanded Node Editor:**
+   - Implemented with React portals for proper DOM positioning
+   - Used DOM measurements for precise positioning relative to selected nodes
+   - Fixed resize functionality by properly handling closure scope in event handlers
+   - Improved title display with multi-line truncation for long node labels
 
 ---
 
-**Note on Further Enhancements:**
-
-*   The dimensions for parent compound nodes will initially be estimated. A future enhancement could involve dynamically calculating these based on their content for a tighter fit.
-*   If the clarity achieved with Dagre compound nodes is still insufficient, particularly for achieving mixed-orientation layouts (e.g., children to the right of a parent in a top-to-bottom flow), exploring the **Eclipse Layout Kernel (ELK)** as an alternative layout engine integrated with ReactFlow would be the next logical step. ELK offers more advanced per-subgraph layout options.
-*   Layout refinement is an iterative process. Further adjustments to spacing, node sizing, and potentially edge routing may be needed after initial implementation. 
+**Note:** The implementation of side ports and edge routing required deeper understanding of ReactFlow's internals. The key insight was that edges only connect to side handles when both the handle IDs and edge source/target positions are explicitly set. This wasn't documented clearly in ReactFlow's documentation. 

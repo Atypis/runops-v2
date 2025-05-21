@@ -24,7 +24,7 @@ export interface SOPNode {
   exit_condition?: string; // For loop nodes
   children?: string[]; // IDs of child nodes
   parentId?: string; // ID of the parent node (useful for atomic steps)
-  isBranchRoot?: boolean; // ADDED: To flag nodes that start a new layout direction
+  id_path?: string; // Hierarchical ID for visual display (e.g., "2.1", "2.3Y")
   // Populated by processing function
   childNodes?: SOPNode[]; 
 }
@@ -33,6 +33,7 @@ export interface SOPEdge {
   source: string; // ID of the source node
   target: string; // ID of the target node
   condition?: string; // e.g., "yes", "no", "next", "all_processed"
+  decision_path?: string; // For decision branches, e.g., "Y", "N" - used with ID paths
   // ReactFlow specific, can be added during transformation
   id?: string; 
   type?: string; // e.g., 'smoothstep', 'step'

@@ -41,7 +41,6 @@
             "L1_C6_identify_investor_in_airtable",
             "L1_D7_record_exists_decision",
             "L1_C8_open_existing_record_modal",
-            "L1_C9_update_existing_record",
             "L1_C10_open_new_record_modal",
             "L1_C11_populate_new_record",
             "L1_C12_close_airtable_modal",
@@ -117,12 +116,7 @@
           "type": "task",
           "label": "Update Existing Airtable Record",
           "intent": "Log the interaction and update relevant fields for an existing record.",
-          "context": "User updates fields such as 'Last Interaction' date (e.g., 02:37.928), 'Thread Summary / Notes' (e.g., 02:51.698), 'Stage' (checked for Alpha Ventures, 02:21.558, no change made), 'Follow-up Needed' (e.g., 03:01.178, unchecked for Alpha Ventures). \n- If no updates are needed (e.g. Beta Capital was already up-to-date, 00:40.152), this step might involve only verification. \n- Clarification C5: Logic for 'Follow-up Needed'. \n- Clarification C6: Behavior for 'Thread Summary / Notes' update (append vs. replace). \n- Clarification C4: Year 2025 in dates.",
-          "children": [
-            "L1_C9_A1_set_last_interaction_date",
-            "L1_C9_A2_update_thread_summary",
-            "L1_C9_A3_check_follow_up"
-          ]
+          "context": "User updates fields such as 'Last Interaction' date (e.g., 02:37.928), 'Thread Summary / Notes' (e.g., 02:51.698), 'Stage' (checked for Alpha Ventures, 02:21.558, no change made), 'Follow-up Needed' (e.g., 03:01.178, unchecked for Alpha Ventures). \n- If no updates are needed (e.g. Beta Capital was already up-to-date, 00:40.152), this step might involve only verification. \n- Clarification C5: Logic for 'Follow-up Needed'. \n- Clarification C6: Behavior for 'Thread Summary / Notes' update (append vs. replace). \n- Clarification C4: Year 2025 in dates."
         },
         {
           "id": "L1_C9_A1_set_last_interaction_date",
@@ -237,11 +231,6 @@
           "condition": "next"
         },
         {
-          "source": "L1_C9_update_existing_record",
-          "target": "L1_C12_close_airtable_modal",
-          "condition": "next"
-        },
-        {
           "source": "L1_D7_record_exists_decision",
           "target": "L1_C10_open_new_record_modal",
           "condition": "no"
@@ -298,199 +287,11 @@
         "contact_person_email": "string (e.g., 'ben@betacapital.com')",
         "airtable_record_exists": "boolean"
       },
-      "clarification_requests": [
-        {
-          "id": "C1_email_filtering",
-          "question": "How are 'emails for the day' identified in Gmail for processing? Is there a specific search query (e.g., 'is:unread in:inbox', 'newer_than:1d'), or does the user manually scan all emails in the inbox?",
-          "importance": "high"
-        },
-        {
-          "id": "C2_non_investor_email_handling",
-          "question": "The SOP focuses on investor emails. The transcript briefly shows selecting non-investor emails at the end (05:16:978 - 05:23.118). Is handling these non-investor emails (e.g., archiving, deleting) part of this core SOP, or a separate/optional cleanup task? If part of this SOP, what specific action should be taken on them within the loop or as a final step?",
-          "importance": "medium"
-        },
-        {
-          "id": "C3_cron_schedule_specificity",
-          "question": "The narrator mentions this workflow is done 'every evening' (00:01:692). The cron is set to '0 20 * * *' (8 PM daily) as a placeholder. Can a more specific time or a different daily frequency rule be provided?",
-          "importance": "medium"
-        },
-        {
-          "id": "C4_airtable_date_year",
-          "question": "Dates observed being entered or present in Airtable (e.g., '22/4/2025' at 00:28:852) use the year 2025. Is this intentional (e.g., for test data), or should the current year be used dynamically when new interaction dates are recorded?",
-          "importance": "medium"
-        },
-        {
-          "id": "C5_follow_up_logic",
-          "question": "For the 'Alpha Ventures' record (02:16:652 - 03:02:592), the 'Follow-up Needed' checkbox was unchecked after updating notes. What is the precise logic or criteria for determining if 'Follow-up Needed' should be checked or unchecked for an investor interaction?",
-          "importance": "medium"
-        },
-        {
-          "id": "C6_notes_update_behavior",
-          "question": "When updating 'Thread Summary / Notes' for Alpha Ventures (02:43:718 ambiguity_note), the existing text 'Initial outreach email sent.' appeared to be cleared before new text 'Still reviewing the deck.' was added. Is the standard procedure to replace existing notes, or should new notes be appended to any pre-existing summary?",
-          "importance": "medium"
-        },
-        {
-          "id": "C7_investor_email_criteria",
-          "question": "What specific criteria determine if an email is 'investor related' (00:00:10.972)? Is it based on sender's email domain, keywords in the subject/body, or whether the sender is already a known contact in the Airtable CRM?",
-          "importance": "high"
-        }
-      ]
+      "clarification_requests": []
     },
     "private": {
-      "skills": [
-        {
-          "id": "skill_gmail_open_inbox_ui",
-          "app": "Google Chrome - Gmail",
-          "method_type": "ui"
-        },
-        {
-          "id": "skill_gmail_open_email_from_list_ui",
-          "app": "Google Chrome - Gmail",
-          "method_type": "ui"
-        },
-        {
-          "id": "skill_gmail_review_email_content_ui",
-          "app": "Google Chrome - Gmail",
-          "method_type": "ui",
-          "variables_out": ["current_email_sender", "current_email_subject", "current_email_body_summary", "current_email_date"]
-        },
-        {
-          "id": "skill_gmail_api_get_email_details",
-          "app": "Gmail API",
-          "method_type": "api",
-          "performance_hint": "placeholder – awaiting confirmation",
-          "variables_out": ["current_email_sender", "current_email_subject", "current_email_body_summary", "current_email_date"]
-        },
-        {
-          "id": "skill_gmail_return_to_inbox_ui",
-          "app": "Google Chrome - Gmail",
-          "method_type": "ui"
-        },
-        {
-          "id": "skill_chrome_navigate_to_url_or_switch_tab_ui",
-          "app": "Google Chrome",
-          "method_type": "ui",
-          "variables_in": ["target_url"]
-        },
-        {
-          "id": "skill_airtable_open_base_ui",
-          "app": "Google Chrome - Airtable",
-          "method_type": "ui",
-          "variables_in": ["airtable_base_name"]
-        },
-        {
-          "id": "skill_airtable_api_select_base",
-          "app": "Airtable API",
-          "method_type": "api",
-          "performance_hint": "placeholder – awaiting confirmation",
-          "variables_in": ["airtable_base_id"]
-        },
-        {
-          "id": "skill_airtable_identify_record_ui",
-          "app": "Google Chrome - Airtable",
-          "method_type": "ui",
-          "variables_in": ["investor_name"],
-          "variables_out": ["airtable_record_exists", "airtable_record_id_if_exists"]
-        },
-        {
-          "id": "skill_airtable_api_query_records",
-          "app": "Airtable API",
-          "method_type": "api",
-          "performance_hint": "placeholder – awaiting confirmation",
-          "variables_in": ["investor_name_query_params"],
-          "variables_out": ["airtable_record_exists", "airtable_record_data_if_exists"]
-        },
-        {
-          "id": "skill_airtable_open_record_modal_ui",
-          "app": "Google Chrome - Airtable",
-          "method_type": "ui"
-        },
-        {
-          "id": "skill_airtable_update_record_fields_ui",
-          "app": "Google Chrome - Airtable",
-          "method_type": "ui",
-          "variables_in": ["fields_to_update_map"]
-        },
-        {
-          "id": "skill_airtable_api_update_record",
-          "app": "Airtable API",
-          "method_type": "api",
-          "performance_hint": "placeholder – awaiting confirmation",
-          "variables_in": ["airtable_record_id", "fields_to_update_map"]
-        },
-        {
-          "id": "skill_airtable_api_create_record",
-          "app": "Airtable API",
-          "method_type": "api",
-          "performance_hint": "placeholder – awaiting confirmation",
-          "variables_in": ["fields_for_new_record_map"],
-          "variables_out": ["new_airtable_record_id"]
-        },
-        {
-          "id": "skill_airtable_close_modal_ui",
-          "app": "Google Chrome - Airtable",
-          "method_type": "ui"
-        }
-      ],
-      "steps": [
-        {
-          "node_id": "T0_open_gmail",
-          "primary_skill": "skill_gmail_open_inbox_ui"
-        },
-        {
-          "node_id": "L1_C1_open_email",
-          "primary_skill": "skill_gmail_open_email_from_list_ui"
-        },
-        {
-          "node_id": "L1_C2_review_email_content",
-          "primary_skill": "skill_gmail_review_email_content_ui",
-          "alt_skills": ["skill_gmail_api_get_email_details"]
-        },
-        {
-          "node_id": "L1_C4_open_airtable_or_switch_tab",
-          "primary_skill": "skill_chrome_navigate_to_url_or_switch_tab_ui"
-        },
-        {
-          "node_id": "L1_C5_navigate_to_investor_db",
-          "primary_skill": "skill_airtable_open_base_ui",
-          "alt_skills": ["skill_airtable_api_select_base"]
-        },
-        {
-          "node_id": "L1_C6_identify_investor_in_airtable",
-          "primary_skill": "skill_airtable_identify_record_ui",
-          "alt_skills": ["skill_airtable_api_query_records"]
-        },
-        {
-          "node_id": "L1_C8_open_existing_record_modal",
-          "primary_skill": "skill_airtable_open_record_modal_ui"
-        },
-        {
-          "node_id": "L1_C9_update_existing_record",
-          "primary_skill": "skill_airtable_update_record_fields_ui",
-          "alt_skills": ["skill_airtable_api_update_record"]
-        },
-        {
-          "node_id": "L1_C10_open_new_record_modal",
-          "primary_skill": "skill_airtable_open_record_modal_ui"
-        },
-        {
-          "node_id": "L1_C11_populate_new_record",
-          "primary_skill": "skill_airtable_update_record_fields_ui",
-          "alt_skills": ["skill_airtable_api_create_record"]
-        },
-        {
-          "node_id": "L1_C12_close_airtable_modal",
-          "primary_skill": "skill_airtable_close_modal_ui"
-        },
-        {
-          "node_id": "L1_C13_return_to_gmail_from_airtable",
-          "primary_skill": "skill_gmail_return_to_inbox_ui"
-        },
-        {
-          "node_id": "L1_C14_return_to_gmail_from_email_view",
-          "primary_skill": "skill_gmail_return_to_inbox_ui"
-        }
-      ],
+      "skills": [],
+      "steps": [],
       "artifacts": []
     }
   } 

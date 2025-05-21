@@ -1,93 +1,334 @@
 'use client';
 
-import React from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
-import { SOPNode } from '@/lib/types/sop'; // Original SOPNode type
-import { Terminal, GitMerge, ChevronDown, ChevronRight } from 'lucide-react'; // Example icons
+import React, { useState, useCallback } from 'react';
+import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
+import { ChevronUp, Edit2 } from 'lucide-react';
 
-// Data passed to StepNode includes fields from SOPNode, plus title & description
-interface StepNodeData extends SOPNode {
-  title: string;
-  description?: string;
-  isExpanded?: boolean; // Passed from SOPFlowView for parent nodes
-  onToggleCollapse?: (nodeId: string) => void; // Passed from SOPFlowView
+// The data shape will match what's in our SOPNode from the data model
+interface StepNodeData {
+  id?: string;
+  label: string;
+  intent?: string;
+  context?: string;
+  description?: string; // Legacy field, will use intent/context when available
+  parentId?: string;
+  parentNode?: string; // This is set by ReactFlow
+  id_path?: string; // Hierarchical ID for visual display
+  [key: string]: any; // Allow other properties
 }
 
-const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, selected }) => {
-  // Debugging for specific node
-  if (data.id === 'L1_process_emails') {
-    console.log('[StepNode] L1_process_emails data:', data);
-    console.log('[StepNode] L1_process_emails childNodes:', data.childNodes);
-    console.log('[StepNode] L1_process_emails onToggleCollapse present:', !!data.onToggleCollapse);
-  }
-
-  const iconSize = 20; // Standardized icon size
-  const isParent = data.childNodes && data.childNodes.length > 0;
-
-  if (data.id === 'L1_process_emails') {
-    console.log('[StepNode] L1_process_emails isParent:', isParent);
-  }
-
-  // Choose an icon based on SOPNode type
-  const NodeIcon = () => {
-    switch (data.type) {
-      case 'task':
-        return <Terminal size={iconSize} className="mr-2 text-sky-600 shrink-0" />;
-      case 'loop':
-        return <GitMerge size={iconSize} className="mr-2 text-fuchsia-600 shrink-0" />;
-      default:
-        return <Terminal size={iconSize} className="mr-2 text-gray-500 shrink-0" />;
-    }
-  };
+const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, selected }) => {
+  // Local state for expanded/collapsed view
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent node selection/drag when clicking button
-    if (data.onToggleCollapse) {
-      data.onToggleCollapse(data.id);
+  // Get ReactFlow instance to access its methods
+  const { getNodes } = useReactFlow();
+  
+  // Check if this node has a parent
+  const hasParent = !!data.parentNode || !!data.parentId;
+  
+  // Format the label with ID path if available but avoid double brackets
+  const formattedLabel = data.id_path 
+    ? (!data.id_path.startsWith('[') ? `[${data.id_path}]` : data.id_path) + ` ${data.label}`
+    : data.label;
+  
+  // Node dimensions - explicitly set to ensure consistent layout
+  const nodeWidth = hasParent ? 220 : 240;
+
+  // Use intent or description for primary content display
+  const intentText = data.intent || data.description || '';
+  // Use context as secondary content when available
+  const contextText = data.context || '';
+  
+  // Has expandable content
+  const hasExpandableContent = !!contextText;
+  
+  // Handle styling based on parent status
+  const getHandleStyle = (position: Position) => {
+    // Base handle size and color
+    const size = hasParent ? 8 : 10;
+    const color = hasParent ? '#ef4444' : '#555';
+    
+    const baseStyle = {
+      background: color,
+      width: size,
+      height: size,
+      border: '2px solid white',
+      zIndex: 3, // Increased z-index for better stacking
+      borderRadius: '50%'
+    };
+    
+    // Position-specific styling
+    switch (position) {
+      case Position.Top:
+        return {
+          ...baseStyle,
+          top: '0px',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+        };
+      case Position.Bottom:
+        return {
+          ...baseStyle,
+          bottom: '0px',
+          left: '50%',
+          transform: 'translate(-50%, 50%)',
+        };
+      case Position.Left:
+        return {
+          ...baseStyle,
+          left: '0px',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+        };
+      case Position.Right:
+        return {
+          ...baseStyle,
+          right: '0px',
+          top: '50%',
+          transform: 'translate(50%, -50%)',
+        };
+      default:
+        return baseStyle;
     }
   };
+
+  // Toggle expanded view (now triggered by clicking the node)
+  const toggleExpand = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent default ReactFlow node selection
+    setIsExpanded(!isExpanded);
+  }, [isExpanded]);
+  
+  // Open detailed editor - directly opens the popup without intermediate steps
+  const openDetailedEditor = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering click on the parent node
+    
+    // Find the node element
+    const nodeElement = document.querySelector(`[data-id="${id}"]`);
+    if (!nodeElement) return;
+    
+    // Set the data attribute to indicate immediate editor opening
+    nodeElement.setAttribute('data-open-editor', 'true');
+    
+    // Dispatch a click event to the node to trigger selection and editing
+    const clickEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    });
+    
+    // This will go to handleNodeClick in SOPFlowView which will check the data attribute
+    nodeElement.dispatchEvent(clickEvent);
+    
+    // Remove the attribute after the event has been processed
+    setTimeout(() => {
+      nodeElement.removeAttribute('data-open-editor');
+    }, 100);
+  }, [id]);
 
   return (
     <div 
-      className={`bg-white p-3 rounded-lg border shadow-sm hover:shadow-md transition-shadow w-60 
-                  ${selected ? 'border-neutral-500 ring-2 ring-offset-1 ring-neutral-400' : 'border-neutral-300'}`}
-      style={{ minHeight: '80px' }} // Ensure a minimum height
+      style={{
+        background: hasParent ? 'rgba(255, 248, 248, 0.97)' : '#ffffff',
+        border: hasParent ? '1px solid #ef4444' : '1px solid #e2e8f0',
+        borderRadius: hasParent ? '8px' : '6px',
+        padding: hasParent ? '12px' : '14px',
+        width: nodeWidth,
+        boxSizing: 'border-box',
+        fontSize: '12px',
+        boxShadow: hasParent 
+          ? '0 2px 6px rgba(239, 68, 68, 0.15)' 
+          : '0 2px 5px rgba(0, 0, 0, 0.08)',
+        transition: 'all 0.2s ease',
+        position: 'relative',
+        overflow: 'hidden',
+        cursor: 'pointer', // Indicate it's clickable
+        transform: isExpanded ? 'scale(1.02)' : 'scale(1)', // Subtle scaling when expanded
+      }}
+      className={`${hasParent ? 'child-node' : 'regular-node'} ${isExpanded ? 'expanded' : ''}`}
+      data-node-type="step" 
+      data-is-child={hasParent ? 'true' : 'false'}
+      data-is-expanded={isExpanded ? 'true' : 'false'}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={toggleExpand} // Directly toggle on click
     >
-      <div className="flex items-start mb-1">
-        <NodeIcon />
-        <div className="flex-grow min-w-0">
-          <div className="flex items-center">
-            <div className="font-semibold text-sm text-neutral-800 truncate" title={data.title}>{data.title}</div>
-            {isParent && data.onToggleCollapse && (
-              <button 
-                onClick={handleToggle} 
-                className="ml-auto p-1 rounded-sm hover:bg-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-                aria-label={data.isExpanded ? 'Collapse' : 'Expand'}
-              >
-                {data.isExpanded ? (
-                  <ChevronDown size={16} className="text-muted-foreground" />
-                ) : (
-                  <ChevronRight size={16} className="text-muted-foreground" />
-                )}
-              </button>
-            )}
-          </div>
-          {data.description && (
-            <p className="text-xs text-neutral-600 mt-1 line-clamp-2" title={data.description}>
-              {data.description}
-            </p>
+      <Handle
+        id="top"
+        type="target"
+        position={Position.Top}
+        style={getHandleStyle(Position.Top)}
+        isConnectable={isConnectable}
+      />
+      <div style={{ position: 'relative' }}>
+        {/* Node Title */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'flex-start',
+          marginBottom: '4px'
+        }}>
+          <strong style={{ 
+            fontSize: hasParent ? '12px' : '13px', 
+            color: hasParent ? '#991b1b' : '#333',
+            fontWeight: 600,
+            lineHeight: 1.2,
+            marginRight: '4px',
+            flex: 1,
+            transition: 'color 0.2s',
+          }}>
+            {formattedLabel}
+          </strong>
+          
+          {/* Edit button - only shows when expanded */}
+          {isExpanded && hasExpandableContent && (
+            <button 
+              onClick={openDetailedEditor}
+              style={{
+                background: hasParent ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                border: hasParent ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid rgba(0, 0, 0, 0.1)',
+                cursor: 'pointer',
+                padding: '3px',
+                width: '22px',
+                height: '22px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                color: hasParent ? '#991b1b' : '#555',
+                opacity: 0.85,
+                transition: 'all 0.2s ease',
+                zIndex: 5,
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.opacity = '1'; }}
+              onMouseOut={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+              title="Open detailed editor"
+            >
+              <Edit2 size={14} style={{ strokeWidth: 2 }} />
+            </button>
           )}
         </div>
+        
+        {/* Intent Section (Always visible) */}
+        {intentText && (
+          <div style={{ 
+            fontSize: hasParent ? '10px' : '11px', 
+            color: hasParent ? '#666' : '#555',
+            lineHeight: 1.3,
+            maxHeight: isExpanded ? 'none' : (hasParent ? '2.6em' : '2.6em'), 
+            overflow: 'hidden',
+            textOverflow: isExpanded ? 'clip' : 'ellipsis',
+            display: isExpanded ? 'block' : '-webkit-box',
+            WebkitLineClamp: isExpanded ? 'none' : 2,
+            WebkitBoxOrient: 'vertical',
+            transition: 'all 0.2s ease-in-out',
+          }}>
+            {intentText}
+          </div>
+        )}
+        
+        {/* Context Section (Only visible when expanded) */}
+        <div 
+          style={{ 
+            maxHeight: isExpanded ? '200px' : '0',
+            opacity: isExpanded ? 1 : 0,
+            overflow: 'hidden',
+            transition: 'all 0.3s ease-in-out',
+            marginTop: isExpanded ? '8px' : '0',
+          }}
+        >
+          {contextText && (
+            <>
+              {/* Divider */}
+              <div style={{
+                height: '1px',
+                background: hasParent ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                margin: '2px 0 6px 0',
+              }} />
+              
+              <div style={{ 
+                fontSize: hasParent ? '9px' : '10px', 
+                color: hasParent ? '#666' : '#555',
+                lineHeight: 1.3,
+                padding: '2px 0',
+                fontStyle: 'normal',
+                opacity: 0.85,
+              }}>
+                {contextText}
+              </div>
+            </>
+          )}
+        </div>
+        
+        {/* Collapse button - only visible when expanded */}
+        {isExpanded && (
+          <div 
+            style={{
+              position: 'absolute',
+              bottom: '-10px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              cursor: 'pointer',
+              zIndex: 2,
+              background: hasParent ? 'rgba(239, 68, 68, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              borderRadius: '8px',
+              padding: '2px 4px',
+              border: hasParent ? '1px solid rgba(239, 68, 68, 0.15)' : '1px solid rgba(0, 0, 0, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
+            }}
+            onClick={toggleExpand}
+            title="Collapse"
+          >
+            <ChevronUp size={12} style={{ strokeWidth: 2.5, color: hasParent ? '#991b1b' : '#555' }} />
+          </div>
+        )}
+        
+        {/* Visual indicator for expandable content - only shown when not expanded and not hovered */}
+        {hasExpandableContent && !isExpanded && !isHovered && (
+          <div 
+            style={{
+              position: 'absolute',
+              bottom: '-2px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '4px',
+              height: '4px',
+              borderRadius: '50%',
+              background: hasParent ? 'rgba(239, 68, 68, 0.3)' : 'rgba(0, 0, 0, 0.15)',
+              opacity: 0.6,
+              transition: 'opacity 0.2s',
+            }}
+            title="Click to expand"
+          />
+        )}
       </div>
+      
       <Handle 
-        type="target" 
-        position={Position.Left} 
-        className="!bg-gray-400 w-2.5 h-2.5"
+        id="bottom"
+        type="source" 
+        position={Position.Bottom} 
+        style={getHandleStyle(Position.Bottom)}
+        isConnectable={isConnectable} 
       />
+      
+      {/* Add side handles for alternative connection points */}
       <Handle 
+        id="right"
         type="source" 
         position={Position.Right} 
-        className="!bg-gray-400 w-2.5 h-2.5"
+        style={getHandleStyle(Position.Right)}
+        isConnectable={isConnectable} 
+      />
+      <Handle 
+        id="left"
+        type="target" 
+        position={Position.Left} 
+        style={getHandleStyle(Position.Left)}
+        isConnectable={isConnectable} 
       />
     </div>
   );

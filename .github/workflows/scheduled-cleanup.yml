@@ -1,0 +1,23 @@
+name: Scheduled Cleanup
+
+on:
+  schedule:
+    # Run every day at midnight UTC
+    - cron: '0 0 * * *'
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+
+jobs:
+  trigger-cleanup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger Cleanup Function
+        run: |
+          curl -X POST ${{ secrets.SUPABASE_URL }}/functions/v1/scheduled-cleanup \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"function": "cleanup-raw-videos"}'
+      
+      - name: Log Completion
+        run: echo "Scheduled cleanup triggered successfully" 
