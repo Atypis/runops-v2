@@ -3,6 +3,19 @@
 import { useEffect } from 'react'
 import { createSupabaseClient } from '@/lib/supabase-browser'
 
+/**
+ * Popup Callback Page
+ * 
+ * This page handles OAuth redirects when using popup authentication.
+ * When Google authentication completes, it redirects to this page.
+ * This page then:
+ * 1. Extracts the auth code from the URL
+ * 2. Exchanges it for a session
+ * 3. Closes the popup window
+ * 
+ * This approach allows the main window to maintain its state (like file selections)
+ * while the authentication happens in a separate window.
+ */
 export default function PopupCallback() {
   useEffect(() => {
     // Get the auth code from the URL
@@ -17,7 +30,10 @@ export default function PopupCallback() {
     }
   }, [])
   
-  // Handle the OAuth callback
+  /**
+   * Handles the OAuth callback by exchanging the code for a session
+   * and then closing the popup window
+   */
   const handleCallback = async (code: string) => {
     try {
       const supabase = createSupabaseClient()

@@ -11,6 +11,17 @@ import {
 import { useAuth } from '@/lib/auth-context'
 import { useEffect } from 'react'
 
+/**
+ * Authentication Modal Component
+ * 
+ * This modal provides the UI for initiating the authentication process.
+ * It works with the popup authentication flow to preserve the main application state:
+ * 
+ * 1. User clicks "Sign in with Google" in this modal
+ * 2. Auth context opens a popup window for authentication
+ * 3. When auth completes in the popup, this modal automatically closes
+ * 4. The app continues with the authenticated user without losing state
+ */
 interface AuthModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
