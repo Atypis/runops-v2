@@ -15,27 +15,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          
-      - name: Install Supabase CLI correctly
-        run: |
-          # Install Supabase CLI using homebrew (recommended method)
-          curl -fsSL https://get.pnpm.io/install.sh | sh -
-          pnpm add -g supabase
-          
       - name: Trigger Cleanup Function
         id: cleanup
         run: |
           echo "Attempting to clean up raw videos older than 24 hours..."
           
           # Define cutoff time (24 hours ago)
-          CUTOFF_TIME=$(date -d "24 hours ago" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -v-1d -u +"%Y-%m-%dT%H:%M:%SZ")
+          CUTOFF_TIME=$(date -d "24 hours ago" -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "Cutoff time: $CUTOFF_TIME"
           
-          # Use the REST API directly with curl instead of the CLI
+          # Use the REST API directly with curl
           echo "Fetching list of files in raw folder..."
           FILES_JSON=$(curl -s -X GET \
             "https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co/storage/v1/object/list/videos/raw" \
@@ -44,22 +33,20 @@ jobs:
           
           echo "Files response received, processing..."
           
-          # Use a simple JSON parser to process the files
-          DELETED_COUNT=0
+          # Install jq for JSON parsing
+          sudo apt-get update && sudo apt-get install -y jq
           
           # Save files response to a temp file to process with jq
           echo "$FILES_JSON" > files.json
           
-          # Install jq for JSON parsing
-          apt-get update && apt-get install -y jq
-          
           # Process each file
+          DELETED_COUNT=0
           for FILE in $(jq -r '.[] | select(.name != ".placeholder") | .name' files.json); do
             # Get created_at for the file
             CREATED_AT=$(jq -r ".[] | select(.name == \"$FILE\") | .created_at" files.json)
             
-            # Compare dates
-            if [[ $(date -d "$CREATED_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S%z" "$CREATED_AT" +%s) -lt $(date -d "$CUTOFF_TIME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S%z" "$CUTOFF_TIME" +%s) ]]; then
+            # Compare dates (Linux version)
+            if [[ $(date -d "$CREATED_AT" +%s) -lt $(date -d "$CUTOFF_TIME" +%s) ]]; then
               echo "Deleting old file: $FILE (created at $CREATED_AT)"
               
               # Delete the file using REST API
