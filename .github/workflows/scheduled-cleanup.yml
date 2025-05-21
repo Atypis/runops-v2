@@ -12,12 +12,54 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+        
       - name: Trigger Cleanup Function
+        id: cleanup
         run: |
-          curl -X POST ${{ secrets.SUPABASE_URL }}/functions/v1/scheduled-cleanup \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d '{"function": "cleanup-raw-videos"}'
+          echo "Attempting to clean up raw videos older than 24 hours..."
+          
+          # Get list of files in the raw folder
+          FILES_OUTPUT=$(npx supabase storage ls videos/raw --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }})
+          echo "Files found: $FILES_OUTPUT"
+          
+          # Find files older than 24 hours and delete them
+          DELETED_COUNT=0
+          CURRENT_DATE=$(date +%s)
+          CUTOFF_DATE=$((CURRENT_DATE - 86400))
+          
+          for FILE in $FILES_OUTPUT; do
+            if [[ "$FILE" != ".placeholder" ]]; then
+              FILE_INFO=$(npx supabase storage stat videos/raw/$FILE --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }})
+              FILE_DATE=$(echo $FILE_INFO | grep -oP 'created_at: \K[^,]+' | date +%s)
+              
+              if [[ $FILE_DATE -lt $CUTOFF_DATE ]]; then
+                echo "Deleting old file: $FILE"
+                npx supabase storage rm videos/raw/$FILE --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+                DELETED_COUNT=$((DELETED_COUNT + 1))
+              fi
+            fi
+          done
+          
+          echo "Successfully cleaned up $DELETED_COUNT old raw video files."
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        continue-on-error: true
       
       - name: Log Completion
-        run: echo "Scheduled cleanup triggered successfully" 
+        run: |
+          if [ "${{ steps.cleanup.outcome }}" == "success" ]; then
+            echo "Scheduled cleanup completed successfully"
+          else
+            echo "Scheduled cleanup encountered issues - please check the logs"
+          fi 
