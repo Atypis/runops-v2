@@ -18,7 +18,7 @@ jobs:
       - name: Run Database Cleanup Function
         id: cleanup
         run: |
-          echo "Attempting to clean up raw videos older than 1 hour..."
+          echo "Attempting to clean up raw videos older than 24 hours..."
           
           # Call the database function directly
           RESULT=$(curl -s -X POST \
