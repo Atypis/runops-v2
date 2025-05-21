@@ -487,4 +487,3 @@ export const transformSopToFlowData = (
 
   return { flowNodes, flowEdges: reactFlowEdges };
 }; 
-*/ 

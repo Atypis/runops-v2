@@ -864,12 +864,12 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
             switch (parentNode.type) {
               case 'loop':
                 // For loop nodes, header depends on state
-                if (parentNode.data?.isExpanded === false) {
+                if (parentNode.data && typeof parentNode.data === 'object' && 'isExpanded' in parentNode.data && parentNode.data.isExpanded === false) {
                   headerHeight = 45; // Collapsed - just header
                 } else {
                   // Expanded - header + content
-                  const hasIntent = !!parentNode.data?.intent;
-                  const hasContext = !!parentNode.data?.context;
+                  const hasIntent = parentNode.data && typeof parentNode.data === 'object' && 'intent' in parentNode.data && !!parentNode.data.intent;
+                  const hasContext = parentNode.data && typeof parentNode.data === 'object' && 'context' in parentNode.data && !!parentNode.data.context;
                   headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
                 }
                 break;
@@ -1052,153 +1052,12 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       
       setNodes(offsettedNodes);
       setEdges(layoutedEdges);
-
     } else {
       setNodes([]);
       setEdges([]);
-      return;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sopData, handleToggleCollapse, layoutDirection]); // Add layoutDirection as dependency
-
-    const runLayout = async () => {
-      setIsLayouting(true);
-      console.log('[SOPFlowView] Starting ELK layout calculation');
-      
-      try {
-        const layoutOptionsMap = getElkLayoutOptions(
-          verticalNodeSpacing,
-          horizontalBranchSpacing,
-          siblingInBranchSpacing
-        );
-  
-        const { elkNodes: allInitialElkNodes, elkEdges: allInitialElkEdges } = transformSopToElkInput(sopData, layoutOptionsMap);
-        
-        let visibleElkNodes: CustomElkNode[] = [];
-        let visibleElkEdges: CustomElkEdge[] = [...allInitialElkEdges];
-  
-        const trulyVisibleNodeIds = new Set<string>();
-        allInitialElkNodes.forEach(elkNode => {
-          const originalSopNode = sopData.public.nodes.find(n => n.id === elkNode.id);
-          const isParent = originalSopNode && originalSopNode.children && originalSopNode.children.length > 0;
-          const isCurrentlyExpanded = expandedNodes[elkNode.id!] === undefined ? true : expandedNodes[elkNode.id!];
-  
-          if (!isParent || isCurrentlyExpanded) {
-              trulyVisibleNodeIds.add(elkNode.id!);
-          } else {
-              trulyVisibleNodeIds.add(elkNode.id!);
-          }
-        });
-        
-        allInitialElkNodes.forEach(elkNode => {
-          const originalSopNode = sopData.public.nodes.find(n => n.id === elkNode.id);
-          const isParent = originalSopNode && originalSopNode.children && originalSopNode.children.length > 0;
-          const isCurrentlyExpanded = expandedNodes[elkNode.id!] === undefined ? true : expandedNodes[elkNode.id!];
-  
-          if (isParent && !isCurrentlyExpanded) {
-              visibleElkNodes.push(elkNode);
-              const descendantsToHide = getAllDescendantIds(elkNode.id!, sopData.public.nodes);
-              visibleElkEdges = visibleElkEdges.filter(edge => 
-                  !(descendantsToHide.includes(edge.sources[0]) && descendantsToHide.includes(edge.targets[0])) &&
-                  !descendantsToHide.includes(edge.targets[0])
-              );
-          } else if (originalSopNode?.parentId && !trulyVisibleNodeIds.has(originalSopNode.parentId)){
-          } else {
-              visibleElkNodes.push(elkNode);
-          }
-        });
-        
-        const finalVisibleNodeIds = new Set(visibleElkNodes.map(n => n.id));
-        visibleElkEdges = visibleElkEdges.filter(edge => 
-          finalVisibleNodeIds.has(edge.sources[0]) && finalVisibleNodeIds.has(edge.targets[0])
-        );
-  
-        // Prepare graph for ELK layout
-        const graphToLayout = {
-          id: 'root',
-          layoutOptions: layoutOptionsMap.rootLayout,
-          children: visibleElkNodes,
-          edges: visibleElkEdges,
-        };
-  
-        // Run layout on main thread - ensure elkRef.current is not null
-        console.log('[SOPFlowView] Running ELK layout with graph:', graphToLayout);
-        const elkInstance = elkRef.current;
-        if (!elkInstance) {
-          throw new Error("ELK was not initialized");
-        }
-        
-        const laidOutGraph = await elkInstance.layout(graphToLayout);
-        console.log('[SOPFlowView] ELK layout complete, result:', laidOutGraph);
-        
-        if (laidOutGraph.children && laidOutGraph.edges) {
-          // Process layout result
-          const elkChildren = laidOutGraph.children as CustomElkNode[];
-          const newFlowNodes: FlowNode<CustomElkNodeData>[] = elkChildren.map((elkNode: CustomElkNode) => {
-            const isBranchLike = elkNode.data.isBranchRoot; 
-            const isVerticalFlow = !isBranchLike; 
-            
-            const originalSopNode = sopData.public.nodes.find(n => n.id === elkNode.id);
-            const isParentNode = originalSopNode && originalSopNode.children && originalSopNode.children.length > 0;
-  
-            const nodeDataForFlow: CustomElkNodeData = {
-              ...elkNode.data,
-              ...(isParentNode && {
-                isExpanded: expandedNodes[elkNode.id!] === undefined ? true : expandedNodes[elkNode.id!],
-                onToggleCollapse: handleToggleCollapse,
-              })
-            };
-  
-            return {
-              id: elkNode.id!,
-              type: nodeDataForFlow.type,
-              position: { x: elkNode.x!, y: elkNode.y! },
-              data: nodeDataForFlow, 
-              style: { width: elkNode.width, height: elkNode.height },
-              targetPosition: isVerticalFlow ? Position.Top : Position.Left,
-              sourcePosition: isVerticalFlow ? Position.Bottom : Position.Right,
-            };
-          });
-  
-          const elkEdges = laidOutGraph.edges as CustomElkEdge[];
-          const newFlowEdges: FlowEdge<{ label?: string; animated?: boolean }>[] = elkEdges.map((elkEdge: CustomElkEdge) => ({
-            id: elkEdge.id!,
-            source: elkEdge.sources[0], 
-            target: elkEdge.targets[0],
-            label: elkEdge.data?.label,
-            type: 'smoothstep', 
-            animated: elkEdge.data?.animated || false,
-            data: elkEdge.data ? { label: elkEdge.data.label, animated: elkEdge.data.animated } : undefined,
-          }));
-  
-          setNodes(newFlowNodes as any);
-          setEdges(newFlowEdges as any);
-          console.log('[SOPFlowView] ReactFlow state updated - Nodes:', newFlowNodes);
-          console.log('[SOPFlowView] ReactFlow state updated - Edges:', newFlowEdges);
-        }
-      } catch (error) {
-        console.error('[SOPFlowView] Error during ELK layout:', error);
-      } finally {
-        setIsLayouting(false);
-      }
-    };
-
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-        visibleNodes,
-        visibleEdges,
-        layoutDirection // Use the current layout direction
-      );
-      
-      // Get dynamic header heights based on node types and states
-      const headerHeights = getHeaderHeights(layoutedNodes);
-      
-      // Apply header offset to prevent child nodes from overlapping with parent headers
-      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
-      
-      setNodes(offsettedNodes);
-      setEdges(layoutedEdges);
-    }
-  }, [sopData, expandedNodes, handleToggleCollapse, setNodes, setEdges, layoutDirection]); // Add layoutDirection as dependency
 
   if (!sopData) {
     return <div className="flex items-center justify-center h-full"><p className="text-muted-foreground">Loading diagram data...</p></div>;
