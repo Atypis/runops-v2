@@ -15,51 +15,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         
-      - name: Trigger Cleanup Function
+      - name: Run Database Cleanup Function
         id: cleanup
         run: |
-          echo "Attempting to clean up raw videos older than 24 hours..."
+          echo "Attempting to clean up raw videos older than 1 hour..."
           
-          # Define cutoff time (24 hours ago)
-          CUTOFF_TIME=$(date -d "24 hours ago" -u +"%Y-%m-%dT%H:%M:%SZ")
-          echo "Cutoff time: $CUTOFF_TIME"
-          
-          # Use the REST API directly with curl
-          echo "Fetching list of files in raw folder..."
-          FILES_JSON=$(curl -s -X GET \
-            "https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co/storage/v1/object/list/videos/raw" \
+          # Call the database function directly
+          RESULT=$(curl -s -X POST \
+            "https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co/rest/v1/rpc/cleanup_raw_videos" \
+            -H "apikey: ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
             -H "Content-Type: application/json")
           
-          echo "Files response received, processing..."
+          echo "Cleanup result:"
+          echo "$RESULT" | jq '.'
           
-          # Install jq for JSON parsing
-          sudo apt-get update && sudo apt-get install -y jq
-          
-          # Save files response to a temp file to process with jq
-          echo "$FILES_JSON" > files.json
-          
-          # Process each file
-          DELETED_COUNT=0
-          for FILE in $(jq -r '.[] | select(.name != ".placeholder") | .name' files.json); do
-            # Get created_at for the file
-            CREATED_AT=$(jq -r ".[] | select(.name == \"$FILE\") | .created_at" files.json)
-            
-            # Compare dates (Linux version)
-            if [[ $(date -d "$CREATED_AT" +%s) -lt $(date -d "$CUTOFF_TIME" +%s) ]]; then
-              echo "Deleting old file: $FILE (created at $CREATED_AT)"
-              
-              # Delete the file using REST API
-              DELETE_RESPONSE=$(curl -s -X DELETE \
-                "https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co/storage/v1/object/videos/raw/$FILE" \
-                -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}")
-              
-              echo "Delete response: $DELETE_RESPONSE"
-              DELETED_COUNT=$((DELETED_COUNT + 1))
-            else
-              echo "Keeping file: $FILE (created at $CREATED_AT)"
-            fi
-          done
+          # Count successful deletions
+          DELETED_COUNT=$(echo "$RESULT" | jq '[.[] | select(.deleted == true)] | length')
           
           echo "Successfully cleaned up $DELETED_COUNT old raw video files."
         env:
