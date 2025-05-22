@@ -545,23 +545,23 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
 
   // Now handle child nodes with fixed positions relative to their parents
   const childNodes: FlowNode[] = [];
-  
-  Object.entries(childNodesByParent).forEach(([parentNodeId, children]) => {
+
+  const layoutChildrenRecursively = (parentNodeId: string) => {
+    const children = childNodesByParent[parentNodeId];
+    if (!children) return;
+
     const parentNode = positionedNodesById[parentNodeId];
-    
+
     if (!parentNode || !parentNode.position) {
       console.warn(`Parent node ${parentNodeId} not found or has no position, using fallback positioning`);
-      // If parent not found in positioned nodes, use fallback positioning
       children.forEach((childNode, index) => {
         const layoutedChildNode: FlowNode = {
           ...childNode,
-          // Keep parentNode reference for ReactFlow
-          position: {
-            x: 300 + (index * 150),  // Horizontal fallback layout
-            y: 400,
-          }
+          position: { x: 300 + (index * 150), y: 400 },
         };
         childNodes.push(layoutedChildNode);
+        positionedNodesById[childNode.id!] = layoutedChildNode;
+        if (childNodesByParent[childNode.id!]) layoutChildrenRecursively(childNode.id!);
       });
       return;
     }
@@ -655,40 +655,33 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
       };
       
       childNodes.push(layoutedChildNode);
+      positionedNodesById[childNode.id!] = layoutedChildNode;
+
+      if (childNodesByParent[childNode.id!]) {
+        layoutChildrenRecursively(childNode.id!);
+      }
     });
-    
-    // Increase parent node size to accommodate children if needed
-    if (parentNode.type === 'loop') {
-      // Use the same initialXOffset and initialYOffset as defined above
-      const parentInitialXOffset = (parentNode.type === 'loop') ? 80 : 60;
-      const parentInitialYOffset = (parentNode.type === 'loop') ? 100 : 80;
-      
-      // Add extra padding based on child count 
-      const extraPadding = childCount > 12 ? 80 : (childCount > 8 ? 60 : 40);
-      const requiredWidth = totalChildWidth + (parentInitialXOffset * 2) + extraPadding;
-      const requiredHeight = totalChildHeight + (parentInitialYOffset * 2) + extraPadding;
-      
-      // Always ensure the parent node has data.calculatedWidth and data.calculatedHeight
-      if (!parentNode.data) {
-        parentNode.data = {};
-      }
-      
-      if (!parentNode.data.calculatedWidth) {
-        parentNode.data.calculatedWidth = 0;
-      }
-      
-      if (!parentNode.data.calculatedHeight) {
-        parentNode.data.calculatedHeight = 0;
-      }
-      
-      // Force the size to be large enough regardless of previous calculations
-      parentNode.data.calculatedWidth = Math.max(requiredWidth, parentNode.data.calculatedWidth);
-      parentNode.data.calculatedHeight = Math.max(requiredHeight, parentNode.data.calculatedHeight);
-      
-      // Update the node in the positionedNodesById map
-      positionedNodesById[parentNodeId] = parentNode;
+
+    const parentInitialXOffset = parentNode.type === 'loop' ? 80 : 60;
+    const parentInitialYOffset = parentNode.type === 'loop' ? 100 : 80;
+    const extraPadding = childCount > 12 ? 80 : (childCount > 8 ? 60 : 40);
+    const requiredWidth = totalChildWidth + parentInitialXOffset * 2 + extraPadding;
+    const requiredHeight = totalChildHeight + parentInitialYOffset * 2 + extraPadding;
+
+    if (!parentNode.data) {
+      parentNode.data = {};
     }
-  });
+
+    parentNode.data.calculatedWidth = Math.max(requiredWidth, parentNode.data.calculatedWidth || 0);
+    parentNode.data.calculatedHeight = Math.max(requiredHeight, parentNode.data.calculatedHeight || 0);
+
+    positionedNodesById[parentNodeId] = parentNode;
+  };
+
+  // Start layout from top-level parents
+  Object.keys(childNodesByParent)
+    .filter(pid => !positionedNodesById[pid]?.parentNode)
+    .forEach(pid => layoutChildrenRecursively(pid));
 
   // Combine the layout results
   const allLayoutedNodes = [...layoutedNodes, ...childNodes];
@@ -838,11 +831,17 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
 
   const handleToggleCollapse = useCallback((nodeId: string) => {
-    setExpandedNodes(prev => ({
-      ...prev,
-      [nodeId]: !prev[nodeId],
-    }));
-  }, []);
+    setExpandedNodes(prev => {
+      const newVal = !prev[nodeId];
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, isExpanded: newVal } } : n
+      ));
+      return {
+        ...prev,
+        [nodeId]: newVal,
+      };
+    });
+  }, [setNodes]);
 
   // Create a safe onNodesChange handler that maintains the header offset
   const safeOnNodesChange = useCallback((changes: NodeChange[]) => {
@@ -1014,9 +1013,9 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       // Initialize expanded state: all parent nodes are expanded by default
       const initialExpandedState: Record<string, boolean> = {};
       initialFlowNodes.forEach(node => {
-        const appNode = node.data as AppSOPNode; // Cast to access childNodes
-        if (appNode.childNodes && appNode.childNodes.length > 0) {
-          initialExpandedState[node.id] = true; // Default to expanded
+        const appNode = node.data as AppSOPNode;
+        if ((appNode.childNodes && appNode.childNodes.length > 0) || (appNode as any).childSopNodeIds?.length > 0) {
+          initialExpandedState[node.id] = true;
         }
       });
       setExpandedNodes(initialExpandedState);
@@ -1024,12 +1023,13 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       // Attach toggle handler and expansion state to node data
       const nodesWithCollapseProps = initialFlowNodes.map(node => {
         const appNode = node.data as AppSOPNode;
-        if (appNode.childNodes && appNode.childNodes.length > 0) {
+        const hasChildren = (appNode.childNodes && appNode.childNodes.length > 0) || (appNode as any).childSopNodeIds?.length > 0;
+        if (hasChildren) {
           return {
             ...node,
             data: {
               ...node.data,
-              isExpanded: true, // Always initialize as expanded for first render
+              isExpanded: true,
               onToggleCollapse: handleToggleCollapse,
             },
           };

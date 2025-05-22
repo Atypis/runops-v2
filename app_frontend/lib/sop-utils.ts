@@ -297,48 +297,27 @@ export const transformSopToFlowData = (
 
     // Create a formatted label with ID path if available - REMOVE THIS
     // Let the node components handle the formatting instead
-    const flowNodeData: any = { 
-      ...appNode, 
-      title: appNode.label, 
+    const flowNodeData: any = {
+      ...appNode,
+      title: appNode.label,
       description: appNode.intent || appNode.context,
-      // parentNodeId: undefined, // Initialize, will be set if it's a child of a safe compound parent
     };
 
+    const isParent = appNode.childNodes && appNode.childNodes.length > 0;
+
     const parentInfo = compoundParentData.get(appNode.id);
-    // Re-enable compound parent detection with proper safety check
-    const isActualCompoundParent = parentInfo?.isSafeToRenderAsCompound || false;
     
-    // For debugging test-compound.json
-    if (appNode.id === 'L1_loop' || appNode.id.startsWith('C') || appNode.parentId === 'L1_loop') {
-      console.log(`[TRANSFORM] Node ID: ${appNode.id}, ParentId: ${appNode.parentId}, isActualCompoundParent: ${isActualCompoundParent}`);
-    }
     
-    if (isActualCompoundParent) {
-      // This block will effectively not run due to isActualCompoundParent = false
+    if (isParent) {
       flowNodeData.isCollapsible = true;
-      flowNodeData.childSopNodeIds = appNode.childNodes ? appNode.childNodes.map(cn => cn.id) : []; 
-      if (parentInfo) { 
-          flowNodeData.calculatedWidth = parentInfo.width;
-          flowNodeData.calculatedHeight = parentInfo.height;
+      flowNodeData.childSopNodeIds = appNode.childNodes!.map(cn => cn.id);
+      if (parentInfo) {
+        flowNodeData.calculatedWidth = parentInfo.width;
+        flowNodeData.calculatedHeight = parentInfo.height;
+      } else if (nodeType === 'loop') {
+        flowNodeData.calculatedWidth = MIN_COMPOUND_WIDTH;
+        flowNodeData.calculatedHeight = MIN_COMPOUND_HEIGHT;
       }
-    } else if (appNode.childNodes && appNode.childNodes.length > 0) {
-      // Node has children, but will not be a Dagre compound parent.
-      // However, if it's a 'loop' type, we might still want it to be visually larger.
-      if (nodeType === 'loop') { 
-        if (parentInfo) { 
-            flowNodeData.calculatedWidth = parentInfo.width; 
-            flowNodeData.calculatedHeight = parentInfo.height;
-        } else {
-            flowNodeData.calculatedWidth = MIN_COMPOUND_WIDTH; // Default large size for loop nodes with children
-            flowNodeData.calculatedHeight = MIN_COMPOUND_HEIGHT;
-        }
-        // Populate childSopNodeIds for the LoopNode component to display the count,
-        // even if not a Dagre compound parent.
-        flowNodeData.childSopNodeIds = appNode.childNodes.map(cn => cn.id);
-      }
-      // For other types with children that are not compound (e.g. a 'step' with sub-steps not rendered as compound)
-      // we can assign a default calculated size if needed, or let them take standard node sizes.
-      // For now, only 'loop' type gets special non-compound sizing if it has children.
     }
     
     const flowNode: FlowNode = {
@@ -348,34 +327,9 @@ export const transformSopToFlowData = (
       position: { x: 0, y: 0 }, 
     };
 
-    // Set parentNode for Dagre compound layout
     if (appNode.parentId) {
-        const parentAppNode = sopNodeMap.get(appNode.parentId);
-        const parentSafetyInfo = compoundParentData.get(appNode.parentId);
-        let isParentSafeForDagre = parentSafetyInfo?.isSafeToRenderAsCompound || false;
-
-        if (parentAppNode && isParentSafeForDagre) {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[SOP-UTILS] Setting parentNode: ${appNode.id} with parent ${appNode.parentId}`);
-        }
-        
-        // For test-compound.json, force the parent-child relationships
-        if (parentAppNode && (appNode.parentId === 'L1_loop' || appNode.id.startsWith('C'))) {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[TEST-COMPOUND] Forcing parent for test: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        // For our new compound-fixed SOP, force the parent-child relationships
-        if (parentAppNode && sopDocument.meta.id === 'mocksop-compound-fixed') {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[COMPOUND-FIXED] Forcing parent for fixed SOP: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        // For our original structure SOP, force the parent-child relationships
-        if (parentAppNode && sopDocument.meta.id === 'mocksop-original-structure') {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[ORIGINAL-STRUCTURE] Forcing parent for original structure SOP: ${appNode.id} -> ${appNode.parentId}`);
-        }
+        flowNode.parentNode = appNode.parentId;
+        (flowNode as any).parentId = appNode.parentId;
     }
     
     flowNodes.push(flowNode);
