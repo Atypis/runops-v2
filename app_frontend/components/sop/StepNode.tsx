@@ -27,6 +27,8 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
   
   // Check if this node has a parent
   const hasParent = !!data.parentNode || !!data.parentId;
+  const isContainer = !!(data.childSopNodeIds && data.childSopNodeIds.length > 0);
+  const childrenExpanded = data.isExpanded !== false;
   
   // Format the label with ID path if available but avoid double brackets
   const formattedLabel = data.id_path 
@@ -135,6 +137,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
         borderRadius: hasParent ? '8px' : '6px',
         padding: hasParent ? '12px' : '14px',
         width: nodeWidth,
+        minHeight: isContainer ? (data.calculatedHeight || 250) : undefined,
         boxSizing: 'border-box',
         fontSize: '12px',
         boxShadow: hasParent 
@@ -181,9 +184,29 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
             {formattedLabel}
           </strong>
           
+          {/* Container collapse toggle */}
+          {isContainer && (
+            <button
+              onClick={(e) => { e.stopPropagation(); data.onToggleCollapse?.(id); }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: '4px'
+              }}
+              title={childrenExpanded ? 'Collapse' : 'Expand'}
+            >
+              <ChevronUp size={12} style={{ transform: childrenExpanded ? 'none' : 'rotate(180deg)' }} />
+            </button>
+          )}
+
           {/* Edit button - only shows when expanded */}
           {isExpanded && hasExpandableContent && (
-            <button 
+            <button
               onClick={openDetailedEditor}
               style={{
                 background: hasParent ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 0, 0, 0.05)',
@@ -289,7 +312,7 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
         
         {/* Visual indicator for expandable content - only shown when not expanded and not hovered */}
         {hasExpandableContent && !isExpanded && !isHovered && (
-          <div 
+          <div
             style={{
               position: 'absolute',
               bottom: '-2px',
@@ -306,8 +329,20 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
           />
         )}
       </div>
-      
-      <Handle 
+
+      {isContainer && childrenExpanded && (
+        <div
+          style={{
+            minHeight: Math.max((data.calculatedHeight || 250) - 80, 200),
+            padding: '20px',
+            position: 'relative',
+            background: 'rgba(254,226,226,0.3)',
+          }}
+          data-child-container="true"
+        ></div>
+      )}
+
+      <Handle
         id="bottom"
         type="source" 
         position={Position.Bottom} 
