@@ -366,6 +366,10 @@ const COMPOUND_NODE_PADDING_Y_VIEW = 50; // Increased from 40 for more space
 const AVG_RANKSEP_VIEW = 100; // Increased from 80 for more vertical separation
 const AVG_NODESEP_VIEW = 120;  // Increased from 80 for more horizontal separation
 
+// Initialize dagre graph instance (globally or outside component if preferred for stability)
+// const dagreGraph = new dagre.graphlib.Graph({ compound: true }); // Keep this commented or remove
+// dagreGraph.setDefaultEdgeLabel(() => ({})); // Keep this commented or remove
+
 // Add the port selection helper function
 const pickOptimalPorts = (
   nodes: FlowNode[],  
@@ -378,102 +382,65 @@ const pickOptimalPorts = (
 
 const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = 'TB') => {
   // Create a new Dagre graph instance for each layout to ensure a clean state
-  // Enable compound mode for Dagre to potentially handle top-level parent layouts
-  const dagreGraphInstance = new dagre.graphlib.Graph({ compound: true }); 
+  const dagreGraphInstance = new dagre.graphlib.Graph();  // REMOVE compound: true to avoid Dagre errors
   dagreGraphInstance.setDefaultEdgeLabel(() => ({}));
+
+  // Reset graph by removing all nodes and edges before new layout
+  // dagreGraph.nodes().forEach(nodeId => dagreGraph.removeNode(nodeId)); // No longer needed with new instance
 
   // Increase nodesep to encourage more horizontal spacing between nodes
   dagreGraphInstance.setGraph({ 
     rankdir: direction, 
     ranksep: AVG_RANKSEP_VIEW, 
     nodesep: AVG_NODESEP_VIEW, 
-    marginx: COMPOUND_NODE_PADDING_X_VIEW, 
+    marginx: COMPOUND_NODE_PADDING_X_VIEW, // Increased for more horizontal space 
     marginy: COMPOUND_NODE_PADDING_Y_VIEW / 2,
-    compound: true, // Ensure compound is enabled in graph settings
+    // REMOVED: compound: true,
   });
 
-  const nodeIds = new Set(nodes.map(node => node.id));
-  
-  // Extract parent and child nodes for manual positioning later
-  const parentNodes = nodes.filter(node => !node.parentNode && nodes.some(n => n.parentNode === node.id));
-  const childNodesByParent: Record<string, FlowNode[]> = {};
-  
-  nodes.forEach(node => {
-    if (node.parentNode) {
-      if (!childNodesByParent[node.parentNode]) {
-        childNodesByParent[node.parentNode] = [];
-      }
-      childNodesByParent[node.parentNode].push(node);
+  const allNodesMap = new Map(nodes.map(node => [node.id, node]));
+
+  // Identify top-level nodes (nodes without a parentId or whose parentId is not in allNodesMap)
+  // These are the nodes that Dagre will position.
+  const dagreNodes = nodes.filter(node => !node.parentId || !allNodesMap.has(node.parentId));
+  const dagreNodeIds = new Set(dagreNodes.map(node => node.id));
+
+  dagreNodes.forEach((node) => {
+    let width = node.data?.calculatedWidth || (node.width || 240); // Use pre-calculated/default width
+    let height = node.data?.calculatedHeight || (node.height || 80); // Use pre-calculated/default height
+
+    // Ensure sensible defaults if calculatedWidth/Height are zero or undefined
+    if (width <=0) width = 240;
+    if (height <=0) height = 80;
+    
+    // Override for specific types if no calculated size exists
+    if (!node.data?.calculatedWidth || !node.data?.calculatedHeight) {
+        if (node.type === 'trigger') { width = 208; height = 112; }
+        else if (node.type === 'step' && !(node.data?.childSopNodeIds?.length > 0)) { width = 240; height = 80; } // Non-container step
+        else if (node.type === 'end') { width = 208; height = 112; }
+        else if (node.type === 'decision') { width = 208; height = 104; }
+        // For loop and container steps, calculatedWidth/Height should ideally be set by transformSopToFlowData
     }
-  });
-
-  // Create a mapping of all child node IDs for edge handling
-  const childNodeIds = new Set(
-    Object.values(childNodesByParent).flatMap(children => children.map(child => child.id))
-  );
-
-  // First pass: add only non-child nodes to Dagre - we'll position children manually
-  const nonChildNodes = nodes.filter(node => !node.parentNode);
-  nonChildNodes.forEach((node) => {
-    let width = 208; // Default width
-    let height = 112; // Default height
-
-    // Use calculated dimensions for parent containers, otherwise use type-specific defaults
-    if (node.data?.isParentContainer && node.data?.calculatedWidth && node.data?.calculatedHeight) {
-      width = node.data.calculatedWidth;
-      height = node.data.calculatedHeight;
-    } else {
-      // Type-specific default sizes for non-parent nodes or parents without pre-calculated sizes
-      if (node.type === 'trigger') { width = 208; height = 112; }
-      else if (node.type === 'step') { width = 240; height = 80; } // StepNode default
-      else if (node.type === 'end') { width = 208; height = 112; }
-      else if (node.type === 'decision') { width = 208; height = 104; }
-      else if (node.type === 'loop') { width = 240; height = 80; } // LoopNode default
-    }
-
-    if (node.id) {
-      dagreGraphInstance.setNode(node.id, { width, height, label: node.data?.label || node.id });
-    }
+    dagreGraphInstance.setNode(node.id, { width, height, label: node.data?.label || node.id });
   });
   
-  // Inform Dagre about parent-child relationships among non-child nodes (top-level parents)
-  nonChildNodes.forEach((node) => {
-    if (node.parentNode && dagreGraphInstance.hasNode(node.parentNode) && dagreGraphInstance.hasNode(node.id)) {
-      // Ensure the parent is also a non-child node (i.e., part of Dagre's layout scope)
-      // This condition is implicitly met as we are iterating over nonChildNodes
-      // and checking if node.parentNode is in dagreGraphInstance (which only contains nonChildNodes).
-      dagreGraphInstance.setParent(node.id, node.parentNode);
-    }
-  });
-
-  // Add edges for Dagre layout.
-  // Edges involving manually positioned children (childNodeIds) are excluded from Dagre's layout.
-  // Dagre will only layout edges between nodes it directly manages (nonChildNodes).
   edges.forEach((edge) => {
-    if (edge.source && edge.target &&
-        dagreGraphInstance.hasNode(edge.source) && // Source is a Dagre-managed node
-        dagreGraphInstance.hasNode(edge.target) && // Target is a Dagre-managed node
-        !childNodeIds.has(edge.source) &&          // Source is not a manually positioned child
-        !childNodeIds.has(edge.target)             // Target is not a manually positioned child
-    ) {
+    // Add edges to Dagre if both source and target are top-level nodes
+    if (dagreNodeIds.has(edge.source) && dagreNodeIds.has(edge.target)) {
       dagreGraphInstance.setEdge(edge.source, edge.target);
-      // layoutEdges.push(edge); // Not strictly needed if we use all 'enhancedEdges' later
     }
   });
 
-  // Run the Dagre layout
   try {
     dagre.layout(dagreGraphInstance);
   } catch (error) {
     console.error('Dagre layout error:', error);
-    return { nodes, edges }; // Return nodes/edges without layout if error occurs
+    return { nodes, edges }; 
   }
 
-  // Enhance edges with additional metadata for better visualization
   const enhancedEdges = edges.map(edge => {
-    // Find source and target nodes to determine relationship type
-    const sourceNode = nodes.find(node => node.id === edge.source);
-    const targetNode = nodes.find(node => node.id === edge.target);
+    const sourceNode = allNodesMap.get(edge.source);
+    const targetNode = allNodesMap.get(edge.target);
     
     if (!sourceNode || !targetNode) {
       return edge;
@@ -485,242 +452,186 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     const isConditionEdge = !!edge.label || isFromDecision;
     
     // Check for parent-child relationships
-    const isSourceChildNode = !!sourceNode?.parentNode;
-    const isTargetChildNode = !!targetNode?.parentNode;
+    const isSourceChildNode = !!sourceNode?.parentId; // Use parentId from original data
+    const isTargetChildNode = !!targetNode?.parentId; // Use parentId from original data
     
-    // Explicitly determine connection type early
     const connectionType = getConnectionType(sourceNode, targetNode, edge);
-    
-    // Get edge type based on the flow semantics
     let edgeType: string = edge.type || 'custom-edge';
     
-    // Add additional data for the custom edge renderer
     return {
       ...edge,
       type: edgeType,
       data: {
         ...edge.data,
-        connectionType, // Explicitly set connection type
-        fromDecision: isFromDecision,
-        toDecision: isToDecision,
-        condition: isConditionEdge,
+        connectionType,
+        fromDecision: sourceNode?.type === 'decision',
+        toDecision: targetNode?.type === 'decision',
+        condition: !!edge.label || sourceNode?.type === 'decision',
         sourceType: sourceNode?.type,
         targetType: targetNode?.type,
         label: edge.label,
-        // Add parent-child relationship data
         isSourceChildNode,
         isTargetChildNode,
-        sourceParentNode: sourceNode?.parentNode,
-        targetParentNode: targetNode?.parentNode,
+        sourceParentNode: sourceNode?.parentId, // Use parentId
+        targetParentNode: targetNode?.parentId, // Use parentId
       },
     };
   });
 
-  // Position the non-child nodes based on Dagre layout
-  const layoutedNodes = nonChildNodes.map((node): FlowNode => {
-    if (!node.id || !dagreGraphInstance.hasNode(node.id)) {
-      return { ...node, position: node.position || { x: 0, y: 0 } };
-    }
+  const positionedNodesMap = new Map<string, FlowNode>();
+
+  // Position Dagre-laid out (top-level) nodes
+  dagreNodes.forEach(node => {
     const nodeWithPosition = dagreGraphInstance.node(node.id);
     if (!nodeWithPosition || typeof nodeWithPosition.x !== 'number' || typeof nodeWithPosition.y !== 'number') {
-      console.warn(`Node ${node.id} missing position after layout, using default.`);
-      return { ...node, position: node.position || { x: Math.random() * 200, y: Math.random() * 200 } };
+      console.warn(`Node ${node.id} (top-level) missing position after Dagre layout, using default.`);
+      positionedNodesMap.set(node.id, { ...node, position: node.position || { x: Math.random() * 200, y: Math.random() * 200 } });
+      return;
     }
 
     const isHorizontal = direction === 'LR';
     const nodeSpecificWidth = nodeWithPosition.width || 240;
     const nodeSpecificHeight = nodeWithPosition.height || 80;
 
-    return {
+    positionedNodesMap.set(node.id, {
       ...node,
       targetPosition: isHorizontal ? Position.Left : Position.Top,
       sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
       position: {
-        x: nodeWithPosition.x - nodeSpecificWidth / 2, 
+        x: nodeWithPosition.x - nodeSpecificWidth / 2,
         y: nodeWithPosition.y - nodeSpecificHeight / 2,
       },
-    };
+    });
   });
 
-  // Create a map of positioned nodes by ID for lookup
-  const positionedNodesById = layoutedNodes.reduce<Record<string, FlowNode>>((acc, node) => {
-    if (node.id) acc[node.id] = node;
-    return acc;
-  }, {});
+  // Recursive function to lay out children
+  function layoutChildrenRecursively(
+    currentParentNode: FlowNode,
+    parentAbsolutePosition: { x: number; y: number }
+  ) {
+    const childrenOfCurrentParent = nodes.filter(n => n.parentId === currentParentNode.id);
+    if (childrenOfCurrentParent.length === 0) {
+      return { totalChildWidth: 0, totalChildHeight: 0 }; // Base case for recursion
+    }
 
-  // Now handle child nodes with fixed positions relative to their parents
-  const childNodes: FlowNode[] = [];
-  
-  Object.entries(childNodesByParent).forEach(([parentNodeId, children]) => {
-    const parentNode = positionedNodesById[parentNodeId];
+    const childCount = childrenOfCurrentParent.length;
+    const childWidth = 220; 
+    const childHeight = 100; 
+    const horizontalSpacing = 80;
+    const verticalSpacing = 90;
     
-    if (!parentNode || !parentNode.position) {
-      console.warn(`Parent node ${parentNodeId} not found or has no position, using fallback positioning`);
-      // If parent not found in positioned nodes, use fallback positioning
-      children.forEach((childNode, index) => {
-        const layoutedChildNode: FlowNode = {
-          ...childNode,
-          // Keep parentNode reference for ReactFlow
-          position: {
-            x: 300 + (index * 150),  // Horizontal fallback layout
-            y: 400,
-          }
-        };
-        childNodes.push(layoutedChildNode);
-      });
-      return;
-    }
+    let maxChildrenPerRow = 2;
+    if (childCount > 14) maxChildrenPerRow = 4;
+    else if (childCount > 8) maxChildrenPerRow = 3;
+    else if (childCount <= 3) maxChildrenPerRow = childCount;
     
-    const parentPosition = parentNode.position;
-    const childCount = children.length;
-    
-    // Define sizes for child nodes - ensure exact match with StepNode component
-    const childWidth = 220; // Must match the width defined in StepNode.tsx
-    const childHeight = 100; // Increased from 90
-    const horizontalSpacing = 80; // Increased from 60
-    const verticalSpacing = 90; // Increased from 70
-    
-    // Determine optimal layout based on number of children and their types
-    let maxChildrenPerRow = 2; // Default to 2 for most cases
-    
-    // For many nodes, determine optimal layout - more columns for more children
-    if (childCount > 14) {
-      maxChildrenPerRow = 4; // Use 4 columns for very large parents
-    } else if (childCount > 8) {
-      maxChildrenPerRow = 3; // Use 3 columns for large parents
-    } else if (childCount <= 3) {
-      maxChildrenPerRow = childCount; // For 1-3 nodes, use one row
-    }
-    
-    // Check if there are decision nodes which need more space horizontally
-    const hasDecisionNodes = children.some(node => node.type === 'decision');
+    const hasDecisionNodes = childrenOfCurrentParent.some(node => node.type === 'decision');
     if (hasDecisionNodes && maxChildrenPerRow > 2 && childCount <= 6) {
-      // Only reduce columns for smaller sets with decision nodes
       maxChildrenPerRow = Math.max(2, maxChildrenPerRow - 1);
     }
-    
-    // For very large child counts, ensure we don't create unnecessarily tall containers
-    if (childCount > 16 && maxChildrenPerRow < 4) {
-      maxChildrenPerRow = 4;
-    }
+    if (childCount > 16 && maxChildrenPerRow < 4) maxChildrenPerRow = 4;
     
     const rows = Math.ceil(childCount / maxChildrenPerRow);
-    
-    // Calculate total width and height needed for all children
-    const totalChildWidth = (maxChildrenPerRow * childWidth) + ((maxChildrenPerRow - 1) * horizontalSpacing);
-    const totalChildHeight = (rows * childHeight) + ((rows - 1) * verticalSpacing);
-    
-    // Position each child node
-    children.forEach((childNode, index) => {
+    const calculatedTotalChildWidth = (maxChildrenPerRow * childWidth) + ((maxChildrenPerRow - 1) * horizontalSpacing);
+    const calculatedTotalChildHeight = (rows * childHeight) + ((rows - 1) * verticalSpacing);
+
+    // Determine header offsets for positioning children within this parent
+    // These are relative to the parent's origin (0,0), not absolute screen coords yet.
+    const headerHeights = getHeaderHeights([currentParentNode]); // Get header for current parent
+    const parentHeaderHeight = headerHeights[currentParentNode.id] || ((currentParentNode.type === 'loop') ? 100 : 80); // Default based on type
+    const parentSidePadding = (currentParentNode.type === 'loop') ? 80 : 60;
+
+
+    childrenOfCurrentParent.forEach((childNode, index) => {
       const row = Math.floor(index / maxChildrenPerRow);
       const col = index % maxChildrenPerRow;
 
-      // Calculate the initial offset to center the child nodes within the parent
-      // Use a default offset for all parent container types
-      const initialXOffset = (parentNode.data.isParentContainer) ? 60 : 0;
-      const initialYOffset = (parentNode.data.isParentContainer) ? 80 : 0;
-      
-      // For decision nodes, adjust position to account for diamond shape (already handled below)
-      let xPosition = (col * (childWidth + horizontalSpacing)) + initialXOffset;
-      let yPosition = (row * (childHeight + verticalSpacing)) + initialYOffset;
-      
-      // Center the nodes if there's extra space in the last row
+      let xPosRelative = (col * (childWidth + horizontalSpacing)) + parentSidePadding;
+      let yPosRelative = (row * (childHeight + verticalSpacing)) + parentHeaderHeight;
+
       const nodesInLastRow = childCount % maxChildrenPerRow || maxChildrenPerRow;
       if (row === rows - 1 && nodesInLastRow < maxChildrenPerRow) {
-        // Center the last row if it's not full
         const lastRowWidth = (nodesInLastRow * childWidth) + ((nodesInLastRow - 1) * horizontalSpacing);
-        const extraSpace = totalChildWidth - lastRowWidth;
-        if (extraSpace > 0 && row === rows - 1) {
-          xPosition += extraSpace / 2;
+        const extraSpace = calculatedTotalChildWidth - lastRowWidth;
+        if (extraSpace > 0) {
+          xPosRelative += extraSpace / 2;
         }
       }
-      
-      // Adjust position based on node type
       if (childNode.type === 'decision') {
-        xPosition += 20; // Give decision nodes a bit more horizontal room
-        yPosition += 10; // And vertical room
+        xPosRelative += 20; yPosRelative += 10;
       }
       
-      // Create positioned child node with parent reference intact
-      const layoutedChildNode: FlowNode = {
+      const absoluteChildPosition = {
+        x: parentAbsolutePosition.x + xPosRelative,
+        y: parentAbsolutePosition.y + yPosRelative,
+      };
+
+      const positionedChild: FlowNode = {
         ...childNode,
-        parentNode: parentNodeId, // Explicitly maintain the parent-child relationship
-        extent: 'parent', // Make child stay within parent boundaries
+        position: absoluteChildPosition, // This is now absolute
+        // parentNode: currentParentNode.id, // This should already be set from transform
+        extent: 'parent',
         targetPosition: direction === 'LR' ? Position.Left : Position.Top,
         sourcePosition: direction === 'LR' ? Position.Right : Position.Bottom,
-        position: {
-          x: xPosition,
-          y: yPosition,
-        },
-        style: { 
-          ...childNode.style,
-          backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque background
-          boxShadow: '0 2px 6px rgba(0,0,0,0.1)', // Add subtle shadow for depth
-          borderRadius: '8px', // Match the parent container's rounded corners
-        }
+        style: { ...childNode.style, backgroundColor: 'rgba(255, 255, 255, 0.95)', boxShadow: '0 2px 6px rgba(0,0,0,0.1)', borderRadius: '8px' }
       };
-      
-      childNodes.push(layoutedChildNode);
+      positionedNodesMap.set(childNode.id, positionedChild);
+
+      // Recursively layout children of this child node if it's a container
+      if (childNode.data?.childSopNodeIds?.length > 0) {
+        layoutChildrenRecursively(positionedChild, absoluteChildPosition); // Pass absolute position
+      }
     });
     
-    // Increase parent node size to accommodate children if needed, for all parent container types
-    if (parentNode.data.isParentContainer) {
-      // Use generalized initial offsets for parent resizing calculations
-      const parentInitialXOffset = (parentNode.data.isParentContainer) ? 60 : 0;
-      const parentInitialYOffset = (parentNode.data.isParentContainer) ? 80 : 0;
-      
-      // Add extra padding based on child count
-      const extraPadding = childCount > 12 ? 80 : (childCount > 8 ? 60 : 40);
-      const requiredWidth = totalChildWidth + (parentInitialXOffset * 2) + extraPadding;
-      const requiredHeight = totalChildHeight + (parentInitialYOffset * 2) + extraPadding;
-      
-      // Always ensure the parent node has data.calculatedWidth and data.calculatedHeight
-      if (!parentNode.data) {
-        parentNode.data = {};
+    // Resize currentParentNode based on its children's layout
+    const extraPadding = childCount > 12 ? 80 : (childCount > 8 ? 60 : 40);
+    const requiredWidth = calculatedTotalChildWidth + (parentSidePadding * 2) + extraPadding;
+    const requiredHeight = calculatedTotalChildHeight + parentHeaderHeight + parentSidePadding + extraPadding; // Account for header and bottom padding
+
+    if (!currentParentNode.data) currentParentNode.data = {};
+    currentParentNode.data.calculatedWidth = Math.max(requiredWidth, currentParentNode.data.calculatedWidth || 0);
+    currentParentNode.data.calculatedHeight = Math.max(requiredHeight, currentParentNode.data.calculatedHeight || 0);
+    
+    // Update the parent node in the map (its position doesn't change here, only size)
+    // Need to ensure the object in the map is updated if its data changed.
+    const existingParent = positionedNodesMap.get(currentParentNode.id);
+    if (existingParent) {
+        existingParent.data = { ...existingParent.data, ...currentParentNode.data };
+        // If Dagre set a width/height, we need to update that too for the main node component
+        existingParent.width = currentParentNode.data.calculatedWidth;
+        existingParent.height = currentParentNode.data.calculatedHeight;
+    }
+
+    return { totalChildWidth: calculatedTotalChildWidth, totalChildHeight: calculatedTotalChildHeight };
+  }
+
+  // Start recursive layout for children of Dagre-positioned nodes
+  positionedNodesMap.forEach(node => {
+    if (dagreNodeIds.has(node.id) && node.data?.childSopNodeIds?.length > 0) {
+      if (!node.position) { // Should not happen if Dagre layout was successful
+          console.warn(`Dagre-laid out node ${node.id} has no position. Skipping child layout.`);
+          return;
       }
-      
-      if (!parentNode.data.calculatedWidth) {
-        parentNode.data.calculatedWidth = 0;
-      }
-      
-      if (!parentNode.data.calculatedHeight) {
-        parentNode.data.calculatedHeight = 0;
-      }
-      
-      // Force the size to be large enough regardless of previous calculations
-      parentNode.data.calculatedWidth = Math.max(requiredWidth, parentNode.data.calculatedWidth);
-      parentNode.data.calculatedHeight = Math.max(requiredHeight, parentNode.data.calculatedHeight);
-      
-      // Update the node in the positionedNodesById map
-      positionedNodesById[parentNodeId] = parentNode;
+      layoutChildrenRecursively(node, node.position);
     }
   });
+  
+  const finalNodes = Array.from(positionedNodesMap.values());
 
-  // Combine the layout results
-  const allLayoutedNodes = [...layoutedNodes, ...childNodes];
-
-  // When applying the layout, adjust position to encourage more horizontal spacing
-  const nodesWithHorizontalVariance = allLayoutedNodes.map(node => {
-    // For non-special nodes, slightly adjust position to add horizontal variance
-    if (!node.parentNode && node.type !== 'decision' && node.type !== 'trigger' && node.type !== 'end') {
-      const randomHorizontalOffset = Math.random() * 40 - 20; // -20 to +20 pixels
-      return {
-        ...node,
-        position: {
-          x: node.position.x + randomHorizontalOffset,
-          y: node.position.y
-        }
-      };
+  // Apply horizontal variance to top-level non-special nodes
+  const nodesWithHorizontalVariance = finalNodes.map(node => {
+    if (!node.parentId && node.type !== 'decision' && node.type !== 'trigger' && node.type !== 'end' && dagreNodeIds.has(node.id)) {
+      const randomHorizontalOffset = Math.random() * 40 - 20; 
+      return { ...node, position: { x: (node.position?.x || 0) + randomHorizontalOffset, y: node.position?.y || 0 } };
     }
     return node;
   });
   
-  // Optimize edge port selection using helper function
   const optimizedEdges = pickOptimalPorts(nodesWithHorizontalVariance, enhancedEdges);
 
   return { 
     nodes: nodesWithHorizontalVariance, 
-    edges: optimizedEdges
+    edges: optimizedEdges 
   };
 };
 
@@ -744,37 +655,65 @@ const getAllDescendantIds = (nodeId: string, allNodes: FlowNode<AppSOPNode>[]): 
 /**
  * Shifts child nodes vertically to account for parent node headers
  * and prevents them from being positioned in the header area.
+ * This function is called *after* all nodes (including nested children)
+ * have their initial layout positions calculated.
  * 
- * @param nodes The array of nodes to process
- * @param headerHeights Optional map of parent node IDs to their header heights
+ * @param nodes The array of all nodes to process
+ * @param allNodesMap A map of all nodes for easy parent lookup
  * @returns A new array of nodes with adjusted positions
  */
 const withHeaderOffset = (
-  nodes: FlowNode[], 
-  headerHeights: Record<string, number> = {}
+  nodesToOffset: FlowNode[],
+  allNodesMapForOffset: Map<string, FlowNode> 
 ): FlowNode[] => {
-  // Default header height if not specified for a particular parent
-  const DEFAULT_HEADER_HEIGHT = 60;
-  
-  return nodes.map(node => {
-    // Only process child nodes
-    if (!node.parentNode) return node;
+  const DEFAULT_HEADER_HEIGHT = 60; // Default if no specific header height is found
+
+  return nodesToOffset.map(node => {
+    // Only process child nodes (nodes that have a parentId)
+    if (!node.parentId) return node;
+
+    const parentNode = allNodesMapForOffset.get(node.parentId);
+    if (!parentNode) return node; // Should not happen if data is consistent
+
+    // Determine header height for this specific parent
+    // This relies on getHeaderHeights being called on the parent node previously
+    // or having a reliable default.
+    const headerHeightsMap = getHeaderHeights([parentNode]); // Get header height for this parent specifically
+    const headerHeight = headerHeightsMap[parentNode.id] || DEFAULT_HEADER_HEIGHT;
     
-    // Get the header height for this node's parent
-    const headerHeight = headerHeights[node.parentNode] || DEFAULT_HEADER_HEIGHT;
-    
-    // Create a new node with adjusted position and extent
+    // The child's current `node.position.y` is absolute, calculated by layoutChildrenRecursively
+    // relative to the parent's origin (0,0) and then made absolute.
+    // The `layoutChildrenRecursively` already places children starting below the parent's header.
+    // So, the main purpose of withHeaderOffset now is to set the `extent`.
+
     return {
       ...node,
-      position: {
-        ...node.position,
-        y: Math.max(node.position.y, 0) + headerHeight
-      },
-      // Set extent to prevent dragging into the header area
-      extent: [
-        [0, headerHeight], 
-        [Infinity, Infinity]
-      ]
+      // Position is already absolute and should account for header.
+      // If it wasn't, we'd do: y: (parent.position.y + headerHeight + relativeChildY)
+      // But layoutChildrenRecursively already does parent.position.y + relativeChildY (where relativeChildY includes header)
+      
+      // Set extent to prevent dragging into the header area OF ITS PARENT
+      // The extent coordinates are relative to the child node's own origin (0,0)
+      // if its position is (0,0) inside the parent.
+      // However, ReactFlow's extent is in the parent's coordinate system if node.extent='parent'.
+      // And for 'parent' extent, the coordinates are relative to the parent node's top-left corner.
+      // So, we want to prevent the child from being dragged such that its top edge goes above parent's headerHeight.
+      extent: 'parent', // This is crucial.
+      // No, React Flow docs state: If string 'parent' is set, the node will be constrained to its parent node.
+      // The actual constraint area for dragging WITHIN the parent needs to be set carefully if not using ELK or similar.
+      // For now, we assume 'parent' extent + correct initial positioning by layoutChildrenRecursively is enough.
+      // If manual dragging needs finer control to avoid header, `dragHandle` on the node is better.
+      // The `StepNode` and `LoopNode` should have `dragHandle` selectors if needed.
+      // Let's ensure `positionOffset` is correctly set if we use `dragHandle`.
+      // `positionOffset` is for ELK, not directly for dragging constraints here.
+
+      // The primary role of withHeaderOffset was to adjust y-positions when children were laid out
+      // by Dagre as if they were independent. Now that children are manually positioned *relative*
+      // to parents and *below* their headers by `layoutChildrenRecursively`, this function's
+      // y-adjustment role is diminished. Its main remaining role is setting the extent.
+      // If `layoutChildrenRecursively` correctly places children starting at `parentHeaderHeight`,
+      // then `node.position.y` (which is absolute) will already be correct.
+      // The `extent` property combined with `parentNode` tells React Flow to constrain.
     };
   });
 };
@@ -792,34 +731,31 @@ const getHeaderHeights = (nodes: FlowNode[]): Record<string, number> => {
       let headerHeight = 60;
       
       // Adjust based on node type
-      if (node.data.isParentContainer) { // Ensure we only assign header heights to parent containers
-        let determinedHeaderHeight = 60; // Default parent header height
-        switch (node.type) {
-          case 'loop':
-            // For loop nodes, header height depends on display state
-            if (node.data?.isExpanded === false) {
-              // Collapsed state - just the header
-              determinedHeaderHeight = 45;
-            } else {
-              // Expanded state - header + content area (varies based on content)
-              const hasIntent = !!node.data?.intent;
-              const hasContext = !!node.data?.context;
-              // Base header (45px) + content area based on content
-              determinedHeaderHeight = 45 + (hasIntent || hasContext ? 75 : 30);
-            }
-            break;
-          case 'step': // New case for StepNode as parent
-            // Assuming StepNode parents have a fixed header height for now
-            determinedHeaderHeight = 60; // Or any other specific value, e.g., 70
-            break;
-          case 'decision':
-            determinedHeaderHeight = 70; // Decision nodes have taller headers
-            break;
-          default:
-            determinedHeaderHeight = 60; // Default for other parent node types
-        }
-        headerHeights[node.id] = determinedHeaderHeight;
+      switch (node.type) {
+        case 'loop':
+          // For loop nodes, header height depends on display state
+          if (node.data?.isExpanded === false) {
+            // Collapsed state - just the header
+            headerHeight = 45;
+          } else {
+            // Expanded state - header + content area (varies based on content)
+            const hasIntent = !!node.data?.intent;
+            const hasContext = !!node.data?.context;
+            
+            // Base header (45px) + content area based on content
+            headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
+          }
+          break;
+          
+        case 'decision':
+          headerHeight = 70; // Decision nodes have taller headers
+          break;
+          
+        default:
+          headerHeight = 60; // Default for other node types
       }
+      
+      headerHeights[node.id] = headerHeight;
     }
   });
   
@@ -870,32 +806,27 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           
           if (parentNode) {
             // Determine header height based on parent node type and state
-            if (parentNode.data.isParentContainer) { // Check if the parent is indeed a container
-              switch (parentNode.type) {
-                case 'loop':
-                  // For loop nodes, header depends on state
-                  if (parentNode.data && typeof parentNode.data === 'object' && 'isExpanded' in parentNode.data && parentNode.data.isExpanded === false) {
-                    headerHeight = 45; // Collapsed - just header
-                  } else {
-                    // Expanded - header + content
-                    const hasIntent = parentNode.data && typeof parentNode.data === 'object' && 'intent' in parentNode.data && !!parentNode.data.intent;
-                    const hasContext = parentNode.data && typeof parentNode.data === 'object' && 'context' in parentNode.data && !!parentNode.data.context;
-                    headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
-                  }
-                  break;
-                case 'step': // New case for StepNode as parent
-                  headerHeight = 60; // Consistent with getHeaderHeights
-                  break;
-                case 'decision':
-                  headerHeight = 70; // Decision nodes have taller headers
-                  break;
-                default:
-                  headerHeight = 60; // Default for other parent types
-              }
+            switch (parentNode.type) {
+              case 'loop':
+                // For loop nodes, header depends on state
+                if (parentNode.data && typeof parentNode.data === 'object' && 'isExpanded' in parentNode.data && parentNode.data.isExpanded === false) {
+                  headerHeight = 45; // Collapsed - just header
+                } else {
+                  // Expanded - header + content
+                  const hasIntent = parentNode.data && typeof parentNode.data === 'object' && 'intent' in parentNode.data && !!parentNode.data.intent;
+                  const hasContext = parentNode.data && typeof parentNode.data === 'object' && 'context' in parentNode.data && !!parentNode.data.context;
+                  headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
+                }
+                break;
+              case 'decision':
+                headerHeight = 70; // Decision nodes have taller headers
+                break;
+              default:
+                headerHeight = 60; // Default for other types
             }
           }
           
-          // Ensure y position is at least the header height if it's a child of a parent container
+          // Ensure y position is at least the header height
           return {
             ...change,
             position: {
@@ -1058,13 +989,22 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
         layoutDirection // Use the current layout direction
       );
       
-      // Get dynamic header heights based on node types and states
-      const headerHeights = getHeaderHeights(layoutedNodes);
+      // Initial layout using getLayoutedElements
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+        nodesWithCollapseProps,
+        initialFlowEdges,
+        layoutDirection
+      );
       
-      // Apply header offset to prevent child nodes from overlapping with parent headers
-      const offsettedNodes = withHeaderOffset(layoutedNodes, headerHeights);
+      // After all nodes (including nested children) are positioned by getLayoutedElements,
+      // and parents are resized, we apply the header offset.
+      // The `withHeaderOffset` function now primarily sets the `extent` for children.
+      // It's crucial that `layoutedNodes` from `getLayoutedElements` contains ALL nodes
+      // (Dagre-positioned parents AND all their recursively positioned children)
+      // with their correct `parentId` and final absolute positions.
+      const finalNodesWithOffsets = withHeaderOffset(layoutedNodes, new Map(layoutedNodes.map(n => [n.id, n])));
       
-      setNodes(offsettedNodes);
+      setNodes(finalNodesWithOffsets);
       setEdges(layoutedEdges);
     } else {
       setNodes([]);

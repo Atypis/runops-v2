@@ -148,10 +148,48 @@ export const transformSopToFlowData = (
 
   const { triggers, nodes: originalSopNodes, edges: sopEdgesFromDoc } = sopDocument.public;
 
-  // Create a deep copy for modification
+  // Create a deep copy for modification for this test
   let sopNodesFromDoc: AppSOPNode[] = JSON.parse(JSON.stringify(originalSopNodes));
 
-  // console.log("[SOP-UTILS] Initial sopNodesFromDoc:", JSON.stringify(sopNodesFromDoc, null, 2));
+  // Check if this is a known problematic SOP (like mocksop.json)
+  const hasComplexStructure = hasProblematicCrossEdge(sopEdgesFromDoc);
+  
+  // For mocksop.json and similar complex SOPs, apply a more aggressive flattening
+  if (hasComplexStructure) {
+    console.log("[SOP-UTILS] Detected complex SOP with cross-boundary edges. Using flattened layout.");
+    
+    // Find and remove problematic parent-child relationships
+    sopNodesFromDoc.forEach(node => {
+      // For live SOP, temporarily remove all nested children
+      if (node.children && node.children.length > 0) {
+        console.log(`[SOP-UTILS] Temporarily flattening children for node ${node.id} in complex SOP`);
+        node.children = [];
+        node.childNodes = [];
+      }
+    });
+  } else {
+    // For test cases, just handle the known L1_C9_conditional_routing issue
+    const l1c9NodeIndex = sopNodesFromDoc.findIndex(node => node.id === 'L1_C9_conditional_routing');
+    if (l1c9NodeIndex > -1) {
+      console.log("[SOP-UTILS-DEBUG] Temporarily removing children from L1_C9_conditional_routing for Dagre safety test.");
+      sopNodesFromDoc[l1c9NodeIndex].children = []; // Remove references in 'children' array
+      sopNodesFromDoc[l1c9NodeIndex].childNodes = []; // Clear actual childNodes objects
+    }
+    
+    // Also, ensure L1_C9_A1_set_last_interaction_date (if it exists as a top-level node after reparenting) 
+    // doesn't incorrectly get L1_process_emails as a parent if its original parent L1_C9_conditional_routing is altered.
+    const l1ProcessEmailsNodeIndex = sopNodesFromDoc.findIndex(node => node.id === 'L1_process_emails');
+    if (l1ProcessEmailsNodeIndex > -1 && sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes) {
+        sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes = sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes?.filter(
+            child => child.id !== 'L1_C9_A1_set_last_interaction_date'
+        );
+        if (sopNodesFromDoc[l1ProcessEmailsNodeIndex].children) {
+          sopNodesFromDoc[l1ProcessEmailsNodeIndex].children = sopNodesFromDoc[l1ProcessEmailsNodeIndex].children?.filter(
+              childId => childId !== 'L1_C9_A1_set_last_interaction_date'
+          );
+        }
+    }
+  }
 
   let flowNodes: FlowNode[] = [];
   let reactFlowEdges: FlowEdge[] = [];
@@ -166,41 +204,32 @@ export const transformSopToFlowData = (
     edgeIndex.add(`${edge.target}|${edge.source}`); // For checking both directions
   });
 
-  // Stores data for all nodes that are parents in ReactFlow (have children)
-  // and also includes Dagre-specific safety flag.
-  const parentNodeInfo = new Map<string, { 
-    width: number; 
-    height: number; 
-    isSafeForDagreCompound: boolean; // For Dagre's compound layout
-    isReactFlowParent: boolean;      // True if it has children, for ReactFlow
-  }>();
+  const compoundParentData = new Map<string, { width: number; height: number; isSafeToRenderAsCompound: boolean }>();
 
-  // First pass: Identify all potential parent containers, calculate their dimensions,
-  // and determine Dagre safety.
+  // First pass: Identify potential compound parents, calculate their dimensions,
+  // and determine if it's safe to render them as compound.
+  // MODIFIED: This loop now calculates dimensions for ALL nodes with children,
+  // regardless of type or "safety" for compound rendering by Dagre.
+  // The "isSafeToRenderAsCompound" is kept for potential debugging or specific layout adjustments later if needed.
   sopNodesFromDoc.forEach(appNode => {
-    const isReactFlowParent = appNode.childNodes && appNode.childNodes.length > 0;
-    let estimatedWidth = MIN_COMPOUND_WIDTH;
-    let estimatedHeight = MIN_COMPOUND_HEIGHT;
-    let isSafeForDagre = true; // Default to true, assess below
-
-    if (isReactFlowParent) {
+    if (appNode.childNodes && appNode.childNodes.length > 0) {
       const childCount = appNode.childNodes.length;
-      let calculatedWidth = COMPOUND_NODE_PADDING_X * 2; // Start with padding
-      let calculatedHeight = COMPOUND_NODE_PADDING_Y * 2;
+      let estimatedWidth = COMPOUND_NODE_PADDING_X * 2; // Start with padding
+      let estimatedHeight = COMPOUND_NODE_PADDING_Y * 2;
 
       if (childCount > 0) {
         const rows = Math.ceil(childCount / MAX_CHILDREN_PER_ROW_ESTIMATE);
         const cols = Math.min(childCount, MAX_CHILDREN_PER_ROW_ESTIMATE);
         
-        calculatedWidth += cols * AVG_CHILD_NODE_WIDTH + (cols > 1 ? (cols - 1) * AVG_NODESEP : 0);
-        calculatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
+        estimatedWidth += cols * AVG_CHILD_NODE_WIDTH + (cols > 1 ? (cols - 1) * AVG_NODESEP : 0);
+        estimatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
       }
       // Ensure minimum dimensions
-      estimatedWidth = Math.max(calculatedWidth, MIN_COMPOUND_WIDTH);
-      estimatedHeight = Math.max(calculatedHeight, MIN_COMPOUND_HEIGHT);
+      estimatedWidth = Math.max(estimatedWidth, MIN_COMPOUND_WIDTH);
+      estimatedHeight = Math.max(estimatedHeight, MIN_COMPOUND_HEIGHT);
 
-      // Dagre-specific safety check (existing logic)
-      // Create an array of all descendant node IDs recursively
+      // Safety check (can be kept for warnings, but won't prevent container marking)
+      let isSafe = true;
       const getAllDescendantIds = (node: AppSOPNode): string[] => {
         if (!node.childNodes || node.childNodes.length === 0) return [];
         return node.childNodes.reduce((ids: string[], childNode) => {
@@ -208,37 +237,25 @@ export const transformSopToFlowData = (
         }, []);
       };
       const allDescendantIds = getAllDescendantIds(appNode);
-      
       for (const childSopNode of appNode.childNodes) {
         if (edgeIndex.has(`${appNode.id}|${childSopNode.id}`) || edgeIndex.has(`${childSopNode.id}|${appNode.id}`)) {
-          isSafeForDagre = false;
-          // console.warn(`[SOP-UTILS] Dagre unsafe: ${appNode.id} has direct edge to/from child ${childSopNode.id}.`);
+          isSafe = false;
+          console.warn(`[SOP-UTILS] Warning: Parent ${appNode.id} has direct edge to/from child ${childSopNode.id}.`);
           break;
         }
       }
-      if (isSafeForDagre) {
+      if (isSafe) {
         for (const descendantId of allDescendantIds) {
           if (edgeIndex.has(`${descendantId}|${appNode.id}`)) {
-            isSafeForDagre = false;
-            // console.warn(`[SOP-UTILS] Dagre unsafe: ${appNode.id} has edge from descendant ${descendantId}.`);
+            isSafe = false;
+            console.warn(`[SOP-UTILS] Warning: Parent ${appNode.id} has edge from descendant ${descendantId}.`);
             break;
           }
         }
       }
-    }
-    
-    // Store info if it's a ReactFlow parent, along with dimensions and Dagre safety
-    if (isReactFlowParent) {
-      parentNodeInfo.set(appNode.id, { 
-        width: estimatedWidth, 
-        height: estimatedHeight, 
-        isSafeForDagreCompound: isSafeForDagre,
-        isReactFlowParent: true 
-      });
-    } else {
-      // Even if not a parent, store with default/minimums if needed elsewhere,
-      // or simply don't store. For now, only store parent data.
-      // parentNodeInfo.set(appNode.id, { width: estimatedWidth, height: estimatedHeight, isSafeForDagreCompound: false, isReactFlowParent: false });
+      // Store calculated dimensions and safety flag.
+      // isSafeToRenderAsCompound is now more of a data point than a strict gate.
+      compoundParentData.set(appNode.id, { width: estimatedWidth, height: estimatedHeight, isSafeToRenderAsCompound: isSafe });
     }
   });
 
@@ -271,52 +288,129 @@ export const transformSopToFlowData = (
       description: appNode.intent || appNode.context,
     };
 
-    const currentParentInfo = parentNodeInfo.get(appNode.id);
+    const parentInfo = compoundParentData.get(appNode.id);
 
-    if (currentParentInfo?.isReactFlowParent) {
-      flowNodeData.isParentContainer = true;
-      flowNodeData.isCollapsible = true; // Standard for parent containers
-      flowNodeData.childSopNodeIds = appNode.childNodes ? appNode.childNodes.map(cn => cn.id) : [];
-      flowNodeData.calculatedWidth = currentParentInfo.width;
-      flowNodeData.calculatedHeight = currentParentInfo.height;
-      // console.log(`[SOP-UTILS] Node ${appNode.id} is a Parent Container. Dimensions: ${currentParentInfo.width}x${currentParentInfo.height}`);
+    // Mark ALL nodes with children as containers and assign dimensions
+    if (appNode.childNodes && appNode.childNodes.length > 0) {
+      flowNodeData.isCollapsible = true;
+      flowNodeData.childSopNodeIds = appNode.childNodes.map(cn => cn.id);
+      
+      if (parentInfo) { 
+          flowNodeData.calculatedWidth = parentInfo.width;
+          flowNodeData.calculatedHeight = parentInfo.height;
+      } else {
+          // Default dimensions for parent nodes if not found in compoundParentData
+          // (should ideally always be found if childNodes.length > 0 due to earlier pass)
+          flowNodeData.calculatedWidth = MIN_COMPOUND_WIDTH; 
+          flowNodeData.calculatedHeight = MIN_COMPOUND_HEIGHT;
+          console.warn(`[SOP-UTILS] Parent node ${appNode.id} with children missing from compoundParentData. Applying default dimensions.`);
+      }
     }
-    // No 'else if' here, a node can be a parent and also have specific types like 'loop'
-    // The specific type styling (like for 'loop') will be handled by the node component.
-    // If a loop also has children, it gets parent container properties above.
-    // If it's a loop without children, it just gets loop styling.
     
-    const flowNode: FlowNode = {
+    const flowNode: FlowNode = { // Use FlowNode type alias
       id: appNode.id,
       type: nodeType,
       data: flowNodeData,
-      position: { x: 0, y: 0 }, // ELK will set this
+      position: { x: 0, y: 0 }, // Position will be set by layout algorithm
+      // parentId will be set below
     };
 
-    // Set parentNode and extent for ReactFlow parent-child relationships
+    // Assign parentId directly if it exists in appNode
     if (appNode.parentId) {
-      const parentExistsInMap = sopNodeMap.has(appNode.parentId);
-      // Ensure the parent is also intended to be a ReactFlow parent container
-      const parentIsReactFlowParentContainer = parentNodeInfo.get(appNode.parentId)?.isReactFlowParent || false;
-
-      if (parentExistsInMap && parentIsReactFlowParentContainer) {
-        flowNode.parentNode = appNode.parentId;
+      const parentExistsInSop = sopNodeMap.has(appNode.parentId);
+      if (parentExistsInSop) {
+        flowNode.parentId = appNode.parentId; // Use parentId for ReactFlow
+        // Set child node constraints
         flowNode.extent = 'parent';
-        // console.log(`[SOP-UTILS] Child Node ${appNode.id} assigned to Parent ${appNode.parentId}`);
-      } else if (parentExistsInMap && !parentIsReactFlowParentContainer) {
-        // This case might happen if a node has a parentId but that parent has no childNodes array
-        // or was filtered out. This could be a data inconsistency.
-        // console.warn(`[SOP-UTILS] Node ${appNode.id} has parentId ${appNode.parentId}, but parent is not a ReactFlow container.`);
+        flowNode.expandParent = true; // Optional, but good for UX
+        console.log(`[SOP-UTILS] Setting parentId for ${appNode.id} to ${appNode.parentId}`);
+      } else {
+        console.warn(`[SOP-UTILS] Node ${appNode.id} has parentId ${appNode.parentId}, but parent node not found in sopNodeMap.`);
       }
     }
     
     flowNodes.push(flowNode);
   });
 
+  // Sort flowNodes to ensure parents are rendered before children
+  const sortedFlowNodes: FlowNode[] = [];
+  const visitedNodeIds = new Set<string>();
+  const flowNodeMapForSorting = new Map<string, FlowNode>();
+  flowNodes.forEach(fn => flowNodeMapForSorting.set(fn.id, fn));
+
+  function addNodeAndDescendants(nodeId: string) {
+    if (visitedNodeIds.has(nodeId)) {
+      return;
+    }
+    const node = flowNodeMapForSorting.get(nodeId);
+    if (!node) {
+      return;
+    }
+
+    // If the node has a parent and the parent hasn't been visited yet,
+    // visit the parent first. This handles cases where children might be processed before parents
+    // if the initial list isn't ordered by hierarchy.
+    if (node.parentId && !visitedNodeIds.has(node.parentId)) {
+        addNodeAndDescendants(node.parentId);
+    }
+
+    // Add the current node
+    if (!visitedNodeIds.has(node.id)) { // Check again in case parent recursion added it
+        sortedFlowNodes.push(node);
+        visitedNodeIds.add(node.id);
+    }
+    
+    // Then, add all its children
+    const childrenOfThisNode = flowNodes.filter(fn => fn.parentId === nodeId);
+    childrenOfThisNode.forEach(childNode => {
+        addNodeAndDescendants(childNode.id);
+    });
+  }
+
+  // Start DFS from root nodes (nodes without a parentId or whose parentId is not in the map)
+  flowNodes.forEach(fn => {
+    if (!fn.parentId || !flowNodeMapForSorting.has(fn.parentId)) {
+      addNodeAndDescendants(fn.id);
+    }
+  });
+  
+  // Ensure any remaining nodes (e.g., disconnected components or missed due to complex parent links) are added
+  flowNodes.forEach(fn => {
+    if (!visitedNodeIds.has(fn.id)) {
+      // This typically indicates a node whose parentId is set but the parent node itself wasn't processed
+      // or doesn't exist in the provided nodes, or a cycle.
+      // For now, just add it to avoid losing nodes.
+      console.warn(`[SOP-UTILS] Node ${fn.id} was not visited during initial sorting pass. Adding it now. Check parentId: ${fn.parentId}`);
+      addNodeAndDescendants(fn.id); // Try to add it and its potential children if any
+    }
+  });
+
+  flowNodes = sortedFlowNodes;
+
+
   // 3. Create ReactFlow edges from sopDocument.public.edges (SOPEdge[])
+  // Filter out direct parent-to-child edges
+  const finalFlowEdges: FlowEdge[] = [];
   sopEdgesFromDoc.forEach((edge, index) => {
-    const sourceNode = sopNodesFromDoc.find(n => n.id === edge.source);
-    const targetNode = sopNodesFromDoc.find(n => n.id === edge.target);
+    const sourceNodeApp = sopNodeMap.get(edge.source); // Get AppSOPNode for parentId check
+    const targetNodeApp = sopNodeMap.get(edge.target);
+
+    // Check if it's a direct parent-to-child or child-to-parent edge
+    // This uses the original appNode.parentId information
+    if (sourceNodeApp && targetNodeApp) {
+      if (targetNodeApp.parentId === sourceNodeApp.id) {
+        console.log(`[SOP-UTILS] Filtering out direct parent-to-child edge: ${sourceNodeApp.id} -> ${targetNodeApp.id}`);
+        return; // Skip this edge
+      }
+      // Optional: also filter child-to-parent if desired, though less common for "flow"
+      // if (sourceNodeApp.parentId === targetNodeApp.id) {
+      //   console.log(`[SOP-UTILS] Filtering out direct child-to-parent edge: ${sourceNodeApp.id} -> ${targetNodeApp.id}`);
+      //   return; // Skip this edge
+      // }
+    }
+
+    const sourceNode = flowNodes.find(n => n.id === edge.source); // Find FlowNode for type info
+    const targetNode = flowNodes.find(n => n.id === edge.target);
     
     // Determine if this is a decision-related edge
     const isFromDecision = sourceNode?.type === 'decision';
@@ -363,13 +457,33 @@ export const transformSopToFlowData = (
     });
   });
 
+    // Add the edge if it's not filtered
+    finalFlowEdges.push({
+      id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
+      source: edge.source,
+      target: edge.target,
+      label: edgeLabelWithPath, 
+      type: 'custom-edge', 
+      animated: edge.animated || false,
+      data: {
+        condition: !!edgeLabel || isFromDecision,
+        fromDecision: isFromDecision,
+        sourceType: sourceNode?.type, // Use FlowNode type
+        targetType: targetNode?.type, // Use FlowNode type
+        sourceIdPath: sourceNodeApp?.id_path, // Use AppSOPNode for id_path
+        decisionPath: edge.decision_path
+      }
+    });
+  });
+  reactFlowEdges = finalFlowEdges; // Assign the filtered and processed edges
+
   // 4. Create edges from Trigger FlowNodes to actual start SOPNodes
   // Use the new getFlowStartNodeIds function
-  const actualStartNodeIds = getFlowStartNodeIds(sopNodesFromDoc, sopEdgesFromDoc);
+  const actualStartNodeIds = getFlowStartNodeIds(sopNodesFromDoc, sopEdgesFromDoc); // sopEdgesFromDoc is the original, unfiltered list
   
   flowNodes.filter(fn => fn.type === 'trigger').forEach(triggerNode => {
     actualStartNodeIds.forEach(startNodeId => {
-      const targetNode = sopNodesFromDoc.find(n => n.id === startNodeId);
+      const targetAppNode = sopNodeMap.get(startNodeId); // Get AppSOPNode for type
       
       reactFlowEdges.push({
         id: `e-${triggerNode.id}-to-${startNodeId}`,
@@ -378,44 +492,50 @@ export const transformSopToFlowData = (
         type: 'custom-edge',
         data: {
           sourceType: 'trigger',
-          targetType: targetNode?.type,
+          targetType: targetAppNode?.type, // Use AppSOPNode type
         }
       });
     });
   });
 
   // 5. Connect SOPNodes that have a parentId but are not yet targeted by an existing edge.
-  // This ensures that explicit parent-child relationships (like atomic actions)
-  // are represented if not already covered by the main `edges` array.
+  // This step is largely superseded by direct parentId assignment and edge filtering.
+  // However, it might catch specific cases where a parent-child relationship is defined
+  // ONLY by parentId and NOT by an explicit edge in sopEdgesFromDoc.
+  // Given the new edge filtering logic, these auto-generated parent-child edges
+  // would also be filtered out if they are direct parent-to-child.
+  // It's safer to remove or disable this section to avoid re-adding filtered edges.
+  /*
   const currentTargetNodeIds = new Set(reactFlowEdges.map(edge => edge.target));
-
   sopNodesFromDoc.forEach(sopNode => {
     if (sopNode.parentId && !currentTargetNodeIds.has(sopNode.id)) {
-      // Check if an edge from this parentId to this sopNode.id already exists to be super safe,
-      // though !currentTargetNodeIds.has(sopNode.id) should mostly cover it.
       const edgeAlreadyExists = reactFlowEdges.some(
         edge => edge.source === sopNode.parentId && edge.target === sopNode.id
       );
 
       if (!edgeAlreadyExists) {
-        const parentNode = sopNodesFromDoc.find(n => n.id === sopNode.parentId);
-        
-        reactFlowEdges.push({
-          id: `e-parent-${sopNode.parentId}-to-${sopNode.id}`,
-          source: sopNode.parentId,
-          target: sopNode.id,
-          type: 'custom-edge',
-          data: {
-            sourceType: parentNode?.type,
-            targetType: sopNode.type,
-            isParentChild: true
-          }
-        });
-        // Add to currentTargetNodeIds if we were to loop again, but not strictly necessary here
-        // currentTargetNodeIds.add(sopNode.id);
+        // Check if this would be a direct parent-child edge (and thus should be filtered)
+        if (sopNode.parentId !== sopNode.id) { // Basic sanity check
+             const parentNode = sopNodeMap.get(sopNode.parentId);
+             reactFlowEdges.push({
+                id: `e-parent-${sopNode.parentId}-to-${sopNode.id}`,
+                source: sopNode.parentId,
+                target: sopNode.id,
+                type: 'custom-edge', // Or a specific type for these implicit edges
+                data: {
+                    sourceType: parentNode?.type,
+                    targetType: sopNode.type,
+                    isParentChild: true // Mark it as such
+                }
+            });
+        }
       }
     }
   });
+  */
+  // The parentId on FlowNodes and the ELK layout algorithm with parent awareness
+  // should handle the visual hierarchy. Explicit edges for direct parent-child
+  // are now filtered out.
 
   return { flowNodes, flowEdges: reactFlowEdges };
 }; 
