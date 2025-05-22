@@ -148,48 +148,10 @@ export const transformSopToFlowData = (
 
   const { triggers, nodes: originalSopNodes, edges: sopEdgesFromDoc } = sopDocument.public;
 
-  // Create a deep copy for modification for this test
+  // Create a deep copy for modification
   let sopNodesFromDoc: AppSOPNode[] = JSON.parse(JSON.stringify(originalSopNodes));
 
-  // Check if this is a known problematic SOP (like mocksop.json)
-  const hasComplexStructure = hasProblematicCrossEdge(sopEdgesFromDoc);
-  
-  // For mocksop.json and similar complex SOPs, apply a more aggressive flattening
-  if (hasComplexStructure) {
-    console.log("[SOP-UTILS] Detected complex SOP with cross-boundary edges. Using flattened layout.");
-    
-    // Find and remove problematic parent-child relationships
-    sopNodesFromDoc.forEach(node => {
-      // For live SOP, temporarily remove all nested children
-      if (node.children && node.children.length > 0) {
-        console.log(`[SOP-UTILS] Temporarily flattening children for node ${node.id} in complex SOP`);
-        node.children = [];
-        node.childNodes = [];
-      }
-    });
-  } else {
-    // For test cases, just handle the known L1_C9_conditional_routing issue
-    const l1c9NodeIndex = sopNodesFromDoc.findIndex(node => node.id === 'L1_C9_conditional_routing');
-    if (l1c9NodeIndex > -1) {
-      console.log("[SOP-UTILS-DEBUG] Temporarily removing children from L1_C9_conditional_routing for Dagre safety test.");
-      sopNodesFromDoc[l1c9NodeIndex].children = []; // Remove references in 'children' array
-      sopNodesFromDoc[l1c9NodeIndex].childNodes = []; // Clear actual childNodes objects
-    }
-    
-    // Also, ensure L1_C9_A1_set_last_interaction_date (if it exists as a top-level node after reparenting) 
-    // doesn't incorrectly get L1_process_emails as a parent if its original parent L1_C9_conditional_routing is altered.
-    const l1ProcessEmailsNodeIndex = sopNodesFromDoc.findIndex(node => node.id === 'L1_process_emails');
-    if (l1ProcessEmailsNodeIndex > -1 && sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes) {
-        sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes = sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes?.filter(
-            child => child.id !== 'L1_C9_A1_set_last_interaction_date'
-        );
-        if (sopNodesFromDoc[l1ProcessEmailsNodeIndex].children) {
-          sopNodesFromDoc[l1ProcessEmailsNodeIndex].children = sopNodesFromDoc[l1ProcessEmailsNodeIndex].children?.filter(
-              childId => childId !== 'L1_C9_A1_set_last_interaction_date'
-          );
-        }
-    }
-  }
+  // console.log("[SOP-UTILS] Initial sopNodesFromDoc:", JSON.stringify(sopNodesFromDoc, null, 2));
 
   let flowNodes: FlowNode[] = [];
   let reactFlowEdges: FlowEdge[] = [];
@@ -204,73 +166,79 @@ export const transformSopToFlowData = (
     edgeIndex.add(`${edge.target}|${edge.source}`); // For checking both directions
   });
 
-  const compoundParentData = new Map<string, { width: number; height: number; isSafeToRenderAsCompound: boolean }>();
+  // Stores data for all nodes that are parents in ReactFlow (have children)
+  // and also includes Dagre-specific safety flag.
+  const parentNodeInfo = new Map<string, { 
+    width: number; 
+    height: number; 
+    isSafeForDagreCompound: boolean; // For Dagre's compound layout
+    isReactFlowParent: boolean;      // True if it has children, for ReactFlow
+  }>();
 
-  // First pass: Identify potential compound parents, calculate their dimensions,
-  // and determine if it's safe to render them as compound.
+  // First pass: Identify all potential parent containers, calculate their dimensions,
+  // and determine Dagre safety.
   sopNodesFromDoc.forEach(appNode => {
-    if (appNode.childNodes && appNode.childNodes.length > 0) {
+    const isReactFlowParent = appNode.childNodes && appNode.childNodes.length > 0;
+    let estimatedWidth = MIN_COMPOUND_WIDTH;
+    let estimatedHeight = MIN_COMPOUND_HEIGHT;
+    let isSafeForDagre = true; // Default to true, assess below
+
+    if (isReactFlowParent) {
       const childCount = appNode.childNodes.length;
-      let estimatedWidth = COMPOUND_NODE_PADDING_X * 2; // Start with padding
-      let estimatedHeight = COMPOUND_NODE_PADDING_Y * 2;
+      let calculatedWidth = COMPOUND_NODE_PADDING_X * 2; // Start with padding
+      let calculatedHeight = COMPOUND_NODE_PADDING_Y * 2;
 
       if (childCount > 0) {
         const rows = Math.ceil(childCount / MAX_CHILDREN_PER_ROW_ESTIMATE);
         const cols = Math.min(childCount, MAX_CHILDREN_PER_ROW_ESTIMATE);
         
-        estimatedWidth += cols * AVG_CHILD_NODE_WIDTH + (cols > 1 ? (cols - 1) * AVG_NODESEP : 0);
-        estimatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
+        calculatedWidth += cols * AVG_CHILD_NODE_WIDTH + (cols > 1 ? (cols - 1) * AVG_NODESEP : 0);
+        calculatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
       }
       // Ensure minimum dimensions
-      estimatedWidth = Math.max(estimatedWidth, MIN_COMPOUND_WIDTH);
-      estimatedHeight = Math.max(estimatedHeight, MIN_COMPOUND_HEIGHT);
+      estimatedWidth = Math.max(calculatedWidth, MIN_COMPOUND_WIDTH);
+      estimatedHeight = Math.max(calculatedHeight, MIN_COMPOUND_HEIGHT);
 
-      // Enhanced safety check: 
-      // 1. Check for direct edges between parent and direct children
-      // 2. Check for edges from any descendant back to this ancestor
-      let isSafe = true;
-
+      // Dagre-specific safety check (existing logic)
       // Create an array of all descendant node IDs recursively
       const getAllDescendantIds = (node: AppSOPNode): string[] => {
         if (!node.childNodes || node.childNodes.length === 0) return [];
-        
         return node.childNodes.reduce((ids: string[], childNode) => {
           return [...ids, childNode.id, ...getAllDescendantIds(childNode)];
         }, []);
       };
-
       const allDescendantIds = getAllDescendantIds(appNode);
       
-      // First check: Direct edges between parent and immediate children
       for (const childSopNode of appNode.childNodes) {
         if (edgeIndex.has(`${appNode.id}|${childSopNode.id}`) || edgeIndex.has(`${childSopNode.id}|${appNode.id}`)) {
-          isSafe = false;
-          console.warn(`[SOP-UTILS] Unsafe compound parent: ${appNode.id} has direct edge to/from child ${childSopNode.id}. Will not render as compound.`);
+          isSafeForDagre = false;
+          // console.warn(`[SOP-UTILS] Dagre unsafe: ${appNode.id} has direct edge to/from child ${childSopNode.id}.`);
           break;
         }
       }
-
-      // Second check: Check if any descendant has an edge to this parent
-      if (isSafe) {
+      if (isSafeForDagre) {
         for (const descendantId of allDescendantIds) {
           if (edgeIndex.has(`${descendantId}|${appNode.id}`)) {
-            isSafe = false;
-            console.warn(`[SOP-UTILS] Unsafe compound parent: ${appNode.id} has edge from descendant ${descendantId}. Will not render as compound.`);
+            isSafeForDagre = false;
+            // console.warn(`[SOP-UTILS] Dagre unsafe: ${appNode.id} has edge from descendant ${descendantId}.`);
             break;
           }
         }
       }
-
-      // Special case known problematic node
-      if (appNode.id === 'L1_process_emails') {
-        if (!isSafe) {
-          console.warn(`[SOP-UTILS] L1_process_emails detected as unsafe for compound rendering. Using regular layout.`);
-        } else {
-          console.log(`[SOP-UTILS] L1_process_emails is safe for compound rendering.`);
-        }
-      }
-
-      compoundParentData.set(appNode.id, { width: estimatedWidth, height: estimatedHeight, isSafeToRenderAsCompound: isSafe });
+    }
+    
+    // Store info if it's a ReactFlow parent, along with dimensions and Dagre safety
+    if (isReactFlowParent) {
+      parentNodeInfo.set(appNode.id, { 
+        width: estimatedWidth, 
+        height: estimatedHeight, 
+        isSafeForDagreCompound: isSafeForDagre,
+        isReactFlowParent: true 
+      });
+    } else {
+      // Even if not a parent, store with default/minimums if needed elsewhere,
+      // or simply don't store. For now, only store parent data.
+      // parentNodeInfo.set(appNode.id, { width: estimatedWidth, height: estimatedHeight, isSafeForDagreCompound: false, isReactFlowParent: false });
     }
   });
 
@@ -301,81 +269,45 @@ export const transformSopToFlowData = (
       ...appNode, 
       title: appNode.label, 
       description: appNode.intent || appNode.context,
-      // parentNodeId: undefined, // Initialize, will be set if it's a child of a safe compound parent
     };
 
-    const parentInfo = compoundParentData.get(appNode.id);
-    // Re-enable compound parent detection with proper safety check
-    const isActualCompoundParent = parentInfo?.isSafeToRenderAsCompound || false;
-    
-    // For debugging test-compound.json
-    if (appNode.id === 'L1_loop' || appNode.id.startsWith('C') || appNode.parentId === 'L1_loop') {
-      console.log(`[TRANSFORM] Node ID: ${appNode.id}, ParentId: ${appNode.parentId}, isActualCompoundParent: ${isActualCompoundParent}`);
+    const currentParentInfo = parentNodeInfo.get(appNode.id);
+
+    if (currentParentInfo?.isReactFlowParent) {
+      flowNodeData.isParentContainer = true;
+      flowNodeData.isCollapsible = true; // Standard for parent containers
+      flowNodeData.childSopNodeIds = appNode.childNodes ? appNode.childNodes.map(cn => cn.id) : [];
+      flowNodeData.calculatedWidth = currentParentInfo.width;
+      flowNodeData.calculatedHeight = currentParentInfo.height;
+      // console.log(`[SOP-UTILS] Node ${appNode.id} is a Parent Container. Dimensions: ${currentParentInfo.width}x${currentParentInfo.height}`);
     }
-    
-    if (isActualCompoundParent) {
-      // This block will effectively not run due to isActualCompoundParent = false
-      flowNodeData.isCollapsible = true;
-      flowNodeData.childSopNodeIds = appNode.childNodes ? appNode.childNodes.map(cn => cn.id) : []; 
-      if (parentInfo) { 
-          flowNodeData.calculatedWidth = parentInfo.width;
-          flowNodeData.calculatedHeight = parentInfo.height;
-      }
-    } else if (appNode.childNodes && appNode.childNodes.length > 0) {
-      // Node has children, but will not be a Dagre compound parent.
-      // However, if it's a 'loop' type, we might still want it to be visually larger.
-      if (nodeType === 'loop') { 
-        if (parentInfo) { 
-            flowNodeData.calculatedWidth = parentInfo.width; 
-            flowNodeData.calculatedHeight = parentInfo.height;
-        } else {
-            flowNodeData.calculatedWidth = MIN_COMPOUND_WIDTH; // Default large size for loop nodes with children
-            flowNodeData.calculatedHeight = MIN_COMPOUND_HEIGHT;
-        }
-        // Populate childSopNodeIds for the LoopNode component to display the count,
-        // even if not a Dagre compound parent.
-        flowNodeData.childSopNodeIds = appNode.childNodes.map(cn => cn.id);
-      }
-      // For other types with children that are not compound (e.g. a 'step' with sub-steps not rendered as compound)
-      // we can assign a default calculated size if needed, or let them take standard node sizes.
-      // For now, only 'loop' type gets special non-compound sizing if it has children.
-    }
+    // No 'else if' here, a node can be a parent and also have specific types like 'loop'
+    // The specific type styling (like for 'loop') will be handled by the node component.
+    // If a loop also has children, it gets parent container properties above.
+    // If it's a loop without children, it just gets loop styling.
     
     const flowNode: FlowNode = {
       id: appNode.id,
       type: nodeType,
       data: flowNodeData,
-      position: { x: 0, y: 0 }, 
+      position: { x: 0, y: 0 }, // ELK will set this
     };
 
-    // Set parentNode for Dagre compound layout
+    // Set parentNode and extent for ReactFlow parent-child relationships
     if (appNode.parentId) {
-        const parentAppNode = sopNodeMap.get(appNode.parentId);
-        const parentSafetyInfo = compoundParentData.get(appNode.parentId);
-        let isParentSafeForDagre = parentSafetyInfo?.isSafeToRenderAsCompound || false;
+      const parentExistsInMap = sopNodeMap.has(appNode.parentId);
+      // Ensure the parent is also intended to be a ReactFlow parent container
+      const parentIsReactFlowParentContainer = parentNodeInfo.get(appNode.parentId)?.isReactFlowParent || false;
 
-        if (parentAppNode && isParentSafeForDagre) {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[SOP-UTILS] Setting parentNode: ${appNode.id} with parent ${appNode.parentId}`);
-        }
-        
-        // For test-compound.json, force the parent-child relationships
-        if (parentAppNode && (appNode.parentId === 'L1_loop' || appNode.id.startsWith('C'))) {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[TEST-COMPOUND] Forcing parent for test: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        // For our new compound-fixed SOP, force the parent-child relationships
-        if (parentAppNode && sopDocument.meta.id === 'mocksop-compound-fixed') {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[COMPOUND-FIXED] Forcing parent for fixed SOP: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        // For our original structure SOP, force the parent-child relationships
-        if (parentAppNode && sopDocument.meta.id === 'mocksop-original-structure') {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[ORIGINAL-STRUCTURE] Forcing parent for original structure SOP: ${appNode.id} -> ${appNode.parentId}`);
-        }
+      if (parentExistsInMap && parentIsReactFlowParentContainer) {
+        flowNode.parentNode = appNode.parentId;
+        flowNode.extent = 'parent';
+        // console.log(`[SOP-UTILS] Child Node ${appNode.id} assigned to Parent ${appNode.parentId}`);
+      } else if (parentExistsInMap && !parentIsReactFlowParentContainer) {
+        // This case might happen if a node has a parentId but that parent has no childNodes array
+        // or was filtered out. This could be a data inconsistency.
+        // console.warn(`[SOP-UTILS] Node ${appNode.id} has parentId ${appNode.parentId}, but parent is not a ReactFlow container.`);
+      }
     }
     
     flowNodes.push(flowNode);

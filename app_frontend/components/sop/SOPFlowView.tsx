@@ -366,10 +366,6 @@ const COMPOUND_NODE_PADDING_Y_VIEW = 50; // Increased from 40 for more space
 const AVG_RANKSEP_VIEW = 100; // Increased from 80 for more vertical separation
 const AVG_NODESEP_VIEW = 120;  // Increased from 80 for more horizontal separation
 
-// Initialize dagre graph instance (globally or outside component if preferred for stability)
-// const dagreGraph = new dagre.graphlib.Graph({ compound: true }); // Keep this commented or remove
-// dagreGraph.setDefaultEdgeLabel(() => ({})); // Keep this commented or remove
-
 // Add the port selection helper function
 const pickOptimalPorts = (
   nodes: FlowNode[],  
@@ -382,20 +378,18 @@ const pickOptimalPorts = (
 
 const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = 'TB') => {
   // Create a new Dagre graph instance for each layout to ensure a clean state
-  const dagreGraphInstance = new dagre.graphlib.Graph();  // REMOVE compound: true to avoid Dagre errors
+  // Enable compound mode for Dagre to potentially handle top-level parent layouts
+  const dagreGraphInstance = new dagre.graphlib.Graph({ compound: true }); 
   dagreGraphInstance.setDefaultEdgeLabel(() => ({}));
-
-  // Reset graph by removing all nodes and edges before new layout
-  // dagreGraph.nodes().forEach(nodeId => dagreGraph.removeNode(nodeId)); // No longer needed with new instance
 
   // Increase nodesep to encourage more horizontal spacing between nodes
   dagreGraphInstance.setGraph({ 
     rankdir: direction, 
     ranksep: AVG_RANKSEP_VIEW, 
     nodesep: AVG_NODESEP_VIEW, 
-    marginx: COMPOUND_NODE_PADDING_X_VIEW, // Increased for more horizontal space 
+    marginx: COMPOUND_NODE_PADDING_X_VIEW, 
     marginy: COMPOUND_NODE_PADDING_Y_VIEW / 2,
-    // REMOVED: compound: true,
+    compound: true, // Ensure compound is enabled in graph settings
   });
 
   const nodeIds = new Set(nodes.map(node => node.id));
@@ -421,42 +415,53 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
   // First pass: add only non-child nodes to Dagre - we'll position children manually
   const nonChildNodes = nodes.filter(node => !node.parentNode);
   nonChildNodes.forEach((node) => {
-    let width = 208;
-    let height = 112;
+    let width = 208; // Default width
+    let height = 112; // Default height
 
-    if (node.data?.calculatedWidth && node.data?.calculatedHeight) {
+    // Use calculated dimensions for parent containers, otherwise use type-specific defaults
+    if (node.data?.isParentContainer && node.data?.calculatedWidth && node.data?.calculatedHeight) {
       width = node.data.calculatedWidth;
       height = node.data.calculatedHeight;
     } else {
+      // Type-specific default sizes for non-parent nodes or parents without pre-calculated sizes
       if (node.type === 'trigger') { width = 208; height = 112; }
-      else if (node.type === 'step') { width = 240; height = 80; }
+      else if (node.type === 'step') { width = 240; height = 80; } // StepNode default
       else if (node.type === 'end') { width = 208; height = 112; }
       else if (node.type === 'decision') { width = 208; height = 104; }
-      else if (node.type === 'loop') { width = 240; height = 80; }
+      else if (node.type === 'loop') { width = 240; height = 80; } // LoopNode default
     }
 
     if (node.id) {
-      dagreGraphInstance.setNode(node.id, { width, height, label: node.data?.label || node.id }); 
+      dagreGraphInstance.setNode(node.id, { width, height, label: node.data?.label || node.id });
+    }
+  });
+  
+  // Inform Dagre about parent-child relationships among non-child nodes (top-level parents)
+  nonChildNodes.forEach((node) => {
+    if (node.parentNode && dagreGraphInstance.hasNode(node.parentNode) && dagreGraphInstance.hasNode(node.id)) {
+      // Ensure the parent is also a non-child node (i.e., part of Dagre's layout scope)
+      // This condition is implicitly met as we are iterating over nonChildNodes
+      // and checking if node.parentNode is in dagreGraphInstance (which only contains nonChildNodes).
+      dagreGraphInstance.setParent(node.id, node.parentNode);
     }
   });
 
-  // REMOVED: Second pass for setting parent relationships - no longer using Dagre's compound layout
-
-  // Add edges between non-child nodes only for Dagre layout
-  // BUT keep all edges for rendering
-  const layoutEdges: FlowEdge[] = [];
+  // Add edges for Dagre layout.
+  // Edges involving manually positioned children (childNodeIds) are excluded from Dagre's layout.
+  // Dagre will only layout edges between nodes it directly manages (nonChildNodes).
   edges.forEach((edge) => {
-    // Only add edges between nodes that are both in the Dagre graph (non-children)
-    if (edge.source && edge.target && 
-        !childNodeIds.has(edge.source) && 
-        !childNodeIds.has(edge.target) &&
-        nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+    if (edge.source && edge.target &&
+        dagreGraphInstance.hasNode(edge.source) && // Source is a Dagre-managed node
+        dagreGraphInstance.hasNode(edge.target) && // Target is a Dagre-managed node
+        !childNodeIds.has(edge.source) &&          // Source is not a manually positioned child
+        !childNodeIds.has(edge.target)             // Target is not a manually positioned child
+    ) {
       dagreGraphInstance.setEdge(edge.source, edge.target);
-      layoutEdges.push(edge);
+      // layoutEdges.push(edge); // Not strictly needed if we use all 'enhancedEdges' later
     }
   });
 
-  // Run the layout for non-child nodes
+  // Run the Dagre layout
   try {
     dagre.layout(dagreGraphInstance);
   } catch (error) {
@@ -610,11 +615,12 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
       const row = Math.floor(index / maxChildrenPerRow);
       const col = index % maxChildrenPerRow;
 
-      // Calculate the initial offset to center the child nodes
-      const initialXOffset = (parentNode.type === 'loop') ? 80 : 60;
-      const initialYOffset = (parentNode.type === 'loop') ? 100 : 80;
+      // Calculate the initial offset to center the child nodes within the parent
+      // Use a default offset for all parent container types
+      const initialXOffset = (parentNode.data.isParentContainer) ? 60 : 0;
+      const initialYOffset = (parentNode.data.isParentContainer) ? 80 : 0;
       
-      // For decision nodes, adjust position to account for diamond shape
+      // For decision nodes, adjust position to account for diamond shape (already handled below)
       let xPosition = (col * (childWidth + horizontalSpacing)) + initialXOffset;
       let yPosition = (row * (childHeight + verticalSpacing)) + initialYOffset;
       
@@ -657,13 +663,13 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
       childNodes.push(layoutedChildNode);
     });
     
-    // Increase parent node size to accommodate children if needed
-    if (parentNode.type === 'loop') {
-      // Use the same initialXOffset and initialYOffset as defined above
-      const parentInitialXOffset = (parentNode.type === 'loop') ? 80 : 60;
-      const parentInitialYOffset = (parentNode.type === 'loop') ? 100 : 80;
+    // Increase parent node size to accommodate children if needed, for all parent container types
+    if (parentNode.data.isParentContainer) {
+      // Use generalized initial offsets for parent resizing calculations
+      const parentInitialXOffset = (parentNode.data.isParentContainer) ? 60 : 0;
+      const parentInitialYOffset = (parentNode.data.isParentContainer) ? 80 : 0;
       
-      // Add extra padding based on child count 
+      // Add extra padding based on child count
       const extraPadding = childCount > 12 ? 80 : (childCount > 8 ? 60 : 40);
       const requiredWidth = totalChildWidth + (parentInitialXOffset * 2) + extraPadding;
       const requiredHeight = totalChildHeight + (parentInitialYOffset * 2) + extraPadding;
@@ -786,31 +792,34 @@ const getHeaderHeights = (nodes: FlowNode[]): Record<string, number> => {
       let headerHeight = 60;
       
       // Adjust based on node type
-      switch (node.type) {
-        case 'loop':
-          // For loop nodes, header height depends on display state
-          if (node.data?.isExpanded === false) {
-            // Collapsed state - just the header
-            headerHeight = 45;
-          } else {
-            // Expanded state - header + content area (varies based on content)
-            const hasIntent = !!node.data?.intent;
-            const hasContext = !!node.data?.context;
-            
-            // Base header (45px) + content area based on content
-            headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
-          }
-          break;
-          
-        case 'decision':
-          headerHeight = 70; // Decision nodes have taller headers
-          break;
-          
-        default:
-          headerHeight = 60; // Default for other node types
+      if (node.data.isParentContainer) { // Ensure we only assign header heights to parent containers
+        let determinedHeaderHeight = 60; // Default parent header height
+        switch (node.type) {
+          case 'loop':
+            // For loop nodes, header height depends on display state
+            if (node.data?.isExpanded === false) {
+              // Collapsed state - just the header
+              determinedHeaderHeight = 45;
+            } else {
+              // Expanded state - header + content area (varies based on content)
+              const hasIntent = !!node.data?.intent;
+              const hasContext = !!node.data?.context;
+              // Base header (45px) + content area based on content
+              determinedHeaderHeight = 45 + (hasIntent || hasContext ? 75 : 30);
+            }
+            break;
+          case 'step': // New case for StepNode as parent
+            // Assuming StepNode parents have a fixed header height for now
+            determinedHeaderHeight = 60; // Or any other specific value, e.g., 70
+            break;
+          case 'decision':
+            determinedHeaderHeight = 70; // Decision nodes have taller headers
+            break;
+          default:
+            determinedHeaderHeight = 60; // Default for other parent node types
+        }
+        headerHeights[node.id] = determinedHeaderHeight;
       }
-      
-      headerHeights[node.id] = headerHeight;
     }
   });
   
@@ -861,27 +870,32 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
           
           if (parentNode) {
             // Determine header height based on parent node type and state
-            switch (parentNode.type) {
-              case 'loop':
-                // For loop nodes, header depends on state
-                if (parentNode.data && typeof parentNode.data === 'object' && 'isExpanded' in parentNode.data && parentNode.data.isExpanded === false) {
-                  headerHeight = 45; // Collapsed - just header
-                } else {
-                  // Expanded - header + content
-                  const hasIntent = parentNode.data && typeof parentNode.data === 'object' && 'intent' in parentNode.data && !!parentNode.data.intent;
-                  const hasContext = parentNode.data && typeof parentNode.data === 'object' && 'context' in parentNode.data && !!parentNode.data.context;
-                  headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
-                }
-                break;
-              case 'decision':
-                headerHeight = 70; // Decision nodes have taller headers
-                break;
-              default:
-                headerHeight = 60; // Default for other types
+            if (parentNode.data.isParentContainer) { // Check if the parent is indeed a container
+              switch (parentNode.type) {
+                case 'loop':
+                  // For loop nodes, header depends on state
+                  if (parentNode.data && typeof parentNode.data === 'object' && 'isExpanded' in parentNode.data && parentNode.data.isExpanded === false) {
+                    headerHeight = 45; // Collapsed - just header
+                  } else {
+                    // Expanded - header + content
+                    const hasIntent = parentNode.data && typeof parentNode.data === 'object' && 'intent' in parentNode.data && !!parentNode.data.intent;
+                    const hasContext = parentNode.data && typeof parentNode.data === 'object' && 'context' in parentNode.data && !!parentNode.data.context;
+                    headerHeight = 45 + (hasIntent || hasContext ? 75 : 30);
+                  }
+                  break;
+                case 'step': // New case for StepNode as parent
+                  headerHeight = 60; // Consistent with getHeaderHeights
+                  break;
+                case 'decision':
+                  headerHeight = 70; // Decision nodes have taller headers
+                  break;
+                default:
+                  headerHeight = 60; // Default for other parent types
+              }
             }
           }
           
-          // Ensure y position is at least the header height
+          // Ensure y position is at least the header height if it's a child of a parent container
           return {
             ...change,
             position: {
