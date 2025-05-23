@@ -14,6 +14,14 @@ interface StepNodeData {
   parentId?: string;
   parentNode?: string; // This is set by ReactFlow
   id_path?: string; // Hierarchical ID for visual display
+  // Container-related properties
+  childSopNodeIds?: string[]; // Array of child node IDs
+  isCollapsible?: boolean; // Whether this node can be collapsed/expanded
+  calculatedWidth?: number; // Container width calculated by layout algorithm
+  calculatedHeight?: number; // Container height calculated by layout algorithm
+  containerWidth?: number; // Number of columns for children
+  currentDepth?: number; // Depth in the nesting hierarchy
+  maxDepth?: number; // Maximum depth in the entire structure
   [key: string]: any; // Allow other properties
 }
 
@@ -28,13 +36,35 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
   // Check if this node has a parent
   const hasParent = !!data.parentNode || !!data.parentId;
   
+  // NEW: Check if this node is a container (has children)
+  const isContainer = !!(data.childSopNodeIds && data.childSopNodeIds.length > 0);
+  const childCount = data.childSopNodeIds?.length || 0;
+  
   // Format the label with ID path if available but avoid double brackets
   const formattedLabel = data.id_path 
     ? (!data.id_path.startsWith('[') ? `[${data.id_path}]` : data.id_path) + ` ${data.label}`
     : data.label;
   
-  // Node dimensions - explicitly set to ensure consistent layout
-  const nodeWidth = hasParent ? 220 : 240;
+  // Node dimensions - use calculated dimensions for containers
+  const nodeWidth = isContainer 
+    ? (data.calculatedWidth || 450) // Use calculated width for containers
+    : (hasParent ? 220 : 240); // Use regular width for non-containers
+    
+  const nodeHeight = isContainer 
+    ? (data.calculatedHeight || 250) // Use calculated height for containers
+    : 'auto'; // Auto height for regular nodes
+
+  // Add logging for container width calculations
+  if (isContainer) {
+    console.log(`[STEP-NODE-WIDTH] ${id} (${data.label}):`);
+    console.log(`  - Is container: ${isContainer}`);
+    console.log(`  - Child count: ${childCount}`);
+    console.log(`  - data.calculatedWidth: ${data.calculatedWidth}`);
+    console.log(`  - Final nodeWidth: ${nodeWidth}`);
+    console.log(`  - data.calculatedHeight: ${data.calculatedHeight}`);
+    console.log(`  - Final nodeHeight: ${nodeHeight}`);
+    console.log(`  - Has parent: ${hasParent}`);
+  }
 
   // Use intent or description for primary content display
   const intentText = data.intent || data.description || '';
@@ -55,8 +85,11 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
       width: size,
       height: size,
       border: '2px solid white',
-      zIndex: 3, // Increased z-index for better stacking
-      borderRadius: '50%'
+      zIndex: 10, // CRITICAL FIX: Much higher z-index to be above child containers (was 3)
+      borderRadius: '50%',
+      pointerEvents: 'all' as const, // CRITICAL FIX: Ensure handles are interactive
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)', // Add shadow for better visibility
+      position: 'absolute' as const // Ensure absolute positioning
     };
     
     // Position-specific styling
@@ -130,25 +163,34 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
   return (
     <div 
       style={{
-        background: hasParent ? 'rgba(255, 248, 248, 0.97)' : '#ffffff',
-        border: hasParent ? '1px solid #ef4444' : '1px solid #e2e8f0',
+        // CRITICAL FIX: Make container backgrounds transparent to show edges
+        background: isContainer 
+          ? 'transparent' // Was: rgba(139, 92, 246, 0.05-0.08) - now transparent for containers
+          : (hasParent ? 'rgba(255, 248, 248, 0.97)' : '#ffffff'), // Keep original colors for non-containers
+        border: isContainer 
+          ? (hasParent ? '2px dashed rgba(139, 92, 246, 0.4)' : '2px dashed rgba(139, 92, 246, 0.5)') // Changed to dashed for visual grouping
+          : (hasParent ? '1px solid #ef4444' : '1px solid #e2e8f0'), // Original borders for non-containers
         borderRadius: hasParent ? '8px' : '6px',
-        padding: hasParent ? '12px' : '14px',
+        padding: isContainer ? '16px' : (hasParent ? '12px' : '14px'), // More padding for containers
         width: nodeWidth,
+        height: nodeHeight,
         boxSizing: 'border-box',
         fontSize: '12px',
-        boxShadow: hasParent 
-          ? '0 2px 6px rgba(239, 68, 68, 0.15)' 
-          : '0 2px 5px rgba(0, 0, 0, 0.08)',
+        boxShadow: isContainer
+          ? 'none' // Remove shadow for containers to reduce visual clutter 
+          : (hasParent 
+            ? '0 2px 6px rgba(239, 68, 68, 0.15)' 
+            : '0 2px 5px rgba(0, 0, 0, 0.08)'), // Original shadows for non-containers
         transition: 'all 0.2s ease',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'hidden', // Was: isContainer ? 'visible' : 'hidden' - now always hidden like LoopNode
         cursor: 'pointer', // Indicate it's clickable
-        transform: isExpanded ? 'scale(1.02)' : 'scale(1)', // Subtle scaling when expanded
       }}
-      className={`${hasParent ? 'child-node' : 'regular-node'} ${isExpanded ? 'expanded' : ''}`}
+      className={`${hasParent ? 'child-node' : 'regular-node'} ${isContainer ? 'container-node' : ''} ${isExpanded ? 'expanded' : ''}`}
       data-node-type="step" 
       data-is-child={hasParent ? 'true' : 'false'}
+      data-is-container={isContainer ? 'true' : 'false'}
+      data-child-count={isContainer ? childCount.toString() : '0'}
       data-is-expanded={isExpanded ? 'true' : 'false'}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -171,7 +213,9 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
         }}>
           <strong style={{ 
             fontSize: hasParent ? '12px' : '13px', 
-            color: hasParent ? '#991b1b' : '#333',
+            color: isContainer 
+              ? (hasParent ? '#7c3aed' : '#6d28d9') // Purple for containers
+              : (hasParent ? '#991b1b' : '#333'), // Original colors for non-containers
             fontWeight: 600,
             lineHeight: 1.2,
             marginRight: '4px',
@@ -179,6 +223,21 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
             transition: 'color 0.2s',
           }}>
             {formattedLabel}
+            {/* Container indicator */}
+            {isContainer && (
+              <span style={{
+                display: 'inline-block',
+                marginLeft: '6px',
+                fontSize: '10px',
+                color: hasParent ? 'rgba(124, 58, 237, 0.7)' : 'rgba(109, 40, 217, 0.7)',
+                backgroundColor: hasParent ? 'rgba(124, 58, 237, 0.1)' : 'rgba(109, 40, 217, 0.1)',
+                padding: '1px 4px',
+                borderRadius: '3px',
+                fontWeight: 500,
+              }}>
+                📦 {childCount}
+              </span>
+            )}
           </strong>
           
           {/* Edit button - only shows when expanded */}
@@ -330,6 +389,49 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
         style={getHandleStyle(Position.Left)}
         isConnectable={isConnectable} 
       />
+      
+      {/* Container area for child nodes - only rendered when this is a container */}
+      {isContainer && (
+        <div 
+          className="relative w-full"
+          style={{
+            width: '100%',
+            minWidth: '100%', // Ensure it takes full width
+            minHeight: '120px', // Minimum height for container area
+            // CRITICAL FIX: Make background transparent to show edges
+            backgroundColor: 'transparent', // Was: rgba(139, 92, 246, 0.01-0.02)
+            border: hasParent 
+              ? '1px dashed rgba(139, 92, 246, 0.3)' // Changed to dashed for visual grouping
+              : '1px dashed rgba(139, 92, 246, 0.4)', // Changed to dashed for visual grouping
+            padding: '20px',
+            marginTop: '8px',
+            marginLeft: '0', // Ensure no margin offset
+            marginRight: '0', // Ensure no margin offset
+            position: 'relative',
+            zIndex: 1, // CRITICAL FIX: Low z-index to be below handles and edges
+            // CRITICAL FIX: Add explicit opacity like LoopNode
+            opacity: 1, // ADDED: Explicit opacity like LoopNode has
+            // Ensure container area spans full width
+            boxSizing: 'border-box',
+            // Override any inherited width constraints
+            maxWidth: 'none',
+          }}
+          data-child-container="true"
+        >
+          {/* Container metadata footer */}
+          <div style={{
+            position: 'absolute',
+            bottom: '4px',
+            left: '8px',
+            fontSize: '9px',
+            color: hasParent ? 'rgba(124, 58, 237, 0.6)' : 'rgba(109, 40, 217, 0.6)',
+            opacity: 0.7,
+          }}>
+            {childCount} items • {data.containerWidth || 3}-wide
+            {data.currentDepth && ` • Level ${data.currentDepth}`}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

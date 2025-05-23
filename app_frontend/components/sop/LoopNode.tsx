@@ -108,24 +108,63 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
   useEffect(() => {
     const updateContentHeight = () => {
       if (contentRef.current) {
-        setContentHeight(contentRef.current.offsetHeight);
+        const measuredHeight = contentRef.current.offsetHeight;
+        setContentHeight(measuredHeight);
+        
+        // Log detailed measurement info
+        console.log(`[LOOP-MEASUREMENT] ${id}:`);
+        console.log(`  - Measured content height: ${measuredHeight}px`);
+        console.log(`  - Display state: ${displayState}`);
+        console.log(`  - Child count: ${data.childSopNodeIds?.length || 0}`);
+        console.log(`  - Has intent: ${!!data.intent}`);
+        console.log(`  - Has context: ${!!data.context}`);
+        
+        // CRITICAL: Expose measured content height to layout algorithm
+        // Update the node data so the layout algorithm can access the real header height
+        const nodeElement = document.querySelector(`[data-id="${id}"]`);
+        if (nodeElement) {
+          // Store the measured content height in a data attribute for layout algorithm access
+          nodeElement.setAttribute('data-measured-content-height', measuredHeight.toString());
+          console.log(`  - Set DOM attribute data-measured-content-height: ${measuredHeight}px`);
+          
+          // Also log what's actually in the content area for debugging
+          const headerEl = contentRef.current?.querySelector('[data-node-content="true"]') || contentRef.current;
+          if (headerEl) {
+            console.log(`  - Content breakdown:`);
+            console.log(`    * Header height: ${headerEl.children[0]?.getBoundingClientRect().height || 'unknown'}`);
+            console.log(`    * Intent/context height: ${headerEl.children[1]?.getBoundingClientRect().height || 'unknown'}`);
+            console.log(`    * Metrics height: ${headerEl.children[2]?.getBoundingClientRect().height || 'unknown'}`);
+          }
+        } else {
+          console.log(`  - WARNING: Could not find DOM element for ${id}`);
+        }
+      } else {
+        console.log(`[LOOP-MEASUREMENT] ${id}: contentRef.current is null`);
       }
     };
     
+    // Add a small delay to ensure DOM is ready
+    const timeoutId = setTimeout(updateContentHeight, 10);
+    
+    // Also do immediate measurement
     updateContentHeight();
     
     // Use ResizeObserver to detect height changes dynamically
-    const resizeObserver = new ResizeObserver(updateContentHeight);
+    const resizeObserver = new ResizeObserver(() => {
+      console.log(`[LOOP-RESIZE] ${id}: ResizeObserver triggered`);
+      updateContentHeight();
+    });
     if (contentRef.current) {
       resizeObserver.observe(contentRef.current);
     }
     
     return () => {
+      clearTimeout(timeoutId);
       if (contentRef.current) {
         resizeObserver.disconnect();
       }
     };
-  }, [displayState, data.intent, data.context]);
+  }, [displayState, data.intent, data.context, data.childSopNodeIds, id]); // Add data.childSopNodeIds as dependency
   
   // Effect to keep display state in sync with ReactFlow's expansion state
   useEffect(() => {
@@ -226,16 +265,19 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
   // Standardized handle styling that matches other nodes
   const getHandleStyle = (position: Position) => {
     // Base handle size and color for loop nodes
-    const size = 12;
-    const color = '#6366f1'; // Indigo color for loop handles
+    const size = 12; // Back to normal size 
+    const color = '#6366f1'; // Back to normal indigo color
     
     const baseStyle = {
       background: color,
       width: size,
       height: size,
       border: '2px solid white',
-      zIndex: 2, // Just below child node handles
-      borderRadius: '50%'
+      zIndex: 10, // CRITICAL FIX: Much higher z-index to be above child containers (was 2)
+      borderRadius: '50%',
+      pointerEvents: 'all' as const, // CRITICAL FIX: Ensure handles are interactive
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)', // Add shadow for better visibility
+      position: 'absolute' as const // Ensure absolute positioning
     };
     
     // Position-specific styling
@@ -475,7 +517,7 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
           {/* Container for child nodes - Only visible when fully expanded */}
           {displayState === DisplayState.FullyExpanded && (
             <div 
-              className="relative w-full bg-purple-50/30" 
+              className="relative w-full" 
               style={{ 
                 minHeight: Math.max(useHeight - contentHeight, 200),
                 paddingTop: '20px',
@@ -483,10 +525,10 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 paddingLeft: '20px',
                 paddingRight: '20px',
                 position: 'relative',
-                zIndex: 2,
-                opacity: 0,
-                animation: 'fadeIn 0.3s ease-in-out forwards',
-                animationDelay: '0.1s'
+                zIndex: 1,
+                backgroundColor: 'transparent',
+                border: '1px dashed rgba(139, 92, 246, 0.3)',
+                opacity: 1,
               }}
               data-child-container="true"
             >
@@ -503,8 +545,8 @@ const LoopNode: React.FC<LoopNodeProps> = ({ id, data, selected }) => {
                 pb-1 pt-1
                 border-t border-purple-100
                 bg-white/80 backdrop-blur-sm
-                z-10
               "
+              style={{ zIndex: 5 }}
             >
               <span className="px-2 rounded-full">
                 {childCount} {childCount === 1 ? 'item' : 'items'} shown

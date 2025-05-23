@@ -215,6 +215,11 @@ export const getOptimalHandles = (
                      edge.data?.label?.toLowerCase() === 'no' || 
                      edge.data?.label?.toLowerCase() === 'false');
     
+    // CRITICAL FIX: Force vertical connections for container nodes
+    const isSourceContainer = sourceNode.type === 'loop' || (sourceNode.data as any)?.childSopNodeIds?.length > 0;
+    const isTargetContainer = targetNode.type === 'loop' || (targetNode.data as any)?.childSopNodeIds?.length > 0;
+    const involvesContainer = isSourceContainer || isTargetContainer;
+    
     let sourceHandle, targetHandle, sourcePosition, targetPosition;
     
     switch (connectionType) {
@@ -274,22 +279,9 @@ export const getOptimalHandles = (
         break;
         
       default:
-        // Standard connection logic for most cases
-        if (isHorizontal) {
-          // For horizontal arrangements, use left/right handles
-          if (dx > 0) {
-            sourceHandle = 'right';
-            targetHandle = 'left';
-            sourcePosition = Position.Right;
-            targetPosition = Position.Left;
-          } else {
-            sourceHandle = 'left';
-            targetHandle = 'right';
-            sourcePosition = Position.Left;
-            targetPosition = Position.Right;
-          }
-        } else {
-          // For vertical arrangements, use top/bottom handles
+        // CRITICAL FIX: Container edges always use vertical connections
+        if (involvesContainer) {
+          // Force vertical connection for any edge involving a container
           if (dy > 0) {
             sourceHandle = 'bottom';
             targetHandle = 'top';
@@ -300,6 +292,35 @@ export const getOptimalHandles = (
             targetHandle = 'bottom';
             sourcePosition = Position.Top;
             targetPosition = Position.Bottom;
+          }
+        } else {
+          // Standard connection logic for most cases
+          if (isHorizontal) {
+            // For horizontal arrangements, use left/right handles
+            if (dx > 0) {
+              sourceHandle = 'right';
+              targetHandle = 'left';
+              sourcePosition = Position.Right;
+              targetPosition = Position.Left;
+            } else {
+              sourceHandle = 'left';
+              targetHandle = 'right';
+              sourcePosition = Position.Left;
+              targetPosition = Position.Right;
+            }
+          } else {
+            // For vertical arrangements, use top/bottom handles
+            if (dy > 0) {
+              sourceHandle = 'bottom';
+              targetHandle = 'top';
+              sourcePosition = Position.Bottom;
+              targetPosition = Position.Top;
+            } else {
+              sourceHandle = 'top';
+              targetHandle = 'bottom';
+              sourcePosition = Position.Top;
+              targetPosition = Position.Bottom;
+            }
           }
         }
     }

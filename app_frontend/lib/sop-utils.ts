@@ -17,6 +17,75 @@ const MIN_COMPOUND_WIDTH = 450;
 const MIN_COMPOUND_HEIGHT = 250;
 
 /**
+ * Calculate the maximum nesting depth in the SOP data
+ */
+function calculateMaxNestingDepth(sopData: SOPDocument): number {
+  if (!sopData?.public?.nodes) return 0;
+  
+  let maxDepth = 0;
+  
+  function traverse(nodeId: string, currentDepth: number, visited: Set<string> = new Set()) {
+    // Prevent infinite loops with circular references
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    
+    maxDepth = Math.max(maxDepth, currentDepth);
+    const node = sopData.public.nodes.find(n => n.id === nodeId);
+    if (node?.children && node.children.length > 0) {
+      node.children.forEach(childId => traverse(childId, currentDepth + 1, new Set(visited)));
+    }
+  }
+  
+  // Start from root nodes (nodes without parentId)
+  sopData.public.nodes
+    .filter(n => !n.parentId)
+    .forEach(root => traverse(root.id, 1));
+    
+  return maxDepth;
+}
+
+/**
+ * Calculate minimum container width based on maximum depth
+ */
+function calculateMinimumContainerWidth(maxDepth: number): number {
+  // Allow for more columns to accommodate larger numbers of children
+  // For level 1 containers, allow up to 4-5 columns for better compactness
+  return Math.max(4, Math.min(5, maxDepth + 2)); // Allow 4-5 columns for better layout
+}
+
+/**
+ * Calculate child container width based on parent width and depth
+ */
+function calculateChildContainerWidth(
+  parentWidth: number, 
+  currentDepth: number, 
+  maxDepth: number
+): number {
+  const calculatedWidth = Math.floor(parentWidth * 0.8);
+  return Math.max(1, calculatedWidth);
+}
+
+/**
+ * Calculate the depth of a specific node in the hierarchy
+ */
+function calculateNodeDepth(nodeId: string, nodes: AppSOPNode[]): number {
+  const nodeMap = new Map<string, AppSOPNode>();
+  nodes.forEach(node => nodeMap.set(node.id, node));
+  
+  function getDepth(id: string, visited: Set<string> = new Set()): number {
+    if (visited.has(id)) return 0; // Prevent cycles
+    visited.add(id);
+    
+    const node = nodeMap.get(id);
+    if (!node || !node.parentId) return 1; // Root level
+    
+    return 1 + getDepth(node.parentId, new Set(visited));
+  }
+  
+  return getDepth(nodeId);
+}
+
+/**
  * Processes the raw SOP data to resolve child node references and ensure parentIds are set.
  * It iterates through each node and if a node has a 'children' array (of IDs),
  * it finds the actual child node objects and populates the 'childNodes' property.
@@ -154,6 +223,11 @@ export const transformSopToFlowData = (
   // Check if this is a known problematic SOP (like mocksop.json)
   const hasComplexStructure = hasProblematicCrossEdge(sopEdgesFromDoc);
   
+  // TEMPORARILY DISABLE FLATTENING FOR TICKET 1 TESTING
+  console.log(`[SOP-UTILS] Complex structure detected: ${hasComplexStructure}`);
+  console.log(`[SOP-UTILS] Original nodes with children:`, sopNodesFromDoc.filter(n => n.children && n.children.length > 0).map(n => ({id: n.id, children: n.children})));
+  
+  /*
   // For mocksop.json and similar complex SOPs, apply a more aggressive flattening
   if (hasComplexStructure) {
     console.log("[SOP-UTILS] Detected complex SOP with cross-boundary edges. Using flattened layout.");
@@ -190,6 +264,7 @@ export const transformSopToFlowData = (
         }
     }
   }
+  */
 
   let flowNodes: FlowNode[] = [];
   let reactFlowEdges: FlowEdge[] = [];
@@ -284,6 +359,11 @@ export const transformSopToFlowData = (
     });
   });
 
+  // Calculate max depth for depth-aware container sizing
+  const maxDepth = calculateMaxNestingDepth(sopDocument);
+  const rootContainerWidth = calculateMinimumContainerWidth(maxDepth);
+  console.log(`[SOP-UTILS] Max nesting depth: ${maxDepth}, Root container width: ${rootContainerWidth}`);
+
   // 2. Create ReactFlow nodes from sopDocument.public.nodes (SOPNode[])
   sopNodesFromDoc.forEach(appNode => {
     let nodeType = 'step'; 
@@ -295,50 +375,58 @@ export const transformSopToFlowData = (
       nodeType = 'loop'; 
     }
 
-    // Create a formatted label with ID path if available - REMOVE THIS
-    // Let the node components handle the formatting instead
+    // Create flow node data
     const flowNodeData: any = { 
       ...appNode, 
       title: appNode.label, 
       description: appNode.intent || appNode.context,
-      // parentNodeId: undefined, // Initialize, will be set if it's a child of a safe compound parent
     };
 
-    const parentInfo = compoundParentData.get(appNode.id);
-    // Re-enable compound parent detection with proper safety check
-    const isActualCompoundParent = parentInfo?.isSafeToRenderAsCompound || false;
-    
-    // For debugging test-compound.json
-    if (appNode.id === 'L1_loop' || appNode.id.startsWith('C') || appNode.parentId === 'L1_loop') {
-      console.log(`[TRANSFORM] Node ID: ${appNode.id}, ParentId: ${appNode.parentId}, isActualCompoundParent: ${isActualCompoundParent}`);
-    }
-    
-    if (isActualCompoundParent) {
-      // This block will effectively not run due to isActualCompoundParent = false
+    // Universal container support - ANY node type with children can be a container
+    if (appNode.childNodes && appNode.childNodes.length > 0) {
+      const childCount = appNode.childNodes.length;
+      
+      // Mark as collapsible container
       flowNodeData.isCollapsible = true;
-      flowNodeData.childSopNodeIds = appNode.childNodes ? appNode.childNodes.map(cn => cn.id) : []; 
-      if (parentInfo) { 
-          flowNodeData.calculatedWidth = parentInfo.width;
-          flowNodeData.calculatedHeight = parentInfo.height;
+      flowNodeData.childSopNodeIds = appNode.childNodes.map(cn => cn.id);
+      
+      // Calculate depth-aware container dimensions
+      const currentDepth = calculateNodeDepth(appNode.id, sopNodesFromDoc);
+      
+      // Dynamic container width based on children count for better layouts
+      let containerWidth = currentDepth === 1 ? rootContainerWidth : 
+        calculateChildContainerWidth(rootContainerWidth, currentDepth, maxDepth);
+      
+      // Override with children-count-based width for better packing
+      if (childCount <= 3) {
+        containerWidth = Math.min(3, childCount); // Small containers stay compact
+      } else if (childCount <= 8) {
+        containerWidth = 4; // Medium containers get 4 columns
+      } else if (childCount <= 15) {
+        containerWidth = 5; // Large containers get 5 columns
+      } else {
+        containerWidth = 6; // Very large containers get 6 columns
       }
-    } else if (appNode.childNodes && appNode.childNodes.length > 0) {
-      // Node has children, but will not be a Dagre compound parent.
-      // However, if it's a 'loop' type, we might still want it to be visually larger.
-      if (nodeType === 'loop') { 
-        if (parentInfo) { 
-            flowNodeData.calculatedWidth = parentInfo.width; 
-            flowNodeData.calculatedHeight = parentInfo.height;
-        } else {
-            flowNodeData.calculatedWidth = MIN_COMPOUND_WIDTH; // Default large size for loop nodes with children
-            flowNodeData.calculatedHeight = MIN_COMPOUND_HEIGHT;
-        }
-        // Populate childSopNodeIds for the LoopNode component to display the count,
-        // even if not a Dagre compound parent.
-        flowNodeData.childSopNodeIds = appNode.childNodes.map(cn => cn.id);
+      
+      // Calculate container height based on children count and type
+      let estimatedHeight = COMPOUND_NODE_PADDING_Y * 2;
+      if (childCount > 0) {
+        const rows = Math.ceil(childCount / containerWidth);
+        estimatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
       }
-      // For other types with children that are not compound (e.g. a 'step' with sub-steps not rendered as compound)
-      // we can assign a default calculated size if needed, or let them take standard node sizes.
-      // For now, only 'loop' type gets special non-compound sizing if it has children.
+      estimatedHeight = Math.max(estimatedHeight, MIN_COMPOUND_HEIGHT);
+      
+      // Set calculated dimensions
+      let estimatedWidth = containerWidth * AVG_CHILD_NODE_WIDTH + ((containerWidth - 1) * AVG_NODESEP) + (COMPOUND_NODE_PADDING_X * 2);
+      estimatedWidth = Math.max(estimatedWidth, MIN_COMPOUND_WIDTH);
+      
+      flowNodeData.calculatedWidth = estimatedWidth;
+      flowNodeData.calculatedHeight = estimatedHeight;
+      flowNodeData.containerWidth = containerWidth; // Store for layout algorithm
+      flowNodeData.maxDepth = maxDepth; // Store for layout algorithm
+      flowNodeData.currentDepth = currentDepth; // Store for layout algorithm
+      
+      console.log(`[SOP-UTILS] Container node ${appNode.id} (${nodeType}): ${childCount} children, width=${containerWidth}, depth=${currentDepth}/${maxDepth}, estimated size: ${estimatedWidth}x${estimatedHeight}`);
     }
     
     const flowNode: FlowNode = {
@@ -348,30 +436,26 @@ export const transformSopToFlowData = (
       position: { x: 0, y: 0 }, 
     };
 
-    // Set parentNode for Dagre compound layout
+    // Set parentNode for ReactFlow layout relationships
     if (appNode.parentId) {
         const parentAppNode = sopNodeMap.get(appNode.parentId);
-        const parentSafetyInfo = compoundParentData.get(appNode.parentId);
-        let isParentSafeForDagre = parentSafetyInfo?.isSafeToRenderAsCompound || false;
-
-        if (parentAppNode && isParentSafeForDagre) {
+        
+        if (parentAppNode) {
             flowNode.parentNode = appNode.parentId;
-            console.log(`[SOP-UTILS] Setting parentNode: ${appNode.id} with parent ${appNode.parentId}`);
+            console.log(`[SOP-UTILS] Setting parentNode: ${appNode.id} -> ${appNode.parentId}`);
         }
         
-        // For test-compound.json, force the parent-child relationships
+        // Special handling for known test SOPs
         if (parentAppNode && (appNode.parentId === 'L1_loop' || appNode.id.startsWith('C'))) {
             flowNode.parentNode = appNode.parentId;
             console.log(`[TEST-COMPOUND] Forcing parent for test: ${appNode.id} -> ${appNode.parentId}`);
         }
         
-        // For our new compound-fixed SOP, force the parent-child relationships
         if (parentAppNode && sopDocument.meta.id === 'mocksop-compound-fixed') {
             flowNode.parentNode = appNode.parentId;
             console.log(`[COMPOUND-FIXED] Forcing parent for fixed SOP: ${appNode.id} -> ${appNode.parentId}`);
         }
         
-        // For our original structure SOP, force the parent-child relationships
         if (parentAppNode && sopDocument.meta.id === 'mocksop-original-structure') {
             flowNode.parentNode = appNode.parentId;
             console.log(`[ORIGINAL-STRUCTURE] Forcing parent for original structure SOP: ${appNode.id} -> ${appNode.parentId}`);
