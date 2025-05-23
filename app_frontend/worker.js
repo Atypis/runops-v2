@@ -21,11 +21,11 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const GOOGLE_API_KEY = process.env.GOOGLE_GEMINI_API_KEY || '';
 
 // Load the SOP parser prompt from file
-const PROMPT_PATH = path.join(__dirname, 'prompts', 'sop_parser_v0.8.md');
+const PROMPT_PATH = path.join(__dirname, 'prompts', 'flat_sop_parser_v0.9 copy.md');
 let SOP_PARSING_PROMPT;
 try {
   SOP_PARSING_PROMPT = fs.readFileSync(PROMPT_PATH, 'utf8');
-  console.log(`Loaded SOP parsing prompt (${SOP_PARSING_PROMPT.length} chars)`);
+  console.log(`Loaded SOP parsing prompt (${SOP_PARSING_PROMPT.length} chars) - SIMPLIFIED VERSION v0.9.0`);
 } catch (error) {
   console.error(`ERROR: Could not load SOP parsing prompt from ${PROMPT_PATH}:`, error);
   process.exit(1);
