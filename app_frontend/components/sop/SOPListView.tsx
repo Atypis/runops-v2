@@ -1,12 +1,17 @@
 'use client'; // This component will fetch data and manage state
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { SOPDocument, SOPNode, SOPTrigger, SOPPublicData } from '@/lib/types/sop';
 import { processSopData, getRootNodes } from '@/lib/sop-utils';
 import HeaderCard from './HeaderCard';
 import AccessCard, { mockAccessItems } from './AccessCard'; // Using mockAccessItems for now
 import TriggerBlockDisplay from './TriggerBlockDisplay';
 import StepCardDisplay from './StepCardDisplay';
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { ChevronDown, ChevronRight, Play, CheckCircle, Settings, Eye, EyeOff } from 'lucide-react'
 
 import {
   DndContext,

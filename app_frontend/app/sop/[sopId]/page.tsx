@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'; // Add useRef for polling interval
 import SOPListView from '@/components/sop/SOPListView';
 import SOPFlowView from '@/components/sop/SOPFlowView'; // Uncomment and import
+import ElegantSOPView from '@/components/sop/ElegantSOPView';
 import { Button } from "@/components/ui/button";
 import { SOPDocument, SOPNode } from '@/lib/types/sop'; // Import types
 import { processSopData, getRootNodes } from '@/lib/sop-utils'; // Import utils
@@ -26,7 +27,7 @@ interface SopPageProps {
 type JobStatus = 'queued' | 'processing' | 'completed' | 'error' | 'unknown';
 
 export default function SopPage({ params }: SopPageProps) {
-  const [currentView, setCurrentView] = useState<'list' | 'flow'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'flow'>('list');
   const [sopData, setSopData] = useState<SOPDocument | null>(null);
   const [processedSopData, setProcessedSopData] = useState<SOPDocument | null>(null);
   const [rootNodes, setRootNodes] = useState<SOPNode[]>([]);
@@ -368,16 +369,16 @@ export default function SopPage({ params }: SopPageProps) {
           <div className="ml-auto px-4">
             <div className="flex gap-1">
               <Button 
-                variant={currentView === 'list' ? 'default' : 'ghost'} 
-                onClick={() => setCurrentView('list')} 
+                variant={viewMode === 'list' ? 'default' : 'ghost'} 
+                onClick={() => setViewMode('list')} 
                 size="sm"
                 className="text-xs"
               >
                 List
               </Button>
               <Button 
-                variant={currentView === 'flow' ? 'default' : 'ghost'} 
-                onClick={() => setCurrentView('flow')} 
+                variant={viewMode === 'flow' ? 'default' : 'ghost'} 
+                onClick={() => setViewMode('flow')} 
                 size="sm"
                 className="text-xs"
               >
@@ -388,15 +389,16 @@ export default function SopPage({ params }: SopPageProps) {
         </header>
         
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-          <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min overflow-hidden">
-            {currentView === 'list' ? (
-              <SOPListView
-                initialProcessedSopData={listProcessedSopData}
-                initialRootNodes={listRootNodes}
-                onUpdate={handleListUpdate} 
+          <div className="min-h-[100vh] flex-1 rounded-xl md:min-h-min overflow-hidden">
+            {viewMode === 'list' ? (
+              <ElegantSOPView 
+                sopData={processedSopData} 
+                rootNodes={listRootNodes}
               />
             ) : (
-              <SOPFlowView sopData={processedSopData} />
+              <div className="bg-muted/50 h-full rounded-xl">
+                <SOPFlowView sopData={processedSopData} />
+              </div>
             )}
           </div>
         </div>
