@@ -208,6 +208,83 @@ const hasProblematicCrossEdge = (sopEdgesFromDoc: AppSOPEdge[]): boolean => {
   );
 };
 
+/**
+ * Flattens nested container hierarchies to only keep tier 1 containers.
+ * All nested containers become regular nodes, and their children are moved 
+ * up to the tier 1 parent.
+ */
+function flattenNestedContainers(sopNodesFromDoc: AppSOPNode[]): AppSOPNode[] {
+  console.log(`[FLATTEN] Starting container flattening for ${sopNodesFromDoc.length} nodes`);
+  
+  // Create a deep copy to avoid mutating original data
+  const result = sopNodesFromDoc.map(node => JSON.parse(JSON.stringify(node)));
+  
+  // Create a map for quick lookup
+  const nodeMap = new Map<string, AppSOPNode>();
+  result.forEach(node => nodeMap.set(node.id, node));
+  
+  // Helper function to collect all descendants recursively
+  const collectAllDescendants = (parent: AppSOPNode): AppSOPNode[] => {
+    const descendants: AppSOPNode[] = [];
+    
+    if (!parent.childNodes || parent.childNodes.length === 0) {
+      return descendants;
+    }
+    
+    parent.childNodes.forEach(child => {
+      descendants.push(child);
+      
+      // If this child also has children, flatten them too
+      if (child.childNodes && child.childNodes.length > 0) {
+        descendants.push(...collectAllDescendants(child));
+        
+        // Remove container properties from this nested container
+        child.childNodes = [];
+        delete child.children;
+        console.log(`[FLATTEN] Removed container properties from nested container: ${child.id}`);
+      }
+    });
+    
+    return descendants;
+  };
+  
+  // Process each node
+  result.forEach(node => {
+    if (node.childNodes && node.childNodes.length > 0) {
+      // If this is a tier 1 container (no parentId)
+      if (!node.parentId) {
+        console.log(`[FLATTEN] Processing tier 1 container: ${node.id} with ${node.childNodes.length} direct children`);
+        
+        // Collect ALL descendants, not just direct children
+        const allDescendants = collectAllDescendants(node);
+        
+        console.log(`[FLATTEN] Flattened ${node.childNodes.length} direct children into ${allDescendants.length} total descendants for ${node.id}`);
+        
+        // Replace childNodes with flattened list
+        node.childNodes = allDescendants;
+        
+        // Update children array to match (for consistency)
+        node.children = allDescendants.map(d => d.id);
+        
+        // Update parentId for all descendants to point to this tier 1 container
+        allDescendants.forEach(descendant => {
+          const originalParent = descendant.parentId;
+          descendant.parentId = node.id;
+          console.log(`[FLATTEN] Updated parentId for ${descendant.id}: ${originalParent} -> ${node.id}`);
+        });
+      } else {
+        // This is a nested container - remove its container properties
+        console.log(`[FLATTEN] Removing container properties from nested container: ${node.id} (was parent to ${node.childNodes.length} children)`);
+        node.childNodes = [];
+        delete node.children;
+      }
+    }
+  });
+  
+  console.log(`[FLATTEN] Flattening complete. Processed ${result.length} nodes.`);
+  return result;
+}
+
 export const transformSopToFlowData = (
   sopDocument: SOPDocument
 ): { flowNodes: FlowNode[]; flowEdges: FlowEdge[] } => {
@@ -217,137 +294,28 @@ export const transformSopToFlowData = (
 
   const { triggers, nodes: originalSopNodes, edges: sopEdgesFromDoc } = sopDocument.public;
 
-  // Create a deep copy for modification for this test
+  // Create a deep copy for modification
   let sopNodesFromDoc: AppSOPNode[] = JSON.parse(JSON.stringify(originalSopNodes));
 
-  // Check if this is a known problematic SOP (like mocksop.json)
-  const hasComplexStructure = hasProblematicCrossEdge(sopEdgesFromDoc);
+  // RADICAL SIMPLIFICATION: Flatten all nested containers to only keep tier 1 containers
+  console.log(`[SOP-UTILS] RADICAL SIMPLIFICATION: Flattening nested containers`);
+  sopNodesFromDoc = flattenNestedContainers(sopNodesFromDoc);
   
-  // TEMPORARILY DISABLE FLATTENING FOR TICKET 1 TESTING
-  console.log(`[SOP-UTILS] Complex structure detected: ${hasComplexStructure}`);
-  console.log(`[SOP-UTILS] Original nodes with children:`, sopNodesFromDoc.filter(n => n.children && n.children.length > 0).map(n => ({id: n.id, children: n.children})));
+  // Log the flattening results
+  const tier1Containers = sopNodesFromDoc.filter(n => n.childNodes && n.childNodes.length > 0 && !n.parentId);
+  const childNodes = sopNodesFromDoc.filter(n => n.parentId);
+  const rootNodes = sopNodesFromDoc.filter(n => !n.parentId && (!n.childNodes || n.childNodes.length === 0));
   
-  /*
-  // For mocksop.json and similar complex SOPs, apply a more aggressive flattening
-  if (hasComplexStructure) {
-    console.log("[SOP-UTILS] Detected complex SOP with cross-boundary edges. Using flattened layout.");
-    
-    // Find and remove problematic parent-child relationships
-    sopNodesFromDoc.forEach(node => {
-      // For live SOP, temporarily remove all nested children
-      if (node.children && node.children.length > 0) {
-        console.log(`[SOP-UTILS] Temporarily flattening children for node ${node.id} in complex SOP`);
-        node.children = [];
-        node.childNodes = [];
-      }
-    });
-  } else {
-    // For test cases, just handle the known L1_C9_conditional_routing issue
-    const l1c9NodeIndex = sopNodesFromDoc.findIndex(node => node.id === 'L1_C9_conditional_routing');
-    if (l1c9NodeIndex > -1) {
-      console.log("[SOP-UTILS-DEBUG] Temporarily removing children from L1_C9_conditional_routing for Dagre safety test.");
-      sopNodesFromDoc[l1c9NodeIndex].children = []; // Remove references in 'children' array
-      sopNodesFromDoc[l1c9NodeIndex].childNodes = []; // Clear actual childNodes objects
-    }
-    
-    // Also, ensure L1_C9_A1_set_last_interaction_date (if it exists as a top-level node after reparenting) 
-    // doesn't incorrectly get L1_process_emails as a parent if its original parent L1_C9_conditional_routing is altered.
-    const l1ProcessEmailsNodeIndex = sopNodesFromDoc.findIndex(node => node.id === 'L1_process_emails');
-    if (l1ProcessEmailsNodeIndex > -1 && sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes) {
-        sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes = sopNodesFromDoc[l1ProcessEmailsNodeIndex].childNodes?.filter(
-            child => child.id !== 'L1_C9_A1_set_last_interaction_date'
-        );
-        if (sopNodesFromDoc[l1ProcessEmailsNodeIndex].children) {
-          sopNodesFromDoc[l1ProcessEmailsNodeIndex].children = sopNodesFromDoc[l1ProcessEmailsNodeIndex].children?.filter(
-              childId => childId !== 'L1_C9_A1_set_last_interaction_date'
-          );
-        }
-    }
-  }
-  */
+  console.log(`[SOP-UTILS] After flattening:`);
+  console.log(`  - Tier 1 containers: ${tier1Containers.length} (${tier1Containers.map(n => n.id).join(', ')})`);
+  console.log(`  - Child nodes: ${childNodes.length}`);
+  console.log(`  - Root nodes (non-containers): ${rootNodes.length}`);
 
   let flowNodes: FlowNode[] = [];
   let reactFlowEdges: FlowEdge[] = [];
 
   const sopNodeMap = new Map<string, AppSOPNode>();
   sopNodesFromDoc.forEach(node => sopNodeMap.set(node.id, node));
-
-  // Build an index of edges for quick lookup: "sourceId|targetId"
-  const edgeIndex = new Set<string>();
-  sopEdgesFromDoc.forEach(edge => {
-    edgeIndex.add(`${edge.source}|${edge.target}`);
-    edgeIndex.add(`${edge.target}|${edge.source}`); // For checking both directions
-  });
-
-  const compoundParentData = new Map<string, { width: number; height: number; isSafeToRenderAsCompound: boolean }>();
-
-  // First pass: Identify potential compound parents, calculate their dimensions,
-  // and determine if it's safe to render them as compound.
-  sopNodesFromDoc.forEach(appNode => {
-    if (appNode.childNodes && appNode.childNodes.length > 0) {
-      const childCount = appNode.childNodes.length;
-      let estimatedWidth = COMPOUND_NODE_PADDING_X * 2; // Start with padding
-      let estimatedHeight = COMPOUND_NODE_PADDING_Y * 2;
-
-      if (childCount > 0) {
-        const rows = Math.ceil(childCount / MAX_CHILDREN_PER_ROW_ESTIMATE);
-        const cols = Math.min(childCount, MAX_CHILDREN_PER_ROW_ESTIMATE);
-        
-        estimatedWidth += cols * AVG_CHILD_NODE_WIDTH + (cols > 1 ? (cols - 1) * AVG_NODESEP : 0);
-        estimatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
-      }
-      // Ensure minimum dimensions
-      estimatedWidth = Math.max(estimatedWidth, MIN_COMPOUND_WIDTH);
-      estimatedHeight = Math.max(estimatedHeight, MIN_COMPOUND_HEIGHT);
-
-      // Enhanced safety check: 
-      // 1. Check for direct edges between parent and direct children
-      // 2. Check for edges from any descendant back to this ancestor
-      let isSafe = true;
-
-      // Create an array of all descendant node IDs recursively
-      const getAllDescendantIds = (node: AppSOPNode): string[] => {
-        if (!node.childNodes || node.childNodes.length === 0) return [];
-        
-        return node.childNodes.reduce((ids: string[], childNode) => {
-          return [...ids, childNode.id, ...getAllDescendantIds(childNode)];
-        }, []);
-      };
-
-      const allDescendantIds = getAllDescendantIds(appNode);
-      
-      // First check: Direct edges between parent and immediate children
-      for (const childSopNode of appNode.childNodes) {
-        if (edgeIndex.has(`${appNode.id}|${childSopNode.id}`) || edgeIndex.has(`${childSopNode.id}|${appNode.id}`)) {
-          isSafe = false;
-          console.warn(`[SOP-UTILS] Unsafe compound parent: ${appNode.id} has direct edge to/from child ${childSopNode.id}. Will not render as compound.`);
-          break;
-        }
-      }
-
-      // Second check: Check if any descendant has an edge to this parent
-      if (isSafe) {
-        for (const descendantId of allDescendantIds) {
-          if (edgeIndex.has(`${descendantId}|${appNode.id}`)) {
-            isSafe = false;
-            console.warn(`[SOP-UTILS] Unsafe compound parent: ${appNode.id} has edge from descendant ${descendantId}. Will not render as compound.`);
-            break;
-          }
-        }
-      }
-
-      // Special case known problematic node
-      if (appNode.id === 'L1_process_emails') {
-        if (!isSafe) {
-          console.warn(`[SOP-UTILS] L1_process_emails detected as unsafe for compound rendering. Using regular layout.`);
-        } else {
-          console.log(`[SOP-UTILS] L1_process_emails is safe for compound rendering.`);
-        }
-      }
-
-      compoundParentData.set(appNode.id, { width: estimatedWidth, height: estimatedHeight, isSafeToRenderAsCompound: isSafe });
-    }
-  });
 
   // 1. Create ReactFlow nodes from sopDocument.public.triggers
   triggers.forEach((trigger, index) => {
@@ -358,11 +326,6 @@ export const transformSopToFlowData = (
       position: { x: 0, y: 0 },
     });
   });
-
-  // Calculate max depth for depth-aware container sizing
-  const maxDepth = calculateMaxNestingDepth(sopDocument);
-  const rootContainerWidth = calculateMinimumContainerWidth(maxDepth);
-  console.log(`[SOP-UTILS] Max nesting depth: ${maxDepth}, Root container width: ${rootContainerWidth}`);
 
   // 2. Create ReactFlow nodes from sopDocument.public.nodes (SOPNode[])
   sopNodesFromDoc.forEach(appNode => {
@@ -382,51 +345,51 @@ export const transformSopToFlowData = (
       description: appNode.intent || appNode.context,
     };
 
-    // Universal container support - ANY node type with children can be a container
-    if (appNode.childNodes && appNode.childNodes.length > 0) {
+    // SIMPLIFIED: Only tier 1 containers (no parentId) can be containers
+    if (appNode.childNodes && appNode.childNodes.length > 0 && !appNode.parentId) {
       const childCount = appNode.childNodes.length;
+      
+      console.log(`[SOP-UTILS] Tier 1 container ${appNode.id} (${nodeType}) has ${childCount} flattened children`);
       
       // Mark as collapsible container
       flowNodeData.isCollapsible = true;
       flowNodeData.childSopNodeIds = appNode.childNodes.map(cn => cn.id);
       
-      // Calculate depth-aware container dimensions
-      const currentDepth = calculateNodeDepth(appNode.id, sopNodesFromDoc);
-      
-      // Dynamic container width based on children count for better layouts
-      let containerWidth = currentDepth === 1 ? rootContainerWidth : 
-        calculateChildContainerWidth(rootContainerWidth, currentDepth, maxDepth);
-      
-      // Override with children-count-based width for better packing
-      if (childCount <= 3) {
-        containerWidth = Math.min(3, childCount); // Small containers stay compact
-      } else if (childCount <= 8) {
-        containerWidth = 4; // Medium containers get 4 columns
-      } else if (childCount <= 15) {
-        containerWidth = 5; // Large containers get 5 columns
+      // Simplified container sizing (no depth calculations needed) - REDUCED for better readability
+      let containerWidth;
+      if (childCount <= 2) {
+        containerWidth = Math.max(2, childCount); // Small containers, 2 wide max
+      } else if (childCount <= 6) {
+        containerWidth = 3; // Medium containers get 3 columns (reduced from 4)
+      } else if (childCount <= 12) {
+        containerWidth = 4; // Large containers get 4 columns (reduced from 5)
       } else {
-        containerWidth = 6; // Very large containers get 6 columns
+        containerWidth = 4; // Very large containers get 4 columns (reduced from 6)
       }
       
-      // Calculate container height based on children count and type
-      let estimatedHeight = COMPOUND_NODE_PADDING_Y * 2;
-      if (childCount > 0) {
-        const rows = Math.ceil(childCount / containerWidth);
-        estimatedHeight += rows * AVG_CHILD_NODE_HEIGHT + (rows > 1 ? (rows - 1) * AVG_RANKSEP : 0);
-      }
-      estimatedHeight = Math.max(estimatedHeight, MIN_COMPOUND_HEIGHT);
+      // Calculate container height based on children count - IMPROVED for accuracy
+      const HEADER_HEIGHT = 160; // Realistic header height for Loop nodes with content
+      const CONTAINER_PADDING = 40; // More realistic padding (20px top + 20px bottom)
+      const CHILD_HEIGHT = 100; // Match actual child node height
+      const ROW_SPACING = 15; // Match actual grid spacing
+      const BOTTOM_CLEARANCE = 40; // Extra space to prevent overlap with subsequent nodes
       
-      // Set calculated dimensions
-      let estimatedWidth = containerWidth * AVG_CHILD_NODE_WIDTH + ((containerWidth - 1) * AVG_NODESEP) + (COMPOUND_NODE_PADDING_X * 2);
-      estimatedWidth = Math.max(estimatedWidth, MIN_COMPOUND_WIDTH);
+      const rows = Math.ceil(childCount / containerWidth);
+      const contentHeight = (rows * CHILD_HEIGHT) + ((rows - 1) * ROW_SPACING);
+      const estimatedHeight = HEADER_HEIGHT + CONTAINER_PADDING + contentHeight + BOTTOM_CLEARANCE;
       
-      flowNodeData.calculatedWidth = estimatedWidth;
-      flowNodeData.calculatedHeight = estimatedHeight;
-      flowNodeData.containerWidth = containerWidth; // Store for layout algorithm
-      flowNodeData.maxDepth = maxDepth; // Store for layout algorithm
-      flowNodeData.currentDepth = currentDepth; // Store for layout algorithm
+      // Calculate container width
+      const CHILD_WIDTH = 200;
+      const COL_SPACING = 60;
+      const estimatedWidth = (containerWidth * CHILD_WIDTH) + ((containerWidth - 1) * COL_SPACING) + 100; // 100px total padding
       
-      console.log(`[SOP-UTILS] Container node ${appNode.id} (${nodeType}): ${childCount} children, width=${containerWidth}, depth=${currentDepth}/${maxDepth}, estimated size: ${estimatedWidth}x${estimatedHeight}`);
+      flowNodeData.calculatedWidth = Math.max(estimatedWidth, 450);
+      flowNodeData.calculatedHeight = Math.max(estimatedHeight, 300); // Increased minimum height
+      flowNodeData.containerWidth = containerWidth;
+      flowNodeData.currentDepth = 1; // Always depth 1 now
+      flowNodeData.maxDepth = 1; // Always max depth 1 now
+      
+      console.log(`[SOP-UTILS] Container ${appNode.id}: ${childCount} children, ${containerWidth}-wide (${rows} rows), size: ${flowNodeData.calculatedWidth}x${flowNodeData.calculatedHeight}`);
     }
     
     const flowNode: FlowNode = {
@@ -436,36 +399,20 @@ export const transformSopToFlowData = (
       position: { x: 0, y: 0 }, 
     };
 
-    // Set parentNode for ReactFlow layout relationships
+    // Set parentNode for ReactFlow layout relationships (simplified)
     if (appNode.parentId) {
-        const parentAppNode = sopNodeMap.get(appNode.parentId);
-        
-        if (parentAppNode) {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[SOP-UTILS] Setting parentNode: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        // Special handling for known test SOPs
-        if (parentAppNode && (appNode.parentId === 'L1_loop' || appNode.id.startsWith('C'))) {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[TEST-COMPOUND] Forcing parent for test: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        if (parentAppNode && sopDocument.meta.id === 'mocksop-compound-fixed') {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[COMPOUND-FIXED] Forcing parent for fixed SOP: ${appNode.id} -> ${appNode.parentId}`);
-        }
-        
-        if (parentAppNode && sopDocument.meta.id === 'mocksop-original-structure') {
-            flowNode.parentNode = appNode.parentId;
-            console.log(`[ORIGINAL-STRUCTURE] Forcing parent for original structure SOP: ${appNode.id} -> ${appNode.parentId}`);
-        }
+      const parentAppNode = sopNodeMap.get(appNode.parentId);
+      
+      if (parentAppNode) {
+        flowNode.parentNode = appNode.parentId;
+        console.log(`[SOP-UTILS] Setting parentNode: ${appNode.id} -> ${appNode.parentId}`);
+      }
     }
     
     flowNodes.push(flowNode);
   });
 
-  // 3. Create ReactFlow edges from sopDocument.public.edges (SOPEdge[])
+  // 3. Create ReactFlow edges from sopDocument.public.edges (SOPEdge[]) - no changes needed
   sopEdgesFromDoc.forEach((edge, index) => {
     const sourceNode = sopNodesFromDoc.find(n => n.id === edge.source);
     const targetNode = sopNodesFromDoc.find(n => n.id === edge.target);
@@ -516,7 +463,6 @@ export const transformSopToFlowData = (
   });
 
   // 4. Create edges from Trigger FlowNodes to actual start SOPNodes
-  // Use the new getFlowStartNodeIds function
   const actualStartNodeIds = getFlowStartNodeIds(sopNodesFromDoc, sopEdgesFromDoc);
   
   flowNodes.filter(fn => fn.type === 'trigger').forEach(triggerNode => {
@@ -536,15 +482,11 @@ export const transformSopToFlowData = (
     });
   });
 
-  // 5. Connect SOPNodes that have a parentId but are not yet targeted by an existing edge.
-  // This ensures that explicit parent-child relationships (like atomic actions)
-  // are represented if not already covered by the main `edges` array.
+  // 5. Connect SOPNodes that have a parentId but are not yet targeted by an existing edge
   const currentTargetNodeIds = new Set(reactFlowEdges.map(edge => edge.target));
 
   sopNodesFromDoc.forEach(sopNode => {
     if (sopNode.parentId && !currentTargetNodeIds.has(sopNode.id)) {
-      // Check if an edge from this parentId to this sopNode.id already exists to be super safe,
-      // though !currentTargetNodeIds.has(sopNode.id) should mostly cover it.
       const edgeAlreadyExists = reactFlowEdges.some(
         edge => edge.source === sopNode.parentId && edge.target === sopNode.id
       );
@@ -563,11 +505,10 @@ export const transformSopToFlowData = (
             isParentChild: true
           }
         });
-        // Add to currentTargetNodeIds if we were to loop again, but not strictly necessary here
-        // currentTargetNodeIds.add(sopNode.id);
       }
     }
   });
 
+  console.log(`[SOP-UTILS] Created ${flowNodes.length} flow nodes and ${reactFlowEdges.length} flow edges`);
   return { flowNodes, flowEdges: reactFlowEdges };
 }; 

@@ -451,27 +451,27 @@ const calculateActualContainerHeight = (
     return headerHeight + (containerPadding * 2) + 60; // Minimum height
   }
   
-  // Find the bottom-most child
-  let maxY = 0;
-  let maxChildHeight = 100; // Default child height
+  // Find the bottom-most child (Y position is relative to container top)
+  let maxChildBottom = 0;
   
   positionedChildren.forEach(child => {
     const childY = child.position.y;
-    const childHeight = child.data?.calculatedHeight || 100;
+    const childHeight = child.data?.calculatedHeight || 100; // Default node height
     const childBottom = childY + childHeight;
     
-    if (childBottom > maxY) {
-      maxY = childBottom;
-      maxChildHeight = childHeight;
-    }
+    maxChildBottom = Math.max(maxChildBottom, childBottom);
   });
   
-  // Total height = header + content + bottom padding
-  const totalHeight = maxY + containerPadding + 20; // Add some extra bottom spacing
+  // Total height = bottom-most child position + generous bottom padding
+  // Add extra padding to ensure no overlap with subsequent nodes
+  const extraBottomPadding = 40; // Increased from 20 to 40 for more clearance
+  const totalHeight = maxChildBottom + containerPadding + extraBottomPadding;
   
-  console.log(`[HEIGHT] Container needs ${totalHeight}px (max child bottom: ${maxY}px + ${containerPadding}px padding)`);
+  console.log(`[HEIGHT] Container height: ${totalHeight}px (max child bottom: ${maxChildBottom}px + ${containerPadding + extraBottomPadding}px padding)`);
   
-  return Math.max(totalHeight, headerHeight + 120); // Minimum reasonable height
+  // Ensure minimum reasonable height
+  const minimumHeight = headerHeight + 150; // Increased minimum height
+  return Math.max(totalHeight, minimumHeight);
 };
 
 /**
@@ -484,6 +484,70 @@ const calculateChildContainerWidth = (
 ): number => {
   const calculatedWidth = Math.floor(parentWidth * 0.8);
   return Math.max(1, calculatedWidth);
+};
+
+/**
+ * Simplified layout algorithm for flattened containers (tier 1 only)
+ * No nested container logic needed
+ */
+const layoutChildrenSimple = (
+  children: FlowNode[], 
+  containerWidth: number,
+  parentPosition: {x: number, y: number},
+  actualParentPixelWidth: number,
+  parentNodeId: string
+): FlowNode[] => {
+  console.log(`[LAYOUT-SIMPLE] Starting layout for ${parentNodeId} with ${children.length} children`);
+  
+  if (!children || children.length === 0) {
+    return [];
+  }
+  
+  // Grid layout constants - must match sop-utils.ts calculations
+  const childNodeWidth = 200;
+  const childNodeHeight = 100; // Match actual node height  
+  const gridSpacingX = 60;
+  const gridSpacingY = 15; // Match actual grid spacing
+  const containerPadding = 20; // Inner container padding
+  
+  // Calculate how many columns we can fit
+  const availableWidth = actualParentPixelWidth - (containerPadding * 2);
+  const maxItemsPerRow = Math.max(1, Math.floor((availableWidth + gridSpacingX) / (childNodeWidth + gridSpacingX)));
+  
+  // Calculate header height
+  const headerHeight = calculateDynamicHeaderHeight(children, 1, containerWidth, parentNodeId);
+  
+  // Position children in a simple grid (no container-in-container logic)
+  const positioned: FlowNode[] = [];
+  let currentX = containerPadding;
+  let currentY = headerHeight + containerPadding;
+  let itemsInCurrentRow = 0;
+  
+  children.forEach((child, index) => {
+    // All children are treated as regular nodes now (no special container handling)
+    positioned.push({
+      ...child,
+      position: {
+        x: currentX,
+        y: currentY
+      }
+    });
+    
+    console.log(`[LAYOUT-SIMPLE] Positioned ${child.id} at (${currentX}, ${currentY})`);
+    
+    // Move to next position
+    currentX += childNodeWidth + gridSpacingX;
+    itemsInCurrentRow++;
+    
+    // Check if we need to move to next row
+    if (itemsInCurrentRow >= maxItemsPerRow) {
+      currentX = containerPadding;
+      currentY += childNodeHeight + gridSpacingY;
+      itemsInCurrentRow = 0;
+    }
+  });
+  
+  return positioned;
 };
 
 /**
@@ -513,12 +577,12 @@ const layoutChildrenWithContainers = (
     return [];
   }
   
-  // Grid layout constants - match sop-utils.ts calculations
-  const childNodeWidth = 200; // Match AVG_CHILD_NODE_WIDTH from sop-utils.ts
+  // Grid layout constants
+  const childNodeWidth = 200;
   const childNodeHeight = 100;
-  const gridSpacingX = 60; // Match AVG_NODESEP from sop-utils.ts
-  const gridSpacingY = 15; // Vertical spacing between nodes
-  const containerPadding = 20; // Match LoopNode child container actual padding (not 50px!)
+  const gridSpacingX = 60;
+  const gridSpacingY = 15;
+  const containerPadding = 20;
   
   // Use actual pixel width if provided, otherwise estimate from ratio
   const actualPixelWidth = actualParentPixelWidth || Math.max(450, parentWidthRatio * 250);
@@ -871,14 +935,8 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     return acc;
   }, {});
 
-  // NEW: Track height changes to adjust subsequent node positions
-  const heightAdjustments = new Map<string, number>(); // nodeId -> height difference
-  
-  // NEW: Use recursive layout algorithm for multi-level containers
-  const allLayoutedNodes = [...layoutedNodes];
-  
   // Get depth information from first node with container data, or use default
-  const maxDepth = nodes.find(n => n.data?.maxDepth)?.data?.maxDepth || 3;
+  const maxDepth = nodes.find(n => n.data?.maxDepth)?.data?.maxDepth || 1; // Always 1 now
   const rootContainerWidth = nodes.find(n => n.data?.containerWidth && !n.parentNode)?.data?.containerWidth || 3;
   
   // Build a map that includes all positioned nodes (will be updated as we position children)
@@ -887,45 +945,42 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     if (node.id) allPositionedNodes.set(node.id, node);
   });
   
-  // Process container nodes and their children recursively
-  const processContainerRecursively = (parentNodeId: string, depth: number = 1): void => {
+  // Initialize array to collect all layouted nodes (including children)
+  const allLayoutedNodes = [...layoutedNodes];
+  
+  // SIMPLIFIED: Process only tier 1 containers (no recursion needed)
+  const processSimpleContainer = (parentNodeId: string): void => {
     const children = childNodesByParent[parentNodeId];
     if (!children || children.length === 0) return;
     
     const parentNode = allPositionedNodes.get(parentNodeId);
     if (!parentNode || !parentNode.position) {
-      console.warn(`Parent node ${parentNodeId} not found or has no position at depth ${depth}`);
+      console.warn(`Parent node ${parentNodeId} not found or has no position`);
       return;
     }
     
     const containerWidth = parentNode.data?.containerWidth || rootContainerWidth;
-    const currentDepth = parentNode.data?.currentDepth || depth;
     
-    console.log(`[LAYOUT] Processing container ${parentNodeId} with ${children.length} children, width=${containerWidth}, depth=${currentDepth}`);
+    console.log(`[LAYOUT] Processing simple container ${parentNodeId} with ${children.length} children, width=${containerWidth}`);
     
     // Get the actual pixel width from the parent node's calculated dimensions
     const actualPixelWidth = parentNode.data?.calculatedWidth || 450;
     
-    // Use the recursive layout algorithm to position these children
-    const layoutedChildren = layoutChildrenWithContainers(
+    // Use simplified layout algorithm (no nested container logic)
+    const layoutedChildren = layoutChildrenSimple(
       children,
       containerWidth,
-      {
-        x: parentNode.position.x,
-        y: parentNode.position.y // The function now handles header offset internally
-      },
-      currentDepth + 1,
-      maxDepth,
-      actualPixelWidth, // Pass the actual pixel width
-      parentNodeId // Pass the parent node ID for measuring header height
+      parentNode.position,
+      actualPixelWidth,
+      parentNodeId
     );
     
     // Calculate header height for this container
-    const containerHeaderHeight = calculateDynamicHeaderHeight(children, currentDepth, containerWidth, parentNodeId);
-    const containerPaddingValue = 50; // Match the layout algorithm
+    const containerHeaderHeight = calculateDynamicHeaderHeight(children, 1, containerWidth, parentNodeId); // Always depth 1
+    const containerPaddingValue = 50;
     
     // Apply proper positioning and parent relationships to all children
-    layoutedChildren.forEach(child => {
+    layoutedChildren.forEach((child: FlowNode) => {
       child.parentNode = parentNodeId;
       child.targetPosition = direction === 'LR' ? Position.Left : Position.Top;
       child.sourcePosition = direction === 'LR' ? Position.Right : Position.Bottom;
@@ -936,7 +991,7 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
         borderRadius: '8px',
       };
       
-      // Add to our positioned nodes map so nested containers can find their parents
+      // Add to our positioned nodes map
       if (child.id) {
         allPositionedNodes.set(child.id, child);
       }
@@ -948,7 +1003,7 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     if (layoutedChildren.length > 0) {
       const calculatedHeight = calculateActualContainerHeight(
         layoutedChildren, 
-        containerHeaderHeight, // Use the calculated header height
+        containerHeaderHeight,
         containerPaddingValue
       );
       
@@ -967,34 +1022,22 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
         };
         allPositionedNodes.set(parentNodeId, updatedParent);
         
-        const heightDifference = calculatedHeight - (originalHeight || 0);
-        console.log(`[HEIGHT] Updated parent ${parentNodeId} height: ${originalHeight}px -> ${calculatedHeight}px (diff: +${heightDifference}px)`);
-        console.log(`[HEIGHT] Root nodes will need to shift down by ${heightDifference}px`);
-        
-        // NEW: Track height changes to adjust subsequent node positions
-        heightAdjustments.set(parentNodeId, heightDifference);
+        console.log(`[HEIGHT] Updated container ${parentNodeId} height: ${originalHeight}px -> ${calculatedHeight}px`);
       }
     }
-    
-    // Now recursively process any containers among the children
-    children.forEach(child => {
-      if (child.data?.childSopNodeIds?.length > 0) {
-        processContainerRecursively(child.id, depth + 1);
-      }
-    });
   };
   
-  // Start recursive processing from root containers only
+  // Process all tier 1 containers (containers that are not children themselves)
   Object.keys(childNodesByParent).forEach(parentNodeId => {
-    // Only process if parent is a root node (not a child of another container)
-    const parentNode = nodes.find(n => n.id === parentNodeId);
+    // Only process if parent is a tier 1 container (not a child of another container)
+    const parentNode = nodes.find((n: FlowNode) => n.id === parentNodeId);
     if (parentNode && !parentNode.parentNode) {
-      processContainerRecursively(parentNodeId, 1);
+      processSimpleContainer(parentNodeId);
     }
   });
 
   // Apply slight horizontal variance for visual variety (non-container nodes only)
-  const nodesWithVariance = allLayoutedNodes.map(node => {
+  const nodesWithVariance = allLayoutedNodes.map((node: FlowNode) => {
     if (!node.parentNode && node.type !== 'decision' && node.type !== 'trigger' && node.type !== 'end' && !node.data?.isCollapsible) {
       const randomHorizontalOffset = Math.random() * 40 - 20;
       return {
@@ -1008,34 +1051,8 @@ const getLayoutedElements = (nodes: FlowNode[], edges: FlowEdge[], direction = '
     return node;
   });
   
-  // NEW: Adjust positions of root nodes that come after containers with height changes
-  let cumulativeHeightAdjustment = 0;
-  const finalAdjustedNodes = nodesWithVariance.map(node => {
-    // Only adjust root nodes (not children)
-    if (node.parentNode) return node;
-    
-    // Check if this node had a height change
-    const heightChange = heightAdjustments.get(node.id);
-    if (heightChange) {
-      cumulativeHeightAdjustment += heightChange;
-      console.log(`[HEIGHT-ADJUST] Container ${node.id} height changed by +${heightChange}px, cumulative: +${cumulativeHeightAdjustment}px`);
-      return node; // Don't adjust container nodes themselves
-    }
-    
-    // Adjust position of subsequent nodes
-    if (cumulativeHeightAdjustment > 0) {
-      console.log(`[HEIGHT-ADJUST] Shifting node ${node.id} down by ${cumulativeHeightAdjustment}px`);
-      return {
-        ...node,
-        position: {
-          x: node.position.x,
-          y: node.position.y + cumulativeHeightAdjustment
-        }
-      };
-    }
-    
-    return node;
-  });
+  // No height adjustments needed since we don't have nested containers
+  const finalAdjustedNodes = nodesWithVariance;
   
   // Optimize edge port selection
   const optimizedEdges = pickOptimalPorts(finalAdjustedNodes, enhancedEdges);
