@@ -22,32 +22,61 @@ const AccessCard: React.FC<AccessCardProps> = ({ accessItems }) => {
   const getStatusIcon = (status: AccessItem['status']) => {
     switch (status) {
       case 'ok':
-        return <span role="img" aria-label="OK">🟢</span>;
+        return <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
       case 'missing':
-        return <span role="img" aria-label="Missing">⚠️</span>;
+        return <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
       case 'pending':
-        return <span role="img" aria-label="Pending">🔒</span>;
+        return <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>;
       default:
-        return null;
+        return <div className="w-2 h-2 bg-neutral-300 rounded-full"></div>;
+    }
+  };
+
+  const getStatusText = (status: AccessItem['status']) => {
+    switch (status) {
+      case 'ok':
+        return 'OK';
+      case 'missing':
+        return 'Missing';
+      case 'pending':
+        return 'Pending';
+      default:
+        return 'Unknown';
     }
   };
 
   return (
-    <div className="bg-neutral-surface-3/50 p-4 rounded-card-radius shadow-sm border border-neutral-surface-3 max-w-xs mb-4">
-      <h3 className="text-md font-semibold text-foreground mb-3">
-        <span role="img" aria-label="Key">🔑</span> Required Access
+    <div className="bg-white border border-neutral-200 rounded-md p-3">
+      <h3 className="text-sm font-medium text-neutral-900 mb-2 flex items-center">
+        <span className="mr-2 text-xs">🔑</span>
+        Access
       </h3>
-      <ul className="space-y-2">
+      <div className="space-y-1.5">
         {accessItems.map((item) => (
-          <li key={item.id} className="flex items-start text-sm">
-            <span className="mr-2 pt-0.5">{getStatusIcon(item.status)}</span>
-            <div className="flex-1">
-                <span className="text-foreground">{item.name}</span>
-                {item.details && <p className="text-xs text-muted-foreground">{item.details}</p>}
+          <div key={item.id} className="flex items-start text-xs">
+            <div className="flex-shrink-0 mr-2 mt-0.5">
+              {getStatusIcon(item.status)}
             </div>
-          </li>
+            <div className="flex-grow min-w-0">
+              <div className="flex items-start justify-between">
+                <span className="font-medium text-neutral-800 leading-tight text-xs">
+                  {item.name.replace(' (investor-relations@example.com)', '')}
+                </span>
+                <span className={`text-xs px-1 py-0.5 rounded font-medium ml-2 flex-shrink-0 ${
+                  item.status === 'ok' ? 'bg-green-100 text-green-700' :
+                  item.status === 'missing' ? 'bg-red-100 text-red-700' :
+                  'bg-yellow-100 text-yellow-700'
+                }`}>
+                  {getStatusText(item.status)}
+                </span>
+              </div>
+              {item.details && (
+                <p className="text-xs text-neutral-500 mt-0.5 leading-tight">{item.details}</p>
+              )}
+            </div>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 };

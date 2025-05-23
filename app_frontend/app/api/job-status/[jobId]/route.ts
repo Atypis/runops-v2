@@ -68,7 +68,9 @@ export async function GET(
       createdAt: job.created_at,
       updatedAt: job.updated_at,
       completedAt: job.completed_at,
-      error: job.error
+      error: job.error,
+      progressStage: job.progress_stage,
+      progressPercent: job.progress_percent
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',

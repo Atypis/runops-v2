@@ -414,35 +414,53 @@ const SOPListView: React.FC<SOPListViewProps> = ({ initialProcessedSopData, init
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="h-full overflow-y-auto">
-        <HeaderCard meta={meta} />
+      <div className="h-full overflow-y-auto bg-white">
+        {/* Refined Header with better typography hierarchy */}
+        <div className="border-b border-neutral-200 bg-white sticky top-0 z-10">
+          <HeaderCard meta={meta} />
+        </div>
         
-        {/* Layout for AccessCard and Trigger (can be adjusted, e.g. AccessCard in a sidebar area) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <div className="md:col-span-2">
+        {/* Executive Summary Section - Cleaner layout */}
+        <div className="px-8 py-6 bg-neutral-50/30 border-b border-neutral-100">
+          <div className="max-w-4xl">
             {primaryTrigger && <TriggerBlockDisplay trigger={primaryTrigger} />}
-          </div>
-          <div className="md:col-span-1">
-            {/* Using mockAccessItems for now. Replace with actual data when available */}
-            <AccessCard accessItems={mockAccessItems} /> 
+            <div className="mt-4">
+              <AccessCard accessItems={mockAccessItems} />
+            </div>
           </div>
         </div>
 
-        <SortableContext items={rootNodeIds} strategy={verticalListSortingStrategy}>
-          {rootNodes.map((node) => (
-            <StepCardDisplay
-              key={node.id}
-              node={node}
-              level={0}
-              onUpdateNode={handleUpdateNode}
-              onDeleteNode={handleDeleteNode}
-            />
-          ))}
-        </SortableContext>
+        {/* Operations - the main focus */}
+        <div className="px-8 py-6">
+          <div className="mb-6 flex items-center">
+            <h2 className="text-lg font-medium text-neutral-900">Operations</h2>
+            <div className="ml-4 w-8 h-px bg-neutral-300"></div>
+            <span className="ml-4 text-sm text-neutral-500">
+              {rootNodes.length} step{rootNodes.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          
+          <SortableContext items={rootNodeIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-3 max-w-4xl">
+              {rootNodes.map((node, index) => (
+                <StepCardDisplay
+                  key={node.id}
+                  node={node}
+                  level={0}
+                  stepNumber={index + 1}
+                  onUpdateNode={handleUpdateNode}
+                  onDeleteNode={handleDeleteNode}
+                />
+              ))}
+            </div>
+          </SortableContext>
 
-        {rootNodes.length === 0 && (
-          <p className="text-muted-foreground p-4">No steps found in this SOP.</p>
-        )}
+          {rootNodes.length === 0 && (
+            <div className="text-center py-16 text-neutral-400">
+              <p>No operations defined</p>
+            </div>
+          )}
+        </div>
       </div>
     </DndContext>
   );

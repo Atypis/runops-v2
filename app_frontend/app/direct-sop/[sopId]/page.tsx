@@ -1,19 +1,29 @@
-'use client'; // Make this a Client Component
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import SOPListView from '@/components/sop/SOPListView';
-import SOPFlowView from '@/components/sop/SOPFlowView';
 import { Button } from "@/components/ui/button";
 import { SOPDocument, SOPNode } from '@/lib/types/sop';
 import { processSopData, getRootNodes } from '@/lib/sop-utils';
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
-interface SopPageProps {
+interface DirectSopPageProps {
   params: {
     sopId: string;
   };
 }
 
-export default function DirectSopPage({ params }: SopPageProps) {
-  const [currentView, setCurrentView] = useState<'list' | 'flow'>('flow'); // Default to flow view
+export default function DirectSopPage({ params }: DirectSopPageProps) {
   const [sopData, setSopData] = useState<SOPDocument | null>(null);
   const [processedSopData, setProcessedSopData] = useState<SOPDocument | null>(null);
   const [rootNodes, setRootNodes] = useState<SOPNode[]>([]);
@@ -79,70 +89,153 @@ export default function DirectSopPage({ params }: SopPageProps) {
   // Show loading state
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <p>Loading SOP data...</p>
-      </div>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+            <div className="flex items-center gap-2 px-4">
+              <SidebarTrigger className="-ml-1" />
+              <Separator orientation="vertical" className="mr-2 h-4" />
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem className="hidden md:block">
+                    <BreadcrumbLink href="#">
+                      RunOps
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Loading SOP...</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+          </header>
+          
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min flex items-center justify-center">
+              <p>Loading SOP data...</p>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
     );
   }
 
   // Show error state
   if (error) {
     return (
-      <div className="flex flex-col justify-center items-center h-screen">
-        <p className="text-red-500 text-xl mb-4">Error</p>
-        <p className="text-gray-700">{error}</p>
-        <Button className="mt-6" onClick={() => window.location.href = '/'}>
-          Return to Upload Page
-        </Button>
-      </div>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+            <div className="flex items-center gap-2 px-4">
+              <SidebarTrigger className="-ml-1" />
+              <Separator orientation="vertical" className="mr-2 h-4" />
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem className="hidden md:block">
+                    <BreadcrumbLink href="#">
+                      RunOps
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Error</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+          </header>
+          
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-red-500 text-xl mb-4">Error</p>
+                <p className="text-gray-700 mb-6">{error}</p>
+                <Button onClick={() => window.location.href = '/'}>
+                  Return to Upload Page
+                </Button>
+              </div>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
     );
   }
 
   // Show "no data" state
   if (!processedSopData || !listProcessedSopData) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <p>No SOP data available.</p>
-      </div>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+            <div className="flex items-center gap-2 px-4">
+              <SidebarTrigger className="-ml-1" />
+              <Separator orientation="vertical" className="mr-2 h-4" />
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem className="hidden md:block">
+                    <BreadcrumbLink href="#">
+                      RunOps
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>No Data</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+          </header>
+          
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min flex items-center justify-center">
+              <p>No SOP data available.</p>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-neutral-surface-2">
-      {/* Header */}
-      <header className="bg-neutral-surface-1 shadow-card-default sticky top-0 z-50">
-        <div className="container mx-auto h-16 flex items-center justify-between px-4">
-          <p className="text-lg font-semibold text-foreground">Runops SOP Viewer (Direct Mode)</p>
-          <div className="text-sm text-muted-foreground">Viewing: {params.sopId}</div>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="flex flex-1 overflow-hidden p-2 gap-2">
-        <div className="flex-grow bg-white shadow-lg rounded-card-radius overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-neutral-surface-3 flex justify-between items-center">
-            <h1 className="text-xl font-semibold text-foreground">
-              {sopData?.meta?.title || 'SOP Visualization'}
-            </h1>
-            <div className="flex gap-2">
-              <Button variant={currentView === 'list' ? 'default' : 'outline'} onClick={() => setCurrentView('list')} size="sm">List View</Button>
-              <Button variant={currentView === 'flow' ? 'default' : 'outline'} onClick={() => setCurrentView('flow')} size="sm">Flow View</Button>
-            </div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+          <div className="flex items-center gap-2 px-4">
+            <SidebarTrigger className="-ml-1" />
+            <Separator orientation="vertical" className="mr-2 h-4" />
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem className="hidden md:block">
+                  <BreadcrumbLink href="#">
+                    RunOps
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>
+                    {sopData?.meta?.title || `SOP ${params.sopId}`}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
           </div>
-          
-          <div className="flex-1 overflow-y-auto p-4">
-            {currentView === 'list' ? (
-              <SOPListView
-                initialProcessedSopData={listProcessedSopData}
-                initialRootNodes={listRootNodes}
-                onUpdate={handleListUpdate} 
-              />
-            ) : (
-              <SOPFlowView sopData={processedSopData} />
-            )}
+        </header>
+        
+        <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+          <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min overflow-hidden">
+            <SOPListView
+              initialProcessedSopData={listProcessedSopData}
+              initialRootNodes={listRootNodes}
+              onUpdate={handleListUpdate} 
+            />
           </div>
         </div>
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 } 

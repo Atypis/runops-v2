@@ -9,36 +9,26 @@ const HeaderCard: React.FC<HeaderCardProps> = ({ meta }) => {
   if (!meta) return null;
 
   return (
-    <div className="bg-neutral-surface-1 p-6 rounded-t-card-radius mb-4 shadow-card-default">
-      <div className="flex justify-between items-start mb-2">
-        <h1 className="text-3xl font-semibold text-primary leading-tight">{meta.title || 'SOP Title'}</h1>
+    <div className="px-8 py-8">
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h1 className="text-3xl font-light text-neutral-900 leading-tight tracking-tight mb-2">
+            {meta.title || 'SOP Title'}
+          </h1>
+          {meta.goal && (
+            <p className="text-base text-neutral-600 max-w-3xl leading-relaxed">
+              {meta.goal}
+            </p>
+          )}
+        </div>
         {meta.version && (
-          <span className="text-sm bg-brand-indigo text-white px-3 py-1 rounded-pill-radius font-medium">
-            v{meta.version}
-          </span>
+          <div className="flex-shrink-0 ml-6">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-neutral-100 text-neutral-700">
+              v{meta.version}
+            </span>
+          </div>
         )}
       </div>
-      {meta.goal && (
-        <p className="text-base text-muted-foreground max-w-3xl">
-          <span className="font-medium text-foreground">Goal:</span> {meta.goal}
-        </p>
-      )}
-      {/* 
-        // Optional: Display purpose if needed, though goal is usually primary for header
-        meta.purpose && (
-          <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-            <strong>Purpose:</strong> {meta.purpose}
-          </p>
-        ) 
-      */}
-      {/* 
-        // Optional: Display owner if needed
-        meta.owner && meta.owner.length > 0 && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Owner: {meta.owner.join(", ")}
-          </p>
-        )
-      */}
     </div>
   );
 };

@@ -60,6 +60,7 @@ export async function middleware(request: NextRequest) {
   const isProtectedRoute = request.nextUrl.pathname.startsWith('/my-sops') || 
                           (request.nextUrl.pathname.startsWith('/api/') && 
                           !request.nextUrl.pathname.startsWith('/api/get-upload-url') &&
+                          !request.nextUrl.pathname.startsWith('/api/job-status') &&
                           !request.nextUrl.pathname.startsWith('/api/direct-sop')) ||
                           (request.nextUrl.pathname.startsWith('/sop/') &&
                           !request.nextUrl.pathname.startsWith('/direct-sop/'))

@@ -9,17 +9,28 @@ const TriggerBlockDisplay: React.FC<TriggerBlockDisplayProps> = ({ trigger }) =>
   if (!trigger) return null;
 
   return (
-    <div className="bg-brand-indigo/5 p-4 rounded-card-radius mb-6 border-l-4 border-brand-indigo shadow-sm">
-      <div className="flex items-center">
-        <span className="text-2xl mr-3 text-brand-indigo">▶︎</span> {/* Start-arrow circle icon - using simple arrow for now */}
-        <div>
-          <h3 className="text-lg font-semibold text-brand-indigo">
-            Trigger: <span className="font-normal text-foreground">{trigger.description || 'Trigger condition not specified'}</span>
+    <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-6">
+      <div className="flex items-start">
+        <div className="flex-shrink-0 mr-4">
+          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+            <span className="text-white text-lg">▶</span>
+          </div>
+        </div>
+        <div className="flex-grow">
+          <h3 className="text-lg font-medium text-neutral-900 mb-1">
+            Trigger Condition
           </h3>
+          <p className="text-neutral-700 mb-3">
+            {trigger.description || 'Trigger condition not specified'}
+          </p>
           {trigger.type === 'cron' && trigger.config && (
-            <p className="text-sm text-muted-foreground mt-1">
-              <span className="font-medium">Schedule:</span> <code>{trigger.config}</code> (Cron)
-            </p>
+            <div className="mt-3">
+              <div className="inline-flex items-center px-3 py-1.5 bg-white border border-blue-200 rounded-md">
+                <code className="text-sm font-mono text-neutral-800">
+                  {trigger.config}
+                </code>
+              </div>
+            </div>
           )}
         </div>
       </div>

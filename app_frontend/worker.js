@@ -131,8 +131,8 @@ async function processJob(job) {
   console.log(`Processing job ${jobId}...`);
 
   try {
-    // Update job status to processing
-    await updateJobStatus(jobId, 'processing');
+    // Stage 1: Preparing video (downloading, processing, uploading)
+    await updateJobStatus(jobId, 'processing', null, 'preparing_video', 10);
 
     // Download the raw video
     const rawVideoPath = await downloadVideo(jobId);
@@ -141,24 +141,28 @@ async function processJob(job) {
     }
 
     // Process the video with ffmpeg
+    await updateJobStatus(jobId, 'processing', null, 'preparing_video', 25);
     const slimVideoPath = await processVideo(rawVideoPath, jobId);
     if (!slimVideoPath) {
       throw new Error('Failed to process video');
     }
 
     // Upload the processed video
+    await updateJobStatus(jobId, 'processing', null, 'preparing_video', 40);
     await uploadSlimVideo(slimVideoPath, jobId);
 
-    // Process the video with Gemini API to extract SOP
+    // Stage 2: Transcribing video content
+    await updateJobStatus(jobId, 'processing', null, 'transcribing', 50);
     const sopData = await extractSopFromVideo(slimVideoPath, jobId);
     if (!sopData) {
       throw new Error('Failed to extract SOP from video');
     }
 
-    // Save the SOP to the database
+    // Stage 3: Finalizing (saving to database)
+    await updateJobStatus(jobId, 'processing', null, 'finalizing', 90);
     await saveSopToDatabase(jobId, sopData);
 
-    // Mark job as completed
+    // Stage 4: Completed - ready for redirect
     await updateJobStatus(jobId, 'completed');
     console.log(`Job ${jobId} completed successfully`);
     
@@ -253,42 +257,43 @@ async function uploadSlimVideo(filePath, jobId) {
   }
 }
 
-// Process the video with Gemini API to extract SOP
+// Extract SOP from video using Gemini
 async function extractSopFromVideo(videoPath, jobId) {
-  console.log(`Extracting SOP from video ${videoPath}...`);
+  console.log(`Extracting SOP from video: ${videoPath}`);
   
-  // Step 1: Transcribe the video
-  console.log('Step 1: Transcribing video...');
-  const transcript = await transcribeVideo(videoPath);
-  if (!transcript) {
-    throw new Error('Failed to transcribe video');
+  try {
+    // Step 1: Transcribe the video (already at transcribing stage)
+    const transcript = await transcribeVideo(videoPath);
+    if (!transcript) {
+      throw new Error('Failed to transcribe video');
+    }
+    
+    // Save transcript to database and storage
+    await saveTranscriptToDatabase(jobId, transcript);
+    
+    // Save transcript JSON file
+    const transcriptPath = path.join(TEMP_DIR, `${jobId}_transcript.json`);
+    fs.writeFileSync(transcriptPath, JSON.stringify({ transcript }, null, 2));
+    await uploadTranscriptJson(transcriptPath, jobId);
+    
+    // Step 2: Generate SOP from transcript
+    await updateJobStatus(jobId, 'processing', null, 'parsing_sop', 70);
+    const sopData = await generateSopFromTranscript(transcript);
+    if (!sopData) {
+      throw new Error('Failed to generate SOP from transcript');
+    }
+    
+    // Save SOP JSON file to storage
+    const sopPath = path.join(TEMP_DIR, `${jobId}_sop.json`);
+    fs.writeFileSync(sopPath, JSON.stringify(sopData, null, 2));
+    await uploadSopJson(sopPath, jobId);
+    
+    console.log('SOP extracted successfully');
+    return sopData;
+  } catch (error) {
+    console.error('Error in extractSopFromVideo:', error);
+    return null;
   }
-  
-  // Save transcript for debugging
-  const transcriptPath = path.join(TEMP_DIR, `${jobId}_transcript.json`);
-  fs.writeFileSync(transcriptPath, JSON.stringify(transcript, null, 2));
-  console.log(`Saved transcript to ${transcriptPath}`);
-  
-  // Save transcript to database
-  await saveTranscriptToDatabase(jobId, transcript);
-  
-  // Step 2: Generate SOP from transcript
-  console.log('Step 2: Generating SOP from transcript...');
-  const sopData = await generateSopFromTranscript(transcript);
-  if (!sopData) {
-    throw new Error('Failed to generate SOP from transcript');
-  }
-  
-  // Upload the JSON to storage as well for reference
-  const jsonPath = path.join(TEMP_DIR, `${jobId}_sop.json`);
-  fs.writeFileSync(jsonPath, JSON.stringify(sopData, null, 2));
-  
-  await uploadSopJson(jsonPath, jobId);
-  
-  // Also upload the transcript
-  await uploadTranscriptJson(transcriptPath, jobId);
-  
-  return sopData;
 }
 
 // Step 1: Transcribe video using Gemini API
@@ -591,16 +596,27 @@ async function saveTranscriptToDatabase(jobId, transcript) {
 }
 
 // Update job status in the database
-async function updateJobStatus(jobId, status, errorMessage) {
+async function updateJobStatus(jobId, status, errorMessage, progressStage = null, progressPercent = null) {
   try {
     const updates = {
       status,
       updated_at: new Date().toISOString(),
     };
 
+    // Add progress information if provided
+    if (progressStage) {
+      updates.progress_stage = progressStage;
+    }
+    
+    if (progressPercent !== null) {
+      updates.progress_percent = progressPercent;
+    }
+
     // Add additional fields based on status
     if (status === 'completed') {
       updates.completed_at = new Date().toISOString();
+      updates.progress_stage = 'completed';
+      updates.progress_percent = 100;
     }
     
     if (status === 'error' && errorMessage) {
@@ -615,7 +631,7 @@ async function updateJobStatus(jobId, status, errorMessage) {
     if (error) {
       console.error(`Error updating job status for ${jobId}:`, error);
     } else {
-      console.log(`Job ${jobId} status updated to ${status}`);
+      console.log(`Job ${jobId} status updated to ${status}${progressStage ? ` (${progressStage}: ${progressPercent}%)` : ''}`);
     }
   } catch (error) {
     console.error('Error in updateJobStatus:', error);
