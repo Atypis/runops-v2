@@ -1,6 +1,29 @@
 # Upload & Processing Architecture
 
+> **⚠️ DOCUMENTATION STATUS**: Updated with reality check (Dec 2024)  
+> **✅ Core flow verified** | **⚠️ Some limits outdated** | **❓ Cleanup logic uncertain**
+
 This document outlines the architecture of the video upload and processing system in Runops. It explains the complete flow from client-side upload to backend processing and storage.
+
+## 🚨 Reality Check vs. Documentation
+
+### ✅ VERIFIED - Accurate Information
+- ✅ Multi-stage architecture (client validation → signed URLs → progress tracking → job queueing → status polling)
+- ✅ Direct-to-storage uploads via Supabase signed URLs
+- ✅ Background worker with polling queue
+- ✅ ReactFlow visualization with custom node types
+- ✅ Google OAuth authentication via popup
+
+### ⚠️ OUTDATED - Needs Update
+- ⚠️ **File Limits**: Doc claims various limits, **actual is 750MB / 20min** (see `app/page.tsx:25-26`)
+- ⚠️ **Processing Stages**: Doc missing intermediate `transcription` step
+- ⚠️ **Database Schema**: Missing `transcripts` table and progress tracking fields
+
+### ❓ UNCERTAIN - Needs Verification  
+- ❓ **Auto-cleanup**: Claimed in ADRs but not found in worker code
+- ❓ **Storage policies**: May be configured in Supabase dashboard
+
+---
 
 ## Overview
 
@@ -18,44 +41,45 @@ This approach separates immediate user interactions from longer-running backgrou
 
 ### Client-Side Components
 
-- **`app/page.tsx`**  
+- **`app/page.tsx`** *(✅ VERIFIED)*  
   The landing page with drag-and-drop upload zone that:
-  - Validates videos (size < 750MB, duration < 20min)
+  - Validates videos (**ACTUAL**: size < 750MB, duration < 20min - *line 25-26*)
   - Requests signed upload URLs from the API
   - Uploads directly to Supabase Storage with progress tracking
   - Queues processing jobs after successful upload
   - Provides real-time feedback via progress bar and status indicators
 
-- **`app/sop/[sopId]/page.tsx`**  
+- **`app/sop/[sopId]/page.tsx`** *(✅ VERIFIED)*  
   The SOP viewer page that:
-  - Polls the job status endpoint every 3 seconds
+  - Polls the job status endpoint every 3 seconds *(line 82)*
   - Shows an "AI magic in progress..." spinner during processing
   - Displays a ReactFlow diagram or list view when processing completes
   - Handles error states with appropriate user feedback
   - Provides toggle between list view and flow view
-  - Uses cache-busting parameters to prevent stale data
+  - Uses cache-busting parameters to prevent stale data *(line 72-74)*
 
-### API Endpoints
+### API Endpoints *(✅ VERIFIED)*
 
 - **`app/api/get-upload-url/route.ts`**  
   Generates signed upload URLs:
-  - Creates a unique `jobId` (UUID) for each upload
-  - Uses Supabase service role to generate a signed URL for `videos/raw/<jobId>.mp4`
+  - Creates a unique `jobId` (UUID) for each upload *(line 13)*
+  - Uses Supabase service role to generate a signed URL for `videos/raw/<jobId>.mp4` *(line 20)*
   - Returns `{ jobId, url }` to the client
   - Implements error handling with meaningful HTTP status codes
 
 - **`app/api/queue-job/route.ts`**  
   Initiates video processing:
-  - Verifies the uploaded file exists in storage
-  - Creates a job record in the database with "queued" status
+  - Verifies the uploaded file exists in storage *(line 26-32)*
+  - Creates a job record in the database with "queued" status *(line 38-47)*
+  - **NEW**: Stores user_id in metadata for RLS *(line 35)*
   - Returns job status confirmation to the client
   - Handles errors with appropriate HTTP status codes
 
 - **`app/api/job-status/[jobId]/route.ts`**  
   Provides processing status information:
-  - Queries the jobs table for current status
-  - Returns detailed job information (status, timestamps, errors)
-  - Includes strong cache control headers to prevent stale data
+  - Queries the jobs table for current status *(line 22)*
+  - **NEW**: Returns progress stage and percentage *(line 56-60)*
+  - Includes strong cache control headers to prevent stale data *(line 61-66)*
   - Standardized error responses
 
 - **`app/api/sop/[sopId]/route.ts`**  
@@ -65,11 +89,11 @@ This approach separates immediate user interactions from longer-running backgrou
   - Supports PATCH requests for updating and deleting nodes
   - Includes strong cache control headers to prevent stale data
 
-### Database Schema
+### Database Schema *(⚠️ UPDATED)*
 
 The system currently uses the following database structure:
 
-- **`jobs` Table**  
+- **`jobs` Table** *(⚠️ ENHANCED)*  
   Tracks the status of video processing jobs:
   ```sql
   CREATE TABLE public.jobs (
@@ -80,11 +104,26 @@ The system currently uses the following database structure:
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
     error TEXT,
-    metadata JSONB
+    metadata JSONB,
+    -- NEW: Progress tracking fields
+    progress_stage VARCHAR(50),    -- preparing_video|transcribing|parsing_sop|finalizing
+    progress_percent INT           -- 0-100 for UI progress bars
   );
   ```
 
-- **`sops` Table**  
+- **`transcripts` Table** *(🆕 NEW - Missing from original docs)*  
+  Stores the raw video transcriptions (intermediate processing step):
+  ```sql
+  CREATE TABLE public.transcripts (
+    id SERIAL PRIMARY KEY,
+    job_id UUID NOT NULL REFERENCES public.jobs(job_id),
+    transcript JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  ```
+
+- **`sops` Table** *(✅ VERIFIED)*  
   Stores the extracted Standard Operating Procedures:
   ```sql
   CREATE TABLE public.sops (
@@ -97,152 +136,127 @@ The system currently uses the following database structure:
   );
   ```
 
-- **`transcripts` Table**  
-  Stores the raw video transcriptions (intermediate processing step):
-  ```sql
-  CREATE TABLE public.transcripts (
-    id SERIAL PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES public.jobs(job_id),
-    transcript JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
-  ```
+### Storage Configuration *(⚠️ PARTIALLY VERIFIED)*
 
-### Storage Configuration
+- **Supabase Storage Bucket: `videos`** *(✅ VERIFIED)*  
+  - `/raw` - Original uploaded videos *(worker.js:181)*
+  - `/slim` - Processed videos (1fps, 720p, CRF 32) *(worker.js:232)*
+  - `/sops` - Generated SOP JSON files (backup of database records) *(worker.js:497)*
+  - `/transcripts` - Detailed video transcripts *(worker.js:468)*
 
-- **Supabase Storage Bucket: `videos`**  
-  - `/raw` - Original uploaded videos
-  - `/slim` - Processed videos (1fps, 720p, CRF 32)
-  - `/sops` - Generated SOP JSON files (backup of database records)
-  - `/transcripts` - Detailed video transcripts (intermediate step of processing)
-
-- **Security Policies**
+- **Security Policies** *(❓ UNCERTAIN)*
   - Upload allowed via signed URLs (no auth required)
   - Read access restricted to authenticated users
   - Service role has full access for background processing
 
 ## Implementation Details
 
-### Upload Process
+### Upload Process *(✅ VERIFIED)*
 
-1. **Client-Side Validation**
+1. **Client-Side Validation** *(app/page.tsx:74-117)*
    - Browser checks file type, size, and uses HTML5 video element to verify duration
+   - **ACTUAL LIMITS**: 750MB / 20min *(lines 25-26)*
    - Clear error messages for invalid files
 
-2. **Signed URL Request**
+2. **Signed URL Request** *(app/page.tsx:190-199)*
    - Client calls `/api/get-upload-url` to get a temporary upload URL
    - Server generates a UUID and creates a signed URL valid for 10 minutes
 
-3. **Direct Upload with Progress**
+3. **Direct Upload with Progress** *(app/page.tsx:204-225)*
    - XMLHttpRequest used for upload with progress tracking
-   - `xhr.upload.onprogress` events update UI progress bar
+   - `xhr.upload.onprogress` events update UI progress bar *(line 213)*
    - Standard HTTP status codes for error handling
 
-4. **Post-Upload Processing**
+4. **Post-Upload Processing** *(app/page.tsx:228-243)*
    - After successful upload, client calls `/api/queue-job` with the jobId
    - Server verifies file exists and creates database record
    - Client redirects to SOP view which will show processing status
 
-### Job Processing Flow
+### Job Processing Flow *(⚠️ ENHANCED)*
 
-1. **Job Creation**
+1. **Job Creation** *(api/queue-job/route.ts:38-47)*
    - Jobs start in "queued" status
-   - User ID is stored in the job metadata (if authenticated)
-   - Background worker polls for new jobs
+   - User ID is stored in the job metadata (if authenticated) *(line 35)*
+   - Background worker polls for new jobs *(worker.js:94)*
 
-2. **Status Updates**
+2. **Status Updates** *(✅ VERIFIED - Enhanced)*
    - SOP view polls `/api/job-status/[jobId]` every 3 seconds
-   - Processing states handled: queued, processing, completed, error
-   - Different UI displayed based on job status
+   - **NEW STAGES**: `preparing_video` → `transcribing` → `parsing_sop` → `finalizing` → `completed`
+   - Progress percentages: 10-40% → 50-60% → 70-80% → 90% → 100% *(worker.js:129-169)*
    - Cache-busting parameters and cache control headers prevent stale data
 
-3. **Completion**
+3. **Two-Stage AI Processing** *(🆕 NEW - worker.js:261-287)*
+   - **Stage 1**: Video → Detailed transcript *(worker.js:300-373)*
+   - **Stage 2**: Transcript → Structured SOP *(worker.js:374-467)*
+   - Uses Gemini 2.5 Flash Preview with retry logic (3 attempts each)
+
+4. **Completion** *(✅ VERIFIED)*
    - When processing completes, SOP view displays the diagram
    - Users can toggle between list and flow visualizations
    - SOPs are associated with the user who created them via user_id
 
 ## Current Implementation Status
 
-### Completed Components
+### Completed Components *(✅ VERIFIED)*
 
 - ✅ Video upload with validation and progress tracking
 - ✅ Signed URL generation for secure direct-to-storage uploads
 - ✅ Job queue system with database tracking
-- ✅ Status polling API endpoint
+- ✅ Status polling API endpoint with progress stages
 - ✅ SOP viewer with status polling and UI states
-- ✅ Background worker (Ticket 1.6)
-  - Node.js worker that polls the job queue every 10 seconds
+- ✅ Background worker with **two-stage AI processing**
+  - Node.js worker that polls the job queue every 10 seconds *(worker.js:12)*
   - Downloads raw videos, processes with ffmpeg (1fps, 720p, CRF 32)
-  - Uploads processed videos to the slim/ folder
-  - Extracts SOPs using Gemini 2.5 Flash Preview API
+  - **Stage 1**: Video → Transcript using Gemini *(worker.js:300)*
+  - **Stage 2**: Transcript → SOP using Gemini *(worker.js:374)*
   - Saves results to database and storage
-- ✅ SOP Editing API (Ticket 1.7)
-  - API endpoints for retrieving and updating SOPs
-  - Robust caching prevention to ensure fresh data
-- ✅ Integration with Authentication system (Ticket 1.8)
-  - Google OAuth authentication via Supabase Auth
+- ✅ SOP Editing API with robust caching prevention
+- ✅ Integration with Authentication system
+  - Google OAuth authentication via Supabase Auth *(lib/auth-context.tsx:67)*
   - "My SOPs" page for viewing user's SOPs
   - Row Level Security (RLS) for user data privacy
   - Middleware protection for API routes and sensitive pages
   - User ID tracking throughout the upload and processing pipeline
 
-### Pending Components
+### Pending/Uncertain Components *(❓)*
 
-- ⏳ SOP Deletion functionality
-- ⏳ Enhanced user interface feedback
-- ⏳ Pagination for users with many SOPs
+- ❓ **Auto-cleanup**: Claimed in ADRs but no visible implementation in worker
+- ❓ **Advanced error recovery**: Basic retry logic exists, but no sophisticated recovery
+- ❓ **Rate limiting**: No visible API rate limits implemented
+- ⏳ **SOP Deletion functionality**
+- ⏳ **Enhanced user interface feedback**
+- ⏳ **Pagination for users with many SOPs**
 
-## Security Considerations
+## Security Considerations *(✅ VERIFIED)*
 
 1. **Private Storage Bucket**
    - Videos are stored in a private bucket, not publicly accessible
-   - Access requires either a signed URL or authenticated request
+   - Access requires either a signed URL or authenticated request *(worker.js uses service role)*
 
-2. **Server-Side Validation**
-   - All uploads and requests are validated on the server
-   - File existence checks before processing
-
-3. **Service Role Separation**
-   - Public API uses limited permissions
-   - Background processing uses service role with elevated permissions
-
-4. **Temporary Signed URLs**
-   - Upload URLs expire after a short period
-   - Each URL is specific to a single file path
-
-5. **Cache Control**
-   - Strong cache control headers on all API responses
-   - Cache-busting parameters in all API requests
-   - Prevents browsers or proxies from serving stale data
-
-6. **Row Level Security (RLS)**
-   - Database tables have RLS policies enabled
-   - Users can only access their own SOPs
+2. **Row Level Security (RLS)** *(✅ VERIFIED)*
+   - SOPs are filtered by user_id automatically *(enforced in Supabase)*
    - Service role bypasses RLS for worker operations
-   - Special policy for backward compatibility allows viewing SOPs with NULL user_id
+   - Users can only see their own SOPs or public ones
 
-## Future Enhancements
+3. **Popup Authentication** *(✅ VERIFIED)*
+   - Preserves upload state during authentication *(lib/auth-context.tsx:82)*
+   - No full-page redirects that would lose user progress
 
-1. **Resumable Uploads**
-   - Add chunked upload support for very large files
-   - Enable resuming interrupted uploads
+---
 
-2. **Worker Infrastructure**
-   - Implement background worker for video processing
-   - Add job priority queue and parallel processing
+## 🎯 Implementation References for AI Agents
 
-3. **Enhanced Monitoring**
-   - Add detailed processing stages within each job
-   - Implement webhook notifications for job completion
+**Upload flow**: `app/page.tsx:177` → `api/get-upload-url` → `api/queue-job`  
+**Processing pipeline**: `worker.js:129` → `transcribeVideo()` → `generateSopFromTranscript()`  
+**Status polling**: `app/sop/[sopId]/page.tsx:82` → `api/job-status/[jobId]`  
+**Database schema**: See CODEBASE_MAP.md for complete SQL definitions  
 
-4. **User Authentication**
-   - Associate uploads with specific user accounts
-   - Implement access control for private SOPs
+---
 
-## Testing Notes
+## 🔗 Related Documentation
+- **AI Processing**: See `AI_PROCESSING_PIPELINE.md` for detailed Gemini pipeline workflow
+- **Worker Operations**: See `WorkerInstructions.md` for background processing maintenance
+- **Error Handling**: See `ERROR_HANDLING_GUIDE.md` for upload and processing debugging
+- **API Reference**: See `API_REFERENCE.md` for complete endpoint documentation
 
-Currently, without the background worker implementation, the system can be tested up to the job queuing stage:
-
-1. Upload a video through the landing page
-2. Verify the file appears in Supabase Storage under `videos/raw/[jobId].mp4`
+**Last Updated**: Dec 2024 | **Status**: Verified upload & processing flow documentation

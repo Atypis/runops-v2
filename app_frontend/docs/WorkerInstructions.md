@@ -197,4 +197,14 @@ The database uses Row Level Security to control access to data. This affects how
    - Store the user_id in the sops table when creating new SOPs
    - This ensures proper access control when users later view their SOPs
 
-When troubleshooting permission issues, remember that the worker should not encounter RLS restrictions due to its service role, but clients accessing the API will be subject to these policies. 
+When troubleshooting permission issues, remember that the worker should not encounter RLS restrictions due to its service role, but clients accessing the API will be subject to these policies.
+
+---
+
+## 🔗 Related Documentation
+- **AI Pipeline Details**: See `AI_PROCESSING_PIPELINE.md` for complete Gemini processing workflow
+- **Upload Architecture**: See `UploadProcessingArchitecture.md` for full system upload → processing flow  
+- **Error Debugging**: See `ERROR_HANDLING_GUIDE.md` for worker troubleshooting and error patterns
+- **Performance**: See `PERFORMANCE_OPTIMIZATION_GUIDE.md` for worker optimization strategies
+
+**Last Updated**: Dec 2024 | **Status**: Complete worker operations documentation 
