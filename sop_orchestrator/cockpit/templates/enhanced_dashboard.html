@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOP Orchestrator - Enterprise Control Center</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .enterprise-container {
+            display: grid;
+            grid-template-columns: 300px 1fr 400px;
+            grid-template-rows: 80px 1fr;
+            gap: 20px;
+            padding: 20px;
+            height: 100vh;
+        }
+        
+        .header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px 25px;
+            border-radius: 12px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(45deg, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .control-center {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .header-control {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .start-btn {
+            background: linear-gradient(45deg, #059669, #10b981);
+            color: white;
+        }
+        
+        .start-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3); }
+        .start-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        .emergency-btn {
+            background: linear-gradient(45deg, #dc2626, #ef4444);
+            color: white;
+        }
+        
+        .sidebar {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-y: auto;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .monitoring-panel {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-y: auto;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .panel-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+        
+        .panel-controls {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .panel-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            transition: all 0.2s;
+        }
+        
+        .panel-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .agent-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+        
+        .agent-card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateY(-2px);
+        }
+        
+        .agent-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .agent-name {
+            font-weight: 600;
+            font-size: 14px;
+            color: #60a5fa;
+        }
+        
+        .agent-status {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-running { background: #059669; color: white; }
+        .status-completed { background: #7c3aed; color: white; }
+        .status-paused { background: #f59e0b; color: white; }
+        .status-failed { background: #dc2626; color: white; }
+        
+        .agent-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .metric {
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #34d399;
+        }
+        
+        .metric-label {
+            font-size: 10px;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+        
+        .current-task {
+            background: rgba(96, 165, 250, 0.1);
+            border-left: 3px solid #60a5fa;
+            padding: 8px 12px;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 8px;
+        }
+        
+        .task-name {
+            font-weight: 600;
+            font-size: 12px;
+            color: #60a5fa;
+        }
+        
+        .task-description {
+            font-size: 11px;
+            color: #cbd5e1;
+            margin-top: 4px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #34d399);
+            transition: width 0.3s ease;
+        }
+        
+        .task-logs {
+            max-height: 120px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 10px;
+        }
+        
+        .log-entry {
+            margin-bottom: 4px;
+            opacity: 0.9;
+        }
+        
+        .log-timestamp {
+            color: #10b981;
+        }
+        
+        .log-level {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+        
+        .log-message {
+            color: #e2e8f0;
+        }
+        
+        .evidence-panel {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-y: auto;
+        }
+        
+        .evidence-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-left: 3px solid #8b5cf6;
+        }
+        
+        .evidence-type {
+            font-size: 10px;
+            color: #8b5cf6;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .evidence-description {
+            font-size: 12px;
+            color: #e2e8f0;
+            margin-top: 4px;
+        }
+        
+        .evidence-timestamp {
+            font-size: 10px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        
+        .performance-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .performance-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        
+        .perf-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #60a5fa;
+        }
+        
+        .perf-label {
+            font-size: 10px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+        
+        .mission-info {
+            margin-bottom: 20px;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .info-label {
+            font-weight: 600;
+            opacity: 0.8;
+            font-size: 12px;
+        }
+        
+        .info-value {
+            font-family: 'Monaco', 'Menlo', monospace;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        
+        .intervention-item {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(245, 158, 11, 0.1));
+            border-left: 4px solid #f59e0b;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 0 8px 8px 0;
+            animation: pulse-glow 2s infinite;
+        }
+        
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+        
+        .intervention-title {
+            font-weight: 700;
+            font-size: 14px;
+            color: #f59e0b;
+            margin-bottom: 8px;
+        }
+        
+        .intervention-description {
+            font-size: 12px;
+            color: #e2e8f0;
+            margin-bottom: 12px;
+        }
+        
+        .intervention-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .approve { background: #059669; color: white; }
+        .pause { background: #f59e0b; color: white; }
+        .skip { background: #6b7280; color: white; }
+        
+        .action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        .connection-dot.disconnected {
+            background: #dc2626;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .scrollable {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+        
+        .scrollable::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .scrollable::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+        
+        .scrollable::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="enterprise-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 SOP Orchestrator - Enterprise Control Center</h1>
+            <div class="control-center">
+                <select id="missionSelect" class="header-control" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2);">
+                    <option value="">Select Mission Template...</option>
+                </select>
+                <button class="header-control start-btn" id="startMissionBtn" onclick="startSelectedMission()">🚀 Start Mission</button>
+                <button class="header-control emergency-btn" onclick="emergencyStop()">🛑 Emergency Stop</button>
+            </div>
+            <div class="connection-status">
+                <div class="connection-dot" id="connectionDot"></div>
+                <span id="connectionText">Connected</span>
+            </div>
+        </div>
+
+        <!-- Sidebar - Mission Control -->
+        <div class="sidebar">
+            <div class="panel-header">
+                <div class="panel-title">📊 Mission Control</div>
+            </div>
+            
+            <div class="performance-metrics">
+                <div class="performance-card">
+                    <div class="perf-value" id="totalTasks">0</div>
+                    <div class="perf-label">Tasks</div>
+                </div>
+                <div class="performance-card">
+                    <div class="perf-value" id="successRate">0%</div>
+                    <div class="perf-label">Success</div>
+                </div>
+                <div class="performance-card">
+                    <div class="perf-value" id="avgTime">0s</div>
+                    <div class="perf-label">Avg Time</div>
+                </div>
+            </div>
+            
+            <div class="mission-info" id="missionInfo">
+                <div class="info-row">
+                    <span class="info-label">Mission ID:</span>
+                    <span class="info-value" id="missionId">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Current Phase:</span>
+                    <span class="info-value" id="currentPhase">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Duration:</span>
+                    <span class="info-value" id="duration">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Active Agents:</span>
+                    <span class="info-value" id="activeAgents">0</span>
+                </div>
+            </div>
+
+            <!-- Human Interventions -->
+            <div class="panel-header">
+                <div class="panel-title">🚨 Interventions</div>
+            </div>
+            <div id="interventions" class="scrollable">
+                <div style="text-align: center; opacity: 0.6; margin-top: 20px; font-size: 12px;">
+                    No pending interventions
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content - Agent Monitoring -->
+        <div class="main-content">
+            <div class="monitoring-panel">
+                <div class="panel-header">
+                    <div class="panel-title">🤖 Agent Activity Monitor</div>
+                    <div class="panel-controls">
+                        <button class="panel-btn" onclick="pauseAllAgents()">⏸️ Pause All</button>
+                        <button class="panel-btn" onclick="resumeAllAgents()">▶️ Resume All</button>
+                    </div>
+                </div>
+                <div id="agentMonitor" class="scrollable">
+                    <div style="text-align: center; opacity: 0.6; margin-top: 40px;">
+                        No active agents
+                    </div>
+                </div>
+            </div>
+
+            <div class="monitoring-panel">
+                <div class="panel-header">
+                    <div class="panel-title">📝 Detailed Logs</div>
+                    <div class="panel-controls">
+                        <button class="panel-btn" onclick="clearLogs()">🗑️ Clear</button>
+                        <button class="panel-btn" onclick="exportLogs()">📁 Export</button>
+                    </div>
+                </div>
+                <div id="detailedLogs" class="scrollable task-logs">
+                    <!-- Detailed logs will appear here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Evidence Panel -->
+        <div class="evidence-panel">
+            <div class="panel-header">
+                <div class="panel-title">🔍 Evidence & Documentation</div>
+                <div class="panel-controls">
+                    <button class="panel-btn" onclick="generateReport()">📄 Report</button>
+                    <button class="panel-btn" onclick="exportEvidence()">💾 Export</button>
+                </div>
+            </div>
+            <div id="evidencePanel" class="scrollable">
+                <div style="text-align: center; opacity: 0.6; margin-top: 20px; font-size: 12px;">
+                    No evidence captured yet
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Enhanced WebSocket connection with detailed monitoring
+        let ws = null;
+        let agents = {};
+        let missionData = {};
+        let evidenceItems = [];
+        let detailedLogs = [];
+        let missionTemplates = {};
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                ws.send(JSON.stringify({type: 'request_status'}));
+                loadMissionTemplates();
+            };
+            
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+            
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        async function loadMissionTemplates() {
+            try {
+                const response = await fetch('/api/missions/templates');
+                const data = await response.json();
+                missionTemplates = data.templates;
+                
+                const select = document.getElementById('missionSelect');
+                select.innerHTML = '<option value="">Select Mission Template...</option>';
+                
+                for (const [key, template] of Object.entries(missionTemplates)) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = `${template.name} (${template.estimated_duration})`;
+                    select.appendChild(option);
+                }
+                
+                addDetailedLog({
+                    timestamp: new Date().toISOString(),
+                    level: 'INFO',
+                    role: 'SYSTEM',
+                    message: `Loaded ${Object.keys(missionTemplates).length} mission templates`
+                });
+            } catch (error) {
+                console.error('Failed to load mission templates:', error);
+            }
+        }
+
+        function handleWebSocketMessage(message) {
+            switch (message.type) {
+                case 'status_update':
+                    updateMissionStatus(message.data);
+                    break;
+                case 'agent_update':
+                    updateAgentStatus(message.data);
+                    break;
+                case 'task_progress':
+                    updateTaskProgress(message.data);
+                    break;
+                case 'evidence_captured':
+                    addEvidence(message.data);
+                    break;
+                case 'detailed_log':
+                    addDetailedLog(message.data);
+                    break;
+                case 'intervention_request':
+                    addInterventionRequest(message.data);
+                    break;
+                case 'mission_completed':
+                    handleMissionCompleted(message.data);
+                    break;
+                default:
+                    console.log('Unknown message type:', message.type);
+            }
+        }
+
+        function updateMissionStatus(status) {
+            document.getElementById('missionId').textContent = status.mission_id || '-';
+            document.getElementById('currentPhase').textContent = status.current_phase || '-';
+            document.getElementById('activeAgents').textContent = Object.keys(status.active_agents || {}).length;
+            
+            // Update performance metrics
+            if (status.performance_metrics) {
+                document.getElementById('totalTasks').textContent = status.performance_metrics.total_tasks || 0;
+                document.getElementById('successRate').textContent = (status.performance_metrics.success_rate * 100).toFixed(1) + '%';
+                document.getElementById('avgTime').textContent = status.performance_metrics.avg_time?.toFixed(1) + 's';
+            }
+            
+            updateAgents(status.active_agents || {});
+        }
+
+        function updateAgents(agentData) {
+            const agentMonitor = document.getElementById('agentMonitor');
+            
+            if (Object.keys(agentData).length === 0) {
+                agentMonitor.innerHTML = `
+                    <div style="text-align: center; opacity: 0.6; margin-top: 40px;">
+                        No active agents
+                    </div>
+                `;
+                return;
+            }
+
+            agentMonitor.innerHTML = '';
+            
+            for (const [agentType, agentInfo] of Object.entries(agentData)) {
+                const agentCard = createAgentCard(agentType, agentInfo);
+                agentMonitor.appendChild(agentCard);
+            }
+        }
+
+        function createAgentCard(agentType, agentInfo) {
+            const card = document.createElement('div');
+            card.className = 'agent-card';
+            card.id = `agent-${agentType}`;
+            
+            const status = agentInfo.status || 'idle';
+            const currentTask = agentInfo.current_task || 'No active task';
+            const metrics = agentInfo.metrics || {};
+            
+            card.innerHTML = `
+                <div class="agent-header">
+                    <div class="agent-name">🤖 ${agentType.toUpperCase()} Agent</div>
+                    <div class="agent-status status-${status}">${status}</div>
+                </div>
+                
+                <div class="agent-metrics">
+                    <div class="metric">
+                        <div class="metric-value">${metrics.tasks_completed || 0}</div>
+                        <div class="metric-label">Completed</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">${(metrics.success_rate * 100 || 0).toFixed(0)}%</div>
+                        <div class="metric-label">Success</div>
+                    </div>
+                </div>
+                
+                <div class="current-task">
+                    <div class="task-name">${currentTask}</div>
+                    <div class="task-description">${agentInfo.task_description || 'Executing assigned task'}</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${(agentInfo.progress || 0) * 100}%"></div>
+                    </div>
+                </div>
+                
+                <div class="task-logs">
+                    ${(agentInfo.recent_logs || []).map(log => 
+                        `<div class="log-entry">
+                            <span class="log-timestamp">[${new Date(log.timestamp).toLocaleTimeString()}]</span>
+                            <span class="log-level">${log.level}</span>
+                            <span class="log-message">${log.message}</span>
+                        </div>`
+                    ).join('')}
+                </div>
+            `;
+            
+            return card;
+        }
+
+        function addDetailedLog(logData) {
+            const logsContainer = document.getElementById('detailedLogs');
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `
+                <span class="log-timestamp">[${new Date(logData.timestamp).toLocaleTimeString()}]</span>
+                <span class="log-level">${logData.level}</span>
+                <span class="log-message">[${logData.role}] ${logData.message}</span>
+            `;
+            
+            logsContainer.appendChild(logEntry);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+            
+            // Keep only last 100 log entries
+            while (logsContainer.children.length > 100) {
+                logsContainer.removeChild(logsContainer.firstChild);
+            }
+            
+            detailedLogs.push(logData);
+        }
+
+        function addEvidence(evidenceData) {
+            const evidencePanel = document.getElementById('evidencePanel');
+            
+            // Remove "no evidence" message
+            if (evidencePanel.textContent.includes('No evidence')) {
+                evidencePanel.innerHTML = '';
+            }
+            
+            const evidenceItem = document.createElement('div');
+            evidenceItem.className = 'evidence-item';
+            evidenceItem.innerHTML = `
+                <div class="evidence-type">${evidenceData.type}</div>
+                <div class="evidence-description">${evidenceData.description}</div>
+                <div class="evidence-timestamp">${new Date(evidenceData.timestamp).toLocaleString()}</div>
+            `;
+            
+            evidencePanel.insertBefore(evidenceItem, evidencePanel.firstChild);
+            evidenceItems.push(evidenceData);
+        }
+
+        function addInterventionRequest(intervention) {
+            const interventions = document.getElementById('interventions');
+            
+            if (interventions.textContent.includes('No pending interventions')) {
+                interventions.innerHTML = '';
+            }
+            
+            const item = document.createElement('div');
+            item.className = 'intervention-item';
+            item.id = `intervention-${intervention.request_id}`;
+            item.innerHTML = `
+                <div class="intervention-title">${intervention.title}</div>
+                <div class="intervention-description">${intervention.description}</div>
+                <div class="intervention-actions">
+                    ${intervention.suggested_actions.map(action => 
+                        `<button class="action-btn ${action}" onclick="respondToIntervention('${intervention.request_id}', '${action}')">
+                            ${action.charAt(0).toUpperCase() + action.slice(1)}
+                        </button>`
+                    ).join('')}
+                </div>
+            `;
+            
+            interventions.appendChild(item);
+        }
+
+        function startSelectedMission() {
+            const selectedMission = document.getElementById('missionSelect').value;
+            
+            if (!selectedMission) {
+                alert('Please select a mission template first!');
+                return;
+            }
+            
+            const template = missionTemplates[selectedMission];
+            if (!template) {
+                alert('Selected mission template not found!');
+                return;
+            }
+            
+            const missionConfig = {
+                sop_definition: template.sop_definition,
+                human_oversight: true,
+                max_retries: 2
+            };
+            
+            fetch('/api/missions/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(missionConfig)
+            }).then(response => response.json())
+            .then(data => {
+                document.getElementById('startMissionBtn').disabled = true;
+                document.getElementById('startMissionBtn').textContent = '🚀 Mission Running...';
+                document.getElementById('missionSelect').disabled = true;
+                
+                addDetailedLog({
+                    timestamp: new Date().toISOString(),
+                    level: 'INFO',
+                    role: 'SYSTEM',
+                    message: `Started mission: ${template.name}`
+                });
+            }).catch(error => {
+                console.error('Failed to start mission:', error);
+                addDetailedLog({
+                    timestamp: new Date().toISOString(),
+                    level: 'ERROR',
+                    role: 'SYSTEM',
+                    message: `Failed to start mission: ${error.message}`
+                });
+            });
+        }
+
+        function respondToIntervention(requestId, action) {
+            fetch(`/api/interventions/${requestId}/respond`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: action})
+            }).then(() => {
+                document.getElementById(`intervention-${requestId}`).remove();
+                addDetailedLog({
+                    timestamp: new Date().toISOString(),
+                    level: 'INFO',
+                    role: 'HUMAN',
+                    message: `Intervention ${action}: ${requestId}`
+                });
+            });
+        }
+
+        function pauseAllAgents() {
+            addDetailedLog({
+                timestamp: new Date().toISOString(),
+                level: 'WARNING',
+                role: 'SYSTEM',
+                message: 'All agents paused by operator'
+            });
+        }
+
+        function resumeAllAgents() {
+            addDetailedLog({
+                timestamp: new Date().toISOString(),
+                level: 'INFO',
+                role: 'SYSTEM',
+                message: 'All agents resumed by operator'
+            });
+        }
+
+        function emergencyStop() {
+            if (confirm('Are you sure you want to emergency stop all operations?')) {
+                addDetailedLog({
+                    timestamp: new Date().toISOString(),
+                    level: 'CRITICAL',
+                    role: 'HUMAN',
+                    message: 'EMERGENCY STOP ACTIVATED'
+                });
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('detailedLogs').innerHTML = '';
+            detailedLogs = [];
+        }
+
+        function exportLogs() {
+            const logs = JSON.stringify(detailedLogs, null, 2);
+            const blob = new Blob([logs], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sop_logs_${new Date().getTime()}.json`;
+            a.click();
+        }
+
+        function generateReport() {
+            addDetailedLog({
+                timestamp: new Date().toISOString(),
+                level: 'INFO',
+                role: 'SYSTEM',
+                message: 'Generating comprehensive mission report...'
+            });
+        }
+
+        function exportEvidence() {
+            const evidence = JSON.stringify(evidenceItems, null, 2);
+            const blob = new Blob([evidence], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sop_evidence_${new Date().getTime()}.json`;
+            a.click();
+        }
+
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                dot.className = 'connection-dot';
+                text.textContent = 'Connected';
+            } else {
+                dot.className = 'connection-dot disconnected';
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        // Initialize connection
+        connectWebSocket();
+        
+        // Add initial log
+        addDetailedLog({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            role: 'SYSTEM',
+            message: 'Enterprise Control Center initialized'
+        });
+    </script>
+</body>
+</html> 
