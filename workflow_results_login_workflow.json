@@ -1,0 +1,237 @@
+{
+  "workflow_name": "login_workflow",
+  "workflow_data": {
+    "name": "Company Portal Login",
+    "description": "Standard login workflow for company portal",
+    "transcript": [
+      {
+        "timestamp": "00:00:00",
+        "action": "Open browser",
+        "details": "User opened Chrome browser",
+        "url": "",
+        "element": ""
+      },
+      {
+        "timestamp": "00:00:05",
+        "action": "Navigate to website",
+        "details": "User navigated to company portal login page",
+        "url": "https://portal.company.com/login",
+        "element": ""
+      },
+      {
+        "timestamp": "00:00:12",
+        "action": "Wait for page load",
+        "details": "Page loading, login form appeared",
+        "url": "https://portal.company.com/login",
+        "element": ""
+      },
+      {
+        "timestamp": "00:00:18",
+        "action": "Click username field",
+        "details": "User clicked on the username input field",
+        "url": "https://portal.company.com/login",
+        "element": "input[name='username']"
+      },
+      {
+        "timestamp": "00:00:20",
+        "action": "Type username",
+        "details": "User typed their username",
+        "url": "https://portal.company.com/login",
+        "element": "input[name='username']"
+      },
+      {
+        "timestamp": "00:00:25",
+        "action": "Click password field",
+        "details": "User clicked on the password input field",
+        "url": "https://portal.company.com/login",
+        "element": "input[name='password']"
+      },
+      {
+        "timestamp": "00:00:27",
+        "action": "Type password",
+        "details": "User typed their password",
+        "url": "https://portal.company.com/login",
+        "element": "input[name='password']"
+      },
+      {
+        "timestamp": "00:00:32",
+        "action": "Click login button",
+        "details": "User clicked the login button to submit credentials",
+        "url": "https://portal.company.com/login",
+        "element": "button[type='submit']"
+      },
+      {
+        "timestamp": "00:00:35",
+        "action": "Wait for authentication",
+        "details": "System processing login, redirecting to dashboard",
+        "url": "https://portal.company.com/dashboard",
+        "element": ""
+      }
+    ]
+  },
+  "sop_result": {
+    "status": "success",
+    "stage": "sop_parsing",
+    "enhanced_sop": {
+      "workflow_metadata": {
+        "title": "Failed Parse",
+        "total_steps": 0,
+        "estimated_duration": 0,
+        "automation_coverage": 0.0,
+        "complexity_score": 1.0,
+        "requires_human_intervention": true
+      },
+      "enhanced_steps": [],
+      "automation_summary": {
+        "fully_automatable_steps": 0,
+        "partially_automatable_steps": 0,
+        "manual_steps": 0,
+        "critical_dependencies": [
+          "manual_review"
+        ],
+        "risk_factors": [
+          "parsing_failure"
+        ],
+        "recommended_approach": "manual_review_required"
+      }
+    },
+    "metadata": {
+      "total_steps": 0,
+      "automation_coverage": 0.0,
+      "requires_human_intervention": true
+    }
+  },
+  "plan_result": {
+    "status": "success",
+    "stage": "execution_planning",
+    "execution_plan": {
+      "execution_plan": {
+        "workflow_id": "SOP_Parse_Failure_20231027_001",
+        "total_steps": 0,
+        "estimated_duration": 10,
+        "execution_strategy": "input_validation_failure_escalation",
+        "confidence_threshold": 0.0,
+        "human_oversight_required": true
+      },
+      "step_instructions": [
+        {
+          "step_id": "orchestration_step_1_SOP_validation",
+          "agent_instructions": {
+            "task": "Initial SOP validation failed: No executable steps found in the input. Escalate to human for review and correction of the workflow definition.",
+            "actions": [
+              {
+                "action": "report_status_to_orchestrator",
+                "params": {
+                  "status": "SOP_INVALID_NO_STEPS",
+                  "details": "The 'enhanced_steps' array is empty and 'total_steps' is 0, indicating no defined automation. Manual review is required for the SOP definition."
+                }
+              }
+            ],
+            "success_criteria": [
+              "SOP validation status reported as 'INVALID'",
+              "Human intervention ticket created"
+            ],
+            "uncertainty_handling": {
+              "confidence_threshold": 1.0,
+              "escalation_triggers": [
+                "orchestrator_callback_failure"
+              ],
+              "fallback_strategy": "log_error_and_terminate",
+              "max_retries": 1
+            }
+          },
+          "orchestration_config": {
+            "requires_validation": true,
+            "parallel_execution": false,
+            "human_approval_required": true,
+            "timeout_seconds": 10
+          }
+        }
+      ],
+      "uncertainty_management": {
+        "overall_confidence": 0.0,
+        "risk_factors": [
+          "SOP_input_validation_failure",
+          "no_executable_steps_defined",
+          "workflow_parse_error"
+        ],
+        "mitigation_strategies": [
+          "immediate_human_escalation",
+          "SOP_definition_review_and_remediation"
+        ],
+        "escalation_plan": "notify_workflow_owner_for_SOP_correction_and_resubmission",
+        "monitoring_requirements": [
+          "input_schema_validation_status",
+          "orchestrator_internal_error_logs"
+        ]
+      },
+      "coordination_strategy": {
+        "agent_allocation": "no_browser_agents_dispatched_due_to_invalid_input",
+        "backup_agents": 0,
+        "parallel_tasks": [],
+        "synchronization_points": [],
+        "rollback_capabilities": false
+      }
+    },
+    "metadata": {
+      "workflow_id": "SOP_Parse_Failure_20231027_001",
+      "total_steps": 0,
+      "estimated_duration": 10,
+      "confidence_threshold": 0.0,
+      "human_oversight_required": true
+    }
+  },
+  "exec_result": {
+    "status": "success",
+    "stage": "workflow_execution",
+    "execution_result": {
+      "workflow_id": "SOP_Parse_Failure_20231027_001",
+      "status": "completed",
+      "results": [
+        {
+          "step_id": "orchestration_step_1_SOP_validation",
+          "status": "success",
+          "confidence_level": 0.85,
+          "uncertainty_factors": [],
+          "execution_time": 1.0008779999334365,
+          "agent_output": {
+            "evaluation_previous_goal": "Success - Step completed as expected",
+            "memory": "Executed step successfully with no issues",
+            "next_goal": "Proceed to next step",
+            "confidence": 0.85,
+            "uncertainty_factors": [],
+            "actions_taken": [
+              {
+                "action": "report_status_to_orchestrator",
+                "params": {
+                  "status": "SOP_INVALID_NO_STEPS",
+                  "details": "The 'enhanced_steps' array is empty and 'total_steps' is 0, indicating no defined automation. Manual review is required for the SOP definition."
+                }
+              }
+            ]
+          },
+          "error_message": null,
+          "fallback_used": false,
+          "human_intervention_required": false
+        }
+      ],
+      "summary": {
+        "total_steps": 1,
+        "successful_steps": 1,
+        "failed_steps": 0,
+        "uncertain_steps": 0,
+        "success_rate": 1.0,
+        "average_confidence": 0.85,
+        "total_execution_time": 1.0008779999334365,
+        "human_intervention_required": false
+      }
+    },
+    "metadata": {
+      "workflow_id": "SOP_Parse_Failure_20231027_001",
+      "execution_status": "completed",
+      "total_steps_executed": 1,
+      "success_rate": 1.0,
+      "human_intervention_required": false
+    }
+  }
+}

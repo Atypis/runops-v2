@@ -1,0 +1,34 @@
+{
+  "workflow_id": "workflow_invalid_sop_001",
+  "status": "completed",
+  "results": [
+    {
+      "step_id": "orchestration_halt_and_escalate_invalid_sop",
+      "status": "success",
+      "confidence_level": 0.85,
+      "uncertainty_factors": [],
+      "execution_time": 1.0016249170294032,
+      "agent_output": {
+        "evaluation_previous_goal": "Success - Step completed as expected",
+        "memory": "Executed step successfully with no issues",
+        "next_goal": "Proceed to next step",
+        "confidence": 0.85,
+        "uncertainty_factors": [],
+        "actions_taken": []
+      },
+      "error_message": null,
+      "fallback_used": false,
+      "human_intervention_required": false
+    }
+  ],
+  "summary": {
+    "total_steps": 1,
+    "successful_steps": 1,
+    "failed_steps": 0,
+    "uncertain_steps": 0,
+    "success_rate": 1.0,
+    "average_confidence": 0.85,
+    "total_execution_time": 1.0016249170294032,
+    "human_intervention_required": false
+  }
+}

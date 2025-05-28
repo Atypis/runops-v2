@@ -1,0 +1,252 @@
+{
+  "workflow_name": "ecommerce_workflow",
+  "workflow_data": {
+    "name": "E-commerce Purchase",
+    "description": "Complete product purchase workflow",
+    "transcript": [
+      {
+        "timestamp": "00:00:00",
+        "action": "Navigate to product page",
+        "details": "User navigated to specific product page",
+        "url": "https://shop.example.com/products/laptop-123",
+        "element": ""
+      },
+      {
+        "timestamp": "00:00:08",
+        "action": "Select product variant",
+        "details": "User selected 16GB RAM variant",
+        "url": "https://shop.example.com/products/laptop-123",
+        "element": "select[name='memory']"
+      },
+      {
+        "timestamp": "00:00:15",
+        "action": "Add to cart",
+        "details": "User clicked Add to Cart button",
+        "url": "https://shop.example.com/products/laptop-123",
+        "element": "button[data-action='add-to-cart']"
+      },
+      {
+        "timestamp": "00:00:18",
+        "action": "View cart",
+        "details": "User clicked on cart icon to review items",
+        "url": "https://shop.example.com/cart",
+        "element": "a[href='/cart']"
+      },
+      {
+        "timestamp": "00:00:25",
+        "action": "Proceed to checkout",
+        "details": "User clicked Checkout button",
+        "url": "https://shop.example.com/checkout",
+        "element": "button[data-action='checkout']"
+      },
+      {
+        "timestamp": "00:00:30",
+        "action": "Fill shipping address",
+        "details": "User filled in shipping address form",
+        "url": "https://shop.example.com/checkout",
+        "element": "form[name='shipping']"
+      },
+      {
+        "timestamp": "00:00:45",
+        "action": "Select payment method",
+        "details": "User selected credit card payment",
+        "url": "https://shop.example.com/checkout",
+        "element": "input[name='payment_method'][value='credit_card']"
+      },
+      {
+        "timestamp": "00:00:50",
+        "action": "Enter payment details",
+        "details": "User entered credit card information",
+        "url": "https://shop.example.com/checkout",
+        "element": "form[name='payment']"
+      },
+      {
+        "timestamp": "00:01:05",
+        "action": "Complete purchase",
+        "details": "User clicked Place Order button",
+        "url": "https://shop.example.com/checkout",
+        "element": "button[type='submit'][data-action='place-order']"
+      }
+    ]
+  },
+  "sop_result": {
+    "status": "success",
+    "stage": "sop_parsing",
+    "enhanced_sop": {
+      "workflow_metadata": {
+        "title": "Failed Parse",
+        "total_steps": 0,
+        "estimated_duration": 0,
+        "automation_coverage": 0.0,
+        "complexity_score": 1.0,
+        "requires_human_intervention": true
+      },
+      "enhanced_steps": [],
+      "automation_summary": {
+        "fully_automatable_steps": 0,
+        "partially_automatable_steps": 0,
+        "manual_steps": 0,
+        "critical_dependencies": [
+          "manual_review"
+        ],
+        "risk_factors": [
+          "parsing_failure"
+        ],
+        "recommended_approach": "manual_review_required"
+      }
+    },
+    "metadata": {
+      "total_steps": 0,
+      "automation_coverage": 0.0,
+      "requires_human_intervention": true
+    }
+  },
+  "plan_result": {
+    "status": "success",
+    "stage": "execution_planning",
+    "execution_plan": {
+      "execution_plan": {
+        "workflow_id": "failed_parse_sop_escalation_001",
+        "total_steps": 1,
+        "estimated_duration": 60,
+        "execution_strategy": "human_escalation_only",
+        "confidence_threshold": 0.0,
+        "human_oversight_required": true
+      },
+      "step_instructions": [
+        {
+          "step_id": "orchestrator_escalation_001",
+          "agent_instructions": {
+            "task": "Detect and report unexecutable SOP to human operator, requesting a valid or corrected SOP.",
+            "actions": [
+              {
+                "action": "report_uncertainty_to_orchestrator",
+                "params": {
+                  "uncertainty_level": "CRITICAL",
+                  "factors": [
+                    "SOP 'enhanced_steps' array is empty.",
+                    "SOP metadata explicitly states 'requires_human_intervention': true.",
+                    "SOP metadata explicitly lists 'parsing_failure' as a risk factor.",
+                    "No automatable browser actions are defined."
+                  ]
+                }
+              }
+            ],
+            "success_criteria": [
+              "Human operator acknowledges the unexecutable SOP.",
+              "Confirmation that a corrected or valid SOP will be provided."
+            ],
+            "uncertainty_handling": {
+              "confidence_threshold": 0.0,
+              "escalation_triggers": [
+                "SOP_unexecutable_by_design",
+                "no_automatable_steps_found"
+              ],
+              "fallback_strategy": "N/A - this is the fallback",
+              "max_retries": 1
+            }
+          },
+          "orchestration_config": {
+            "requires_validation": false,
+            "parallel_execution": false,
+            "human_approval_required": true,
+            "timeout_seconds": 3600,
+            "monitoring_notes": "Awaiting human acknowledgment and new SOP submission."
+          }
+        }
+      ],
+      "uncertainty_management": {
+        "overall_confidence": 0.05,
+        "risk_factors": [
+          "SOP_structure_invalid_or_incomplete",
+          "explicit_parsing_failure_flag",
+          "lack_of_automatable_steps"
+        ],
+        "mitigation_strategies": [
+          "immediate_human_escalation",
+          "request_for_valid_sop_remediation",
+          "logging_unexecutable_workflow_event"
+        ],
+        "escalation_plan": "notify_workflow_owner_and_engineering_team_for_sop_review_and_correction",
+        "monitoring_requirements": [
+          "monitor_human_response_time",
+          "track_sop_remediation_status"
+        ]
+      },
+      "coordination_strategy": {
+        "agent_allocation": "no_browser_agents_allocated_due_to_unexecutable_sop",
+        "backup_agents": 0,
+        "parallel_tasks": [],
+        "synchronization_points": [
+          "human_feedback_and_new_sop_receipt"
+        ],
+        "rollback_capabilities": false
+      }
+    },
+    "metadata": {
+      "workflow_id": "failed_parse_sop_escalation_001",
+      "total_steps": 1,
+      "estimated_duration": 60,
+      "confidence_threshold": 0.0,
+      "human_oversight_required": true
+    }
+  },
+  "exec_result": {
+    "status": "success",
+    "stage": "workflow_execution",
+    "execution_result": {
+      "workflow_id": "failed_parse_sop_escalation_001",
+      "status": "completed",
+      "results": [
+        {
+          "step_id": "orchestrator_escalation_001",
+          "status": "success",
+          "confidence_level": 0.85,
+          "uncertainty_factors": [],
+          "execution_time": 1.0006715840427205,
+          "agent_output": {
+            "evaluation_previous_goal": "Success - Step completed as expected",
+            "memory": "Executed step successfully with no issues",
+            "next_goal": "Proceed to next step",
+            "confidence": 0.85,
+            "uncertainty_factors": [],
+            "actions_taken": [
+              {
+                "action": "report_uncertainty_to_orchestrator",
+                "params": {
+                  "uncertainty_level": "CRITICAL",
+                  "factors": [
+                    "SOP 'enhanced_steps' array is empty.",
+                    "SOP metadata explicitly states 'requires_human_intervention': true.",
+                    "SOP metadata explicitly lists 'parsing_failure' as a risk factor.",
+                    "No automatable browser actions are defined."
+                  ]
+                }
+              }
+            ]
+          },
+          "error_message": null,
+          "fallback_used": false,
+          "human_intervention_required": false
+        }
+      ],
+      "summary": {
+        "total_steps": 1,
+        "successful_steps": 1,
+        "failed_steps": 0,
+        "uncertain_steps": 0,
+        "success_rate": 1.0,
+        "average_confidence": 0.85,
+        "total_execution_time": 1.0006715840427205,
+        "human_intervention_required": false
+      }
+    },
+    "metadata": {
+      "workflow_id": "failed_parse_sop_escalation_001",
+      "execution_status": "completed",
+      "total_steps_executed": 1,
+      "success_rate": 1.0,
+      "human_intervention_required": false
+    }
+  }
+}

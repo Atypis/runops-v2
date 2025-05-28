@@ -1,0 +1,23 @@
+{
+  "workflow_metadata": {
+    "title": "Failed Parse",
+    "total_steps": 0,
+    "estimated_duration": 0,
+    "automation_coverage": 0.0,
+    "complexity_score": 1.0,
+    "requires_human_intervention": true
+  },
+  "enhanced_steps": [],
+  "automation_summary": {
+    "fully_automatable_steps": 0,
+    "partially_automatable_steps": 0,
+    "manual_steps": 0,
+    "critical_dependencies": [
+      "manual_review"
+    ],
+    "risk_factors": [
+      "parsing_failure"
+    ],
+    "recommended_approach": "manual_review_required"
+  }
+}
