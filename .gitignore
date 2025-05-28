@@ -51,6 +51,3 @@ sop_orchestrator/screenshots/*/timeline_export_*.json
 # Temporary files
 *.tmp
 *.temp
-
-# External dependencies (install separately)
-browser-use/
