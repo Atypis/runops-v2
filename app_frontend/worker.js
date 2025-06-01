@@ -31,6 +31,17 @@ try {
   process.exit(1);
 }
 
+// Load the NEW Stagehand-optimized prompt
+const STAGEHAND_PROMPT_PATH = path.join(__dirname, 'prompts', 'stagehand-giga-optimised-prompt_v0.91.md');
+let STAGEHAND_PARSING_PROMPT;
+try {
+  STAGEHAND_PARSING_PROMPT = fs.readFileSync(STAGEHAND_PROMPT_PATH, 'utf8');
+  console.log(`Loaded Stagehand-optimized prompt (${STAGEHAND_PARSING_PROMPT.length} chars) - STAGEHAND GIGA-OPTIMIZED v0.91`);
+} catch (error) {
+  console.error(`ERROR: Could not load Stagehand prompt from ${STAGEHAND_PROMPT_PATH}:`, error);
+  process.exit(1);
+}
+
 // Load the transcription prompt from file
 const TRANSCRIPTION_PROMPT_PATH = path.join(__dirname, 'prompts', 'transcription_prompt_v1.md');
 let TRANSCRIPTION_PROMPT;
@@ -276,20 +287,40 @@ async function extractSopFromVideo(videoPath, jobId) {
     fs.writeFileSync(transcriptPath, JSON.stringify({ transcript }, null, 2));
     await uploadTranscriptJson(transcriptPath, jobId);
     
-    // Step 2: Generate SOP from transcript
+    // Step 2: Generate SOPs from transcript using BOTH prompts in parallel
     await updateJobStatus(jobId, 'processing', null, 'parsing_sop', 70);
-    const sopData = await generateSopFromTranscript(transcript);
-    if (!sopData) {
-      throw new Error('Failed to generate SOP from transcript');
+    console.log('🚀 PARALLEL PROCESSING: Running both original and Stagehand-optimized prompts...');
+    
+    const [originalSopData, stagehandSopData] = await Promise.all([
+      generateSopFromTranscript(transcript, 'original'),
+      generateSopFromTranscript(transcript, 'stagehand')
+    ]);
+    
+    if (!originalSopData && !stagehandSopData) {
+      throw new Error('Failed to generate SOP from transcript with both prompts');
     }
     
-    // Save SOP JSON file to storage
-    const sopPath = path.join(TEMP_DIR, `${jobId}_sop.json`);
-    fs.writeFileSync(sopPath, JSON.stringify(sopData, null, 2));
-    await uploadSopJson(sopPath, jobId);
+    // Save both SOP versions to storage and database
+    if (originalSopData) {
+      const originalSopPath = path.join(TEMP_DIR, `${jobId}_sop_original.json`);
+      fs.writeFileSync(originalSopPath, JSON.stringify(originalSopData, null, 2));
+      await uploadSopJson(originalSopPath, jobId, 'original');
+      await saveSopToDatabase(jobId, originalSopData, 'original');
+      console.log('✅ Original SOP saved successfully');
+    }
     
-    console.log('SOP extracted successfully');
-    return sopData;
+    if (stagehandSopData) {
+      const stagehandSopPath = path.join(TEMP_DIR, `${jobId}_sop_stagehand.json`);
+      fs.writeFileSync(stagehandSopPath, JSON.stringify(stagehandSopData, null, 2));
+      await uploadSopJson(stagehandSopPath, jobId, 'stagehand');
+      await saveSopToDatabase(jobId, stagehandSopData, 'stagehand');
+      console.log('✅ Stagehand-optimized SOP saved successfully');
+    }
+    
+    console.log('🎯 PARALLEL PROCESSING COMPLETE: Both SOPs extracted and saved');
+    
+    // Return the original SOP for backward compatibility
+    return originalSopData || stagehandSopData;
   } catch (error) {
     console.error('Error in extractSopFromVideo:', error);
     return null;
@@ -371,7 +402,7 @@ async function transcribeVideo(videoPath) {
 }
 
 // Step 2: Generate SOP from transcript
-async function generateSopFromTranscript(transcript) {
+async function generateSopFromTranscript(transcript, promptType) {
   // Get Gemini model
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-04-17" });
   
@@ -380,13 +411,19 @@ async function generateSopFromTranscript(transcript) {
   let attempt = 0;
   let sopData = null;
   
+  // Select the appropriate prompt based on type
+  const selectedPrompt = promptType === 'stagehand' ? STAGEHAND_PARSING_PROMPT : SOP_PARSING_PROMPT;
+  const promptName = promptType === 'stagehand' ? 'Stagehand-optimized' : 'Original';
+  
+  console.log(`🎯 Using ${promptName} prompt for SOP generation`);
+  
   // Create a prompt that includes both the SOP parser instructions and the transcript
   const transcriptJson = JSON.stringify(transcript);
-  const combinedPrompt = `${SOP_PARSING_PROMPT}\n\nHere is the transcript of the video:\n${transcriptJson}`;
+  const combinedPrompt = `${selectedPrompt}\n\nHere is the transcript of the video:\n${transcriptJson}`;
   
   while (attempt < MAX_RETRIES && !sopData) {
     attempt++;
-    console.log(`SOP generation attempt ${attempt}...`);
+    console.log(`${promptName} SOP generation attempt ${attempt}...`);
     
     try {
       // Generate content with the model
@@ -396,7 +433,7 @@ async function generateSopFromTranscript(transcript) {
       const text = response.text();
       
       // Log the first 500 chars of the response for debugging
-      console.log(`Raw SOP response (first 500 chars): ${text.substring(0, 500)}...`);
+      console.log(`Raw ${promptName} SOP response (first 500 chars): ${text.substring(0, 500)}...`);
       
       // Clean up the response text to handle markdown code blocks or any other formatting
       let cleanedText = text;
@@ -420,11 +457,23 @@ async function generateSopFromTranscript(transcript) {
       // Validate that the response is valid JSON
       try {
         sopData = JSON.parse(cleanedText);
-        console.log(`Successfully extracted SOP data`);
-        console.log(`SOP meta: ${JSON.stringify(sopData.meta || {})}`);
-        console.log(`SOP nodes: ${(sopData.public?.nodes || []).length} nodes`);
+        console.log(`✅ Successfully extracted ${promptName} SOP data`);
+        console.log(`${promptName} SOP meta: ${JSON.stringify(sopData.meta || {})}`);
+        console.log(`${promptName} SOP nodes: ${(sopData.public?.nodes || []).length} nodes`);
+        
+        // Log additional details for Stagehand version
+        if (promptType === 'stagehand') {
+          const nodesWithStagehandInstructions = (sopData.public?.nodes || []).filter(node => node.stagehand_instruction);
+          console.log(`🎯 Stagehand nodes with instructions: ${nodesWithStagehandInstructions.length}`);
+          
+          const extractNodes = (sopData.public?.nodes || []).filter(node => node.type === 'extract');
+          console.log(`📊 Extract nodes: ${extractNodes.length}`);
+          
+          const confidenceLevels = (sopData.public?.nodes || []).map(node => node.confidence_level).filter(Boolean);
+          console.log(`🎚️ Confidence levels found: ${confidenceLevels.length}`);
+        }
       } catch (parseError) {
-        console.error('Invalid JSON response from Gemini API:', parseError);
+        console.error(`Invalid JSON response from ${promptName} Gemini API:`, parseError);
         console.error('Clean text (first 500 chars):', cleanedText.substring(0, 500) + '...');
         
         // Try fallback JSON extraction if standard parsing failed
@@ -437,27 +486,27 @@ async function generateSopFromTranscript(transcript) {
             // Try the largest JSON match (likely the complete structure)
             const largestMatch = jsonMatches.reduce((a, b) => a.length > b.length ? a : b);
             sopData = JSON.parse(largestMatch);
-            console.log('Successfully extracted SOP data using fallback method');
-            console.log(`SOP meta: ${JSON.stringify(sopData.meta || {})}`);
-            console.log(`SOP nodes: ${(sopData.public?.nodes || []).length} nodes`);
+            console.log(`✅ Successfully extracted ${promptName} SOP data using fallback method`);
+            console.log(`${promptName} SOP meta: ${JSON.stringify(sopData.meta || {})}`);
+            console.log(`${promptName} SOP nodes: ${(sopData.public?.nodes || []).length} nodes`);
           }
         } catch (fallbackError) {
-          console.error('Fallback JSON extraction also failed:', fallbackError);
+          console.error(`${promptName} fallback JSON extraction also failed:`, fallbackError);
         }
       }
     } catch (error) {
-      console.error(`Error during Gemini API SOP generation (attempt ${attempt}):`, error);
+      console.error(`Error during ${promptName} Gemini API SOP generation (attempt ${attempt}):`, error);
     }
     
     // If not successful and not the last attempt, wait before retrying
     if (!sopData && attempt < MAX_RETRIES) {
-      console.log(`Waiting 5 seconds before retry ${attempt + 1}...`);
+      console.log(`Waiting 5 seconds before ${promptName} retry ${attempt + 1}...`);
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
   
   if (!sopData) {
-    console.error(`Failed to generate SOP after ${MAX_RETRIES} attempts`);
+    console.error(`❌ Failed to generate ${promptName} SOP after ${MAX_RETRIES} attempts`);
     return null;
   }
   
@@ -494,8 +543,8 @@ async function uploadTranscriptJson(filePath, jobId) {
 }
 
 // Upload the SOP JSON to storage
-async function uploadSopJson(filePath, jobId) {
-  const storagePath = `sops/${jobId}.json`;
+async function uploadSopJson(filePath, jobId, promptType) {
+  const storagePath = `sops/${jobId}_${promptType}.json`;
   
   console.log(`Uploading SOP JSON to ${storagePath}...`);
 
@@ -523,7 +572,7 @@ async function uploadSopJson(filePath, jobId) {
 }
 
 // Save SOP data to database
-async function saveSopToDatabase(jobId, sopData) {
+async function saveSopToDatabase(jobId, sopData, promptType) {
   console.log(`Saving SOP data to database for job ${jobId}...`);
   
   try {
@@ -549,6 +598,7 @@ async function saveSopToDatabase(jobId, sopData) {
           job_id: jobId,
           user_id: user_id,
           data: sopData,
+          prompt_type: promptType,
           created_at: new Date().toISOString()
         }
       ]);
@@ -643,7 +693,8 @@ function cleanupTempFiles(jobId) {
   try {
     const rawPath = path.join(TEMP_DIR, `${jobId}_raw.mp4`);
     const slimPath = path.join(TEMP_DIR, `${jobId}_slim.mp4`);
-    const sopPath = path.join(TEMP_DIR, `${jobId}_sop.json`);
+    const originalSopPath = path.join(TEMP_DIR, `${jobId}_sop_original.json`);
+    const stagehandSopPath = path.join(TEMP_DIR, `${jobId}_sop_stagehand.json`);
     
     if (fs.existsSync(rawPath)) {
       fs.unlinkSync(rawPath);
@@ -653,8 +704,12 @@ function cleanupTempFiles(jobId) {
       fs.unlinkSync(slimPath);
     }
     
-    if (fs.existsSync(sopPath)) {
-      fs.unlinkSync(sopPath);
+    if (fs.existsSync(originalSopPath)) {
+      fs.unlinkSync(originalSopPath);
+    }
+    
+    if (fs.existsSync(stagehandSopPath)) {
+      fs.unlinkSync(stagehandSopPath);
     }
     
     console.log(`Cleaned up temporary files for job ${jobId}`);
