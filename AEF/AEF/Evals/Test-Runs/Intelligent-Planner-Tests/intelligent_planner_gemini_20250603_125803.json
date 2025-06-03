@@ -1,0 +1,11 @@
+{
+  "success": false,
+  "error": "Expecting value: line 1 column 1 (char 0)",
+  "execution_log": [],
+  "test_metadata": {
+    "test_name": "intelligent_planner_gemini",
+    "timestamp": "2025-06-03T12:58:03.398130",
+    "architecture": "intelligent_planner_executor_v1",
+    "expected_improvement": "25% \u2192 100% success rate (PERFECTION REQUIRED)"
+  }
+}

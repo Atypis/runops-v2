@@ -16,7 +16,7 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 sys.path.append(str(project_root / "browser-use"))
 
-from AEF.agents.sop_to_agent import SOPWorkflowManager
+from AEF.agents.outdated.sop_to_agent import SOPWorkflowManager
 
 
 async def test_gmail_airtable_workflow():
@@ -123,7 +123,7 @@ async def test_sop_analysis_only():
         with open(sop_path, 'r') as f:
             sop_data = json.load(f)
         
-        from AEF.agents.sop_to_agent import IntelligentSOPExecutor
+        from AEF.agents.outdated.sop_to_agent import IntelligentSOPExecutor
         executor = IntelligentSOPExecutor()
         
         # Generate the intelligent task description
