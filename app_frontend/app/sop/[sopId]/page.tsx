@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react'; // Add useRef for po
 import SOPListView from '@/components/sop/SOPListView';
 import SOPFlowView from '@/components/sop/SOPFlowView'; // Uncomment and import
 import ElegantSOPView from '@/components/sop/ElegantSOPView';
+import AEFControlCenter from '@/components/aef/AEFControlCenter';
 import { Button } from "@/components/ui/button";
 import { SOPDocument, SOPNode } from '@/lib/types/sop'; // Import types
 import { processSopData, getRootNodes } from '@/lib/sop-utils'; // Import utils
@@ -27,7 +28,7 @@ interface SopPageProps {
 type JobStatus = 'queued' | 'processing' | 'completed' | 'error' | 'unknown';
 
 export default function SopPage({ params }: SopPageProps) {
-  const [viewMode, setViewMode] = useState<'list' | 'flow'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'flow' | 'aef'>('list');
   const [sopData, setSopData] = useState<SOPDocument | null>(null);
   const [processedSopData, setProcessedSopData] = useState<SOPDocument | null>(null);
   const [rootNodes, setRootNodes] = useState<SOPNode[]>([]);
@@ -384,6 +385,14 @@ export default function SopPage({ params }: SopPageProps) {
               >
                 Flow
               </Button>
+              <Button 
+                variant={viewMode === 'aef' ? 'default' : 'ghost'} 
+                onClick={() => setViewMode('aef')} 
+                size="sm"
+                className="text-xs"
+              >
+                🤖 AEF
+              </Button>
             </div>
           </div>
         </header>
@@ -395,9 +404,19 @@ export default function SopPage({ params }: SopPageProps) {
                 sopData={processedSopData} 
                 rootNodes={listRootNodes}
               />
-            ) : (
+            ) : viewMode === 'flow' ? (
               <div className="bg-muted/50 h-full rounded-xl">
                 <SOPFlowView sopData={processedSopData} />
+              </div>
+            ) : (
+              <div className="h-full rounded-xl overflow-hidden">
+                <AEFControlCenter 
+                  sopData={processedSopData}
+                  onTransformToAEF={() => {
+                    // TODO: Implement AEF transformation
+                    console.log('Transform to AEF clicked');
+                  }}
+                />
               </div>
             )}
           </div>
