@@ -590,10 +590,10 @@ async function saveSopToDatabase(jobId, sopData, promptType) {
     const user_id = jobData?.metadata?.user_id || null;
     console.log(`User ID for job ${jobId}: ${user_id || 'Not available'}`);
     
-    // Insert the SOP data into the sops table
+    // Upsert the SOP data into the sops table (prevents duplicates)
     const { data, error } = await supabase
       .from('sops')
-      .insert([
+      .upsert([
         {
           job_id: jobId,
           user_id: user_id,
@@ -601,7 +601,9 @@ async function saveSopToDatabase(jobId, sopData, promptType) {
           prompt_type: promptType,
           created_at: new Date().toISOString()
         }
-      ]);
+      ], {
+        onConflict: 'job_id'
+      });
       
     if (error) {
       console.error(`Error saving SOP data to database:`, error);
