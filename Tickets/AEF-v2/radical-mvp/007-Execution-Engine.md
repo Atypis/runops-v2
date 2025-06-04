@@ -79,61 +79,61 @@ interface ExecutionContext {
 
 ## 🤔 Key Design Decisions Needed
 
-### 1. **Step Execution Model**
-**Decision Required**: How should steps be executed in relation to each other?
-- **Option A**: Sequential only (one step at a time)
-- **Option B**: Parallel where possible (independent steps simultaneously)
-- **Option C**: User-controlled parallelism (configurable concurrency)
+### 1. **Step Execution Model** ✅ DECIDED
+**Chosen**: Option A (Sequential only) for MVP
+- One step executed at a time in workflow order
+- Simplified execution flow and state management
+- Future enhancement: Parallel execution for independent steps
 
-**Impact**: Affects performance and execution complexity
+**Impact**: Predictable execution order with simplified debugging
 
-### 2. **State Persistence Strategy**
-**Decision Required**: How frequently should execution state be persisted?
-- **Option A**: After each step completion
-- **Option B**: Continuous streaming updates
-- **Option C**: Checkpoint-based snapshots only
+### 2. **State Persistence Strategy** ✅ DECIDED
+**Chosen**: Option A (After each step completion)
+- Execution state saved after each step and checkpoint
+- Enables reliable recovery from failures or interruptions
+- Balances reliability with database performance
 
-**Impact**: Affects recovery capabilities and database load
+**Impact**: Reliable execution recovery without excessive database load
 
-### 3. **Variable Scope Management**
-**Decision Required**: How should variables flow between steps?
-- **Option A**: Global scope (all variables accessible everywhere)
-- **Option B**: Hierarchical scope (parent/child relationships)
-- **Option C**: Explicit passing (variables must be declared as inputs/outputs)
+### 3. **Variable Scope Management** ✅ DECIDED
+**Chosen**: Option A (Global scope)
+- Shared ExecutionContext with Map<string, any> for all variables
+- All steps can read/write to the global variable space
+- Simple debugging with complete variable visibility
 
-**Impact**: Affects debugging and data flow complexity
+**Impact**: Simplified variable management and data flow
 
-### 4. **Error Propagation Strategy**
-**Decision Required**: How should step failures affect overall execution?
-- **Option A**: Fail fast (stop execution on any error)
-- **Option B**: Continue where possible (isolate failures)
-- **Option C**: User-defined error handling policies
+### 4. **Error Propagation Strategy** ✅ DECIDED
+**Chosen**: Option A (Fail fast) for MVP
+- Step failures stop execution immediately
+- Clear error presentation to user with retry options
+- Future enhancement: Continue-on-error policies for non-critical steps
 
-**Impact**: Affects robustness and user control
+**Impact**: Clear error handling with manual recovery control
 
-### 5. **Loop Execution Handling**
-**Decision Required**: How should loop nodes be executed?
-- **Option A**: Expand loops into individual steps at execution time
-- **Option B**: Execute loops as containers with special handling
-- **Option C**: Hybrid approach based on loop complexity
+### 5. **Loop Execution Handling** ✅ DECIDED
+**Chosen**: Option A (Expand loops into individual steps)
+- Loop discovery phase creates individual step instances
+- Each loop iteration becomes an executable step with checkpoints
+- UI shows loop progress with individual step controls
 
-**Impact**: Affects UI representation and execution control
+**Impact**: Granular loop control with clear progress visualization
 
-### 6. **Dependency Resolution**
-**Decision Required**: How should step dependencies be determined and enforced?
-- **Option A**: Static analysis from SOP structure
-- **Option B**: Dynamic dependency declaration
-- **Option C**: Runtime dependency detection
+### 6. **Dependency Resolution** ✅ DECIDED
+**Chosen**: Option A (Static analysis from SOP structure)
+- Step order determined by existing edges and parentId relationships
+- No additional dependency declaration required
+- Leverages existing SOP structure for execution order
 
-**Impact**: Affects execution correctness and flexibility
+**Impact**: Reuses existing SOP structure without additional complexity
 
-### 7. **Progress Calculation**
-**Decision Required**: How should overall execution progress be calculated?
-- **Option A**: Simple step count (completed/total)
-- **Option B**: Weighted by estimated step duration
-- **Option C**: Dynamic based on actual execution time
+### 7. **Progress Calculation** ✅ DECIDED
+**Chosen**: Option A (Simple step count)
+- Progress = completed steps / total steps * 100
+- Clear, predictable progress indication
+- Future enhancement: Weighted progress by step complexity
 
-**Impact**: Affects user experience and expectations
+**Impact**: Simple, understandable progress tracking
 
 ## 📦 Dependencies
 - Ticket 006 (Browser Integration) for browser automation

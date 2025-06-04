@@ -8,6 +8,31 @@ The **Radical MVP** contains the absolute minimum tickets needed to prove the co
 
 **Value Proposition**: "Watch your manual workflow become automated in real-time, with you in control"
 
+## ✅ Key Architectural Decisions
+
+### **Checkpoint Control Strategy**
+- **Workflow Level**: Toggle between "Run with checkpoints" OR "Run automatically"
+- **Step Level**: Individual step approval for maximum safety
+- **MVP**: Simple "before execution" checkpoint for every step when enabled
+- **Impact**: Users get both efficiency (auto mode) and control (checkpoint mode)
+
+### **Browser Automation Architecture** 
+- **Engine**: Self-hosted Stagehand + Playwright (not Browserbase for MVP)
+- **Sessions**: One fresh browser session per workflow execution
+- **Streaming**: Screenshot polling every 2-3 seconds (not real-time video)
+- **Impact**: Simple deployment with predictable resource usage
+
+### **Execution & State Management**
+- **Execution**: Sequential steps only (no parallelism for MVP)
+- **Variables**: Global execution context shared across all steps
+- **Persistence**: Save state after each step completion and checkpoint
+- **Impact**: Simplified debugging and reliable execution recovery
+
+### **Error Handling Strategy**
+- **Approach**: Fail fast with immediate user notification
+- **Recovery**: Simple "refresh and try again" mechanism
+- **Impact**: Clear error states with manual recovery control
+
 ## ⚡ MVP Tickets (7 Total)
 
 ### **Foundation Layer**

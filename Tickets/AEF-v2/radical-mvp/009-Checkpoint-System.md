@@ -97,61 +97,61 @@ interface CheckpointQueueProps {
 
 ## 🤔 Key Design Decisions Needed
 
-### 1. **Checkpoint Configuration Granularity**
-**Decision Required**: How detailed should checkpoint configuration be?
-- **Option A**: Simple on/off per step
-- **Option B**: Type-based configuration (before/after/error)
-- **Option C**: Condition-based rules engine
+### 1. **Checkpoint Configuration Granularity** ✅ DECIDED
+**Chosen**: Option B (Type-based configuration) with dual control levels
+- **Workflow Level**: "Run with checkpoints" OR "Run automatically" toggle
+- **Step Level**: Per-step checkpoint types (before/after/error/custom)
+- **MVP**: Hardcoded "before execution" checkpoints for all steps when enabled
 
-**Impact**: Affects user control complexity and system flexibility
+**Impact**: Balanced user control with execution efficiency
 
-### 2. **Timeout Behavior**
-**Decision Required**: What should happen when checkpoints timeout?
-- **Option A**: Automatic approval (proceed with caution)
-- **Option B**: Automatic rejection (stop execution)
-- **Option C**: User-configurable default action
+### 2. **Timeout Behavior** ✅ DECIDED
+**Chosen**: Option B (Automatic rejection/stop execution)
+- Checkpoints timeout after 5 minutes of no response
+- Execution pauses and awaits user return
+- Future enhancement: User-configurable timeout actions
 
-**Impact**: Affects automation reliability and user experience
+**Impact**: Safe default behavior prevents unwanted automatic execution
 
-### 3. **Checkpoint UI Presentation**
-**Decision Required**: How should checkpoints be presented to users?
-- **Option A**: Modal dialogs (blocking, focused)
-- **Option B**: Side panel notifications (non-blocking)
-- **Option C**: Dedicated checkpoint management interface
+### 3. **Checkpoint UI Presentation** ✅ DECIDED
+**Chosen**: Option A (Modal dialogs) for MVP
+- Blocking modal dialogs ensure focused user attention
+- Clear approve/reject actions with context information
+- Future enhancement: Non-blocking side panel for advanced users
 
-**Impact**: Affects workflow interruption and user attention
+**Impact**: Ensures user awareness and deliberate decision-making
 
-### 4. **Bulk Approval Strategy**
-**Decision Required**: How should multiple checkpoints be handled?
-- **Option A**: Individual approval only (safest)
-- **Option B**: Batch approval for similar checkpoints
-- **Option C**: Smart grouping with pattern recognition
+### 4. **Bulk Approval Strategy** ✅ DECIDED
+**Chosen**: Option A (Individual approval only) for MVP
+- Each checkpoint requires individual user approval
+- Safety-first approach for initial implementation
+- Future enhancement: Batch approval for trusted step patterns
 
-**Impact**: Affects efficiency vs safety trade-off
+**Impact**: Maximum safety and control, potential efficiency trade-off
 
-### 5. **Context Information Depth**
-**Decision Required**: How much context should be shown at checkpoints?
-- **Option A**: Minimal (step name and action)
-- **Option B**: Moderate (current state and next action)
-- **Option C**: Complete (full execution context and preview)
+### 5. **Context Information Depth** ✅ DECIDED
+**Chosen**: Option B (Moderate context)
+- Show current step name, description, and planned action
+- Display current browser state (screenshot + URL)
+- Preview what will happen next
+- Future enhancement: Full execution context and variable state
 
-**Impact**: Affects user decision quality and interface complexity
+**Impact**: Informed decision-making without information overload
 
-### 6. **Checkpoint Persistence**
-**Decision Required**: How should checkpoint state be managed across sessions?
-- **Option A**: Session-only (lost on refresh)
-- **Option B**: Persistent with cleanup after resolution
-- **Option C**: Full historical record keeping
+### 6. **Checkpoint Persistence** ✅ DECIDED
+**Chosen**: Option B (Persistent with cleanup)
+- Checkpoint state saved to database for recovery
+- Automatic cleanup after execution completion
+- User can return to pending checkpoints after page refresh
 
-**Impact**: Affects reliability and audit capabilities
+**Impact**: Reliable checkpoint handling across sessions
 
-### 7. **Multi-User Checkpoint Handling**
-**Decision Required**: How should checkpoints work in team environments?
-- **Option A**: Creator-only approval
-- **Option B**: Delegated approval to team members
-- **Option C**: Consensus-based approval system
+### 7. **Multi-User Checkpoint Handling** ✅ DECIDED
+**Chosen**: Option A (Creator-only approval) for MVP
+- Only the user who started execution can approve checkpoints
+- Future enhancement: Team collaboration and delegation features
 
-**Impact**: Affects collaboration and workflow sharing
+**Impact**: Simplified permission model for MVP
 
 ## 📦 Dependencies
 - Ticket 008 (Real-Time Communication) for checkpoint events

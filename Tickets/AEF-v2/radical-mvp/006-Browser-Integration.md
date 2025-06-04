@@ -72,61 +72,61 @@ class StagehandAdapter {
 
 ## 🤔 Key Design Decisions Needed
 
-### 1. **Browser Engine Choice**
-**Decision Required**: Which browser automation library should be primary?
-- **Option A**: Stagehand only (AI-powered, simpler)
-- **Option B**: Playwright only (reliable, feature-rich)
-- **Option C**: Hybrid approach (Stagehand with Playwright fallback)
+### 1. **Browser Engine Choice** ✅ DECIDED
+**Chosen**: Option C (Hybrid approach)
+- Primary: Stagehand for AI-powered automation
+- Fallback: Playwright for reliable direct browser control
+- MVP: Focus on Stagehand integration first
 
-**Impact**: Affects automation capabilities and reliability
+**Impact**: Balanced automation capabilities with reliability
 
-### 2. **Browser Containerization Strategy**
-**Decision Required**: How should browsers be isolated and secured?
-- **Option A**: Docker containers per session
-- **Option B**: Headless browsers with user data isolation
-- **Option C**: Cloud-based browser service (BrowserBase/similar)
+### 2. **Browser Containerization Strategy** ✅ DECIDED
+**Chosen**: Option B (Headless browsers with user data isolation) for MVP
+- Self-hosted Playwright/Stagehand on application servers
+- User data isolation through separate browser contexts
+- Future enhancement: Docker containers or Browserbase cloud service
 
-**Impact**: Affects security, performance, and infrastructure complexity
+**Impact**: Simplified MVP deployment while maintaining security
 
-### 3. **Real-time Streaming Method**
-**Decision Required**: How should browser viewport be streamed to UI?
-- **Option A**: Screenshot polling (simple but less smooth)
-- **Option B**: Video streaming via WebRTC (smooth but complex)
-- **Option C**: Canvas-based rendering with periodic updates
+### 3. **Real-time Streaming Method** ✅ DECIDED
+**Chosen**: Option A (Screenshot polling) for MVP
+- HTTP polling every 2-3 seconds for browser screenshots
+- Base64 encoded images in API responses
+- Future enhancement: WebRTC video streaming for smoother experience
 
-**Impact**: Affects user experience and technical complexity
+**Impact**: Simple implementation with acceptable user experience
 
-### 4. **Session Persistence Strategy**
-**Decision Required**: How long should browser sessions persist?
-- **Option A**: Session per execution (destroyed after workflow)
-- **Option B**: Persistent sessions with timeout (reusable)
-- **Option C**: User-controlled session lifecycle
+### 4. **Session Persistence Strategy** ✅ DECIDED
+**Chosen**: Option A (Session per execution)
+- New browser session created for each workflow execution
+- Sessions destroyed after workflow completion or timeout
+- Cookies/state preservation handled through saved credentials
 
-**Impact**: Affects resource usage and user experience
+**Impact**: Predictable state management and resource cleanup
 
-### 5. **Action Execution Model**
-**Decision Required**: How should browser actions be queued and executed?
-- **Option A**: Synchronous execution (blocking)
-- **Option B**: Asynchronous queue with status updates
-- **Option C**: Parallel execution where possible
+### 5. **Action Execution Model** ✅ DECIDED
+**Chosen**: Option A (Synchronous execution) for MVP
+- Sequential step execution with blocking actions
+- Simplified execution flow and state management
+- Future enhancement: Asynchronous queue for better performance
 
-**Impact**: Affects performance and execution control
+**Impact**: Simplified execution model with clear error handling
 
-### 6. **Error Handling Strategy**
-**Decision Required**: How should browser automation errors be handled?
-- **Option A**: Immediate failure with user notification
-- **Option B**: Automatic retry with different strategies
-- **Option C**: Graceful degradation with manual takeover
+### 6. **Error Handling Strategy** ✅ DECIDED
+**Chosen**: Option A (Immediate failure with user notification)
+- Browser errors stop execution and notify user
+- Simple retry mechanism: "refresh and try again"
+- Future enhancement: Automatic retry strategies and graceful degradation
 
-**Impact**: Affects automation reliability and user experience
+**Impact**: Clear error states with manual recovery for MVP
 
-### 7. **Resource Management**
-**Decision Required**: How should browser resource usage be controlled?
-- **Option A**: Fixed limits per session
-- **Option B**: Dynamic scaling based on demand
-- **Option C**: User-configurable resource allocation
+### 7. **Resource Management** ✅ DECIDED
+**Chosen**: Option A (Fixed limits per session)
+- Single browser session per user execution
+- 30-minute timeout for inactive sessions
+- Memory limits handled by browser engine
 
-**Impact**: Affects system stability and costs
+**Impact**: Predictable resource usage and simple management
 
 ## 📦 Dependencies
 - Ticket 003 (API Infrastructure) for browser session endpoints
