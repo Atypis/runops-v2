@@ -13,6 +13,29 @@ export interface SOPTrigger {
   description: string;
 }
 
+// New: Browser automation instruction interface
+export interface BrowserInstruction {
+  sequence: number;                   // Order of execution (1, 2, 3...)
+  action_type: "navigate"|"click"|"type"|"extract"|"wait"|"verify";
+  description: string;                // Human-readable description
+  stagehand_instruction: string;      // Exact instruction for page.act()
+  selector_strategies: string[];      // Multiple ways to target elements
+  expected_result: string;            // What should happen after this action
+  wait_conditions?: string[];         // What to wait for before continuing
+  fallback_actions?: string[];        // Alternative approaches if primary fails
+}
+
+// New: Automation metadata for enhanced SOPs
+export interface AutomationConfig {
+  automatable: boolean;               // Can this step be automated?
+  automation_type: "ui"|"api"|"manual"|"hybrid";
+  instructions: BrowserInstruction[]; // Step-by-step browser actions
+  confidence_level: "high"|"medium"|"low";
+  estimated_duration_ms: number;
+  error_recovery: string[];           // What to do if automation fails
+  human_checkpoint: boolean;          // Should human approve this step?
+}
+
 export interface SOPNode {
   id: string;
   type: string; // e.g., "task", "loop", "decision", "end"
@@ -27,6 +50,9 @@ export interface SOPNode {
   id_path?: string; // Hierarchical ID for visual display (e.g., "2.1", "2.3Y")
   // Populated by processing function
   childNodes?: SOPNode[]; 
+  
+  // New: Optional automation configuration (added by AEF enhancement)
+  automation?: AutomationConfig;
 }
 
 export interface SOPEdge {

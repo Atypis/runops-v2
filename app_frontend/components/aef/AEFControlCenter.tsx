@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 
 interface AEFControlCenterProps {
   sopData: SOPDocument;
-  onTransformToAEF?: () => void;
+  onTransformToAEF?: (isAtomic: boolean) => void;
   isTransforming?: boolean;
   transformError?: string | null;
   onClearTransformError?: () => void;
@@ -75,7 +75,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
             Transform to AEF
           </h3>
           <p className="text-gray-600 mb-6">
-            Convert this workflow into an executable automation framework to run it with AI assistance.
+            Convert this atomic workflow into executable browser automation instructions with AI assistance.
           </p>
           
           {/* Error message */}
@@ -93,13 +93,18 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
             </div>
           )}
           
+          {/* Single Transform Button */}
           <button
-            onClick={onTransformToAEF}
+            onClick={() => onTransformToAEF?.(true)}
             disabled={isTransforming}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            🚀 Transform to AEF
+            🚀 Generate Browser Automation
           </button>
+          
+          <p className="text-xs text-gray-500 mt-4">
+            Convert atomic workflow steps into executable Stagehand instructions
+          </p>
         </div>
       </div>
     );

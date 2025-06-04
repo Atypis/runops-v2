@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { AEFDocument, isAEFDocument } from '@/lib/types/aef';
 import { ExecutionStatus } from '@/lib/types/execution';
+import { browserManager } from '@/lib/browser/BrowserManager';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -68,6 +69,25 @@ export async function POST(request: NextRequest) {
     // Generate execution ID
     const executionId = uuidv4();
     
+    // Create browser session
+    console.log(`Creating browser session for execution ${executionId}`);
+    try {
+      const browserSession = await browserManager.createSession({
+        executionId,
+        userId: user.id,
+        headless: false, // For now, keep visible for debugging
+        viewport: { width: 1280, height: 720 }
+      });
+      
+      console.log(`Browser session created: ${browserSession.id}`);
+    } catch (error) {
+      console.error('Failed to create browser session:', error);
+      return NextResponse.json(
+        { error: 'Failed to initialize browser session' },
+        { status: 500 }
+      );
+    }
+    
     // Create execution record in database
     const executionRecord = {
       id: executionId,
@@ -110,11 +130,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate WebSocket URL
-    const protocol = request.headers.get('x-forwarded-proto') || 'http';
-    const host = request.headers.get('host');
-    const wsProtocol = protocol === 'https' ? 'wss' : 'ws';
-    const websocketUrl = `${wsProtocol}://${host}/api/aef/live/${executionId}`;
+    // Generate WebSocket URL - pointing to our dedicated WebSocket server
+    const websocketUrl = `ws://localhost:3003/ws?executionId=${executionId}`;
 
     console.log(`AEF execution ${executionId} queued successfully`);
     

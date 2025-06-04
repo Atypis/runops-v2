@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { browserManager } from '@/lib/browser/BrowserManager';
+import { BrowserAction } from '@/lib/browser/types';
 
 /**
  * POST /api/aef/action/[id]
@@ -24,7 +26,7 @@ export async function POST(
 
     const { id: executionId } = params;
     const body = await request.json();
-    const { stepId, action } = body;
+    const { stepId, action, browserAction } = body;
 
     if (!executionId || !stepId) {
       return NextResponse.json(
@@ -75,15 +77,41 @@ export async function POST(
 
     const executionRecord = metadata.execution_record;
 
-    // Validate that the step exists in the workflow
-    // (This would normally check against the AEF document)
+    // Execute browser action if provided
+    let browserResult = null;
+    if (action === 'execute' && browserAction) {
+      try {
+        console.log(`Executing browser action for step ${stepId}:`, browserAction);
+        
+        const browserActionData: BrowserAction = {
+          type: browserAction.type,
+          data: browserAction.data,
+          stepId
+        };
+        
+        browserResult = await browserManager.executeAction(executionId, browserActionData);
+        console.log(`Browser action completed for step ${stepId}`);
+        
+      } catch (error) {
+        console.error(`Browser action failed for step ${stepId}:`, error);
+        return NextResponse.json(
+          { 
+            error: 'Browser action failed', 
+            details: error instanceof Error ? error.message : 'Unknown error',
+            stepId 
+          },
+          { status: 500 }
+        );
+      }
+    }
     
     // Update execution record with step action
     const stepAction = {
       stepId,
       action,
       timestamp: new Date().toISOString(),
-      userId: user.id
+      userId: user.id,
+      browserResult: browserResult || undefined
     };
 
     // Add to action queue
@@ -151,7 +179,8 @@ export async function POST(
       action,
       executionStatus: newStatus,
       nextSuggestedAction,
-      timestamp: stepAction.timestamp
+      timestamp: stepAction.timestamp,
+      browserResult: browserResult || undefined
     });
 
   } catch (error) {

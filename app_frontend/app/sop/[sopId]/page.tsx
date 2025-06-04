@@ -200,12 +200,12 @@ export default function SopPage({ params }: SopPageProps) {
   };
 
   // AEF Transformation handler
-  const handleTransformToAEF = async () => {
+  const handleTransformToAEF = async (useAtomicParser = false) => {
     setIsTransforming(true);
     setTransformError(null);
     
     try {
-      console.log('Starting AEF transformation for SOP:', params.sopId);
+      console.log(`Starting ${useAtomicParser ? 'Atomic' : 'Legacy'} AEF transformation for SOP:`, params.sopId);
       
       // Add a small delay to show the loading animation
       const apiCallPromise = fetch('/api/aef/transform', {
@@ -214,7 +214,10 @@ export default function SopPage({ params }: SopPageProps) {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache'
         },
-        body: JSON.stringify({ sopId: params.sopId })
+        body: JSON.stringify({ 
+          sopId: params.sopId,
+          useAtomicParser 
+        })
       });
       
       // Ensure minimum loading time to show the animation (4 seconds total)
@@ -229,7 +232,12 @@ export default function SopPage({ params }: SopPageProps) {
       }
       
       const result = await response.json();
-      console.log('AEF transformation successful:', result);
+      console.log(`${useAtomicParser ? 'Atomic' : 'Legacy'} AEF transformation successful:`, result);
+      
+      // Log enhancement method for debugging
+      if (result.enhancementMethod) {
+        console.log(`🎯 Enhancement method used: ${result.enhancementMethod}`);
+      }
       
       // Update the SOP data with AEF configuration
       const aefDocument: AEFDocument = result.aefDocument;
@@ -472,7 +480,7 @@ export default function SopPage({ params }: SopPageProps) {
               <div className="h-full rounded-xl overflow-hidden">
                 <AEFControlCenter 
                   sopData={processedSopData}
-                  onTransformToAEF={handleTransformToAEF}
+                  onTransformToAEF={(useAtomicParser = false) => handleTransformToAEF(useAtomicParser)}
                   isTransforming={isTransforming}
                   transformError={transformError}
                   onClearTransformError={() => setTransformError(null)}

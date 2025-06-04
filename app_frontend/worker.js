@@ -20,14 +20,14 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const GOOGLE_API_KEY = process.env.GOOGLE_GEMINI_API_KEY || '';
 
-// Load the SOP parser prompt from file
-const PROMPT_PATH = path.join(__dirname, 'prompts', 'flat_sop_parser_v0.9 copy.md');
+// Load the ATOMIC workflow parser prompt from file (FIXED VERSION)
+const PROMPT_PATH = path.join(__dirname, 'prompts', 'atomic_workflow_parser_v1.0_fixed.md');
 let SOP_PARSING_PROMPT;
 try {
   SOP_PARSING_PROMPT = fs.readFileSync(PROMPT_PATH, 'utf8');
-  console.log(`Loaded SOP parsing prompt (${SOP_PARSING_PROMPT.length} chars) - SIMPLIFIED VERSION v0.9.0`);
+  console.log(`Loaded ATOMIC workflow parser prompt (${SOP_PARSING_PROMPT.length} chars) - ATOMIC WORKFLOW PARSER v1.0 FIXED`);
 } catch (error) {
-  console.error(`ERROR: Could not load SOP parsing prompt from ${PROMPT_PATH}:`, error);
+  console.error(`ERROR: Could not load atomic workflow parser prompt from ${PROMPT_PATH}:`, error);
   process.exit(1);
 }
 
@@ -289,24 +289,24 @@ async function extractSopFromVideo(videoPath, jobId) {
     
     // Step 2: Generate SOPs from transcript using BOTH prompts in parallel
     await updateJobStatus(jobId, 'processing', null, 'parsing_sop', 70);
-    console.log('🚀 PARALLEL PROCESSING: Running both original and Stagehand-optimized prompts...');
+    console.log('🚀 PARALLEL PROCESSING: Running both Atomic and Stagehand-optimized prompts...');
     
-    const [originalSopData, stagehandSopData] = await Promise.all([
-      generateSopFromTranscript(transcript, 'original'),
+    const [atomicSopData, stagehandSopData] = await Promise.all([
+      generateSopFromTranscript(transcript, 'atomic'),
       generateSopFromTranscript(transcript, 'stagehand')
     ]);
     
-    if (!originalSopData && !stagehandSopData) {
+    if (!atomicSopData && !stagehandSopData) {
       throw new Error('Failed to generate SOP from transcript with both prompts');
     }
     
     // Save both SOP versions to storage and database
-    if (originalSopData) {
-      const originalSopPath = path.join(TEMP_DIR, `${jobId}_sop_original.json`);
-      fs.writeFileSync(originalSopPath, JSON.stringify(originalSopData, null, 2));
-      await uploadSopJson(originalSopPath, jobId, 'original');
-      await saveSopToDatabase(jobId, originalSopData, 'original');
-      console.log('✅ Original SOP saved successfully');
+    if (atomicSopData) {
+      const atomicSopPath = path.join(TEMP_DIR, `${jobId}_sop_atomic.json`);
+      fs.writeFileSync(atomicSopPath, JSON.stringify(atomicSopData, null, 2));
+      await uploadSopJson(atomicSopPath, jobId, 'atomic');
+      await saveSopToDatabase(jobId, atomicSopData, 'atomic');
+      console.log('✅ Atomic SOP saved successfully');
     }
     
     if (stagehandSopData) {
@@ -319,8 +319,8 @@ async function extractSopFromVideo(videoPath, jobId) {
     
     console.log('🎯 PARALLEL PROCESSING COMPLETE: Both SOPs extracted and saved');
     
-    // Return the original SOP for backward compatibility
-    return originalSopData || stagehandSopData;
+    // Return the atomic SOP as the primary one now
+    return atomicSopData || stagehandSopData;
   } catch (error) {
     console.error('Error in extractSopFromVideo:', error);
     return null;
@@ -413,7 +413,7 @@ async function generateSopFromTranscript(transcript, promptType) {
   
   // Select the appropriate prompt based on type
   const selectedPrompt = promptType === 'stagehand' ? STAGEHAND_PARSING_PROMPT : SOP_PARSING_PROMPT;
-  const promptName = promptType === 'stagehand' ? 'Stagehand-optimized' : 'Original';
+  const promptName = promptType === 'stagehand' ? 'Stagehand-optimized' : 'Atomic';
   
   console.log(`🎯 Using ${promptName} prompt for SOP generation`);
   
@@ -461,7 +461,7 @@ async function generateSopFromTranscript(transcript, promptType) {
         console.log(`${promptName} SOP meta: ${JSON.stringify(sopData.meta || {})}`);
         console.log(`${promptName} SOP nodes: ${(sopData.public?.nodes || []).length} nodes`);
         
-        // Log additional details for Stagehand version
+        // Log additional details for specific versions
         if (promptType === 'stagehand') {
           const nodesWithStagehandInstructions = (sopData.public?.nodes || []).filter(node => node.stagehand_instruction);
           console.log(`🎯 Stagehand nodes with instructions: ${nodesWithStagehandInstructions.length}`);
@@ -471,6 +471,18 @@ async function generateSopFromTranscript(transcript, promptType) {
           
           const confidenceLevels = (sopData.public?.nodes || []).map(node => node.confidence_level).filter(Boolean);
           console.log(`🎚️ Confidence levels found: ${confidenceLevels.length}`);
+        } else if (promptType === 'atomic') {
+          const nodesWithUIContext = (sopData.public?.nodes || []).filter(node => node.ui_context);
+          console.log(`🔬 Atomic nodes with UI context: ${nodesWithUIContext.length}`);
+          
+          const nodesWithDataFlow = (sopData.public?.nodes || []).filter(node => node.data_flow);
+          console.log(`🌊 Atomic nodes with data flow: ${nodesWithDataFlow.length}`);
+          
+          const uiInteractionNodes = (sopData.public?.nodes || []).filter(node => node.type === 'ui_interaction');
+          console.log(`🖱️ UI interaction nodes: ${uiInteractionNodes.length}`);
+          
+          const nodesWithScreenRegion = (sopData.public?.nodes || []).filter(node => node.ui_context?.screen_region);
+          console.log(`📍 Nodes with screen regions: ${nodesWithScreenRegion.length}`);
         }
       } catch (parseError) {
         console.error(`Invalid JSON response from ${promptName} Gemini API:`, parseError);
