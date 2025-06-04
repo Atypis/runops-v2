@@ -1,32 +1,43 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { MockExecutionState, getMockScreenshotUrl } from '@/lib/mock-aef-data';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Maximize2, Camera, ExternalLink, Loader2 } from 'lucide-react';
 
 interface BrowserPanelProps {
   executionId?: string;
   isActive?: boolean;
+  mockExecutionState?: MockExecutionState | null;
 }
 
 const BrowserPanel: React.FC<BrowserPanelProps> = ({
   executionId,
-  isActive = false
+  isActive = false,
+  mockExecutionState
 }) => {
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Mock browser session data for now
+  // Use mock data when available
   useEffect(() => {
-    if (isActive && executionId) {
+    if (mockExecutionState && isActive) {
+      setCurrentUrl(mockExecutionState.browserUrl);
+      setLastUpdated(mockExecutionState.lastActivity);
+      setScreenshot(getMockScreenshotUrl(mockExecutionState.browserUrl));
+    } else if (isActive && executionId) {
       // TODO: Replace with actual API call to get browser state
       setCurrentUrl('https://gmail.com');
       setLastUpdated(new Date());
       // TODO: Start polling for screenshot updates
+    } else {
+      setScreenshot(null);
+      setCurrentUrl('');
+      setLastUpdated(null);
     }
-  }, [isActive, executionId]);
+  }, [isActive, executionId, mockExecutionState]);
 
   const handleRefresh = () => {
     if (!executionId) return;

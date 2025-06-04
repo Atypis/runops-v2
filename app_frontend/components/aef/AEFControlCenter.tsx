@@ -1,15 +1,21 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { SOPDocument } from '@/lib/types/sop';
 import { AEFDocument, isAEFDocument } from '@/lib/types/aef';
+import { createMockAEFTransformation, createMockExecutionState, shouldShowMockAEF, MockExecutionState } from '@/lib/mock-aef-data';
 import ExecutionPanel from './ExecutionPanel';
 import BrowserPanel from './BrowserPanel';
 import ExecutionLog from './ExecutionLog';
+import TransformLoading from './TransformLoading';
+import { Button } from '@/components/ui/button';
 
 interface AEFControlCenterProps {
   sopData: SOPDocument;
   onTransformToAEF?: () => void;
+  isTransforming?: boolean;
+  transformError?: string | null;
+  onClearTransformError?: () => void;
   executionId?: string;
   isLoading?: boolean;
 }
@@ -17,12 +23,45 @@ interface AEFControlCenterProps {
 const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   sopData,
   onTransformToAEF,
+  isTransforming = false,
+  transformError = null,
+  onClearTransformError,
   executionId,
   isLoading = false
 }) => {
-  // Check if this SOP has been transformed to AEF
-  const isAEF = isAEFDocument(sopData);
-  const aefDocument = isAEF ? (sopData as AEFDocument) : null;
+  // Mock AEF state for demonstration
+  const [mockExecutionState, setMockExecutionState] = useState<MockExecutionState | null>(null);
+  const [showMockExecution, setShowMockExecution] = useState(false);
+  
+  // Check if this SOP has been transformed to AEF (using mock for demo)
+  const shouldShowMock = shouldShowMockAEF(sopData.meta?.id || '');
+  const isAEF = isAEFDocument(sopData) || shouldShowMock;
+  
+  // Create mock AEF document for demonstration
+  const aefDocument = isAEFDocument(sopData) 
+    ? (sopData as AEFDocument)
+    : shouldShowMock 
+      ? createMockAEFTransformation(sopData)
+      : null;
+
+  // Demo execution handler
+  const handleStartMockExecution = () => {
+    if (aefDocument) {
+      const mockState = createMockExecutionState(aefDocument);
+      setMockExecutionState(mockState);
+      setShowMockExecution(true);
+    }
+  };
+
+  const handleStopMockExecution = () => {
+    setMockExecutionState(null);
+    setShowMockExecution(false);
+  };
+
+  // Show transformation loading state
+  if (isTransforming) {
+    return <TransformLoading />;
+  }
 
   // Show transform needed state if not yet transformed
   if (!isAEF) {
@@ -38,9 +77,26 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
           <p className="text-gray-600 mb-6">
             Convert this workflow into an executable automation framework to run it with AI assistance.
           </p>
+          
+          {/* Error message */}
+          {transformError && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm mb-3">{transformError}</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onClearTransformError}
+                className="text-red-600 border-red-200 hover:bg-red-50"
+              >
+                Try Again
+              </Button>
+            </div>
+          )}
+          
           <button
             onClick={onTransformToAEF}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            disabled={isTransforming}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             🚀 Transform to AEF
           </button>
@@ -70,15 +126,19 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
         <div className="w-2/5 border-r border-gray-200 flex flex-col">
           <ExecutionPanel 
             aefDocument={aefDocument!}
-            executionId={executionId}
+            executionId={mockExecutionState?.executionId || executionId}
+            mockExecutionState={mockExecutionState}
+            onStartMockExecution={handleStartMockExecution}
+            onStopMockExecution={handleStopMockExecution}
           />
         </div>
         
         {/* Right panel - Browser View (60% width) */}
         <div className="w-3/5 flex flex-col">
           <BrowserPanel 
-            executionId={executionId}
-            isActive={!!executionId}
+            executionId={mockExecutionState?.executionId || executionId}
+            isActive={showMockExecution || !!executionId}
+            mockExecutionState={mockExecutionState}
           />
         </div>
       </div>
@@ -86,7 +146,8 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       {/* Bottom panel - Execution Log (20% height) */}
       <div className="h-1/5 border-t border-gray-200 flex flex-col min-h-0">
         <ExecutionLog 
-          executionId={executionId}
+          executionId={mockExecutionState?.executionId || executionId}
+          mockLogs={mockExecutionState?.logs}
         />
       </div>
     </div>

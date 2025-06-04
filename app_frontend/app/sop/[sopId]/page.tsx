@@ -6,6 +6,7 @@ import ElegantSOPView from '@/components/sop/ElegantSOPView';
 import AEFControlCenter from '@/components/aef/AEFControlCenter';
 import { Button } from "@/components/ui/button";
 import { SOPDocument, SOPNode } from '@/lib/types/sop'; // Import types
+import { AEFDocument } from '@/lib/types/aef'; // Add AEF types
 import { processSopData, getRootNodes } from '@/lib/sop-utils'; // Import utils
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -37,6 +38,10 @@ export default function SopPage({ params }: SopPageProps) {
   const [jobStatus, setJobStatus] = useState<JobStatus>('unknown');
   const [processingStage, setProcessingStage] = useState<string>('');
   const [processingProgress, setProcessingProgress] = useState<number>(0);
+  
+  // AEF Transformation state
+  const [isTransforming, setIsTransforming] = useState<boolean>(false);
+  const [transformError, setTransformError] = useState<string | null>(null);
   
   // Polling interval reference
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
@@ -192,6 +197,61 @@ export default function SopPage({ params }: SopPageProps) {
     // Also update the main processedSopData if list view changes should reflect in flow view immediately
     setProcessedSopData(updatedProcessedData); 
     setRootNodes(newRoots);
+  };
+
+  // AEF Transformation handler
+  const handleTransformToAEF = async () => {
+    setIsTransforming(true);
+    setTransformError(null);
+    
+    try {
+      console.log('Starting AEF transformation for SOP:', params.sopId);
+      
+      // Add a small delay to show the loading animation
+      const apiCallPromise = fetch('/api/aef/transform', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        body: JSON.stringify({ sopId: params.sopId })
+      });
+      
+      // Ensure minimum loading time to show the animation (4 seconds total)
+      const [response] = await Promise.all([
+        apiCallPromise,
+        new Promise(resolve => setTimeout(resolve, 4000))
+      ]);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Transformation failed');
+      }
+      
+      const result = await response.json();
+      console.log('AEF transformation successful:', result);
+      
+      // Update the SOP data with AEF configuration
+      const aefDocument: AEFDocument = result.aefDocument;
+      setProcessedSopData(aefDocument);
+      setListProcessedSopData(aefDocument);
+      setSopData(aefDocument);
+      
+      // Update root nodes for the transformed document
+      const processed = processSopData(aefDocument);
+      const roots = getRootNodes(processed.public);
+      setRootNodes(roots);
+      setListRootNodes(roots);
+      
+      // Switch to AEF view mode to show the transformed workflow
+      setViewMode('aef');
+      
+    } catch (error: any) {
+      console.error('AEF transformation failed:', error);
+      setTransformError(error.message || 'Failed to transform SOP to AEF');
+    } finally {
+      setIsTransforming(false);
+    }
   };
 
   // Show processing state
@@ -412,10 +472,10 @@ export default function SopPage({ params }: SopPageProps) {
               <div className="h-full rounded-xl overflow-hidden">
                 <AEFControlCenter 
                   sopData={processedSopData}
-                  onTransformToAEF={() => {
-                    // TODO: Implement AEF transformation
-                    console.log('Transform to AEF clicked');
-                  }}
+                  onTransformToAEF={handleTransformToAEF}
+                  isTransforming={isTransforming}
+                  transformError={transformError}
+                  onClearTransformError={() => setTransformError(null)}
                 />
               </div>
             )}

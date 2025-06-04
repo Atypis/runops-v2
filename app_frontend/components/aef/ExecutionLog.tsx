@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { MockLogEntry } from '@/lib/mock-aef-data';
 import { Button } from '@/components/ui/button';
 import { ScrollText, Download, Filter, Trash2, AlertCircle, CheckCircle2, Info, Clock } from 'lucide-react';
 
 interface ExecutionLogProps {
   executionId?: string;
+  mockLogs?: MockLogEntry[];
 }
 
 interface LogEntry {
@@ -20,16 +22,19 @@ interface LogEntry {
 }
 
 const ExecutionLog: React.FC<ExecutionLogProps> = ({
-  executionId
+  executionId,
+  mockLogs
 }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<'all' | 'error' | 'warning' | 'info'>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
-  // Mock log data for demonstration
+  // Use mock logs when available
   useEffect(() => {
-    if (executionId) {
+    if (mockLogs) {
+      setLogs(mockLogs);
+    } else if (executionId) {
       // Add some initial logs
       const initialLogs: LogEntry[] = [
         {
@@ -81,7 +86,7 @@ const ExecutionLog: React.FC<ExecutionLogProps> = ({
 
       return () => clearInterval(interval);
     }
-  }, [executionId]);
+  }, [executionId, mockLogs]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {

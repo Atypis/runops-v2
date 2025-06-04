@@ -1,26 +1,46 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AEFDocument } from '@/lib/types/aef';
 import { ExecutionStatus } from '@/lib/types/execution';
+import { MockExecutionState } from '@/lib/mock-aef-data';
 import { Button } from '@/components/ui/button';
 import { Play, Square, Pause, RotateCcw, Settings, ChevronRight, ChevronDown } from 'lucide-react';
 
 interface ExecutionPanelProps {
   aefDocument: AEFDocument;
   executionId?: string;
+  mockExecutionState?: MockExecutionState | null;
+  onStartMockExecution?: () => void;
+  onStopMockExecution?: () => void;
 }
 
 const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   aefDocument,
-  executionId
+  executionId,
+  mockExecutionState,
+  onStartMockExecution,
+  onStopMockExecution
 }) => {
   const [isRunning, setIsRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
 
-  // Mock execution status for now - will be replaced with real data
+  // Use mock execution state when available
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>(ExecutionStatus.IDLE);
+  
+  // Update state based on mock execution
+  useEffect(() => {
+    if (mockExecutionState) {
+      setIsRunning(mockExecutionState.isRunning);
+      setExecutionStatus(mockExecutionState.isRunning ? ExecutionStatus.RUNNING : ExecutionStatus.IDLE);
+      setCurrentStep(mockExecutionState.currentStepName);
+    } else {
+      setIsRunning(false);
+      setExecutionStatus(ExecutionStatus.IDLE);
+      setCurrentStep(null);
+    }
+  }, [mockExecutionState]);
   
   // Extract workflow steps from SOP data
   const workflowSteps = aefDocument?.public?.nodes || [];
@@ -36,17 +56,25 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   };
 
   const handleRunAll = () => {
-    setIsRunning(true);
-    setExecutionStatus(ExecutionStatus.RUNNING);
-    // TODO: Implement actual execution start
-    console.log('Starting workflow execution...');
+    if (onStartMockExecution) {
+      onStartMockExecution();
+    } else {
+      setIsRunning(true);
+      setExecutionStatus(ExecutionStatus.RUNNING);
+      // TODO: Implement actual execution start
+      console.log('Starting workflow execution...');
+    }
   };
 
   const handleStop = () => {
-    setIsRunning(false);
-    setExecutionStatus(ExecutionStatus.IDLE);
-    // TODO: Implement actual execution stop
-    console.log('Stopping workflow execution...');
+    if (onStopMockExecution) {
+      onStopMockExecution();
+    } else {
+      setIsRunning(false);
+      setExecutionStatus(ExecutionStatus.IDLE);
+      // TODO: Implement actual execution stop
+      console.log('Stopping workflow execution...');
+    }
   };
 
   const handleRunStep = (stepId: string) => {
@@ -103,6 +131,20 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                 </span>
               )}
             </div>
+            {mockExecutionState && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between text-xs text-blue-600 mb-1">
+                  <span>Progress: {mockExecutionState.currentStep}/{mockExecutionState.totalSteps}</span>
+                  <span>{mockExecutionState.progress}%</span>
+                </div>
+                <div className="h-1 bg-blue-200 rounded overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-500"
+                    style={{ width: `${mockExecutionState.progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
