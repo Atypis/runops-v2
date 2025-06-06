@@ -76,6 +76,16 @@ function findChromiumExecutable() {
 // Initialize Stagehand
 app.post('/init', async (req, res) => {
   try {
+    // PREVENT DOUBLE INITIALIZATION
+    if (isInitialized && stagehand) {
+      console.log('[Browser Server] Already initialized, returning existing instance');
+      return res.json({
+        success: true,
+        message: 'Stagehand already initialized',
+        url: stagehand.page.url()
+      });
+    }
+    
     console.log('[Browser Server] Initializing Stagehand...');
     
     // Wait for X server to be ready
