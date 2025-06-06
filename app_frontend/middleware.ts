@@ -61,7 +61,9 @@ export async function middleware(request: NextRequest) {
                           (request.nextUrl.pathname.startsWith('/api/') && 
                           !request.nextUrl.pathname.startsWith('/api/get-upload-url') &&
                           !request.nextUrl.pathname.startsWith('/api/job-status') &&
-                          !request.nextUrl.pathname.startsWith('/api/direct-sop')) ||
+                          !request.nextUrl.pathname.startsWith('/api/direct-sop') &&
+                          !request.nextUrl.pathname.startsWith('/api/aef/start-vnc-environment') &&
+                          !request.nextUrl.pathname.startsWith('/api/aef/stop-vnc-environment')) ||
                           (request.nextUrl.pathname.startsWith('/sop/') &&
                           !request.nextUrl.pathname.startsWith('/direct-sop/'))
 
