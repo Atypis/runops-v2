@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MockExecutionState, getMockScreenshotUrl } from '@/lib/mock-aef-data';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Maximize2, Camera, ExternalLink, Loader2, Monitor, Image } from 'lucide-react';
+import ResponsiveVNCFrame from './ResponsiveVNCFrame';
+import VNCDebugPanel from './VNCDebugPanel';
 
 interface BrowserPanelProps {
   executionId?: string;
@@ -24,6 +26,8 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
   const [vncUrl, setVncUrl] = useState<string | null>(null);
   const [vncMode, setVncMode] = useState<boolean>(false);
   const [vncSupported, setVncSupported] = useState<boolean>(false);
+  const [optimalResolution, setOptimalResolution] = useState<{width: number, height: number} | null>(null);
+  const [debugMode, setDebugMode] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   // WebSocket connection management
@@ -334,6 +338,27 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
     }
   };
 
+  const handleDimensionsChange = async (dimensions: {width: number, height: number}) => {
+    console.log('📐 BrowserPanel: Optimal dimensions calculated:', dimensions);
+    
+    if (!optimalResolution || 
+        optimalResolution.width !== dimensions.width || 
+        optimalResolution.height !== dimensions.height) {
+      
+      setOptimalResolution(dimensions);
+      
+      // TODO: Update Docker container resolution if supported
+      // This would require enhancing the Docker container API
+      if (executionId?.startsWith('vnc-env-') && wsRef.current) {
+        wsRef.current.send(JSON.stringify({
+          type: 'update_resolution',
+          data: dimensions,
+          timestamp: Date.now()
+        }));
+      }
+    }
+  };
+
   // Show inactive state when no execution is running
   if (!isActive || !executionId) {
     return (
@@ -439,20 +464,32 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
             
             {/* Restart Browser button for VNC environments */}
             {executionId?.startsWith('vnc-env-') && (
-              <Button
-                onClick={handleRestartBrowser}
-                variant="outline"
-                size="sm"
-                disabled={isLoading}
-                title="Restart Browser Window"
-                className="text-orange-600 border-orange-300 hover:bg-orange-50"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <span className="text-sm">🔄</span>
-                )}
-              </Button>
+              <>
+                <Button
+                  onClick={handleRestartBrowser}
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoading}
+                  title="Restart Browser Window"
+                  className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                >
+                  {isLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span className="text-sm">🔄</span>
+                  )}
+                </Button>
+                
+                <Button
+                  onClick={() => setDebugMode(!debugMode)}
+                  variant={debugMode ? "default" : "outline"}
+                  size="sm"
+                  title="Debug VNC Connection"
+                  className={debugMode ? "bg-purple-600 text-white" : "text-purple-600 border-purple-300 hover:bg-purple-50"}
+                >
+                  <span className="text-sm">🔍</span>
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -509,37 +546,16 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
                 <div className="w-6"></div> {/* Balance the layout */}
               </div>
               
-              {/* Browser Viewport - 16:10 aspect ratio */}
-              <div className="relative bg-white" style={{ aspectRatio: '16/10' }}>
-                <iframe
-                  src={vncUrl}
-                  className="w-full h-full border-0"
-                  title="Live Browser VNC"
-                  allow="clipboard-read; clipboard-write; fullscreen"
-                  onLoad={() => {
-                    console.log('✅ VNC iframe loaded successfully');
-                  }}
-                  onError={() => {
-                    console.error('❌ VNC iframe failed to load');
-                  }}
+              {/* Responsive VNC Browser Viewport */}
+              <div className="relative w-full bg-white aspect-[16/9]">
+                <ResponsiveVNCFrame
+                  vncUrl={vncUrl}
+                  currentUrl={currentUrl}
+                  onDimensionsChange={handleDimensionsChange}
+                  onFullscreen={handleFullscreen}
+                  showControls={true}
+                  className="w-full h-full"
                 />
-                
-                {/* VNC Status Overlay */}
-                <div className="absolute top-3 left-3 right-3 z-10">
-                  <div className="bg-green-600/95 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center shadow-lg backdrop-blur-sm">
-                    <div className="w-2 h-2 bg-white rounded-full mr-3 animate-pulse"></div>
-                    🖥️ Live VNC Remote Desktop - Click to interact directly
-                    <Button 
-                      onClick={handleFullscreen}
-                      variant="outline" 
-                      size="sm" 
-                      className="ml-auto bg-white/20 border-white/30 text-white hover:bg-white/30 text-xs px-2 py-1"
-                    >
-                      <Maximize2 className="w-3 h-3 mr-1" />
-                      Fullscreen
-                    </Button>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -563,7 +579,7 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
               </div>
               
               {/* Screenshot Viewport */}
-              <div className="relative bg-white" style={{ aspectRatio: '16/10' }}>
+              <div className="relative bg-white aspect-[16/9]">
                 <img
                   src={screenshot}
                   alt="Browser screenshot"
@@ -605,7 +621,7 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
               </div>
               
               {/* Empty State Viewport */}
-              <div className="relative bg-gray-50" style={{ aspectRatio: '16/10' }}>
+              <div className="relative bg-gray-50 aspect-[16/9]">
                 <div className="w-full h-full flex items-center justify-center">
                   <div className="text-center">
                     <div className="w-20 h-20 mx-auto mb-6 bg-white rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center">

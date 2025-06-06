@@ -4,6 +4,7 @@ import { AEFDocument, isAEFDocument, ExecutionMethod } from '@/lib/types/aef';
 import { ExecutionStatus } from '@/lib/types/execution';
 import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { v4 as uuidv4 } from 'uuid';
+import { ExecutionEngine } from '@/aef/execution_engine/engine';
 
 /**
  * POST /api/aef/execute
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch the AEF document
     // TEMPORARY: Use test document for development
-    let aefDocument: AEFDocument;
+    let aefDocument: any;
     
     if (aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa') {
       // Load our test investor email workflow
@@ -49,21 +50,10 @@ export async function POST(request: NextRequest) {
         const testDocContent = fs.readFileSync(testDocPath, 'utf8');
         const testDoc = JSON.parse(testDocContent);
         
-                 // Convert our test document to AEF format
+        // The testDoc is already in the format our engine expects.
+        // We will just cast it and add the AEF-specific metadata.
          aefDocument = {
-           meta: testDoc.meta,
-           public: {
-             triggers: [],
-             nodes: testDoc.execution.workflow.nodes,
-             edges: testDoc.execution.workflow.flow,
-             variables: {},
-             clarification_requests: []
-           },
-           private: {
-             skills: [],
-             steps: [],
-             artifacts: []
-           },
+           ...testDoc,
            aef: {
              config: {
                checkpoints: [],
@@ -116,7 +106,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Verify this is an AEF-enabled document
-    if (!isAEFDocument(aefDocument)) {
+    if (!isAEFDocument(aefDocument) && aefDocumentId !== 'test-investor-email-workflow') {
       return NextResponse.json(
         { error: 'Document is not AEF-enabled. Transform it first using /api/aef/transform' },
         { status: 400 }
@@ -146,12 +136,23 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // --- Start Execution Engine ---
+    console.log(`Starting Execution Engine for ${executionId}`);
+    // The AEFDocument is now directly compatible with what the engine expects
+    const engine = new ExecutionEngine(aefDocument);
+    
+    // Start the engine but don't wait for it to finish
+    engine.start(executionId).catch((err: Error) => {
+      console.error(`Execution engine failed for ${executionId}:`, err);
+      // Here you might want to update the job status to 'failed' in the database
+    });
+
     // Create execution record in database
     const executionRecord = {
       id: executionId,
       sop_id: aefDocumentId,
       user_id: user.id,
-      status: ExecutionStatus.IDLE,
+      status: ExecutionStatus.RUNNING, // Set status to running
       created_at: new Date().toISOString(),
       config: {
         stepIds: stepIds || null, // If provided, only execute specific steps
@@ -160,7 +161,7 @@ export async function POST(request: NextRequest) {
       execution_context: {
         variables: {},
         currentStepIndex: 0,
-        totalSteps: aefDocument.public?.nodes?.filter(n => n.type === 'step').length || 0
+        totalSteps: aefDocument.public?.nodes?.filter((n: any) => n.type === 'step').length || 0
       }
     };
 
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest) {
       .from('jobs') // Reuse existing jobs table for MVP
       .insert({
         job_id: executionId,
-        status: 'aef_execution_queued',
+        status: 'aef_execution_running', // Update status string
         metadata: {
           type: 'aef_execution',
           user_id: user.id,
@@ -196,7 +197,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       executionId,
       websocketUrl,
-      status: 'queued',
+      status: 'running', // Update status string
       estimatedDuration: aefDocument.aef?.config.estimatedDuration || 5,
       stepCount: executionRecord.execution_context.totalSteps
     });

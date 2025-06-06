@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
+import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
+import { DockerBrowserContainer } from '@/lib/browser/DockerBrowserManager';
 
 /**
  * POST /api/aef/start-vnc-environment
@@ -19,22 +21,11 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`🖥️ Starting VNC environment for execution ${executionId}`);
-
-    // Import HybridBrowserManager
-    const { hybridBrowserManager } = require('@/lib/browser/HybridBrowserManager');
     
     try {
       // Always perform cleanup for the specific execution ID first
       console.log(`🧹 Cleaning up any existing session for execution ${executionId}`);
       await hybridBrowserManager.destroySessionByExecution(executionId);
-      
-      // Force cleanup if requested
-      if (forceCleanup) {
-        console.log('🧹 Performing force cleanup of all containers');
-        await hybridBrowserManager.dockerManager.forceCleanupAll();
-        // Wait for cleanup to complete
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
       
       // Create Docker container with VNC
       const session = await hybridBrowserManager.createSession({
@@ -45,6 +36,11 @@ export async function POST(request: NextRequest) {
         mode: 'docker' // Force Docker mode for VNC
       });
       
+      // Type guard to ensure we have a Docker container with VNC ports
+      if (!('containerId' in session && session.vncPort && session.noVncPort)) {
+        throw new Error('Failed to create a Docker session with VNC ports.');
+      }
+
       console.log(`✅ VNC environment created: ${session.id}`);
       
       // Wait a moment for container to initialize
@@ -55,8 +51,8 @@ export async function POST(request: NextRequest) {
         executionId,
         sessionId: session.id,
         vncPorts: {
-          vnc: session.vncPort || 15900,
-          noVnc: session.noVncPort || 16080
+          vnc: session.vncPort,
+          noVnc: session.noVncPort
         },
         websocketUrl: `ws://localhost:3004/ws?executionId=${executionId}`,
         message: 'VNC environment ready for connection'

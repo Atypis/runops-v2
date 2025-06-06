@@ -37,6 +37,8 @@ RUN apt-get update && apt-get install -y \
     x11vnc \
     # noVNC for WebSocket-to-VNC bridge
     novnc websockify \
+    # Window manager for proper window positioning
+    fluxbox \
     # Process management
     supervisor \
     # Debugging tools
@@ -105,6 +107,16 @@ RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stdout_logfile=/var/log/vnc.log' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stderr_logfile=/var/log/vnc.log' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:fluxbox]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=fluxbox -display :99' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=aefuser' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'environment=DISPLAY=":99",HOME="/home/aefuser"' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'priority=150' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stdout_logfile=/var/log/fluxbox.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stderr_logfile=/var/log/fluxbox.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '[program:websockify]' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'command=websockify --web=/usr/share/novnc/ 6080 localhost:5900' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
@@ -134,6 +146,16 @@ RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'startsecs=0' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stdout_logfile=/var/log/auto-init.log' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stderr_logfile=/var/log/auto-init.log' >> /etc/supervisor/conf.d/supervisord.conf
+
+# Create fluxbox configuration for better window management
+RUN mkdir -p /home/aefuser/.fluxbox && \
+    echo 'session.screen0.workspaces: 1' > /home/aefuser/.fluxbox/init && \
+    echo 'session.screen0.toolbar.visible: false' >> /home/aefuser/.fluxbox/init && \
+    echo 'session.screen0.slit.visible: false' >> /home/aefuser/.fluxbox/init && \
+    echo 'session.screen0.fullMaximization: true' >> /home/aefuser/.fluxbox/init && \
+    echo 'session.screen0.maxDisableResize: true' >> /home/aefuser/.fluxbox/init && \
+    echo 'session.screen0.maxDisableMove: true' >> /home/aefuser/.fluxbox/init && \
+    chown -R aefuser:aefuser /home/aefuser/.fluxbox
 
 # Set ownership and create X11 socket directory
 RUN chown -R aefuser:aefuser /app && \

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNC Browser Test - Dynamic Resolution</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .vnc-container {
+            border: 2px solid #333;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 20px 0;
+            position: relative;
+        }
+        .vnc-frame {
+            width: 100%;
+            height: 720px; /* Will be dynamic */
+            border: none;
+            display: block;
+        }
+        .info {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .test-resolution {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .dynamic-controls {
+            background: #f3e5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .status-overlay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+        .controls button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #2196f3;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .controls button:hover {
+            background: #1976d2;
+        }
+        .controls button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #333;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 VNC Dynamic Resolution Test</h1>
+        
+        <div class="info">
+            <h3>Test Setup</h3>
+            <p><strong>Container:</strong> aef-browser-test-viewport-fix-1749215454</p>
+            <p><strong>Current Resolution:</strong> <span id="current-resolution">1280x720</span></p>
+            <p><strong>Viewport Size:</strong> <span id="viewport-size">Calculating...</span></p>
+            <p><strong>Auto-resize:</strong> <span id="auto-resize-status">Disabled</span></p>
+        </div>
+
+        <div class="dynamic-controls">
+            <h3>🎛️ Dynamic Resolution Controls</h3>
+            <div class="controls">
+                <button onclick="toggleAutoResize()">Toggle Auto-Resize</button>
+                <button onclick="setResolution(800, 600)">800x600</button>
+                <button onclick="setResolution(1024, 768)">1024x768</button>
+                <button onclick="setResolution(1280, 720)">1280x720 (Default)</button>
+                <button onclick="setResolution(1920, 1080)">1920x1080</button>
+                <button onclick="matchViewport()">Match Viewport</button>
+                <button onclick="testBrowser()">Test Browser</button>
+            </div>
+            <div class="log" id="resolution-log"></div>
+        </div>
+
+        <div class="vnc-container">
+            <div class="status-overlay" id="status-overlay">
+                Resolution: 1280x720 | Viewport: Calculating... | Auto: OFF
+            </div>
+            <iframe 
+                id="vnc-frame"
+                src="http://localhost:16084/vnc.html?autoconnect=true&resize=off&quality=6"
+                class="vnc-frame"
+                title="VNC Test - Dynamic Resolution"
+                allow="clipboard-read; clipboard-write; fullscreen">
+            </iframe>
+        </div>
+
+        <div class="test-resolution">
+            <h3>🎯 Dynamic Resolution Test Goals:</h3>
+            <ol>
+                <li><strong>Auto-resize:</strong> Enable auto-resize and resize browser window - VNC content should match perfectly</li>
+                <li><strong>Manual resize:</strong> Try different resolution buttons and verify browser windows adapt</li>
+                <li><strong>Mouse interaction:</strong> Drag and resize browser windows - should work perfectly at any resolution</li>
+                <li><strong>No scaling artifacts:</strong> Text and UI should be crisp at all resolutions</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // State management
+        let autoResize = false;
+        let currentResolution = { width: 1280, height: 720 };
+        let resizeTimeout = null;
+
+        // DOM elements
+        const vncFrame = document.getElementById('vnc-frame');
+        const statusOverlay = document.getElementById('status-overlay');
+        const resolutionLog = document.getElementById('resolution-log');
+        const currentResolutionSpan = document.getElementById('current-resolution');
+        const viewportSizeSpan = document.getElementById('viewport-size');
+        const autoResizeStatusSpan = document.getElementById('auto-resize-status');
+
+        // Logging
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}`;
+            console.log(logEntry);
+            resolutionLog.innerHTML += logEntry + '\n';
+            resolutionLog.scrollTop = resolutionLog.scrollHeight;
+        }
+
+        // Update UI status
+        function updateStatus() {
+            const vncContainer = document.querySelector('.vnc-container');
+            const rect = vncContainer.getBoundingClientRect();
+            const viewportWidth = Math.floor(rect.width - 4); // Account for border
+            const viewportHeight = Math.floor(rect.height - 4);
+            
+            currentResolutionSpan.textContent = `${currentResolution.width}x${currentResolution.height}`;
+            viewportSizeSpan.textContent = `${viewportWidth}x${viewportHeight}`;
+            autoResizeStatusSpan.textContent = autoResize ? 'Enabled' : 'Disabled';
+            
+            statusOverlay.textContent = `Resolution: ${currentResolution.width}x${currentResolution.height} | Viewport: ${viewportWidth}x${viewportHeight} | Auto: ${autoResize ? 'ON' : 'OFF'}`;
+        }
+
+        // Change container resolution
+        async function setResolution(width, height) {
+            try {
+                log(`Attempting to change resolution to ${width}x${height}...`);
+                
+                // Call Docker API to change X server resolution
+                const response = await fetch('http://localhost:3001/change-resolution', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        containerId: 'aef-browser-test-viewport-fix-1749215454',
+                        width: width,
+                        height: height
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    currentResolution = { width, height };
+                    
+                    // Update iframe size to match new resolution
+                    vncFrame.style.height = height + 'px';
+                    
+                    log(`✅ Resolution changed successfully: ${result.message || 'Done'}`);
+                    updateStatus();
+                    
+                    // Reload VNC connection to pick up new resolution
+                    setTimeout(() => {
+                        const currentSrc = vncFrame.src;
+                        vncFrame.src = '';
+                        setTimeout(() => {
+                            vncFrame.src = currentSrc + '&t=' + Date.now();
+                            log('🔄 VNC connection reloaded');
+                        }, 1000);
+                    }, 500);
+                    
+                } else {
+                    const error = await response.text();
+                    log(`❌ Failed to change resolution: ${response.status} - ${error}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Resolution change error: ${error.message}`);
+                // Fallback: At least update the iframe height for testing
+                vncFrame.style.height = height + 'px';
+                currentResolution = { width, height };
+                updateStatus();
+                log(`📏 Updated iframe height to ${height}px (API not available)`);
+            }
+        }
+
+        // Match viewport size
+        function matchViewport() {
+            const vncContainer = document.querySelector('.vnc-container');
+            const rect = vncContainer.getBoundingClientRect();
+            const width = Math.floor(rect.width - 4); // Account for border
+            const height = Math.floor(rect.height - 4);
+            
+            // Round to multiples of 8 for VNC compatibility
+            const roundedWidth = Math.floor(width / 8) * 8;
+            const roundedHeight = Math.floor(height / 8) * 8;
+            
+            setResolution(roundedWidth, roundedHeight);
+        }
+
+        // Toggle auto-resize
+        function toggleAutoResize() {
+            autoResize = !autoResize;
+            updateStatus();
+            
+            if (autoResize) {
+                log('🤖 Auto-resize enabled - will match viewport on window resize');
+            } else {
+                log('⏸️ Auto-resize disabled');
+            }
+        }
+
+        // Test browser launch
+        async function testBrowser() {
+            try {
+                log('🧪 Testing browser launch in container...');
+                
+                const response = await fetch('http://localhost:3001/test-browser', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        containerId: 'aef-browser-test-viewport-fix-1749215454',
+                        url: 'https://example.com'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    log(`✅ Browser test: ${result.message || 'Browser launched'}`);
+                } else {
+                    const error = await response.text();
+                    log(`❌ Browser test failed: ${response.status} - ${error}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Browser test error: ${error.message}`);
+            }
+        }
+
+        // Handle window resize
+        function handleResize() {
+            updateStatus();
+            
+            if (autoResize) {
+                // Debounce resize events
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    log('🔄 Auto-resizing to match viewport...');
+                    matchViewport();
+                }, 1000);
+            }
+        }
+
+        // Initialize
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('load', () => {
+            updateStatus();
+            log('🚀 Dynamic Resolution Test initialized');
+            log('💡 Try: 1) Enable auto-resize 2) Resize browser window 3) Watch resolution adapt');
+        });
+
+        // Update status every few seconds
+        setInterval(updateStatus, 3000);
+    </script>
+</body>
+</html> 

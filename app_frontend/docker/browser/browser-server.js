@@ -112,8 +112,14 @@ app.post('/init', async (req, res) => {
           '--no-first-run',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding'
+          '--disable-renderer-backgrounding',
+          '--window-size=1280,720',
+          '--window-position=0,0',
+          '--start-maximized',
+          '--force-device-scale-factor=1',
+          '--disable-background-mode'
         ],
+        viewport: { width: 1280, height: 720 },
         env: {
           DISPLAY: ':99'
         }

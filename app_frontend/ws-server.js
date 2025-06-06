@@ -117,14 +117,26 @@ class SimpleVNCWebSocketServer {
       // Check for real Docker container
       const session = this.browserManager.getSessionByExecution(executionId);
       
+      console.log(`[WebSocketServer] Session lookup result:`, session ? {
+        id: session.id,
+        executionId: session.executionId,
+        hasVncPort: 'vncPort' in session,
+        hasNoVncPort: 'noVncPort' in session,
+        vncPort: session.vncPort || 'undefined',
+        noVncPort: session.noVncPort || 'undefined'
+      } : 'null');
+      
       if (session && 'vncPort' in session && 'noVncPort' in session) {
         // Real Docker container with VNC
-        console.log(`[WebSocketServer] Found Docker container for ${executionId} with VNC ports`);
+        console.log(`[WebSocketServer] Found Docker container for ${executionId} with VNC ports - VNC: ${session.vncPort}, noVNC: ${session.noVncPort}`);
+        const vncUrl = `http://localhost:${session.noVncPort}/vnc.html`;
+        console.log(`[WebSocketServer] Sending VNC URL: ${vncUrl}`);
+        
         ws.send(JSON.stringify({
           type: 'vnc_ready',
           timestamp: Date.now(),
           data: { 
-            vncUrl: `http://localhost:${session.noVncPort}/vnc.html`,
+            vncUrl: vncUrl,
             vncPort: session.vncPort,
             noVncPort: session.noVncPort,
             message: 'Live VNC connection to browser automation'
@@ -134,18 +146,58 @@ class SimpleVNCWebSocketServer {
       }
     }
     
-    // Check if test container is running (our manual test container)
-    const testNoVncPort = 16080;
-    ws.send(JSON.stringify({
-      type: 'vnc_ready',
-      timestamp: Date.now(),
-      data: { 
-        vncUrl: `http://localhost:${testNoVncPort}/vnc.html`,
-        vncPort: 15900,
-        noVncPort: testNoVncPort,
-        message: 'VNC connection to test container'
+    // Enhanced fallback - check all running containers for VNC ports
+    console.log(`[WebSocketServer] Session not found via browserManager, checking Docker containers directly...`);
+    
+    // Try common VNC ports based on our allocation scheme
+    const testPorts = [16080, 16081, 16082, 16083, 16084];
+    
+    // Test each port to see if it's responding
+    Promise.all(testPorts.map(async (port) => {
+      try {
+        const response = await fetch(`http://localhost:${port}/vnc.html`, { 
+          method: 'HEAD',
+          timeout: 1000 
+        });
+        return response.ok ? port : null;
+      } catch {
+        return null;
       }
-    }));
+    })).then(results => {
+      const workingPort = results.find(port => port !== null);
+      
+      if (workingPort) {
+        console.log(`[WebSocketServer] Found working VNC port: ${workingPort}`);
+        ws.send(JSON.stringify({
+          type: 'vnc_ready',
+          timestamp: Date.now(),
+          data: { 
+            vncUrl: `http://localhost:${workingPort}/vnc.html`,
+            vncPort: workingPort - 180, // Estimate VNC port (noVNC port - 180)
+            noVncPort: workingPort,
+            message: 'VNC connection to available container'
+          }
+        }));
+      } else {
+        console.log(`[WebSocketServer] No working VNC ports found`);
+        ws.send(JSON.stringify({
+          type: 'vnc_fallback',
+          timestamp: Date.now(),
+          data: { 
+            message: 'No VNC containers available'
+          }
+        }));
+      }
+    }).catch(error => {
+      console.error(`[WebSocketServer] Error testing VNC ports:`, error);
+      ws.send(JSON.stringify({
+        type: 'vnc_error',
+        timestamp: Date.now(),
+        data: { 
+          error: 'Failed to find VNC connection'
+        }
+      }));
+    });
   }
   
   handleScreenshotRequest(ws, executionId) {

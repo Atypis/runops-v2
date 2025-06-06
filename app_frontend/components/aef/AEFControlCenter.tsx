@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { SOPDocument } from '@/lib/types/sop';
-import { AEFDocument, isAEFDocument } from '@/lib/types/aef';
+import { AEFDocument, isAEFDocument, ExecutionMethod } from '@/lib/types/aef';
+import { CheckpointType, CheckpointCondition } from '@/lib/types/checkpoint';
 import { createMockAEFTransformation, createMockExecutionState, shouldShowMockAEF, MockExecutionState } from '@/lib/mock-aef-data';
 import ExecutionPanel from './ExecutionPanel';
 import BrowserPanel from './BrowserPanel';
@@ -19,6 +20,254 @@ interface AEFControlCenterProps {
   executionId?: string;
   isLoading?: boolean;
   sopId?: string;
+}
+
+// Hardcoded test workflow data - this will always be displayed for testing
+const HARDCODED_TEST_WORKFLOW = {
+  "meta": {
+    "id": "test-investor-email-workflow",
+    "title": "Investor Email CRM Workflow (TEST)",
+    "version": "1.0",
+    "goal": "Extract investor information from an email and add it to a CRM.",
+    "purpose": "A test SOP for developing the execution engine.",
+    "owner": ["aef-dev-team"]
+  },
+  "execution": {
+    "environment": {
+      "required_tabs": [
+        { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox" },
+        { "name": "Airtable CRM", "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
+      ]
+    },
+    "workflow": {
+      "nodes": [
+        {
+          "id": "start_workflow",
+          "type": "task",
+          "label": "Open Gmail",
+          "intent": "Navigate to the Gmail inbox to begin email processing.",
+          "context": "The first step is to open the Gmail interface. This provides access to the email list where we'll identify investor-related emails for processing.",
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Navigate to https://mail.google.com/mail/u/0/#inbox or switch to Gmail tab if already open",
+              "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
+            }
+          ]
+        },
+        {
+          "id": "scan_email_list",
+          "type": "task", 
+          "label": "Scan Email List",
+          "intent": "Visually scan the email list to identify potential investor-related emails.",
+          "context": "Look through the email list in the inbox to find emails that might contain investor information, inquiries, or business opportunities.",
+          "actions": [
+            {
+              "type": "visual_scan",
+              "instruction": "Scan the email list for subject lines and senders that might indicate investor-related content"
+            }
+          ]
+        },
+        {
+          "id": "email_processing_loop",
+          "type": "iterative_loop",
+          "label": "Process Each Investor Email",
+          "intent": "For each identified investor email, extract information and add to CRM.",
+          "context": "This loop processes each investor-related email found in the inbox.",
+          "children": [
+            "select_email",
+            "extract_investor_info", 
+            "open_airtable",
+            "add_to_crm",
+            "mark_processed"
+          ]
+        },
+        {
+          "id": "select_email",
+          "type": "task",
+          "label": "Select Investor Email",
+          "intent": "Click on an unprocessed investor email to open it.",
+          "context": "Select and open the next investor email that needs to be processed.",
+          "actions": [
+            {
+              "type": "click",
+              "instruction": "Click on the first unprocessed investor email in the list",
+              "target": { "selector": "[data-thread-id]:not([data-processed='true'])" }
+            }
+          ]
+        },
+        {
+          "id": "extract_investor_info",
+          "type": "task",
+          "label": "Extract Investor Information", 
+          "intent": "Read and extract key investor details from the email content.",
+          "context": "Parse the email content to identify investor name, company, contact information, investment interests, and other relevant details.",
+          "actions": [
+            {
+              "type": "visual_scan",
+              "instruction": "Read email content and identify investor information including name, company, email, phone, investment focus"
+            }
+          ]
+        },
+        {
+          "id": "open_airtable",
+          "type": "task",
+          "label": "Open Airtable CRM",
+          "intent": "Navigate to or switch to the Airtable CRM tab.",
+          "context": "Access the Airtable database where investor information is stored and managed.",
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Navigate to Airtable CRM or switch to existing Airtable tab",
+              "target": { "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
+            }
+          ]
+        },
+        {
+          "id": "add_to_crm",
+          "type": "task",
+          "label": "Add Investor to CRM",
+          "intent": "Create a new record in Airtable with the extracted investor information.",
+          "context": "Fill out the investor information form in Airtable with the details extracted from the email.",
+          "actions": [
+            {
+              "type": "click", 
+              "instruction": "Click the 'Add Record' or '+' button to create a new investor entry",
+              "target": { "selector": "[data-testid='add-record-button']" }
+            }
+          ]
+        },
+        {
+          "id": "mark_processed",
+          "type": "task",
+          "label": "Mark Email as Processed",
+          "intent": "Return to Gmail and mark the email as processed to avoid reprocessing.",
+          "context": "Go back to Gmail and add a label or flag to indicate this email has been processed.",
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Switch back to Gmail tab",
+              "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
+            }
+          ]
+        }
+      ],
+      "flow": [
+        { "from": "start_workflow", "to": "scan_email_list" },
+        { "from": "scan_email_list", "to": "email_processing_loop" },
+        { "from": "email_processing_loop", "to": "select_email" },
+        { "from": "select_email", "to": "extract_investor_info" },
+        { "from": "extract_investor_info", "to": "open_airtable" },
+        { "from": "open_airtable", "to": "add_to_crm" },
+        { "from": "add_to_crm", "to": "mark_processed" },
+        { "from": "mark_processed", "to": "email_processing_loop", "condition": "more_emails_to_process" }
+      ]
+    }
+  }
+};
+
+// Convert the hardcoded workflow to AEF format
+function createHardcodedAEFDocument(): AEFDocument {
+  // Convert the hardcoded workflow nodes to SOPDocument format first
+  const sopNodes = HARDCODED_TEST_WORKFLOW.execution.workflow.nodes.map(node => ({
+    id: node.id,
+    type: node.type,
+    label: node.label,
+    intent: node.intent,
+    context: node.context,
+    position: { x: 0, y: 0 }, // Default positions
+    // Fix: Only include childNodes if children exist, and create proper SOPNode structure
+    ...(node.children ? {
+      children: node.children,
+      childNodes: node.children.map(childId => {
+        // Find the actual child node from the workflow
+        const childNode = HARDCODED_TEST_WORKFLOW.execution.workflow.nodes.find(n => n.id === childId);
+        return {
+          id: childId,
+          type: childNode?.type || 'task',
+          label: childNode?.label || childId,
+          intent: childNode?.intent || '',
+          context: childNode?.context || '',
+          position: { x: 0, y: 0 }
+        };
+      })
+    } : {})
+  }));
+
+  const mockSOP: SOPDocument = {
+    meta: HARDCODED_TEST_WORKFLOW.meta,
+    public: {
+      nodes: sopNodes,
+      edges: HARDCODED_TEST_WORKFLOW.execution.workflow.flow.map(flow => ({
+        id: `${flow.from}-${flow.to}`,
+        source: flow.from,
+        target: flow.to,
+        type: 'default'
+      })),
+      variables: {},
+      triggers: [],
+      clarification_requests: []
+    },
+    private: {
+      skills: [],
+      steps: [],
+      artifacts: []
+    }
+  };
+
+  // Create AEF document with the specific workflow data
+  const aefDocument: AEFDocument = {
+    ...mockSOP,
+    aef: {
+      config: {
+        checkpoints: sopNodes.map(node => ({
+          id: `checkpoint-${node.id}`,
+          stepId: node.id,
+          type: CheckpointType.BEFORE_EXECUTION,
+          condition: CheckpointCondition.ALWAYS,
+          required: true,
+          title: `Approve: ${node.label}`,
+          description: `About to execute: ${node.intent || node.label}`,
+          timeout: 300,
+          showContext: true,
+          showPreview: true
+        })),
+        executionMethod: ExecutionMethod.BROWSER_AUTOMATION,
+        secrets: [
+          {
+            id: 'gmail_credentials',
+            name: 'Gmail Access',
+            description: 'Gmail account credentials for email automation',
+            type: 'oauth_token' as const,
+            required: true,
+            stepIds: ['start_workflow', 'scan_email_list', 'select_email', 'mark_processed']
+          },
+          {
+            id: 'airtable_api',
+            name: 'Airtable API Key', 
+            description: 'Airtable API access for CRM operations',
+            type: 'api_key' as const,
+            required: true,
+            stepIds: ['open_airtable', 'add_to_crm']
+          }
+        ],
+        estimatedDuration: 30,
+        stepTimeout: 60,
+        checkpointTimeout: 300,
+        enableDetailedLogging: true,
+        pauseOnErrors: true
+      },
+      transformedAt: new Date(),
+      transformedBy: 'hardcoded-test',
+      version: '1.0.0',
+      automationEnhanced: true
+    }
+  };
+
+  // Store the original workflow structure as a property for the execution engine to access
+  (aefDocument as any).execution = HARDCODED_TEST_WORKFLOW.execution;
+
+  return aefDocument;
 }
 
 const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
@@ -43,31 +292,22 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   const [mockExecutionState, setMockExecutionState] = useState<MockExecutionState | null>(null);
   const [showMockExecution, setShowMockExecution] = useState(false);
   
+  // ALWAYS use the hardcoded test workflow for testing purposes
+  const aefDocument = createHardcodedAEFDocument();
+  const isAEF = true; // Always true since we're using hardcoded AEF data
+  
   // Check if this SOP has been transformed to AEF (using mock for demo)
   const shouldShowMock = shouldShowMockAEF(sopId || '');
-  const isAEF = isAEFDocument(sopData) || shouldShowMock;
-  
-  // Create mock AEF document for demonstration
-  const aefDocument = isAEFDocument(sopData) 
-    ? (sopData as AEFDocument)
-    : shouldShowMock 
-      ? createMockAEFTransformation(sopData)
-      : null;
 
   // Real execution handler
   const handleStartRealExecution = async () => {
-    const documentId = sopId || aefDocument?.meta?.id;
+    // Always use the hardcoded test workflow for execution
+    const documentId = 'test-investor-email-workflow';
     
-    if (!documentId) {
-      console.error('No SOP/AEF document ID available');
-      setRealExecutionStatus('error');
-      return;
-    }
-
     setRealExecutionStatus('creating');
     
     try {
-      console.log('Creating real AEF execution for document:', documentId);
+      console.log('Creating real AEF execution for hardcoded test workflow:', documentId);
       
       const response = await fetch('/api/aef/execute', {
         method: 'POST',
