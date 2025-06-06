@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { SOPDocument } from '@/lib/types/sop';
 import { AEFDocument, isAEFDocument, ExecutionMethod } from '@/lib/types/aef';
 import { CheckpointType, CheckpointCondition } from '@/lib/types/checkpoint';
-import { createMockAEFTransformation, createMockExecutionState, shouldShowMockAEF, MockExecutionState } from '@/lib/mock-aef-data';
+import { createMockAEFTransformation, createMockExecutionState, shouldShowMockAEF, MockExecutionState, MockLogEntry } from '@/lib/mock-aef-data';
 import ExecutionPanel from './ExecutionPanel';
 import BrowserPanel from './BrowserPanel';
 import ExecutionLog from './ExecutionLog';
@@ -292,6 +292,25 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   const [mockExecutionState, setMockExecutionState] = useState<MockExecutionState | null>(null);
   const [showMockExecution, setShowMockExecution] = useState(false);
   
+  // Real-time execution logs for debugging
+  const [executionLogs, setExecutionLogs] = useState<MockLogEntry[]>([]);
+  
+  // Helper function to add logs
+  const addLog = (level: 'info' | 'warning' | 'error' | 'success', category: 'system' | 'step' | 'browser' | 'checkpoint', message: string, details?: string, stepName?: string) => {
+    const newLog: MockLogEntry = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date(),
+      level,
+      category,
+      message,
+      details,
+      stepName
+    };
+    
+    console.log(`📝 [AEFControlCenter] Adding log:`, newLog);
+    setExecutionLogs(prev => [...prev, newLog]);
+  };
+  
   // ALWAYS use the hardcoded test workflow for testing purposes
   const aefDocument = createHardcodedAEFDocument();
   const isAEF = true; // Always true since we're using hardcoded AEF data
@@ -303,6 +322,8 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   const handleStartRealExecution = async () => {
     // Always use the hardcoded test workflow for execution
     const documentId = 'test-investor-email-workflow';
+    
+    addLog('info', 'system', 'Starting real execution session...', `Document ID: ${documentId}`);
     
     setRealExecutionStatus('creating');
     
@@ -319,7 +340,9 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create execution');
+        const errorMsg = errorData.error || 'Failed to create execution';
+        addLog('error', 'system', 'Failed to create execution session', errorMsg);
+        throw new Error(errorMsg);
       }
       
       const execution = await response.json();
@@ -328,15 +351,20 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       setRealExecutionId(execution.executionId);
       setRealExecutionStatus('running');
       
+      addLog('success', 'system', 'Execution session created successfully', `Execution ID: ${execution.executionId}`);
+      addLog('info', 'system', 'Ready for step execution', 'You can now click "Run" on individual workflow steps');
+      
     } catch (error) {
       console.error('Failed to create real execution:', error);
       setRealExecutionStatus('error');
-      // TODO: Show error message to user
+      addLog('error', 'system', 'Failed to create execution session', error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
   const handleStopRealExecution = async () => {
     if (!realExecutionId) return;
+    
+    addLog('info', 'system', 'Stopping execution session...', `Execution ID: ${realExecutionId}`);
     
     try {
       console.log('Stopping real execution:', realExecutionId);
@@ -351,10 +379,12 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       
       setRealExecutionId(null);
       setRealExecutionStatus('idle');
+      addLog('success', 'system', 'Execution session stopped successfully');
       console.log('Real execution stopped');
       
     } catch (error) {
       console.error('Failed to stop real execution:', error);
+      addLog('error', 'system', 'Failed to stop execution session cleanly', error instanceof Error ? error.message : 'Unknown error');
       // Still reset state
       setRealExecutionId(null);
       setRealExecutionStatus('idle');
@@ -363,20 +393,26 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   // Demo execution handler (mock)
   const handleStartMockExecution = () => {
+    addLog('info', 'system', 'Starting mock execution demo...');
+    
     if (aefDocument) {
       const mockState = createMockExecutionState(aefDocument);
       setMockExecutionState(mockState);
       setShowMockExecution(true);
+      addLog('success', 'system', 'Mock execution demo started', 'This is a simulated execution for demonstration purposes');
     }
   };
 
   const handleStopMockExecution = () => {
+    addLog('info', 'system', 'Stopping mock execution demo...');
     setMockExecutionState(null);
     setShowMockExecution(false);
+    addLog('success', 'system', 'Mock execution demo stopped');
   };
 
   // VNC Environment handlers
   const handleStartVncEnvironment = async () => {
+    addLog('info', 'system', 'Starting VNC remote desktop environment...');
     setVncEnvironmentStatus('creating');
     
     try {
@@ -405,14 +441,20 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       setVncEnvironmentId(vncExecutionId);
       setVncEnvironmentStatus('running');
       
+      addLog('success', 'system', 'VNC remote desktop started successfully', `Environment ID: ${vncExecutionId}`);
+      addLog('info', 'browser', 'Browser session ready for automation', 'You can now execute workflow steps that will be visible in the browser panel');
+      
     } catch (error) {
       console.error('❌ Failed to start VNC environment:', error);
       setVncEnvironmentStatus('error');
+      addLog('error', 'system', 'Failed to start VNC environment', error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
   const handleStopVncEnvironment = async () => {
     if (!vncEnvironmentId) return;
+    
+    addLog('info', 'system', 'Stopping VNC remote desktop...', `Environment ID: ${vncEnvironmentId}`);
     
     try {
       console.log('🛑 Stopping VNC environment:', vncEnvironmentId);
@@ -426,24 +468,35 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       
       if (!response.ok) {
         console.warn('Failed to stop VNC environment gracefully');
+        addLog('warning', 'system', 'VNC environment may not have stopped cleanly');
       }
       
       setVncEnvironmentId(null);
       setVncEnvironmentStatus('idle');
+      addLog('success', 'system', 'VNC remote desktop stopped');
       console.log('✅ VNC environment stopped');
       
     } catch (error) {
       console.error('❌ Failed to stop VNC environment:', error);
+      addLog('error', 'system', 'Failed to stop VNC environment', error instanceof Error ? error.message : 'Unknown error');
       // Still reset state
       setVncEnvironmentId(null);
       setVncEnvironmentStatus('idle');
     }
   };
 
+  // Initialize logs on component mount
+  useEffect(() => {
+    addLog('info', 'system', 'AEF Control Center initialized', 'Hardcoded test workflow loaded and ready for execution');
+  }, []);
+
   // Determine which execution to use (prioritize VNC environment)
   const activeExecutionId = vncEnvironmentId || realExecutionId || mockExecutionState?.executionId || executionId;
   const isExecutionActive = !!vncEnvironmentId || !!realExecutionId || showMockExecution || !!executionId;
   const currentMockState = (vncEnvironmentId || realExecutionId) ? null : mockExecutionState; // Don't use mock if real execution or VNC is active
+
+  // Combine mock logs with real execution logs
+  const combinedLogs = currentMockState?.logs ? [...executionLogs, ...currentMockState.logs] : executionLogs;
 
   // Show transformation loading state
   if (isTransforming) {
@@ -683,7 +736,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
         <div className="border-t border-gray-200 overflow-hidden">
           <ExecutionLog 
             executionId={activeExecutionId}
-            mockLogs={currentMockState?.logs}
+            mockLogs={combinedLogs}
           />
         </div>
       </div>

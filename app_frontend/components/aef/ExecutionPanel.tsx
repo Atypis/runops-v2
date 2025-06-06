@@ -137,33 +137,77 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   };
 
   const handleRunStep = async (stepId: string) => {
+    const stepNode = workflowSteps.find(step => step.id === stepId);
+    const stepName = stepNode?.label || stepId;
+    
+    console.log(`🎯 [ExecutionPanel] Starting execution of step: ${stepId} (${stepName})`);
+    console.log(`🎯 [ExecutionPanel] ExecutionId: ${executionId}`);
+    console.log(`🎯 [ExecutionPanel] Step details:`, stepNode);
+
     if (!executionId) {
-      console.warn('Cannot run step without executionId');
+      const errorMsg = 'Cannot run step without executionId - please start an execution session first';
+      console.error(`❌ [ExecutionPanel] ${errorMsg}`);
+      alert(`❌ Error: ${errorMsg}`);
       return;
     }
 
     try {
-      console.log(`Running step: ${stepId}`);
+      console.log(`🚀 [ExecutionPanel] Making API call to /api/aef/action/${executionId}`);
+      
+      const requestBody = {
+        stepId,
+        action: 'execute'
+      };
+      
+      console.log(`📤 [ExecutionPanel] Request body:`, requestBody);
       
       const response = await fetch(`/api/aef/action/${executionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stepId,
-          action: 'execute'
-        })
+        body: JSON.stringify(requestBody)
       });
       
+      console.log(`📡 [ExecutionPanel] Response status: ${response.status}`);
+      console.log(`📡 [ExecutionPanel] Response ok: ${response.ok}`);
+      
       if (!response.ok) {
-        throw new Error('Failed to execute step');
+        const errorData = await response.text();
+        console.error(`❌ [ExecutionPanel] Response error data:`, errorData);
+        throw new Error(`Failed to execute step (${response.status}): ${errorData}`);
       }
       
       const result = await response.json();
-      console.log('Step execution result:', result);
+      console.log(`✅ [ExecutionPanel] Step execution result:`, result);
+      
+      // Show success message with details
+      if (result.engineResult) {
+        console.log(`🔧 [ExecutionPanel] ExecutionEngine result:`, result.engineResult);
+        alert(`✅ ${result.engineResult.message}`);
+        
+        if (result.engineResult.nextNodeId) {
+          console.log(`➡️  [ExecutionPanel] Next suggested node: ${result.engineResult.nextNodeId}`);
+        }
+      } else if (result.browserResult) {
+        console.log(`🌐 [ExecutionPanel] Browser result:`, result.browserResult);
+        alert(`✅ Browser action completed for step: ${stepName}`);
+      } else {
+        console.log(`✅ [ExecutionPanel] Step executed successfully`);
+        alert(`✅ Step executed: ${stepName}`);
+      }
       
     } catch (error) {
-      console.error('Failed to run step:', error);
-      // TODO: Show error message to user
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error(`❌ [ExecutionPanel] Failed to run step ${stepId}:`, error);
+      console.error(`❌ [ExecutionPanel] Error details:`, {
+        stepId,
+        stepName,
+        executionId,
+        error: errorMsg,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
+      // Show detailed error to user
+      alert(`❌ Failed to execute step "${stepName}": ${errorMsg}`);
     }
   };
 

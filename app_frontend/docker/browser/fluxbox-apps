@@ -1,0 +1,7 @@
+[app] (name=chrome) (class=Google-chrome)
+  [Maximized] {yes}
+  [Position] (0,0)
+
+[app] (name=chromium) (class=Chromium)
+  [Maximized] {yes}
+  [Position] (0,0) 

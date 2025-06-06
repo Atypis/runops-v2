@@ -38,7 +38,7 @@ async function waitForXServer() {
     try {
       // Check if DISPLAY is accessible
       const { execSync } = require('child_process');
-      execSync('xdpyinfo -display :99', { stdio: 'ignore' });
+              execSync('xdpyinfo -display :1', { stdio: 'ignore' });
       console.log('[Browser Server] X server is ready');
       return true;
     } catch (error) {
@@ -106,7 +106,7 @@ app.post('/init', async (req, res) => {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--display=:99',
+                      '--display=:1',
           '--disable-web-security',
           '--disable-blink-features=AutomationControlled',
           '--no-first-run',
@@ -121,7 +121,7 @@ app.post('/init', async (req, res) => {
         ],
         viewport: { width: 1280, height: 720 },
         env: {
-          DISPLAY: ':99'
+          DISPLAY: ':1'
         }
       }
     };

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Maximize2, Move } from 'lucide-react';
+import { Maximize2, Monitor, Smartphone, Tablet } from 'lucide-react';
 
 interface ResponsiveVNCFrameProps {
   vncUrl: string;
@@ -13,7 +13,7 @@ interface ResponsiveVNCFrameProps {
   nativeHeight?: number;
 }
 
-type FitMode = 'fit' | 'fill' | 'native';
+type ResizeMode = 'remote' | 'scale' | 'off';
 
 const ResponsiveVNCFrame: React.FC<ResponsiveVNCFrameProps> = ({
   vncUrl,
@@ -27,228 +27,203 @@ const ResponsiveVNCFrame: React.FC<ResponsiveVNCFrameProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const [fitMode, setFitMode] = useState<FitMode>('fit');
-  const [scale, setScale] = useState(1);
+  const [resizeMode, setResizeMode] = useState<ResizeMode>('remote');
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [isConnected, setIsConnected] = useState(false);
 
-  // --- Dynamic Scaling Calculation ---
-  const updateScale = useCallback(() => {
+  // --- Update container size tracking ---
+  const updateContainerSize = useCallback(() => {
     if (!containerRef.current) return;
 
     const { width, height } = containerRef.current.getBoundingClientRect();
     setContainerSize({ width, height });
-
-    if (width === 0 || height === 0) return;
-
-    const scaleX = width / nativeWidth;
-    const scaleY = height / nativeHeight;
-    
-    let newScale = 1;
-    if (fitMode === 'fit') {
-      newScale = Math.min(scaleX, scaleY); // Fit entirely inside
-    } else if (fitMode === 'fill') {
-      newScale = Math.max(scaleX, scaleY); // Fill the space, may crop
-    } else { // 'native'
-      newScale = 1; // No scaling
-    }
-    
-    setScale(newScale);
     onDimensionsChange?.({ width, height });
-
-  }, [fitMode, nativeWidth, nativeHeight, onDimensionsChange]);
-
-  // --- Mouse Event Translation ---
-  const translateMouseEvent = useCallback((event: MouseEvent) => {
-    if (!iframeRef.current || !overlayRef.current || fitMode === 'native') return;
-
-    // Get the overlay position relative to the page
-    const overlayRect = overlayRef.current.getBoundingClientRect();
-    
-    // Calculate mouse position relative to the overlay
-    const overlayX = event.clientX - overlayRect.left;
-    const overlayY = event.clientY - overlayRect.top;
-
-    // Translate to native VNC coordinates
-    const nativeX = overlayX / scale;
-    const nativeY = overlayY / scale;
-
-    // Create a new mouse event with translated coordinates
-    const iframe = iframeRef.current;
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-    
-    if (iframeDoc) {
-      // Create and dispatch translated event to iframe
-      const translatedEvent = new MouseEvent(event.type, {
-        bubbles: true,
-        cancelable: true,
-        clientX: nativeX,
-        clientY: nativeY,
-        button: event.button,
-        buttons: event.buttons,
-        ctrlKey: event.ctrlKey,
-        shiftKey: event.shiftKey,
-        altKey: event.altKey,
-        metaKey: event.metaKey
-      });
-
-      // Send to VNC canvas inside iframe
-      const vncCanvas = iframeDoc.querySelector('canvas');
-      if (vncCanvas) {
-        vncCanvas.dispatchEvent(translatedEvent);
-      }
-    }
-
-    // Prevent the original event from reaching the iframe
-    event.preventDefault();
-    event.stopPropagation();
-  }, [scale, fitMode]);
-
-  // --- Setup mouse event interception ---
-  useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay || fitMode === 'native') return;
-
-    const handleMouseEvent = (event: MouseEvent) => {
-      translateMouseEvent(event);
-    };
-
-    // Intercept all mouse events
-    overlay.addEventListener('mousedown', handleMouseEvent, true);
-    overlay.addEventListener('mousemove', handleMouseEvent, true);
-    overlay.addEventListener('mouseup', handleMouseEvent, true);
-    overlay.addEventListener('click', handleMouseEvent, true);
-    overlay.addEventListener('dblclick', handleMouseEvent, true);
-    overlay.addEventListener('wheel', handleMouseEvent, true);
-
-    return () => {
-      overlay.removeEventListener('mousedown', handleMouseEvent, true);
-      overlay.removeEventListener('mousemove', handleMouseEvent, true);
-      overlay.removeEventListener('mouseup', handleMouseEvent, true);
-      overlay.removeEventListener('click', handleMouseEvent, true);
-      overlay.removeEventListener('dblclick', handleMouseEvent, true);
-      overlay.removeEventListener('wheel', handleMouseEvent, true);
-    };
-  }, [translateMouseEvent, fitMode]);
+  }, [onDimensionsChange]);
 
   // --- Observe container size changes ---
   useEffect(() => {
-    const observer = new ResizeObserver(updateScale);
+    const observer = new ResizeObserver(updateContainerSize);
     const container = containerRef.current;
     if (container) {
       observer.observe(container);
     }
-    updateScale(); // Initial scale
+    updateContainerSize(); // Initial size
     return () => {
       if (container) {
         observer.unobserve(container);
       }
     };
-  }, [updateScale]);
-  
-  // Re-calculate scale when fit mode changes
-  useEffect(() => {
-    updateScale();
-  }, [fitMode, updateScale]);
+  }, [updateContainerSize]);
 
-  // --- Optimized VNC URL ---
+  // --- Optimized VNC URL with TigerVNC dynamic resize support ---
   const optimizedVncUrl = React.useMemo(() => {
     if (!vncUrl) return '';
     const url = new URL(vncUrl);
     url.searchParams.set('autoconnect', 'true');
-    url.searchParams.set('resize', 'off'); // We handle scaling with CSS + mouse translation
     url.searchParams.set('quality', '6');
+    url.searchParams.set('compression', '2'); // Enable compression for better performance
+    
+    // Use noVNC's native resize modes that work with TigerVNC ExtendedDesktopSize
+    switch (resizeMode) {
+      case 'remote':
+        // This is the magic setting! Remote resize mode uses VNC ExtendedDesktopSize
+        // to change the server's framebuffer size to match the client window
+        url.searchParams.set('resize', 'remote');
+        break;
+      case 'scale':
+        // Client-side scaling (fallback if remote resize not supported)
+        url.searchParams.set('resize', 'scale');
+        break;
+      case 'off':
+        // No scaling - native resolution only
+        url.searchParams.set('resize', 'off');
+        break;
+    }
+    
     return url.toString();
-  }, [vncUrl]);
+  }, [vncUrl, resizeMode]);
+
+  // --- Quick preset functions ---
+  const setMobileResolution = () => {
+    // Post message to iframe to request 375x667 resolution
+    if (iframeRef.current && resizeMode === 'remote') {
+      // This would be handled by noVNC remote resize automatically
+      console.log('📱 Mobile resolution will be set by remote resize');
+    }
+  };
+
+  const setTabletResolution = () => {
+    console.log('📱 Tablet resolution will be set by remote resize');
+  };
+
+  const setDesktopResolution = () => {
+    console.log('🖥️ Desktop resolution will be set by remote resize');
+  };
 
   return (
     <div 
       className={`relative w-full h-full overflow-hidden bg-gray-900 ${className}`}
       ref={containerRef}
     >
-      {/* VNC Iframe with CSS Scaling + Mouse Translation */}
-      <div
-        style={{
-          width: nativeWidth,
-          height: nativeHeight,
-          transformOrigin: 'top left',
-          transform: fitMode === 'native' ? 'scale(1)' : `scale(${scale})`,
-          // Center the content if it's smaller than the container
-          marginLeft: Math.max(0, (containerSize.width - (nativeWidth * scale)) / 2),
-          marginTop: Math.max(0, (containerSize.height - (nativeHeight * scale)) / 2),
+      {/* VNC Iframe - Using native noVNC remote resize for TigerVNC */}
+      <iframe
+        ref={iframeRef}
+        src={optimizedVncUrl}
+        className="w-full h-full border-0"
+        title="VNC Remote Desktop with Dynamic Resolution"
+        allow="clipboard-read; clipboard-write; fullscreen"
+        onLoad={() => {
+          setIsConnected(true);
+          console.log('✅ VNC iframe loaded with remote resize support');
         }}
-      >
-        <iframe
-          ref={iframeRef}
-          src={optimizedVncUrl}
-          className="w-full h-full border-0"
-          title="VNC Remote Desktop"
-          allow="clipboard-read; clipboard-write; fullscreen"
-          style={{
-            pointerEvents: fitMode === 'native' ? 'auto' : 'none' // Disable when we handle mouse translation
-          }}
-        />
-        
-        {/* Mouse Event Overlay - Intercepts and translates mouse events */}
-        {fitMode !== 'native' && (
-          <div
-            ref={overlayRef}
-            className="absolute inset-0 w-full h-full cursor-auto"
-            style={{
-              zIndex: 10,
-              pointerEvents: 'auto'
-            }}
-            title="Interactive VNC Surface (Mouse Translated)"
-          />
-        )}
-      </div>
+        onError={() => {
+          setIsConnected(false);
+          console.error('❌ VNC iframe failed to load');
+        }}
+      />
       
       {/* UI Controls Overlay */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-        <div className="flex bg-black/80 text-white rounded-lg p-1 backdrop-blur-sm border border-white/20">
+      {showControls && (
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          {/* Resize Mode Controls */}
+          <div className="flex bg-black/80 text-white rounded-lg p-1 backdrop-blur-sm border border-white/20">
+            <Button
+              onClick={() => setResizeMode('remote')}
+              variant={resizeMode === 'remote' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="text-xs px-2 py-1 h-auto"
+              title="Remote Resize (Dynamic Resolution)"
+            >
+              🎯 Auto
+            </Button>
+            <Button
+              onClick={() => setResizeMode('scale')}
+              variant={resizeMode === 'scale' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="text-xs px-2 py-1 h-auto"
+              title="Client Scaling"
+            >
+              📏 Scale
+            </Button>
+            <Button
+              onClick={() => setResizeMode('off')}
+              variant={resizeMode === 'off' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="text-xs px-2 py-1 h-auto"
+              title="Native Resolution"
+            >
+              1:1
+            </Button>
+          </div>
+
+          {/* Quick Resolution Presets (only show in remote mode) */}
+          {resizeMode === 'remote' && (
+            <div className="flex bg-black/80 text-white rounded-lg p-1 backdrop-blur-sm border border-white/20">
+              <Button
+                onClick={setMobileResolution}
+                variant="ghost"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto"
+                title="Mobile Resolution"
+              >
+                <Smartphone className="w-3 h-3" />
+              </Button>
+              <Button
+                onClick={setTabletResolution}
+                variant="ghost"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto"
+                title="Tablet Resolution"
+              >
+                <Tablet className="w-3 h-3" />
+              </Button>
+              <Button
+                onClick={setDesktopResolution}
+                variant="ghost"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto"
+                title="Desktop Resolution"
+              >
+                <Monitor className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+
+          {/* Fullscreen Button */}
           <Button
-            onClick={() => setFitMode('fit')}
-            variant={fitMode === 'fit' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="text-xs px-2 py-1 h-auto"
-            title="Fit to Container (Responsive)"
+            onClick={onFullscreen}
+            variant="ghost"
+            size="icon"
+            title="Open in New Window"
+            className="bg-black/80 text-white hover:bg-white/20 backdrop-blur-sm h-8 w-8"
           >
-            Fit
-          </Button>
-          <Button
-            onClick={() => setFitMode('fill')}
-            variant={fitMode === 'fill' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="text-xs px-2 py-1 h-auto"
-            title="Fill Container (Responsive)"
-          >
-            Fill
-          </Button>
-          <Button
-            onClick={() => setFitMode('native')}
-            variant={fitMode === 'native' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="text-xs px-2 py-1 h-auto"
-            title="Native Resolution (1:1)"
-          >
-            1:1
+            <Maximize2 className="w-4 h-4" />
           </Button>
         </div>
-        <Button
-          onClick={onFullscreen}
-          variant="ghost"
-          size="icon"
-          title="Open in New Window"
-          className="bg-black/80 text-white hover:bg-white/20 backdrop-blur-sm h-8 w-8"
-        >
-          <Maximize2 className="w-4 h-4" />
-        </Button>
-      </div>
+      )}
       
-      {/* Info Overlay */}
+      {/* Status Info Overlay */}
       <div className="absolute bottom-4 left-4 z-20 bg-black/80 text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm">
-        {Math.round(scale * 100)}% • {fitMode.toUpperCase()} • Mouse: {fitMode === 'native' ? 'Direct' : 'Translated'}
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+          <span>
+            {resizeMode === 'remote' ? '🎯 Dynamic Resolution' : 
+             resizeMode === 'scale' ? '📏 Client Scaling' : '1:1 Native'} • 
+            {containerSize.width}×{containerSize.height}
+          </span>
+        </div>
       </div>
+
+      {/* Loading State */}
+      {!isConnected && (
+        <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
+          <div className="text-white text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+            <p>Connecting to VNC with dynamic resolution...</p>
+            <p className="text-sm text-gray-400 mt-2">Mode: {resizeMode}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
