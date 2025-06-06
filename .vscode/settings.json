@@ -26,5 +26,9 @@
   },
   "_generated_diagnostic_collection_name_#0.enabled": false,
   "_generated_diagnostic_collection_name_#1.enabled": false,
-  "_generated_diagnostic_collection_name_#4.enabled": false
+  "_generated_diagnostic_collection_name_#4.enabled": false,
+  "git.repositoryScanMaxDepth": 1,
+  "git.autoRepositoryDetection": "subFolders",
+  "scm.defaultViewMode": "tree",
+  "git.repositoryScanIgnoredFolders": ["stagehand", "cua"]
 } 
