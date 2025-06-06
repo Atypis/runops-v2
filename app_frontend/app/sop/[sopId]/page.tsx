@@ -323,8 +323,8 @@ export default function SopPage({ params }: SopPageProps) {
             </div>
           </header>
           
-          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min flex items-center justify-center">
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0 min-h-0">
+            <div className="flex-1 rounded-xl bg-muted/50 min-h-0 flex items-center justify-center">
               <p>Loading SOP data...</p>
             </div>
           </div>
@@ -359,8 +359,8 @@ export default function SopPage({ params }: SopPageProps) {
             </div>
           </header>
           
-          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min flex items-center justify-center">
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0 min-h-0">
+            <div className="flex-1 rounded-xl bg-muted/50 min-h-0 flex items-center justify-center">
               <div className="text-center">
                 <p className="text-red-500 text-xl mb-4">Error</p>
                 <p className="text-gray-700 mb-6">{error}</p>
@@ -401,8 +401,8 @@ export default function SopPage({ params }: SopPageProps) {
             </div>
           </header>
           
-          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min flex items-center justify-center">
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0 min-h-0">
+            <div className="flex-1 rounded-xl bg-muted/50 min-h-0 flex items-center justify-center">
               <p>No SOP data available.</p>
             </div>
           </div>
@@ -465,8 +465,8 @@ export default function SopPage({ params }: SopPageProps) {
           </div>
         </header>
         
-        <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-          <div className="min-h-[100vh] flex-1 rounded-xl md:min-h-min overflow-hidden">
+        <div className="flex flex-1 flex-col gap-4 p-4 pt-0 min-h-0">
+          <div className="flex-1 rounded-xl min-h-0 overflow-hidden">
             {viewMode === 'list' ? (
               <ElegantSOPView 
                 sopData={processedSopData} 
@@ -484,6 +484,7 @@ export default function SopPage({ params }: SopPageProps) {
                   isTransforming={isTransforming}
                   transformError={transformError}
                   onClearTransformError={() => setTransformError(null)}
+                  sopId={params.sopId}
                 />
               </div>
             )}

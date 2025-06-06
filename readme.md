@@ -2,6 +2,62 @@
 
 > **Transform workflow videos into structured SOPs using AI processing + ReactFlow visualization**
 
+---
+
+## 🚀 **QUICK START - Required Services**
+
+For the full AEF (Automated Execution Framework) system to work, you need these services running:
+
+### 🔥 **Core Services (Required)**
+```bash
+# Terminal 1: Main Next.js application
+cd app_frontend
+npm run dev
+
+# Terminal 2: Background video processing worker  
+cd app_frontend
+npm run worker
+
+# Terminal 3: WebSocket server for browser communication
+cd app_frontend
+npm run dev:ws
+# OR: node ws-server.js
+```
+
+### 🖥️ **AEF Browser Integration (For automation)**
+```bash
+# Docker containers for browser automation (auto-managed)
+# These start automatically when you click "Start Remote Desktop" in AEF mode:
+
+# Example containers (created dynamically):
+# - aef-browser-session_vnc-env-[id] (ports 13000->3000, 14000->5900, 15000->6080)
+# - VNC browser accessible at http://localhost:15000/vnc.html
+```
+
+### 📊 **System Health Check**
+```bash
+# Check all services are running:
+curl http://localhost:3000                           # ✅ Next.js app
+curl http://localhost:3004/health                    # ✅ WebSocket server  
+docker ps | grep aef-browser                        # ✅ Browser containers
+```
+
+### 🎯 **What Each Service Does**
+- **`npm run dev`**: Main web interface (SOP viewer, upload, AEF Control Center)
+- **`npm run worker`**: Processes uploaded videos → transcripts → structured SOPs  
+- **`npm run dev:ws`**: WebSocket server for real-time browser communication
+- **Docker containers**: Isolated browser environments for automation (VNC + Stagehand)
+
+### 🔧 **Optional Services**
+```bash
+# Enhanced development experience:
+npm run dev:full          # Runs both dev + browser-integration
+npm run build-browser-image   # Rebuilds Docker browser image
+npm run dev:docker        # Full Docker development mode
+```
+
+---
+
 ## 🚀 System Purpose (30 seconds)
 Runops captures workflow context via screen recording, parses it into structured SOPs using Gemini AI, and visualizes the result in interactive ReactFlow diagrams. Users record → upload → get AI-generated SOP.
 

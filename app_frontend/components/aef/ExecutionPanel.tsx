@@ -55,31 +55,116 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
     setExpandedSteps(newExpanded);
   };
 
-  const handleRunAll = () => {
-    if (onStartMockExecution) {
+  const handleRunAll = async () => {
+    if (onStartMockExecution && !executionId) {
+      // Use mock execution if no real executionId is provided
       onStartMockExecution();
-    } else {
-      setIsRunning(true);
-      setExecutionStatus(ExecutionStatus.RUNNING);
-      // TODO: Implement actual execution start
-      console.log('Starting workflow execution...');
+      return;
     }
-  };
 
-  const handleStop = () => {
-    if (onStopMockExecution) {
-      onStopMockExecution();
-    } else {
+    // Start real execution
+    setIsRunning(true);
+    setExecutionStatus(ExecutionStatus.RUNNING);
+    
+    try {
+      console.log('Starting real workflow execution...');
+      
+      // If we don't have an executionId yet, create a new execution
+      if (!executionId) {
+                 const response = await fetch('/api/aef/execute', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ 
+             aefDocumentId: aefDocument.meta?.id 
+           })
+         });
+        
+        if (!response.ok) {
+          throw new Error('Failed to create execution');
+        }
+        
+        const execution = await response.json();
+        console.log('Execution created:', execution.executionId);
+        
+        // Note: The parent component should handle setting the executionId
+        // For now we'll just log it
+      } else {
+        console.log('Using existing execution:', executionId);
+      }
+      
+    } catch (error) {
+      console.error('Failed to start execution:', error);
       setIsRunning(false);
       setExecutionStatus(ExecutionStatus.IDLE);
-      // TODO: Implement actual execution stop
-      console.log('Stopping workflow execution...');
+      // TODO: Show error message to user
     }
   };
 
-  const handleRunStep = (stepId: string) => {
-    // TODO: Implement individual step execution
-    console.log(`Running step: ${stepId}`);
+  const handleStop = async () => {
+    if (onStopMockExecution && !executionId) {
+      // Use mock execution stop if no real executionId
+      onStopMockExecution();
+      return;
+    }
+
+    if (!executionId) {
+      setIsRunning(false);
+      setExecutionStatus(ExecutionStatus.IDLE);
+      return;
+    }
+
+    try {
+      console.log('Stopping real workflow execution...');
+      
+      const response = await fetch(`/api/aef/stop/${executionId}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to stop execution');
+      }
+      
+      setIsRunning(false);
+      setExecutionStatus(ExecutionStatus.IDLE);
+      console.log('Execution stopped successfully');
+      
+    } catch (error) {
+      console.error('Failed to stop execution:', error);
+      // Still update UI to stopped state even if API call failed
+      setIsRunning(false);
+      setExecutionStatus(ExecutionStatus.IDLE);
+    }
+  };
+
+  const handleRunStep = async (stepId: string) => {
+    if (!executionId) {
+      console.warn('Cannot run step without executionId');
+      return;
+    }
+
+    try {
+      console.log(`Running step: ${stepId}`);
+      
+      const response = await fetch(`/api/aef/action/${executionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stepId,
+          action: 'execute'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to execute step');
+      }
+      
+      const result = await response.json();
+      console.log('Step execution result:', result);
+      
+    } catch (error) {
+      console.error('Failed to run step:', error);
+      // TODO: Show error message to user
+    }
   };
 
   return (

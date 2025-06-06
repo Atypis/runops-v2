@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { AEFDocument, isAEFDocument } from '@/lib/types/aef';
+import { AEFDocument, isAEFDocument, ExecutionMethod } from '@/lib/types/aef';
 import { ExecutionStatus } from '@/lib/types/execution';
-import { browserManager } from '@/lib/browser/BrowserManager';
+import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -36,27 +36,84 @@ export async function POST(request: NextRequest) {
     console.log(`Starting AEF execution for document ${aefDocumentId}, user ${user.id}`);
 
     // Fetch the AEF document
-    const { data: sopRecord, error: fetchError } = await supabase
-      .from('sops')
-      .select('*')
-      .eq('job_id', aefDocumentId)
-      .single();
-
-    if (fetchError) {
-      console.error('Error fetching AEF document:', fetchError);
-      if (fetchError.code === 'PGRST116') {
+    // TEMPORARY: Use test document for development
+    let aefDocument: AEFDocument;
+    
+    if (aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa') {
+      // Load our test investor email workflow
+      const fs = require('fs');
+      const path = require('path');
+      const testDocPath = path.join(process.cwd(), '..', 'stagehand-test', 'downloads', 'investor_email_crm_workflow.json');
+      
+      try {
+        const testDocContent = fs.readFileSync(testDocPath, 'utf8');
+        const testDoc = JSON.parse(testDocContent);
+        
+                 // Convert our test document to AEF format
+         aefDocument = {
+           meta: testDoc.meta,
+           public: {
+             triggers: [],
+             nodes: testDoc.execution.workflow.nodes,
+             edges: testDoc.execution.workflow.flow,
+             variables: {},
+             clarification_requests: []
+           },
+           private: {
+             skills: [],
+             steps: [],
+             artifacts: []
+           },
+           aef: {
+             config: {
+               checkpoints: [],
+               executionMethod: ExecutionMethod.BROWSER_AUTOMATION,
+               secrets: [],
+               estimatedDuration: 20,
+               stepTimeout: 30,
+               checkpointTimeout: 300,
+               enableDetailedLogging: true,
+               pauseOnErrors: true
+             },
+             transformedAt: new Date(),
+             transformedBy: user.id,
+             version: '1.0.0',
+             automationEnhanced: true
+           }
+         };
+        
+        console.log('✅ Using test investor email workflow document');
+      } catch (error) {
+        console.error('❌ Failed to load test document:', error);
         return NextResponse.json(
-          { error: 'AEF document not found or access denied' },
-          { status: 404 }
+          { error: 'Failed to load test AEF document' },
+          { status: 500 }
         );
       }
-      return NextResponse.json(
-        { error: 'Failed to fetch AEF document' },
-        { status: 500 }
-      );
-    }
+    } else {
+      // Original database fetch for other documents
+      const { data: sopRecord, error: fetchError } = await supabase
+        .from('sops')
+        .select('*')
+        .eq('job_id', aefDocumentId)
+        .single();
 
-    const aefDocument: AEFDocument = sopRecord.data;
+      if (fetchError) {
+        console.error('Error fetching AEF document:', fetchError);
+        if (fetchError.code === 'PGRST116') {
+          return NextResponse.json(
+            { error: 'AEF document not found or access denied' },
+            { status: 404 }
+          );
+        }
+        return NextResponse.json(
+          { error: 'Failed to fetch AEF document' },
+          { status: 500 }
+        );
+      }
+
+      aefDocument = sopRecord.data;
+    }
     
     // Verify this is an AEF-enabled document
     if (!isAEFDocument(aefDocument)) {
@@ -72,11 +129,12 @@ export async function POST(request: NextRequest) {
     // Create browser session
     console.log(`Creating browser session for execution ${executionId}`);
     try {
-      const browserSession = await browserManager.createSession({
+      const browserSession = await hybridBrowserManager.createSession({
         executionId,
         userId: user.id,
         headless: false, // For now, keep visible for debugging
-        viewport: { width: 1280, height: 720 }
+        viewport: { width: 1280, height: 720 },
+        mode: 'docker' // Force Docker mode for embedded browser view
       });
       
       console.log(`Browser session created: ${browserSession.id}`);
@@ -130,8 +188,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate WebSocket URL - pointing to our dedicated WebSocket server
-    const websocketUrl = `ws://localhost:3003/ws?executionId=${executionId}`;
+    // Generate WebSocket URL - pointing to our VNC-enabled WebSocket server
+    const websocketUrl = `ws://localhost:3004/ws?executionId=${executionId}`;
 
     console.log(`AEF execution ${executionId} queued successfully`);
     

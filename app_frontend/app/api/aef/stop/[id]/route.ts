@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 
 /**
  * DELETE /api/aef/stop/[id]
@@ -102,9 +103,14 @@ export async function DELETE(
       );
     }
 
-    // TODO: Add browser session cleanup here
-    // For now, browser sessions will be cleaned up by the execution engine
-    // when it detects the stopped status
+    // Clean up browser session (Docker container or local session)
+    try {
+      await hybridBrowserManager.destroySessionByExecution(executionId);
+      console.log(`Browser session cleaned up for execution ${executionId}`);
+    } catch (cleanupError) {
+      console.warn(`Failed to cleanup browser session for ${executionId}:`, cleanupError);
+      // Don't fail the stop operation if cleanup fails
+    }
 
     console.log(`AEF execution ${executionId} stopped successfully`);
     

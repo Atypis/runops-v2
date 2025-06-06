@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { browserManager } from '@/lib/browser/BrowserManager';
+import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { BrowserAction } from '@/lib/browser/types';
 
 /**
@@ -89,7 +89,7 @@ export async function POST(
           stepId
         };
         
-        browserResult = await browserManager.executeAction(executionId, browserActionData);
+        browserResult = await hybridBrowserManager.executeAction(executionId, browserActionData);
         console.log(`Browser action completed for step ${stepId}`);
         
       } catch (error) {

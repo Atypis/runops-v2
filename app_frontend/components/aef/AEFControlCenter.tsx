@@ -18,6 +18,7 @@ interface AEFControlCenterProps {
   onClearTransformError?: () => void;
   executionId?: string;
   isLoading?: boolean;
+  sopId?: string;
 }
 
 const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
@@ -27,14 +28,23 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   transformError = null,
   onClearTransformError,
   executionId,
-  isLoading = false
+  isLoading = false,
+  sopId
 }) => {
+  // Real execution state
+  const [realExecutionId, setRealExecutionId] = useState<string | null>(executionId || null);
+  const [realExecutionStatus, setRealExecutionStatus] = useState<'idle' | 'creating' | 'running' | 'error'>('idle');
+  
+  // VNC Environment state
+  const [vncEnvironmentId, setVncEnvironmentId] = useState<string | null>(null);
+  const [vncEnvironmentStatus, setVncEnvironmentStatus] = useState<'idle' | 'creating' | 'running' | 'error'>('idle');
+  
   // Mock AEF state for demonstration
   const [mockExecutionState, setMockExecutionState] = useState<MockExecutionState | null>(null);
   const [showMockExecution, setShowMockExecution] = useState(false);
   
   // Check if this SOP has been transformed to AEF (using mock for demo)
-  const shouldShowMock = shouldShowMockAEF(sopData.meta?.id || '');
+  const shouldShowMock = shouldShowMockAEF(sopId || '');
   const isAEF = isAEFDocument(sopData) || shouldShowMock;
   
   // Create mock AEF document for demonstration
@@ -44,7 +54,74 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       ? createMockAEFTransformation(sopData)
       : null;
 
-  // Demo execution handler
+  // Real execution handler
+  const handleStartRealExecution = async () => {
+    const documentId = sopId || aefDocument?.meta?.id;
+    
+    if (!documentId) {
+      console.error('No SOP/AEF document ID available');
+      setRealExecutionStatus('error');
+      return;
+    }
+
+    setRealExecutionStatus('creating');
+    
+    try {
+      console.log('Creating real AEF execution for document:', documentId);
+      
+      const response = await fetch('/api/aef/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          aefDocumentId: documentId
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create execution');
+      }
+      
+      const execution = await response.json();
+      console.log('Real execution created:', execution.executionId);
+      
+      setRealExecutionId(execution.executionId);
+      setRealExecutionStatus('running');
+      
+    } catch (error) {
+      console.error('Failed to create real execution:', error);
+      setRealExecutionStatus('error');
+      // TODO: Show error message to user
+    }
+  };
+
+  const handleStopRealExecution = async () => {
+    if (!realExecutionId) return;
+    
+    try {
+      console.log('Stopping real execution:', realExecutionId);
+      
+      const response = await fetch(`/api/aef/stop/${realExecutionId}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to stop execution');
+      }
+      
+      setRealExecutionId(null);
+      setRealExecutionStatus('idle');
+      console.log('Real execution stopped');
+      
+    } catch (error) {
+      console.error('Failed to stop real execution:', error);
+      // Still reset state
+      setRealExecutionId(null);
+      setRealExecutionStatus('idle');
+    }
+  };
+
+  // Demo execution handler (mock)
   const handleStartMockExecution = () => {
     if (aefDocument) {
       const mockState = createMockExecutionState(aefDocument);
@@ -57,6 +134,76 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     setMockExecutionState(null);
     setShowMockExecution(false);
   };
+
+  // VNC Environment handlers
+  const handleStartVncEnvironment = async () => {
+    setVncEnvironmentStatus('creating');
+    
+    try {
+      console.log('🖥️ Starting VNC execution environment...');
+      
+      // Generate a simple execution ID for VNC session
+      const vncExecutionId = `vnc-env-${Date.now()}`;
+      
+      // Call our Docker container creation directly
+      const response = await fetch('/api/aef/start-vnc-environment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          executionId: vncExecutionId,
+          userId: 'demo-user'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to start VNC environment');
+      }
+      
+      const result = await response.json();
+      console.log('🚀 VNC environment created:', result);
+      
+      setVncEnvironmentId(vncExecutionId);
+      setVncEnvironmentStatus('running');
+      
+    } catch (error) {
+      console.error('❌ Failed to start VNC environment:', error);
+      setVncEnvironmentStatus('error');
+    }
+  };
+
+  const handleStopVncEnvironment = async () => {
+    if (!vncEnvironmentId) return;
+    
+    try {
+      console.log('🛑 Stopping VNC environment:', vncEnvironmentId);
+      
+      // Call stop endpoint (we'll create this)
+      const response = await fetch('/api/aef/stop-vnc-environment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ executionId: vncEnvironmentId })
+      });
+      
+      if (!response.ok) {
+        console.warn('Failed to stop VNC environment gracefully');
+      }
+      
+      setVncEnvironmentId(null);
+      setVncEnvironmentStatus('idle');
+      console.log('✅ VNC environment stopped');
+      
+    } catch (error) {
+      console.error('❌ Failed to stop VNC environment:', error);
+      // Still reset state
+      setVncEnvironmentId(null);
+      setVncEnvironmentStatus('idle');
+    }
+  };
+
+  // Determine which execution to use (prioritize VNC environment)
+  const activeExecutionId = vncEnvironmentId || realExecutionId || mockExecutionState?.executionId || executionId;
+  const isExecutionActive = !!vncEnvironmentId || !!realExecutionId || showMockExecution || !!executionId;
+  const currentMockState = (vncEnvironmentId || realExecutionId) ? null : mockExecutionState; // Don't use mock if real execution or VNC is active
 
   // Show transformation loading state
   if (isTransforming) {
@@ -122,38 +269,183 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     );
   }
 
-  // Main tri-panel layout
+  // CSS Grid layout for precise control
   return (
-    <div className="aef-control-center h-full flex flex-col bg-white">
-      {/* Top panels - 80% height */}
-      <div className="top-panels flex-1 flex min-h-0">
-        {/* Left panel - Execution Control (40% width) */}
-        <div className="w-2/5 border-r border-gray-200 flex flex-col">
-          <ExecutionPanel 
-            aefDocument={aefDocument!}
-            executionId={mockExecutionState?.executionId || executionId}
-            mockExecutionState={mockExecutionState}
-            onStartMockExecution={handleStartMockExecution}
-            onStopMockExecution={handleStopMockExecution}
-          />
+    <div className="aef-control-center h-screen bg-white overflow-hidden" 
+         style={{
+           display: 'grid',
+           gridTemplateRows: 'auto 1fr',
+           height: '100vh'
+         }}>
+      {/* Header - Auto height */}
+      <div className="p-3 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+            <h2 className="text-sm font-semibold text-gray-900">AEF Control Center</h2>
+            <div className="flex items-center gap-2 text-xs">
+              {vncEnvironmentId && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                  VNC Remote Desktop
+                </div>
+              )}
+              {realExecutionId && !vncEnvironmentId && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  Live Browser Session
+                </div>
+              )}
+              {mockExecutionState && !realExecutionId && !vncEnvironmentId && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  Mock Demo Mode
+                </div>
+              )}
+              {!realExecutionId && !mockExecutionState && !vncEnvironmentId && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 rounded">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                  Ready to Execute
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {/* VNC Environment Controls - Primary Option */}
+            {!vncEnvironmentId ? (
+              <Button
+                onClick={handleStartVncEnvironment}
+                size="sm"
+                disabled={vncEnvironmentStatus === 'creating'}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                {vncEnvironmentStatus === 'creating' ? (
+                  <>
+                    <div className="w-3 h-3 animate-spin border border-white border-t-transparent rounded-full mr-2"></div>
+                    Starting...
+                  </>
+                ) : (
+                  '🖥️ Start Remote Desktop'
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleStopVncEnvironment}
+                size="sm"
+                variant="destructive"
+              >
+                ⏹️ Stop Remote Desktop
+              </Button>
+            )}
+            
+            {/* Real Execution Controls - Secondary Option */}
+            {!vncEnvironmentId && (
+              <>
+                {!realExecutionId ? (
+                  <Button
+                    onClick={handleStartRealExecution}
+                    size="sm"
+                    disabled={realExecutionStatus === 'creating'}
+                    variant="outline"
+                    className="border-green-200 text-green-700 hover:bg-green-50"
+                  >
+                    {realExecutionStatus === 'creating' ? (
+                      <>
+                        <div className="w-3 h-3 animate-spin border border-green-600 border-t-transparent rounded-full mr-2"></div>
+                        Starting...
+                      </>
+                    ) : (
+                      '🚀 Full Execution (Advanced)'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleStopRealExecution}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    ⏹️ Stop Execution
+                  </Button>
+                )}
+              </>
+            )}
+            
+            {/* Mock Demo Controls */}
+            {!showMockExecution && !realExecutionId ? (
+              <Button
+                onClick={handleStartMockExecution}
+                size="sm"
+                variant="outline"
+              >
+                🎭 Demo Mode
+              </Button>
+            ) : showMockExecution ? (
+              <Button
+                onClick={handleStopMockExecution}
+                size="sm"
+                variant="outline"
+              >
+                ⏹️ Stop Demo
+              </Button>
+            ) : null}
+          </div>
         </div>
         
-        {/* Right panel - Browser View (60% width) */}
-        <div className="w-3/5 flex flex-col">
-          <BrowserPanel 
-            executionId={mockExecutionState?.executionId || executionId}
-            isActive={showMockExecution || !!executionId}
-            mockExecutionState={mockExecutionState}
-          />
-        </div>
+        {/* Status Information */}
+        {vncEnvironmentStatus === 'error' && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
+            ⚠️ Failed to start VNC environment. Check console for details.
+          </div>
+        )}
+        {realExecutionStatus === 'error' && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
+            ⚠️ Failed to start real execution. Check console for details.
+          </div>
+        )}
       </div>
       
-      {/* Bottom panel - Execution Log (20% height) */}
-      <div className="h-1/5 border-t border-gray-200 flex flex-col min-h-0">
-        <ExecutionLog 
-          executionId={mockExecutionState?.executionId || executionId}
-          mockLogs={mockExecutionState?.logs}
-        />
+      {/* Main content area with CSS Grid */}
+      <div className="overflow-hidden"
+           style={{
+             display: 'grid',
+             gridTemplateRows: '70% 30%',
+             height: '100%'
+           }}>
+        {/* Top area - 70% */}
+        <div className="overflow-hidden"
+             style={{
+               display: 'grid',
+               gridTemplateColumns: '35% 65%',
+               height: '100%'
+             }}>
+          {/* Left panel - SOP */}
+          <div className="border-r border-gray-200 overflow-hidden">
+            <ExecutionPanel 
+              aefDocument={aefDocument!}
+              executionId={activeExecutionId}
+              mockExecutionState={currentMockState}
+              onStartMockExecution={handleStartMockExecution}
+              onStopMockExecution={handleStopMockExecution}
+            />
+          </div>
+          
+          {/* Right panel - Browser */}
+          <div className="bg-gray-50 overflow-hidden">
+            <BrowserPanel 
+              executionId={activeExecutionId}
+              isActive={isExecutionActive}
+              mockExecutionState={currentMockState}
+            />
+          </div>
+        </div>
+        
+        {/* Bottom area - 30% */}
+        <div className="border-t border-gray-200 overflow-hidden">
+          <ExecutionLog 
+            executionId={activeExecutionId}
+            mockLogs={currentMockState?.logs}
+          />
+        </div>
       </div>
     </div>
   );

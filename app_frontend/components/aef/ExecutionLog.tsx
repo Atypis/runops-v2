@@ -34,58 +34,8 @@ const ExecutionLog: React.FC<ExecutionLogProps> = ({
   useEffect(() => {
     if (mockLogs) {
       setLogs(mockLogs);
-    } else if (executionId) {
-      // Add some initial logs
-      const initialLogs: LogEntry[] = [
-        {
-          id: '1',
-          timestamp: new Date(Date.now() - 30000),
-          level: 'info',
-          category: 'system',
-          message: 'Execution started',
-          details: `Execution ID: ${executionId}`
-        },
-        {
-          id: '2',
-          timestamp: new Date(Date.now() - 25000),
-          level: 'info',
-          category: 'browser',
-          message: 'Browser session initialized',
-          details: 'Chrome browser launched successfully'
-        },
-        {
-          id: '3',
-          timestamp: new Date(Date.now() - 20000),
-          level: 'info',
-          category: 'step',
-          message: 'Starting step execution',
-          stepId: 'step-1',
-          stepName: 'Navigate to Gmail'
-        }
-      ];
-      setLogs(initialLogs);
-
-      // Simulate real-time log updates
-      const interval = setInterval(() => {
-        const newLog: LogEntry = {
-          id: Date.now().toString(),
-          timestamp: new Date(),
-          level: Math.random() > 0.8 ? 'warning' : 'info',
-          category: ['system', 'step', 'browser', 'checkpoint'][Math.floor(Math.random() * 4)] as any,
-          message: [
-            'Browser action completed',
-            'Checkpoint approval received',
-            'Step transition in progress',
-            'Screenshot captured',
-            'Page loaded successfully'
-          ][Math.floor(Math.random() * 5)]
-        };
-        
-        setLogs(prev => [...prev, newLog]);
-      }, 5000);
-
-      return () => clearInterval(interval);
     }
+    // Real logs will be connected via WebSocket or API when implemented
   }, [executionId, mockLogs]);
 
   // Auto-scroll to bottom when new logs arrive
