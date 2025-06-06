@@ -418,8 +418,9 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     try {
       console.log('🖥️ Starting VNC execution environment...');
       
-      // Generate a simple execution ID for VNC session
-      const vncExecutionId = `vnc-env-${Date.now()}`;
+      // Generate a proper UUID with VNC prefix for frontend detection
+      const vncExecutionId = `vnc-env-${crypto.randomUUID()}`;
+      addLog('info', 'system', 'Generated VNC execution ID', `ID: ${vncExecutionId}`);
       
       // Call our Docker container creation directly
       const response = await fetch('/api/aef/start-vnc-environment', {
@@ -431,18 +432,34 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
         })
       });
       
+      addLog('info', 'system', 'VNC API call completed', `Status: ${response.status}`);
+      
       if (!response.ok) {
+        const errorText = await response.text();
+        addLog('error', 'system', 'VNC API call failed', errorText);
         throw new Error('Failed to start VNC environment');
       }
       
-      const result = await response.json();
-      console.log('🚀 VNC environment created:', result);
+      const responseData = await response.json();
+      console.log('✅ VNC environment creation response:', responseData);
       
-      setVncEnvironmentId(vncExecutionId);
-      setVncEnvironmentStatus('running');
-      
-      addLog('success', 'system', 'VNC remote desktop started successfully', `Environment ID: ${vncExecutionId}`);
-      addLog('info', 'browser', 'Browser session ready for automation', 'You can now execute workflow steps that will be visible in the browser panel');
+      if (responseData.success) {
+        setVncEnvironmentId(vncExecutionId);
+        setVncEnvironmentStatus('running');
+        addLog('success', 'system', 'VNC environment ready!', 
+          `🖥️ VNC Desktop: http://localhost:16080\n` +
+          `🔧 Action API: http://localhost:13000\n` +
+          `📝 Execution ID: ${vncExecutionId}`
+        );
+        
+        // Show user exactly how to access VNC
+        alert(`✅ VNC Environment Ready!\n\n` +
+          `🖥️ Open VNC Desktop: http://localhost:16080\n` +
+          `📝 Execution ID: ${vncExecutionId}\n\n` +
+          `The browser automation will appear in the VNC viewer.`);
+      } else {
+        throw new Error(responseData.error || 'Unknown error');
+      }
       
     } catch (error) {
       console.error('❌ Failed to start VNC environment:', error);

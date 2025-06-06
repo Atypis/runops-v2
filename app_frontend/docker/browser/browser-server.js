@@ -106,7 +106,7 @@ app.post('/init', async (req, res) => {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-                      '--display=:1',
+          '--display=:1',
           '--disable-web-security',
           '--disable-blink-features=AutomationControlled',
           '--no-first-run',

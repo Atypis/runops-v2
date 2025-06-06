@@ -1,7 +1,17 @@
 [app] (name=chrome) (class=Google-chrome)
   [Maximized] {yes}
   [Position] (0,0)
+  [Decorations] {NONE}
+  [Layer] {DESKTOP}
 
 [app] (name=chromium) (class=Chromium)
   [Maximized] {yes}
-  [Position] (0,0) 
+  [Position] (0,0)
+  [Decorations] {NONE}
+  [Layer] {DESKTOP}
+
+[app] (name=chromium-browser) (class=Chromium-browser)
+  [Maximized] {yes}
+  [Position] (0,0)
+  [Decorations] {NONE}
+  [Layer] {DESKTOP} 
