@@ -295,6 +295,10 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   // Real-time execution logs for debugging
   const [executionLogs, setExecutionLogs] = useState<MockLogEntry[]>([]);
   
+  // Resizable panel state
+  const [leftPanelWidth, setLeftPanelWidth] = useState(35); // percentage
+  const [isResizing, setIsResizing] = useState(false);
+  
   // Helper function to add logs
   const addLog = (level: 'info' | 'warning' | 'error' | 'success', category: 'system' | 'step' | 'browser' | 'checkpoint', message: string, details?: string, stepName?: string) => {
     const newLog: MockLogEntry = {
@@ -310,6 +314,52 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     console.log(`📝 [AEFControlCenter] Adding log:`, newLog);
     setExecutionLogs(prev => [...prev, newLog]);
   };
+  
+  // Resizing functionality
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+  
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isResizing) return;
+    
+    const container = document.querySelector('.aef-control-center');
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+    
+    // Constrain the width between 20% and 80%
+    const constrainedWidth = Math.max(20, Math.min(80, newLeftWidth));
+    setLeftPanelWidth(constrainedWidth);
+  };
+  
+  const handleMouseUp = () => {
+    setIsResizing(false);
+  };
+  
+  // Add global mouse event listeners for resizing
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
   
   // ALWAYS use the hardcoded test workflow for testing purposes
   const aefDocument = createHardcodedAEFDocument();
@@ -714,22 +764,15 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
         )}
       </div>
       
-      {/* Main content area with CSS Grid */}
-      <div className="overflow-hidden"
-           style={{
-             display: 'grid',
-             gridTemplateRows: '70% 30%',
-             height: '100%'
-           }}>
-        {/* Top area - 70% */}
-        <div className="overflow-hidden"
-             style={{
-               display: 'grid',
-               gridTemplateColumns: '35% 65%',
-               height: '100%'
-             }}>
-          {/* Left panel - SOP */}
-          <div className="border-r border-gray-200 overflow-hidden">
+      {/* Main content area with Resizable Layout */}
+      <div className="flex flex-col overflow-hidden h-full">
+        {/* Top area - 70% with resizable panels */}
+        <div className="flex-1 flex overflow-hidden" style={{ height: '70%' }}>
+          {/* Left panel - Resizable */}
+          <div 
+            className="overflow-hidden border-r border-gray-200"
+            style={{ width: `${leftPanelWidth}%` }}
+          >
             <ExecutionPanel 
               aefDocument={aefDocument!}
               executionId={activeExecutionId}
@@ -739,8 +782,27 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
             />
           </div>
           
+          {/* Resizable Divider */}
+          <div
+            className={`
+              w-1 bg-gray-300 hover:bg-blue-400 cursor-col-resize flex-shrink-0
+              transition-colors duration-200 relative group
+              ${isResizing ? 'bg-blue-500' : ''}
+            `}
+            onMouseDown={handleMouseDown}
+          >
+            {/* Drag Handle Visual Indicator */}
+            <div className="absolute inset-y-0 left-1/2 transform -translate-x-1/2 w-1 bg-gray-400 group-hover:bg-blue-500 transition-colors duration-200"></div>
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-3 h-8 bg-gray-400 group-hover:bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+              <div className="w-0.5 h-4 bg-white rounded"></div>
+            </div>
+          </div>
+          
           {/* Right panel - Browser */}
-          <div className="bg-gray-50 overflow-hidden">
+          <div 
+            className="bg-gray-50 overflow-hidden flex-1"
+            style={{ width: `${100 - leftPanelWidth}%` }}
+          >
             <BrowserPanel 
               executionId={activeExecutionId}
               isActive={isExecutionActive}
@@ -750,7 +812,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
         </div>
         
         {/* Bottom area - 30% */}
-        <div className="border-t border-gray-200 overflow-hidden">
+        <div className="border-t border-gray-200 overflow-hidden" style={{ height: '30%' }}>
           <ExecutionLog 
             executionId={activeExecutionId}
             mockLogs={combinedLogs}
