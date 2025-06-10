@@ -16,39 +16,70 @@ export async function POST(request: NextRequest) {
     
     // For VNC environments, we need to find the container and call its restart endpoint
     if (executionId.startsWith('vnc-env-')) {
-      // In a real implementation, we'd look up the container port mapping
-      // For now, we'll use a simple port calculation based on execution ID
-      const containerPort = 13000; // Default port for first container
+      // Import browser manager to get the actual container port
+      const { hybridBrowserManager } = await import('@/lib/browser/HybridBrowserManager');
       
       try {
-        // Call the container's restart browser endpoint
-        const containerResponse = await fetch(`http://localhost:${containerPort}/restart-browser`, {
+        // Find the container session to get the correct port
+        const targetSession = hybridBrowserManager.getSessionByExecution(executionId);
+        
+        if (!targetSession || !('port' in targetSession)) {
+          throw new Error('VNC container session not found');
+        }
+        
+        const containerPort = (targetSession as any).port;
+        console.log(`🔄 Restarting browser in container on port ${containerPort}`);
+        
+        // Try restart browser endpoint first
+        try {
+          const restartResponse = await fetch(`http://localhost:${containerPort}/restart-browser`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(10000) // 10 second timeout
+          });
+          
+          if (restartResponse.ok) {
+            const result = await restartResponse.json();
+            return NextResponse.json({
+              success: true,
+              message: 'Browser restarted successfully',
+              executionId,
+              browserResult: result
+            });
+          }
+        } catch (restartError) {
+          console.log('Restart endpoint failed, trying init endpoint...');
+        }
+        
+        // Fallback: Try init endpoint (will auto-detect if browser is already running)
+        const initResponse = await fetch(`http://localhost:${containerPort}/init`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(10000) // 10 second timeout
+          signal: AbortSignal.timeout(15000) // 15 second timeout
         });
         
-        if (containerResponse.ok) {
-          const result = await containerResponse.json();
+        if (initResponse.ok) {
+          const result = await initResponse.json();
           return NextResponse.json({
             success: true,
-            message: 'Browser restarted successfully',
+            message: 'Browser initialized successfully',
             executionId,
             browserResult: result
           });
         } else {
-          throw new Error('Container restart endpoint failed');
+          throw new Error('Both restart and init endpoints failed');
         }
         
       } catch (containerError) {
-        console.warn('Container restart failed, trying alternative approach:', containerError);
+        console.warn('Container restart failed:', containerError);
         
         // Alternative: Return success and let the frontend handle it
         return NextResponse.json({
-          success: true,
-          message: 'Browser restart initiated',
+          success: false,
+          message: 'Failed to restart browser in container',
           executionId,
-          note: 'If browser window is still not visible, please refresh the VNC connection'
+          error: containerError instanceof Error ? containerError.message : 'Unknown error',
+          note: 'Try refreshing the VNC connection or restarting the VNC environment'
         });
       }
     }

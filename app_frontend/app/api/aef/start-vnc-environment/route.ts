@@ -55,6 +55,27 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ VNC environment created: ${session.id}`);
     
+    // 🌐 AUTOMATICALLY INITIALIZE BROWSER IN CONTAINER
+    console.log('🚀 Auto-initializing browser in VNC environment...');
+    try {
+      // Call the container's init endpoint to start the browser
+      const initResponse = await fetch(`http://localhost:${session.port}/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15000) // 15 second timeout for browser init
+      });
+      
+      if (initResponse.ok) {
+        const initResult = await initResponse.json();
+        console.log('✅ Browser auto-initialized in VNC container:', initResult.message);
+      } else {
+        const errorText = await initResponse.text();
+        console.warn('⚠️ Browser auto-init failed, but VNC is still available:', errorText);
+      }
+    } catch (initError) {
+      console.warn('⚠️ Browser auto-init failed, but VNC is still available:', initError instanceof Error ? initError.message : 'Unknown error');
+    }
+    
     // Create database execution record so action API can find it
     // Extract UUID part for database (remove vnc-env- prefix)
     const databaseUuid = executionId.replace('vnc-env-', '');
