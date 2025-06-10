@@ -2,14 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { SOPDocument } from '@/lib/types/sop';
-import { AEFDocument, isAEFDocument, ExecutionMethod } from '@/lib/types/aef';
+import { AEFDocument, isAEFDocument, ExecutionMethod, WorkflowCredential, ServiceType, CredentialType } from '@/lib/types/aef';
 import { CheckpointType, CheckpointCondition } from '@/lib/types/checkpoint';
 import { createMockAEFTransformation, createMockExecutionState, shouldShowMockAEF, MockExecutionState, MockLogEntry } from '@/lib/mock-aef-data';
 import ExecutionPanel from './ExecutionPanel';
 import BrowserPanel from './BrowserPanel';
 import ExecutionLog from './ExecutionLog';
 import TransformLoading from './TransformLoading';
+import CredentialPanel from './CredentialPanel';
 import { Button } from '@/components/ui/button';
+import { CredentialStorage } from '@/lib/credentials/storage';
 
 interface AEFControlCenterProps {
   sopData: SOPDocument;
@@ -22,7 +24,7 @@ interface AEFControlCenterProps {
   sopId?: string;
 }
 
-// Hardcoded test workflow data - this will always be displayed for testing
+// Hardcoded test workflow data with credential requirements
 const HARDCODED_TEST_WORKFLOW = {
   "meta": {
     "id": "test-investor-email-workflow",
@@ -49,6 +51,9 @@ const HARDCODED_TEST_WORKFLOW = {
           "context": "This compound task handles the complete Gmail login workflow. It can be executed as a single unit or broken down into individual steps for granular control.",
           "children": ["navigate_to_gmail", "enter_email", "enter_password", "complete_login"],
           "canExecuteAsGroup": true,
+          "credentialsRequired": {
+            "gmail": ["email", "password"]
+          },
           "actions": [] // Parent nodes don't have direct actions
         },
         {
@@ -201,6 +206,9 @@ const HARDCODED_TEST_WORKFLOW = {
           "intent": "Navigate to or switch to the Airtable CRM tab.",
           "context": "Access the Airtable database where investor information is stored and managed.",
           "parentId": "email_processing_loop",
+          "credentialsRequired": {
+            "airtable": ["api_key", "base_id"]
+          },
           "actions": [
             {
               "type": "navigate_or_switch_tab",
@@ -253,6 +261,83 @@ const HARDCODED_TEST_WORKFLOW = {
     }
   }
 };
+
+// Simple function to extract credentials from workflow nodes
+function extractCredentialsFromWorkflow(aefDocument: AEFDocument): WorkflowCredential[] {
+  const credentials: WorkflowCredential[] = [];
+  const nodes = aefDocument.public?.nodes || [];
+  
+  // Collect all credential requirements from nodes
+  const credentialMap = new Map<string, { serviceType: ServiceType; fields: Set<string>; steps: Set<string> }>();
+  
+  for (const node of nodes) {
+    if (!node.credentialsRequired) continue;
+    
+    Object.entries(node.credentialsRequired).forEach(([service, fields]) => {
+      if (!fields || fields.length === 0) return;
+      
+      const serviceType = service as keyof typeof ServiceType;
+      const serviceEnum = ServiceType[serviceType.toUpperCase() as keyof typeof ServiceType];
+      if (!serviceEnum) return;
+      
+      const key = serviceEnum;
+      const existing = credentialMap.get(key) || { 
+        serviceType: serviceEnum, 
+        fields: new Set(), 
+        steps: new Set() 
+      };
+      
+      fields.forEach(field => existing.fields.add(field));
+      existing.steps.add(node.id);
+      credentialMap.set(key, existing);
+    });
+  }
+  
+  // Generate WorkflowCredential objects
+  for (const [service, config] of credentialMap.entries()) {
+    for (const field of config.fields) {
+      const credentialType = field === 'email' ? CredentialType.EMAIL :
+                           field === 'password' ? CredentialType.PASSWORD :
+                           field === 'api_key' ? CredentialType.API_KEY :
+                           field === 'base_id' ? CredentialType.TEXT :
+                           field === 'token' ? CredentialType.OAUTH_TOKEN :
+                           CredentialType.TEXT;
+      
+      const serviceTitle = service === ServiceType.GMAIL ? 'Gmail' :
+                          service === ServiceType.AIRTABLE ? 'Airtable' :
+                          'Service';
+      
+      const fieldLabel = field === 'email' ? 'Email Address' :
+                        field === 'password' ? 'Password' :
+                        field === 'api_key' ? 'API Key' :
+                        field === 'base_id' ? 'Base ID' :
+                        field === 'token' ? 'Token' :
+                        field;
+      
+      credentials.push({
+        id: `${service}_${field}`,
+        serviceType: config.serviceType,
+        label: `${serviceTitle} ${fieldLabel}`,
+        description: `Your ${serviceTitle.toLowerCase()} ${fieldLabel.toLowerCase()}`,
+        type: credentialType,
+        required: true,
+        requiredForSteps: Array.from(config.steps),
+        placeholder: field === 'email' ? 'your.email@gmail.com' :
+                    field === 'api_key' ? 'pat***' :
+                    field === 'base_id' ? 'app***' :
+                    `Enter your ${fieldLabel.toLowerCase()}`,
+        helpText: field === 'password' ? 'Your password will be encrypted and stored securely' :
+                 field === 'api_key' && service === ServiceType.AIRTABLE ? 'Find this in your Airtable account settings' :
+                 field === 'base_id' ? 'Found in your Airtable base URL' :
+                 `Required for ${serviceTitle} authentication`,
+        masked: field === 'password' || field === 'api_key' || field === 'token'
+      });
+    }
+  }
+  
+  console.log('🔧 [Simple] Generated', credentials.length, 'credentials from node declarations');
+  return credentials;
+}
 
 // Convert the hardcoded workflow to AEF format
 function createHardcodedAEFDocument(): AEFDocument {
@@ -332,6 +417,7 @@ function createHardcodedAEFDocument(): AEFDocument {
             stepIds: ['open_airtable', 'add_to_crm']
           }
         ],
+        credentials: [], // Will be dynamically generated from node credentialsRequired properties
         estimatedDuration: 30,
         stepTimeout: 60,
         checkpointTimeout: 300,
@@ -386,6 +472,14 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   const [discoveredSession, setDiscoveredSession] = useState<DiscoveredSession | null>(null);
   const [sessionDiscoveryStatus, setSessionDiscoveryStatus] = useState<'discovering' | 'found' | 'not_found' | 'error'>('discovering');
   const [currentExecutionId, setCurrentExecutionId] = useState<string>(executionId || 'discovering...');
+  
+  // Credential management state
+  const [credentialPanelOpen, setCredentialPanelOpen] = useState(false);
+  const [credentialStatus, setCredentialStatus] = useState<{
+    isComplete: boolean;
+    setCount: number;
+    totalCount: number;
+  }>({ isComplete: false, setCount: 0, totalCount: 0 });
 
   // Discovery session on component mount
   useEffect(() => {
@@ -538,12 +632,82 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     };
   }, [isResizing]);
   
-  // ALWAYS use the hardcoded test workflow for testing purposes
-  const aefDocument = createHardcodedAEFDocument();
+  // ALWAYS use the hardcoded test workflow for testing purposes - memoized to prevent infinite re-renders
+  const aefDocument = React.useMemo(() => {
+    const doc = createHardcodedAEFDocument();
+    console.log('🔍 [AEF] Created AEF Document:', doc);
+    console.log('🔍 [AEF] AEF Config:', doc.aef?.config);
+    console.log('🔍 [AEF] Credentials Array:', doc.aef?.config?.credentials);
+    console.log('🔍 [AEF] Credentials Length:', doc.aef?.config?.credentials?.length);
+    return doc;
+  }, []);
   const isAEF = true; // Always true since we're using hardcoded AEF data
   
   // Check if this SOP has been transformed to AEF (using mock for demo)
   const shouldShowMock = shouldShowMockAEF(sopId || '');
+
+  // Simple credential extraction and validation effect
+  useEffect(() => {
+    const extractAndValidateCredentials = async () => {
+      console.log('🔍 [AEF] Starting credential extraction for:', aefDocument.meta.id);
+      
+      try {
+        // First, extract credentials from node declarations if none exist in config
+        let credentialsToValidate = aefDocument?.aef?.config?.credentials || [];
+        
+        if (credentialsToValidate.length === 0) {
+          console.log('🔍 [AEF] No static credentials found, extracting from node declarations...');
+          credentialsToValidate = extractCredentialsFromWorkflow(aefDocument);
+          
+          console.log('🔍 [AEF] Extracted', credentialsToValidate.length, 'credentials from nodes');
+          
+          // Update the workflow configuration with dynamic credentials
+          if (credentialsToValidate.length > 0 && aefDocument.aef?.config) {
+            aefDocument.aef.config.credentials = credentialsToValidate;
+          }
+        } else {
+          console.log('🔐 [AEF] Using existing static credentials:', credentialsToValidate.length);
+        }
+        
+        if (credentialsToValidate.length === 0) {
+          console.log('🔐 [AEF] No credentials required for this workflow');
+          setCredentialStatus({ isComplete: true, setCount: 0, totalCount: 0 });
+          return;
+        }
+
+        // Validate the credentials (static or dynamic)
+        const validation = await CredentialStorage.validateCredentials(
+          aefDocument.meta.id,
+          credentialsToValidate
+        );
+        
+        console.log('🔐 [AEF] Validation result:', validation);
+        
+        setCredentialStatus({
+          isComplete: validation.isComplete,
+          setCount: validation.setCount,
+          totalCount: validation.totalRequired
+        });
+        
+      } catch (error) {
+        console.error('Failed to analyze or validate credentials:', error);
+        setCredentialStatus({ isComplete: false, setCount: 0, totalCount: 0 });
+      }
+    };
+
+    extractAndValidateCredentials();
+  }, [aefDocument.meta.id, credentialPanelOpen]); // Use stable ID instead of entire object
+
+  // Credential handlers
+  const handleCredentialsUpdate = (isComplete: boolean, setCount: number, totalCount: number) => {
+    setCredentialStatus({ isComplete, setCount, totalCount });
+  };
+
+  const handleOpenCredentialPanel = () => {
+    console.log('🔐 [AEF] Opening credential panel...');
+    setCredentialPanelOpen(true);
+    console.log('🔐 [AEF] Credential panel state set to true');
+  };
 
   // Real execution handler
   const handleStartRealExecution = async () => {
@@ -946,102 +1110,129 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
            height: '100vh'
          }}>
       {/* Header - Auto height */}
-      <div className="p-3 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-gray-50">
         <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-            <h2 className="text-sm font-semibold text-gray-900">AEF Control Center</h2>
-            <div className="flex items-center gap-2 text-xs">
-              {/* Session Discovery Status */}
+          <div className="flex items-center gap-6">
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900 tracking-tight">AEF Control Center</h1>
+              <p className="text-sm text-gray-600 mt-0.5">{aefDocument.meta.title}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* System Status Indicators */}
               {sessionDiscoveryStatus === 'discovering' && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md border border-blue-100">
                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  Discovering Session...
+                  <span className="text-xs font-medium">Discovering Session</span>
                 </div>
               )}
               {sessionDiscoveryStatus === 'found' && discoveredSession && (
-                <div className="flex items-center gap-2 px-2 py-1 bg-green-100 text-green-700 rounded">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  Active Session Found: {discoveredSession.executionId.replace('vnc-env-', '').substring(0, 8)}...
-                  <Button
-                    onClick={() => handleRestartBrowser(discoveredSession.executionId)}
-                    size="sm"
-                    variant="outline"
-                    className="ml-2 h-6 text-xs px-2"
-                  >
-                    Restart Browser
-                  </Button>
-                  <Button
-                    onClick={handleStopVncEnvironment}
-                    size="sm"
-                    variant="destructive"
-                    className="ml-1 h-6 text-xs px-2"
-                  >
-                    Kill
-                  </Button>
-                  <Button
-                    onClick={handleNuclearKillEverything}
-                    size="sm"
-                    variant="destructive"
-                    className="ml-1 h-6 text-xs px-2 bg-red-800 hover:bg-red-900 border-red-800"
-                    title="💀 NUCLEAR KILL: Destroys ALL Docker containers, ALL browsers, ALL state"
-                  >
-                    💀 NUKE
-                  </Button>
+                <div className="flex items-center gap-3 px-3 py-1.5 bg-green-50 text-green-700 rounded-md border border-green-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-xs font-medium">
+                      Session {discoveredSession.executionId.replace('vnc-env-', '').substring(0, 8)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => handleRestartBrowser(discoveredSession.executionId)}
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-xs px-2 border-green-200 text-green-700 hover:bg-green-100"
+                    >
+                      Restart
+                    </Button>
+                    <Button
+                      onClick={handleStopVncEnvironment}
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-xs px-2 border-red-200 text-red-700 hover:bg-red-50"
+                    >
+                      Stop
+                    </Button>
+                  </div>
                 </div>
               )}
-              {sessionDiscoveryStatus === 'not_found' && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded">
-                  <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                  No Active Session
-                </div>
-              )}
-              {sessionDiscoveryStatus === 'error' && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded">
-                  <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                  Discovery Failed
-                </div>
-              )}
-              {/* Existing status indicators */}
+              {/* Execution Environment Status */}
               {vncEnvironmentId && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-md border border-purple-100">
                   <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-                  VNC Remote Desktop
+                  <span className="text-xs font-medium">Remote Desktop Active</span>
                 </div>
               )}
               {realExecutionId && !vncEnvironmentId && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-md border border-green-100">
                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  Live Browser Session
+                  <span className="text-xs font-medium">Browser Session Live</span>
                 </div>
               )}
               {mockExecutionState && !realExecutionId && !vncEnvironmentId && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md border border-blue-100">
                   <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  Mock Demo Mode
+                  <span className="text-xs font-medium">Demo Mode</span>
                 </div>
               )}
-              {!realExecutionId && !mockExecutionState && !vncEnvironmentId && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 rounded">
+              {!realExecutionId && !mockExecutionState && !vncEnvironmentId && sessionDiscoveryStatus !== 'discovering' && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 text-gray-600 rounded-md border border-gray-200">
                   <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                  Ready to Execute
+                  <span className="text-xs font-medium">Ready</span>
+                </div>
+              )}
+              
+              {/* Credential Status Indicator */}
+              {(() => {
+                console.log('🔐 [AEF] Rendering credential badge - Status:', credentialStatus);
+                return credentialStatus.totalCount > 0 && (
+                  <div 
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md border cursor-pointer hover:shadow-sm transition-all ${
+                      credentialStatus.isComplete 
+                        ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
+                        : credentialStatus.setCount > 0 
+                          ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
+                          : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                    }`}
+                    onClick={handleOpenCredentialPanel}
+                    title="Click to configure workflow credentials"
+                  >
+                    <span className="text-sm">🔐</span>
+                    <span className="text-xs font-medium">
+                      {credentialStatus.setCount}/{credentialStatus.totalCount} Credentials
+                    </span>
+                    {credentialStatus.isComplete && (
+                      <span className="text-green-600">✓</span>
+                    )}
+                  </div>
+                );
+              })()}
+              
+              {/* Debug: Always show if totalCount is 0 - MAKE IT CLICKABLE */}
+              {credentialStatus.totalCount === 0 && (
+                <div 
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-yellow-50 text-yellow-700 border-yellow-200 cursor-pointer hover:bg-yellow-100 transition-all"
+                  onClick={handleOpenCredentialPanel}
+                  title="Click to configure workflow credentials"
+                >
+                  <span className="text-sm">⚠️</span>
+                  <span className="text-xs font-medium">No Credentials Defined</span>
+                  <span className="text-xs opacity-70">(Click to setup)</span>
                 </div>
               )}
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            {/* VNC Environment Controls - Primary Option */}
+          <div className="flex items-center gap-3">
+            {/* Primary Environment Controls */}
             {!vncEnvironmentId ? (
               <Button
                 onClick={handleStartVncEnvironment}
                 size="sm"
                 disabled={vncEnvironmentStatus === 'creating'}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
+                className="bg-slate-700 hover:bg-slate-800 text-white font-medium shadow-sm"
               >
                 {vncEnvironmentStatus === 'creating' ? (
                   <>
                     <div className="w-3 h-3 animate-spin border border-white border-t-transparent rounded-full mr-2"></div>
-                    Starting...
+                    Starting Environment...
                   </>
                 ) : (
                   '🖥️ Start Remote Desktop'
@@ -1051,13 +1242,14 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
               <Button
                 onClick={handleStopVncEnvironment}
                 size="sm"
-                variant="destructive"
+                variant="outline"
+                className="border-red-200 text-red-700 hover:bg-red-50"
               >
-                ⏹️ Stop Remote Desktop
+                ⏹️ Stop Environment
               </Button>
             )}
             
-            {/* Real Execution Controls - Secondary Option */}
+            {/* Advanced Execution Controls */}
             {!vncEnvironmentId && (
               <>
                 {!realExecutionId ? (
@@ -1066,35 +1258,37 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
                     size="sm"
                     disabled={realExecutionStatus === 'creating'}
                     variant="outline"
-                    className="border-green-200 text-green-700 hover:bg-green-50"
+                    className="border-slate-200 text-slate-700 hover:bg-slate-50 font-medium"
                   >
                     {realExecutionStatus === 'creating' ? (
                       <>
-                        <div className="w-3 h-3 animate-spin border border-green-600 border-t-transparent rounded-full mr-2"></div>
+                        <div className="w-3 h-3 animate-spin border border-slate-600 border-t-transparent rounded-full mr-2"></div>
                         Starting...
                       </>
                     ) : (
-                      '🚀 Full Execution (Advanced)'
+                      '🚀 Advanced Mode'
                     )}
                   </Button>
                 ) : (
                   <Button
                     onClick={handleStopRealExecution}
                     size="sm"
-                    variant="destructive"
+                    variant="outline"
+                    className="border-red-200 text-red-700 hover:bg-red-50"
                   >
-                    ⏹️ Stop Execution
+                    ⏹️ Stop Advanced
                   </Button>
                 )}
               </>
             )}
             
-            {/* Mock Demo Controls */}
-            {!showMockExecution && !realExecutionId ? (
+            {/* Demo Controls */}
+            {!showMockExecution && !realExecutionId && !vncEnvironmentId ? (
               <Button
                 onClick={handleStartMockExecution}
                 size="sm"
                 variant="outline"
+                className="border-blue-200 text-blue-700 hover:bg-blue-50 font-medium"
               >
                 🎭 Demo Mode
               </Button>
@@ -1103,6 +1297,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
                 onClick={handleStopMockExecution}
                 size="sm"
                 variant="outline"
+                className="border-blue-200 text-blue-700 hover:bg-blue-50"
               >
                 ⏹️ Stop Demo
               </Button>
@@ -1178,6 +1373,16 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
           />
         </div>
       </div>
+      
+      {/* Credential Management Panel */}
+      <CredentialPanel
+        isOpen={credentialPanelOpen}
+        onClose={() => setCredentialPanelOpen(false)}
+        workflowId={aefDocument.meta.id}
+        workflowTitle={aefDocument.meta.title}
+        requiredCredentials={aefDocument.aef?.config?.credentials || []}
+        onCredentialsUpdate={handleCredentialsUpdate}
+      />
     </div>
   );
 };

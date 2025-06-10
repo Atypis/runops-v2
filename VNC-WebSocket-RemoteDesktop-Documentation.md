@@ -17,6 +17,7 @@
 - [Issues & Gaps](#issues--gaps)
 - [Unused/Legacy Code](#unusedlegacy-code)
 - [Implementation Recommendations](#implementation-recommendations)
+- [Future Robustness Plan: Outstanding Issues & Priority Order](#future-robustness-plan-outstanding-issues-priority-order)
 
 ---
 
@@ -151,9 +152,35 @@ class HealthMonitor {
 
 ## ✅ Recent Fixes & Resolutions
 
-### **🎉 LATEST: Complete VNC Streaming Solution (December 2025)** 
+### **🎉 LATEST: TypeScript WebSocket Server VNC Discovery Fixed (December 2025)** 
 
-#### **🔧 A. Database Constraint Violation Resolution (CRITICAL)**
+#### **🔧 A. TypeScript WebSocket Server Missing Enhanced Logic (CRITICAL - JUST RESOLVED)**
+**Issue:** TypeScript WebSocket server (`lib/browser/WebSocketServer.ts`) had basic VNC logic but missing enhanced session discovery  
+**Root Cause:** The enhanced dual-mode session discovery (database + fallback port detection) was only implemented in the JavaScript version (`ws-server.js`)  
+**Solution Implemented:**
+```typescript
+// Fixed in: app_frontend/lib/browser/WebSocketServer.ts handleVncConnection()
+private async handleVncConnection(ws: WebSocket, executionId: string) {
+  // First try: HybridBrowserManager lookup (for start-vnc-environment sessions)
+  const session = hybridBrowserManager.getSessionByExecution(executionId);
+  
+  // Second try: Supabase database lookup (for /api/aef/session sessions)
+  const response = await fetch('http://localhost:3000/api/aef/session');
+  
+  // Third try: Enhanced fallback port detection
+  const testPorts = [16080, 16081, 16082, 16083, 16084];
+  // Tests each port and returns working VNC connection
+}
+```
+**Symptoms Resolved:**
+- ✅ No more `vncMode=false, vncUrl=null, vncSupported=false` debug output
+- ✅ WebSocket server now finds VNC sessions via multiple discovery methods
+- ✅ VNC connections work immediately without manual intervention
+
+**Result:** ✅ Complete VNC streaming functionality restored with enhanced session discovery  
+**Status:** ✅ Fully resolved and tested - VNC connections working reliably
+
+#### **🔧 B. Database Constraint Violation Resolution (CRITICAL)**
 **Issue:** `duplicate key value violates unique constraint "unique_active_session_per_user"`  
 **Root Cause:** Unconditional unique constraint prevented session cleanup and recreation  
 **Solution Implemented:**
@@ -1242,6 +1269,304 @@ class VNCHealthMonitor {
 
 ---
 
+## 🛡️ Future Robustness Plan: Outstanding Issues & Priority Order
+
+> **Comprehensive plan to make VNC streaming bulletproof for production use**
+
+### **🔥 Priority 1: Critical Reliability Issues (Week 1-2)**
+
+#### **A. Session State Synchronization (CRITICAL)**
+**Problem:** Multiple session registries can get out of sync (HybridBrowserManager vs Database vs Docker state)  
+**Symptoms:** WebSocket server finds container but session missing from registry, or vice versa  
+**Solution Priority:** ⭐⭐⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class UnifiedSessionRegistry {
+  // Single source of truth for ALL session state
+  private sessions: Map<string, UnifiedSession> = new Map();
+  
+  async syncFromAllSources() {
+    // 1. Query Docker for running containers
+    // 2. Query database for session records  
+    // 3. Reconcile differences and update registry
+    // 4. Clean up orphaned resources
+  }
+  
+  async createSession(config) {
+    // Atomic operation: Docker + Database + Memory registry
+    const transaction = await this.beginTransaction();
+    try {
+      const container = await this.createDockerContainer(config);
+      const dbRecord = await this.createDatabaseRecord(container);
+      this.updateMemoryRegistry(container, dbRecord);
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+}
+```
+
+#### **B. Race Condition Prevention (CRITICAL)**
+**Problem:** Concurrent session creation/destruction can cause port conflicts and orphaned resources  
+**Symptoms:** Port already in use errors, containers without database records, database records without containers  
+**Solution Priority:** ⭐⭐⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class SessionLifecycleManager {
+  private operationLocks: Map<string, Promise<any>> = new Map();
+  
+  async createSession(userId: string) {
+    // Ensure only one session operation per user at a time
+    const lockKey = `user:${userId}`;
+    
+    if (this.operationLocks.has(lockKey)) {
+      throw new Error('Session operation already in progress');
+    }
+    
+    const operation = this.executeSessionCreation(userId);
+    this.operationLocks.set(lockKey, operation);
+    
+    try {
+      return await operation;
+    } finally {
+      this.operationLocks.delete(lockKey);
+    }
+  }
+}
+```
+
+#### **C. Process Health Monitoring & Recovery (CRITICAL)**
+**Problem:** No detection when containers become unhealthy or WebSocket server crashes  
+**Symptoms:** VNC connections fail silently, containers consuming resources but not responsive  
+**Solution Priority:** ⭐⭐⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class HealthMonitor {
+  private healthChecks = new Map<string, HealthCheck>();
+  
+  async startMonitoring() {
+    setInterval(async () => {
+      for (const [sessionId, session] of this.sessions) {
+        const health = await this.checkSessionHealth(session);
+        
+        if (health.status === 'unhealthy') {
+          console.warn(`Session ${sessionId} unhealthy: ${health.reason}`);
+          await this.recoverSession(session, health);
+        }
+      }
+    }, 30000); // Check every 30 seconds
+  }
+  
+  async checkSessionHealth(session) {
+    return {
+      containerRunning: await this.isContainerRunning(session.containerId),
+      vncResponding: await this.isVncResponding(session.noVncPort),
+      browserHealthy: await this.isBrowserHealthy(session.port),
+      memoryUsage: await this.getContainerMemory(session.containerId)
+    };
+  }
+}
+```
+
+### **🔧 Priority 2: Operational Resilience (Week 3-4)**
+
+#### **A. Graceful Degradation & Fallbacks**
+**Problem:** Single point of failure - if database is down, entire system fails  
+**Solution Priority:** ⭐⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class FallbackManager {
+  async getSession(executionId: string) {
+    // Try sources in order of reliability
+    try {
+      return await this.getFromPrimaryDatabase(executionId);
+    } catch (dbError) {
+      try {
+        return await this.getFromLocalCache(executionId);
+      } catch (cacheError) {
+        return await this.discoverFromDocker(executionId);
+      }
+    }
+  }
+}
+```
+
+#### **B. Resource Limits & Quotas**
+**Problem:** No limits on container resources or number of concurrent sessions  
+**Solution Priority:** ⭐⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class ResourceManager {
+  private maxConcurrentSessions = 10;
+  private maxMemoryPerContainer = '1GB';
+  private maxCpuPerContainer = 1.0;
+  
+  async enforceResourceLimits(config) {
+    if (this.getActiveSessionCount() >= this.maxConcurrentSessions) {
+      throw new Error('Maximum concurrent sessions reached');
+    }
+    
+    return {
+      ...config,
+      HostConfig: {
+        Memory: this.parseMemory(this.maxMemoryPerContainer),
+        CpuShares: Math.floor(this.maxCpuPerContainer * 1024),
+        PidsLimit: 100
+      }
+    };
+  }
+}
+```
+
+#### **C. Automatic Recovery & Self-Healing**
+**Problem:** Manual intervention required when containers crash or become unresponsive  
+**Solution Priority:** ⭐⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class SelfHealingManager {
+  async recoverUnhealthySession(session: Session, healthIssues: HealthIssues) {
+    if (healthIssues.containerStopped) {
+      await this.restartContainer(session);
+    }
+    
+    if (healthIssues.vncUnresponsive) {
+      await this.restartVncService(session);
+    }
+    
+    if (healthIssues.browserCrashed) {
+      await this.reinitializeBrowser(session);
+    }
+    
+    if (healthIssues.memoryExhausted) {
+      await this.recycleSession(session);
+    }
+  }
+}
+```
+
+### **📈 Priority 3: Performance & Scalability (Month 2)**
+
+#### **A. Connection Pooling & Reuse**
+**Problem:** Creating new containers for every session is slow and resource-intensive  
+**Solution Priority:** ⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class ContainerPool {
+  private warmContainers: Queue<WarmContainer> = new Queue();
+  private poolSize = 3;
+  
+  async getContainer(): Promise<Container> {
+    if (this.warmContainers.length > 0) {
+      return this.warmContainers.dequeue();
+    }
+    
+    return await this.createFreshContainer();
+  }
+  
+  async maintainPool() {
+    while (this.warmContainers.length < this.poolSize) {
+      const container = await this.createWarmContainer();
+      this.warmContainers.enqueue(container);
+    }
+  }
+}
+```
+
+#### **B. Real-Time Container Discovery**
+**Problem:** WebSocket server must be restarted to detect new containers  
+**Solution Priority:** ⭐⭐⭐
+
+**Implementation Plan:**
+```typescript
+class DockerEventListener {
+  async startListening() {
+    const stream = await this.docker.getEvents({
+      filters: { 
+        event: ['start', 'stop', 'die'], 
+        container: ['aef-browser-'] 
+      }
+    });
+    
+    stream.on('data', (event) => {
+      if (event.status === 'start') {
+        this.registerNewContainer(event.id);
+      } else if (event.status === 'die') {
+        this.unregisterContainer(event.id);
+      }
+    });
+  }
+}
+```
+
+#### **C. Dynamic Resolution & Performance Tuning**
+**Problem:** Fixed resolution and no adaptive quality based on network conditions  
+**Solution Priority:** ⭐⭐⭐
+
+### **🔐 Priority 4: Security & Multi-User Support (Month 3)**
+
+#### **A. User Isolation & Authentication**
+**Problem:** No user authentication for VNC access, sessions not properly isolated  
+**Solution Priority:** ⭐⭐
+
+#### **B. Network Segmentation**
+**Problem:** All containers on same network, potential security risks  
+**Solution Priority:** ⭐⭐
+
+#### **C. Audit Logging & Compliance**
+**Problem:** No logging of user actions or container access  
+**Solution Priority:** ⭐⭐
+
+### **📊 Priority 5: Observability & Debugging (Month 4)**
+
+#### **A. Comprehensive Metrics**
+**Problem:** No metrics on session performance, resource usage, error rates  
+**Solution Priority:** ⭐⭐
+
+#### **B. Distributed Tracing**
+**Problem:** Difficult to debug issues across WebSocket server, containers, and database  
+**Solution Priority:** ⭐⭐
+
+#### **C. Real-Time Dashboards**
+**Problem:** No visibility into system health and performance  
+**Solution Priority:** ⭐
+
+---
+
+### **🎯 Implementation Strategy**
+
+**Week 1-2: Critical Reliability**
+1. Implement `UnifiedSessionRegistry` with atomic operations
+2. Add race condition prevention with operation locks
+3. Build basic health monitoring with auto-recovery
+
+**Week 3-4: Operational Resilience**  
+1. Add graceful degradation and fallback mechanisms
+2. Implement resource limits and quotas
+3. Complete self-healing automation
+
+**Month 2: Performance & Scalability**
+1. Build container pooling system
+2. Add real-time Docker event listening
+3. Implement dynamic resolution support
+
+**Month 3-4: Security & Observability**
+1. Add user authentication and isolation
+2. Implement comprehensive monitoring
+3. Build production-ready dashboards
+
+This plan transforms the current "dogfooding-ready" system into a **bulletproof production-grade VNC streaming platform** capable of handling enterprise workloads reliably.
+
+---
+
 ## 🎯 Summary
 
 The AEF VNC/WebSocket/Remote Desktop implementation is now **FULLY OPERATIONAL** with complete end-to-end functionality:
@@ -1286,7 +1611,8 @@ The AEF VNC/WebSocket/Remote Desktop implementation is now **FULLY OPERATIONAL**
 **December 2025**: The VNC streaming implementation has achieved **complete functional status** with:
 - ✅ **Zero critical blockers** for dogfooding use
 - ✅ **Reliable session management** with database integrity
-- ✅ **Robust VNC connections** via enhanced WebSocket architecture  
+- ✅ **Robust VNC connections** via enhanced WebSocket architecture in TypeScript server
+- ✅ **Multi-mode session discovery** (HybridBrowserManager + Database + Port fallback)
 - ✅ **Automatic browser initialization** requiring zero manual intervention
 - ✅ **Production-ready database** configuration with online Supabase
 

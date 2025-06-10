@@ -54,6 +54,14 @@ export interface SOPNode {
   // Populated by processing function
   childNodes?: SOPNode[]; 
   
+  // New: Simple credential requirements declaration
+  credentialsRequired?: {
+    gmail?: ('email' | 'password')[];
+    airtable?: ('api_key' | 'base_id')[];
+    oauth?: ('token')[];
+    custom?: string[];
+  };
+  
   // New: Optional automation configuration (added by AEF enhancement)
   automation?: AutomationConfig;
 }
