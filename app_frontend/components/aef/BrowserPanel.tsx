@@ -32,16 +32,20 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
 
   // WebSocket connection management
   useEffect(() => {
+    console.log('🖥️ BrowserPanel: useEffect triggered with:', { isActive, executionId, mockExecutionState: !!mockExecutionState });
+    
     if (isActive && executionId && !mockExecutionState) {
       console.log('🖥️ BrowserPanel: Starting WebSocket connection for execution:', executionId);
       connectToWebSocket();
     } else if (mockExecutionState && isActive) {
+      console.log('🖥️ BrowserPanel: Using mock data');
       // Use mock data when available
       setCurrentUrl(mockExecutionState.browserUrl);
       setLastUpdated(mockExecutionState.lastActivity);
       setScreenshot(getMockScreenshotUrl(mockExecutionState.browserUrl));
       setConnectionStatus('connected');
     } else {
+      console.log('🖥️ BrowserPanel: Disconnecting WebSocket');
       disconnectWebSocket();
       resetState();
     }
@@ -516,6 +520,10 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
               🖥️ VNC Environment
             </div>
           )}
+          {/* Debug Info */}
+          <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+            Debug: execId={executionId || 'null'}, active={isActive ? 'true' : 'false'}, conn={connectionStatus}, vncMode={vncMode ? 'true' : 'false'}, vncUrl={vncUrl ? 'set' : 'null'}, vncSupported={vncSupported ? 'true' : 'false'}
+          </div>
           {mockExecutionState && (
             <div className="text-blue-600">
               Mock Mode

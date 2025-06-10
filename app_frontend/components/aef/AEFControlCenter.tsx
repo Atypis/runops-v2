@@ -42,22 +42,97 @@ const HARDCODED_TEST_WORKFLOW = {
     "workflow": {
       "nodes": [
         {
-          "id": "start_workflow",
-          "type": "task",
-          "label": "Open Gmail",
-          "intent": "Navigate to the Gmail inbox to begin email processing.",
-          "context": "The first step is to open the Gmail interface. This provides access to the email list where we'll identify investor-related emails for processing.",
+          "id": "gmail_login_flow",
+          "type": "compound_task",
+          "label": "Navigate and Log in to Gmail",
+          "intent": "Complete Gmail authentication process including navigation, email entry, password entry, and login confirmation.",
+          "context": "This compound task handles the complete Gmail login workflow. It can be executed as a single unit or broken down into individual steps for granular control.",
+          "children": ["navigate_to_gmail", "enter_email", "enter_password", "complete_login"],
+          "canExecuteAsGroup": true,
+          "actions": [] // Parent nodes don't have direct actions
+        },
+        {
+          "id": "navigate_to_gmail",
+          "type": "atomic_task",
+          "label": "Navigate to Gmail",
+          "intent": "Navigate to the Gmail login page to begin authentication.",
+          "context": "Open Gmail in the browser. If user is already logged in, this will go to inbox. If not, it will show the login page.",
+          "parentId": "gmail_login_flow",
           "actions": [
             {
-              "type": "navigate_or_switch_tab",
-              "instruction": "Navigate to https://mail.google.com/mail/u/0/#inbox or switch to Gmail tab if already open",
-              "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
+              "type": "navigate",
+              "instruction": "Navigate to Gmail login page",
+              "target": { "url": "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com" }
+            }
+          ]
+        },
+        {
+          "id": "enter_email",
+          "type": "atomic_task", 
+          "label": "Enter Email Address",
+          "intent": "Input the Gmail email address in the login form.",
+          "context": "Locate the email input field and enter the Gmail address. This step assumes we're on the Gmail login page.",
+          "parentId": "gmail_login_flow",
+          "actions": [
+            {
+              "type": "type",
+              "instruction": "Enter email address in the email field",
+              "target": { "selector": "input[type='email']" },
+              "data": { "text": "your.email@gmail.com" } // This would be dynamic in real implementation
+            },
+            {
+              "type": "click",
+              "instruction": "Click Next button after entering email",
+              "target": { "selector": "#identifierNext" }
+            }
+          ]
+        },
+        {
+          "id": "enter_password",
+          "type": "atomic_task",
+          "label": "Enter Password", 
+          "intent": "Input the Gmail password in the password field.",
+          "context": "After email verification, enter the password. Wait for password field to appear after email step.",
+          "parentId": "gmail_login_flow",
+          "actions": [
+            {
+              "type": "wait",
+              "instruction": "Wait for password field to appear",
+              "target": { "selector": "input[type='password']" },
+              "timeout": 5000
+            },
+            {
+              "type": "type",
+              "instruction": "Enter password in the password field", 
+              "target": { "selector": "input[type='password']" },
+              "data": { "text": "your_password_here" } // This would be secure/dynamic in real implementation
+            }
+          ]
+        },
+        {
+          "id": "complete_login",
+          "type": "atomic_task",
+          "label": "Complete Login",
+          "intent": "Click the sign in button and wait for login completion.",
+          "context": "Final step of login process - submit the login form and wait for redirect to Gmail inbox.",
+          "parentId": "gmail_login_flow", 
+          "actions": [
+            {
+              "type": "click",
+              "instruction": "Click the password Next/Sign in button",
+              "target": { "selector": "#passwordNext" }
+            },
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for successful login and redirect to Gmail inbox",
+              "target": { "url_contains": "mail.google.com/mail" },
+              "timeout": 10000
             }
           ]
         },
         {
           "id": "scan_email_list",
-          "type": "task", 
+          "type": "atomic_task", 
           "label": "Scan Email List",
           "intent": "Visually scan the email list to identify potential investor-related emails.",
           "context": "Look through the email list in the inbox to find emails that might contain investor information, inquiries, or business opportunities.",
@@ -84,10 +159,11 @@ const HARDCODED_TEST_WORKFLOW = {
         },
         {
           "id": "select_email",
-          "type": "task",
+          "type": "atomic_task",
           "label": "Select Investor Email",
           "intent": "Click on an unprocessed investor email to open it.",
           "context": "Select and open the next investor email that needs to be processed.",
+          "parentId": "email_processing_loop",
           "actions": [
             {
               "type": "click",
@@ -98,23 +174,33 @@ const HARDCODED_TEST_WORKFLOW = {
         },
         {
           "id": "extract_investor_info",
-          "type": "task",
+          "type": "atomic_task",
           "label": "Extract Investor Information", 
           "intent": "Read and extract key investor details from the email content.",
           "context": "Parse the email content to identify investor name, company, contact information, investment interests, and other relevant details.",
+          "parentId": "email_processing_loop",
           "actions": [
             {
-              "type": "visual_scan",
-              "instruction": "Read email content and identify investor information including name, company, email, phone, investment focus"
+              "type": "extract",
+              "instruction": "Extract investor information from email content",
+              "schema": {
+                "name": "string",
+                "company": "string", 
+                "email": "string",
+                "phone": "string",
+                "investment_focus": "string",
+                "message_summary": "string"
+              }
             }
           ]
         },
         {
           "id": "open_airtable",
-          "type": "task",
+          "type": "atomic_task",
           "label": "Open Airtable CRM",
           "intent": "Navigate to or switch to the Airtable CRM tab.",
           "context": "Access the Airtable database where investor information is stored and managed.",
+          "parentId": "email_processing_loop",
           "actions": [
             {
               "type": "navigate_or_switch_tab",
@@ -125,10 +211,11 @@ const HARDCODED_TEST_WORKFLOW = {
         },
         {
           "id": "add_to_crm",
-          "type": "task",
+          "type": "atomic_task",
           "label": "Add Investor to CRM",
           "intent": "Create a new record in Airtable with the extracted investor information.",
           "context": "Fill out the investor information form in Airtable with the details extracted from the email.",
+          "parentId": "email_processing_loop",
           "actions": [
             {
               "type": "click", 
@@ -139,10 +226,11 @@ const HARDCODED_TEST_WORKFLOW = {
         },
         {
           "id": "mark_processed",
-          "type": "task",
+          "type": "atomic_task",
           "label": "Mark Email as Processed",
           "intent": "Return to Gmail and mark the email as processed to avoid reprocessing.",
           "context": "Go back to Gmail and add a label or flag to indicate this email has been processed.",
+          "parentId": "email_processing_loop",
           "actions": [
             {
               "type": "navigate_or_switch_tab",
@@ -153,7 +241,7 @@ const HARDCODED_TEST_WORKFLOW = {
         }
       ],
       "flow": [
-        { "from": "start_workflow", "to": "scan_email_list" },
+        { "from": "gmail_login_flow", "to": "scan_email_list" },
         { "from": "scan_email_list", "to": "email_processing_loop" },
         { "from": "email_processing_loop", "to": "select_email" },
         { "from": "select_email", "to": "extract_investor_info" },
@@ -168,7 +256,8 @@ const HARDCODED_TEST_WORKFLOW = {
 
 // Convert the hardcoded workflow to AEF format
 function createHardcodedAEFDocument(): AEFDocument {
-  // Convert the hardcoded workflow nodes to SOPDocument format first
+  // Convert ALL hardcoded workflow nodes to SOPDocument format
+  // This includes both parent nodes and child nodes with parentId
   const sopNodes = HARDCODED_TEST_WORKFLOW.execution.workflow.nodes.map(node => ({
     id: node.id,
     type: node.type,
@@ -176,22 +265,14 @@ function createHardcodedAEFDocument(): AEFDocument {
     intent: node.intent,
     context: node.context,
     position: { x: 0, y: 0 }, // Default positions
-    // Fix: Only include childNodes if children exist, and create proper SOPNode structure
-    ...(node.children ? {
-      children: node.children,
-      childNodes: node.children.map(childId => {
-        // Find the actual child node from the workflow
-        const childNode = HARDCODED_TEST_WORKFLOW.execution.workflow.nodes.find(n => n.id === childId);
-        return {
-          id: childId,
-          type: childNode?.type || 'task',
-          label: childNode?.label || childId,
-          intent: childNode?.intent || '',
-          context: childNode?.context || '',
-          position: { x: 0, y: 0 }
-        };
-      })
-    } : {})
+    // Add parentId if it exists
+    ...(node.parentId ? { parentId: node.parentId } : {}),
+    // Add children array if it exists  
+    ...(node.children ? { children: node.children } : {}),
+    // Add canExecuteAsGroup for compound tasks
+    ...(node.canExecuteAsGroup !== undefined ? { canExecuteAsGroup: node.canExecuteAsGroup } : {}),
+    // Add actions array
+    actions: node.actions || []
   }));
 
   const mockSOP: SOPDocument = {
@@ -270,6 +351,25 @@ function createHardcodedAEFDocument(): AEFDocument {
   return aefDocument;
 }
 
+// Add interface for discovered session
+interface DiscoveredSession {
+  executionId: string;
+  containerName: string;
+  status: string;
+  vncUrl: string | null;
+  apiUrl: string | null;
+  isHealthy: boolean;
+  apiHealthy: boolean;
+}
+
+interface SessionDiscoveryResponse {
+  status: string;
+  message: string;
+  activeSession: DiscoveredSession | null;
+  allSessions?: DiscoveredSession[];
+  discoveryTimestamp?: string;
+}
+
 const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   sopData,
   onTransformToAEF,
@@ -280,10 +380,87 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   isLoading = false,
   sopId
 }) => {
+  const [workflow, setWorkflow] = useState<AEFDocument | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set());
+  const [discoveredSession, setDiscoveredSession] = useState<DiscoveredSession | null>(null);
+  const [sessionDiscoveryStatus, setSessionDiscoveryStatus] = useState<'discovering' | 'found' | 'not_found' | 'error'>('discovering');
+  const [currentExecutionId, setCurrentExecutionId] = useState<string>(executionId || 'discovering...');
+
+  // Discovery session on component mount
+  useEffect(() => {
+    const discoverActiveSession = async () => {
+      try {
+        console.log('🔍 [AEF Control Center] Discovering active VNC session...');
+        setSessionDiscoveryStatus('discovering');
+        
+        const response = await fetch('/api/aef/discover-session');
+        const data: SessionDiscoveryResponse = await response.json();
+        
+        console.log('🔍 [AEF Control Center] Session discovery result:', data);
+        
+        if (data.status === 'active_session_found' && data.activeSession) {
+          console.log(`✅ [AEF Control Center] Found active session: ${data.activeSession.executionId}`);
+          setDiscoveredSession({
+            executionId: data.activeSession.executionId,
+            containerName: data.activeSession.containerName,
+            status: data.activeSession.status,
+            vncUrl: data.activeSession.vncUrl,
+            apiUrl: data.activeSession.apiUrl,
+            isHealthy: data.activeSession.isHealthy,
+            apiHealthy: data.activeSession.apiHealthy
+          });
+          setCurrentExecutionId(data.activeSession.executionId);
+          setSessionDiscoveryStatus('found');
+        } else {
+          console.log(`❌ [AEF Control Center] No active session found: ${data.message}`);
+          setSessionDiscoveryStatus('not_found');
+        }
+      } catch (error) {
+        console.error('❌ [AEF Control Center] Session discovery failed:', error);
+        setSessionDiscoveryStatus('error');
+      }
+    };
+
+    discoverActiveSession();
+  }, []);
+
+  // Session heartbeat - keep session alive and refresh status
+  useEffect(() => {
+    if (sessionDiscoveryStatus !== 'found' || !discoveredSession) {
+      return;
+    }
+
+    const heartbeatInterval = setInterval(async () => {
+      try {
+        const response = await fetch('/api/aef/discover-session');
+        const data: SessionDiscoveryResponse = await response.json();
+        
+        if (data.status === 'active_session_found' && data.activeSession) {
+          // Update session status
+          setDiscoveredSession(prev => prev ? {
+            ...prev,
+            status: data.activeSession!.status,
+            isHealthy: data.activeSession!.isHealthy
+          } : null);
+        } else {
+          // Session lost
+          console.log('⚠️ [AEF Control Center] Session lost during heartbeat');
+          setSessionDiscoveryStatus('not_found');
+          setDiscoveredSession(null);
+        }
+      } catch (error) {
+        console.error('❌ [AEF Control Center] Heartbeat failed:', error);
+      }
+    }, 30000); // Every 30 seconds
+
+    return () => clearInterval(heartbeatInterval);
+  }, [sessionDiscoveryStatus, discoveredSession]);
+
   // Real execution state
-  const [realExecutionId, setRealExecutionId] = useState<string | null>(executionId || null);
+  const [realExecutionId, setRealExecutionId] = useState<string | null>(null);
   const [realExecutionStatus, setRealExecutionStatus] = useState<'idle' | 'creating' | 'running' | 'error'>('idle');
-  
+
   // VNC Environment state
   const [vncEnvironmentId, setVncEnvironmentId] = useState<string | null>(null);
   const [vncEnvironmentStatus, setVncEnvironmentStatus] = useState<'idle' | 'creating' | 'running' | 'error'>('idle');
@@ -462,93 +639,136 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   // VNC Environment handlers
   const handleStartVncEnvironment = async () => {
-    addLog('info', 'system', 'Starting VNC remote desktop environment...');
-    setVncEnvironmentStatus('creating');
-    
     try {
-      console.log('🖥️ Starting VNC execution environment...');
-      
-      // Generate a proper UUID with VNC prefix for frontend detection
-      const vncExecutionId = `vnc-env-${crypto.randomUUID()}`;
-      addLog('info', 'system', 'Generated VNC execution ID', `ID: ${vncExecutionId}`);
-      
-      // Call our Docker container creation directly
-      const response = await fetch('/api/aef/start-vnc-environment', {
+      console.log('🚀 [AEF Control Center] Starting VNC environment...');
+      setVncEnvironmentStatus('creating');
+      addLog('info', 'system', 'Starting VNC environment...', 'Creating remote desktop session');
+
+      const response = await fetch('/api/aef/session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          executionId: vncExecutionId,
-          userId: 'demo-user'
-        })
+        headers: { 'Content-Type': 'application/json' }
       });
-      
-      addLog('info', 'system', 'VNC API call completed', `Status: ${response.status}`);
-      
+
       if (!response.ok) {
-        const errorText = await response.text();
-        addLog('error', 'system', 'VNC API call failed', errorText);
-        throw new Error('Failed to start VNC environment');
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to start VNC environment: ${response.status}`);
       }
-      
-      const responseData = await response.json();
-      console.log('✅ VNC environment creation response:', responseData);
-      
-      if (responseData.success) {
-        setVncEnvironmentId(vncExecutionId);
+
+      const result = await response.json();
+      console.log('✅ [AEF Control Center] VNC environment started:', result);
+
+      if (result.status === 'session_created' && result.session) {
+        setVncEnvironmentId(result.session.executionId);
         setVncEnvironmentStatus('running');
-        addLog('success', 'system', 'VNC environment ready!', 
-          `🖥️ VNC Desktop: http://localhost:16080\n` +
-          `🔧 Action API: http://localhost:13000\n` +
-          `📝 Execution ID: ${vncExecutionId}`
-        );
         
-        // Show user exactly how to access VNC
-        alert(`✅ VNC Environment Ready!\n\n` +
-          `🖥️ Open VNC Desktop: http://localhost:16080\n` +
-          `📝 Execution ID: ${vncExecutionId}\n\n` +
-          `The browser automation will appear in the VNC viewer.`);
-      } else {
-        throw new Error(responseData.error || 'Unknown error');
+        // Update discovered session state
+        setDiscoveredSession({
+          executionId: result.session.executionId,
+          containerName: result.session.containerName,
+          status: result.session.status,
+          vncUrl: result.session.vncUrl,
+          apiUrl: result.session.apiUrl,
+          isHealthy: true,
+          apiHealthy: true
+        });
+        setCurrentExecutionId(result.session.executionId);
+        setSessionDiscoveryStatus('found');
+
+        addLog('success', 'system', 'VNC environment ready!', 
+          `🖥️ VNC Desktop: ${result.session.vncUrl}\n🔧 Action API: ${result.session.apiUrl}\n📝 Execution ID: ${result.session.executionId}`);
+      } else if (result.status === 'session_exists' && result.session) {
+        // User already has a session
+        setVncEnvironmentId(result.session.executionId);
+        setVncEnvironmentStatus('running');
+        
+        // Update discovered session state
+        setDiscoveredSession({
+          executionId: result.session.executionId,
+          containerName: result.session.containerName,
+          status: result.session.status,
+          vncUrl: result.session.vncUrl,
+          apiUrl: result.session.apiUrl,
+          isHealthy: true,
+          apiHealthy: true
+        });
+        setCurrentExecutionId(result.session.executionId);
+        setSessionDiscoveryStatus('found');
+
+        addLog('info', 'system', 'Using existing VNC session', 
+          `Found active session: ${result.session.executionId}`);
       }
-      
+
     } catch (error) {
-      console.error('❌ Failed to start VNC environment:', error);
+      console.error('❌ [AEF Control Center] Failed to start VNC environment:', error);
       setVncEnvironmentStatus('error');
-      addLog('error', 'system', 'Failed to start VNC environment', error instanceof Error ? error.message : 'Unknown error');
+      addLog('error', 'system', 'Failed to start VNC environment', 
+        error instanceof Error ? error.message : 'Unknown error');
+    }
+  };
+
+  const handleRestartBrowser = async (executionId: string) => {
+    try {
+      console.log('🔄 [AEF Control Center] Restarting browser for execution:', executionId);
+      addLog('info', 'system', 'Restarting browser...', 'Refreshing browser in remote desktop');
+
+      const response = await fetch('/api/aef/restart-browser', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ executionId })
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        console.log('✅ [AEF Control Center] Browser restarted:', result);
+        addLog('success', 'system', 'Browser restarted successfully', 
+                          'Chromium browser is now running in the remote desktop');
+      } else {
+        console.error('❌ [AEF Control Center] Failed to restart browser:', result);
+        addLog('error', 'system', 'Failed to restart browser', 
+          result.error || 'Unknown error occurred while restarting browser');
+      }
+    } catch (error) {
+      console.error('❌ [AEF Control Center] Error restarting browser:', error);
+      addLog('error', 'system', 'Browser restart error', 
+        error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
   const handleStopVncEnvironment = async () => {
-    if (!vncEnvironmentId) return;
-    
-    addLog('info', 'system', 'Stopping VNC remote desktop...', `Environment ID: ${vncEnvironmentId}`);
-    
     try {
-      console.log('🛑 Stopping VNC environment:', vncEnvironmentId);
-      
-      // Call stop endpoint (we'll create this)
-      const response = await fetch('/api/aef/stop-vnc-environment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ executionId: vncEnvironmentId })
+      console.log('🛑 [AEF Control Center] Stopping VNC environment...');
+      addLog('info', 'system', 'Stopping VNC environment...', 'Terminating remote desktop session');
+
+      const response = await fetch('/api/aef/session', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
       });
-      
+
       if (!response.ok) {
-        console.warn('Failed to stop VNC environment gracefully');
-        addLog('warning', 'system', 'VNC environment may not have stopped cleanly');
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to stop VNC environment: ${response.status}`);
       }
-      
+
+      const result = await response.json();
+      console.log('✅ [AEF Control Center] VNC environment stopped:', result);
+
+      // Clear all session state
       setVncEnvironmentId(null);
       setVncEnvironmentStatus('idle');
-      addLog('success', 'system', 'VNC remote desktop stopped');
-      console.log('✅ VNC environment stopped');
-      
+      setDiscoveredSession(null);
+      setSessionDiscoveryStatus('not_found');
+      setCurrentExecutionId('discovering...');
+
+      addLog('success', 'system', 'VNC environment stopped', 
+        'Remote desktop session terminated successfully');
+
     } catch (error) {
-      console.error('❌ Failed to stop VNC environment:', error);
-      addLog('error', 'system', 'Failed to stop VNC environment', error instanceof Error ? error.message : 'Unknown error');
-      // Still reset state
-      setVncEnvironmentId(null);
-      setVncEnvironmentStatus('idle');
+      console.error('❌ [AEF Control Center] Failed to stop VNC environment:', error);
+      addLog('error', 'system', 'Failed to stop VNC environment', 
+        error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
@@ -557,9 +777,35 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     addLog('info', 'system', 'AEF Control Center initialized', 'Hardcoded test workflow loaded and ready for execution');
   }, []);
 
-  // Determine which execution to use (prioritize VNC environment)
-  const activeExecutionId = vncEnvironmentId || realExecutionId || mockExecutionState?.executionId || executionId;
-  const isExecutionActive = !!vncEnvironmentId || !!realExecutionId || showMockExecution || !!executionId;
+  // Determine the active execution ID based on priority: 
+  // 1. Discovered VNC session (highest priority - what's actually running)
+  // 2. VNC environment ID 
+  // 3. Real execution ID
+  // 4. Mock execution ID  
+  // 5. Prop execution ID (fallback)
+  const activeExecutionId = discoveredSession?.executionId || vncEnvironmentId || realExecutionId || mockExecutionState?.executionId || currentExecutionId;
+  
+  // Debug logging for activeExecutionId
+  console.log('🔍 [AEF Control Center] Active execution ID calculation:', {
+    discoveredSession: discoveredSession?.executionId,
+    vncEnvironmentId,
+    realExecutionId,
+    mockExecutionId: mockExecutionState?.executionId,
+    currentExecutionId,
+    finalActiveExecutionId: activeExecutionId
+  });
+  
+  // Determine if any execution is currently active
+  const isExecutionActive = !!(discoveredSession || vncEnvironmentId || realExecutionId || mockExecutionState);
+  
+  // Debug logging for execution active state
+  console.log('🔍 [AEF Control Center] Execution active calculation:', {
+    discoveredSession: !!discoveredSession,
+    vncEnvironmentId: !!vncEnvironmentId,
+    realExecutionId: !!realExecutionId,
+    mockExecutionState: !!mockExecutionState,
+    finalIsExecutionActive: isExecutionActive
+  });
   const currentMockState = (vncEnvironmentId || realExecutionId) ? null : mockExecutionState; // Don't use mock if real execution or VNC is active
 
   // Combine mock logs with real execution logs
@@ -643,6 +889,48 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
                       <div className="flex items-center gap-4">
             <h2 className="text-sm font-semibold text-gray-900">AEF Control Center</h2>
             <div className="flex items-center gap-2 text-xs">
+              {/* Session Discovery Status */}
+              {sessionDiscoveryStatus === 'discovering' && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  Discovering Session...
+                </div>
+              )}
+              {sessionDiscoveryStatus === 'found' && discoveredSession && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-green-100 text-green-700 rounded">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  Active Session Found: {discoveredSession.executionId.replace('vnc-env-', '').substring(0, 8)}...
+                  <Button
+                    onClick={() => handleRestartBrowser(discoveredSession.executionId)}
+                    size="sm"
+                    variant="outline"
+                    className="ml-2 h-6 text-xs px-2"
+                  >
+                    Restart Browser
+                  </Button>
+                  <Button
+                    onClick={handleStopVncEnvironment}
+                    size="sm"
+                    variant="destructive"
+                    className="ml-1 h-6 text-xs px-2"
+                  >
+                    Kill
+                  </Button>
+                </div>
+              )}
+              {sessionDiscoveryStatus === 'not_found' && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded">
+                  <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                  No Active Session
+                </div>
+              )}
+              {sessionDiscoveryStatus === 'error' && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded">
+                  <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  Discovery Failed
+                </div>
+              )}
+              {/* Existing status indicators */}
               {vncEnvironmentId && (
                 <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded">
                   <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>

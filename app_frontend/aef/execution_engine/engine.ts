@@ -115,7 +115,36 @@ export class ExecutionEngine {
         return;
     }
     
-    // Execute actions for this node
+    if (node.type === 'compound_task') {
+        console.log(`  📦 Compound task detected: ${node.label}`);
+        console.log(`  👶 Children: ${node.children?.join(', ')}`);
+        
+        // Check if this compound task should execute all children
+        if (node.canExecuteAsGroup && node.children) {
+            console.log(`  🎬 Executing all children sequentially for compound task`);
+            
+            for (const childId of node.children) {
+                const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
+                if (childNode) {
+                    console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
+                    await this.executeNode(executionId, childNode);
+                    
+                    // Add delay between child executions
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    console.warn(`    ⚠️ Child node ${childId} not found`);
+                }
+            }
+            
+            console.log(`  ✅ Compound task completed: ${node.label}`);
+            return;
+        } else {
+            console.log(`  ℹ️ Compound task defined but not executing children (canExecuteAsGroup: ${node.canExecuteAsGroup})`);
+            return;
+        }
+    }
+    
+    // Execute actions for atomic tasks
     if (node.actions && Array.isArray(node.actions)) {
         console.log(`  🎬 Executing ${node.actions.length} actions`);
         
@@ -123,6 +152,7 @@ export class ExecutionEngine {
             console.log(`    - Action: ${action.type}`);
             
             switch (action.type) {
+                case 'navigate':
                 case 'navigate_or_switch_tab':
                     console.log(`    - Navigating to: ${action.target?.url}`);
                     try {
@@ -138,7 +168,7 @@ export class ExecutionEngine {
                     break;
                     
                 case 'click':
-                    console.log(`    - Clicking element: ${action.target?.selector}`);
+                    console.log(`    - Clicking element: ${action.target?.selector || 'using instruction'}`);
                     try {
                         const result = await hybridBrowserManager.executeAction(executionId, {
                             type: 'click',
@@ -153,14 +183,82 @@ export class ExecutionEngine {
                         console.error(`    ❌ Click failed:`, error);
                     }
                     break;
+
+                case 'type':
+                    console.log(`    - Typing text into: ${action.target?.selector}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'type',
+                            data: { 
+                                selector: action.target?.selector,
+                                text: action.data?.text 
+                            },
+                            stepId: node.id
+                        });
+                        console.log(`    ✅ Type completed:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Type failed:`, error);
+                    }
+                    break;
+
+                case 'wait':
+                    console.log(`    - Waiting for element: ${action.target?.selector}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'wait',
+                            data: { 
+                                selector: action.target?.selector,
+                                timeout: action.timeout || 5000
+                            },
+                            stepId: node.id
+                        });
+                        console.log(`    ✅ Wait completed:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Wait failed:`, error);
+                    }
+                    break;
+
+                case 'wait_for_navigation':
+                    console.log(`    - Waiting for navigation to: ${action.target?.url_contains}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'wait_for_navigation',
+                            data: { 
+                                url_contains: action.target?.url_contains,
+                                timeout: action.timeout || 10000
+                            },
+                            stepId: node.id
+                        });
+                        console.log(`    ✅ Navigation wait completed:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Navigation wait failed:`, error);
+                    }
+                    break;
+
+                case 'extract':
+                    console.log(`    - Extracting data: ${action.instruction}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'extract',
+                            data: { 
+                                instruction: action.instruction,
+                                schema: action.schema
+                            },
+                            stepId: node.id
+                        });
+                        console.log(`    ✅ Extract completed:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Extract failed:`, error);
+                    }
+                    break;
                     
-                // We will add more action handlers here, like visual_scan, extract_data, etc.
                 case 'visual_scan':
                     console.log(`    - Simulating visual scan: ${action.instruction}`);
                     // In a real implementation, this would involve more complex AI vision processing.
                     // For now, we just log and continue.
                     await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate work
                     break;
+
                 default:
                     console.log(`    - Action type '${action.type}' is not yet implemented.`);
             }

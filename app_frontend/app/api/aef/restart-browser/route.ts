@@ -1,103 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { executionId } = body;
+    const { executionId } = await request.json();
     
-    if (!executionId) {
-      return NextResponse.json(
-        { error: 'Execution ID is required' },
-        { status: 400 }
-      );
+    if (!executionId || !executionId.startsWith('vnc-env-')) {
+      return NextResponse.json({ 
+        error: 'Invalid execution ID. Must be a VNC environment execution ID.' 
+      }, { status: 400 });
     }
+
+    // Extract container name from execution ID
+    const containerName = `aef-browser-${executionId.replace('vnc-env-', '')}`;
     
-    console.log('🔄 Restarting browser for execution:', executionId);
-    
-    // For VNC environments, we need to find the container and call its restart endpoint
-    if (executionId.startsWith('vnc-env-')) {
-      // Import browser manager to get the actual container port
-      const { hybridBrowserManager } = await import('@/lib/browser/HybridBrowserManager');
+    console.log(`[Restart Browser] Starting/restarting browser in container: ${containerName}`);
+
+    // Restart Stagehand browser automation
+    try {
+      console.log(`[Restart Browser] Reinitializing Stagehand browser...`);
       
-      try {
-        // Find the container session to get the correct port
-        const targetSession = hybridBrowserManager.getSessionByExecution(executionId);
-        
-        if (!targetSession || !('port' in targetSession)) {
-          throw new Error('VNC container session not found');
-        }
-        
-        const containerPort = (targetSession as any).port;
-        console.log(`🔄 Restarting browser in container on port ${containerPort}`);
-        
-        // Try restart browser endpoint first
-        try {
-          const restartResponse = await fetch(`http://localhost:${containerPort}/restart-browser`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(10000) // 10 second timeout
-          });
-          
-          if (restartResponse.ok) {
-            const result = await restartResponse.json();
-            return NextResponse.json({
-              success: true,
-              message: 'Browser restarted successfully',
-              executionId,
-              browserResult: result
-            });
-          }
-        } catch (restartError) {
-          console.log('Restart endpoint failed, trying init endpoint...');
-        }
-        
-        // Fallback: Try init endpoint (will auto-detect if browser is already running)
-        const initResponse = await fetch(`http://localhost:${containerPort}/init`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(15000) // 15 second timeout
-        });
-        
-        if (initResponse.ok) {
-          const result = await initResponse.json();
-          return NextResponse.json({
-            success: true,
-            message: 'Browser initialized successfully',
-            executionId,
-            browserResult: result
-          });
-        } else {
-          throw new Error('Both restart and init endpoints failed');
-        }
-        
-      } catch (containerError) {
-        console.warn('Container restart failed:', containerError);
-        
-        // Alternative: Return success and let the frontend handle it
-        return NextResponse.json({
-          success: false,
-          message: 'Failed to restart browser in container',
-          executionId,
-          error: containerError instanceof Error ? containerError.message : 'Unknown error',
-          note: 'Try refreshing the VNC connection or restarting the VNC environment'
-        });
+      // Get the container's API port
+      const { stdout } = await execAsync(`docker port ${containerName} 3000`);
+      
+      const portMatch = stdout.match(/:(\d+)/);
+      if (!portMatch) {
+        throw new Error('Could not determine container API port');
       }
+      
+      const apiPort = parseInt(portMatch[1]);
+      console.log(`[Restart Browser] Found API port: ${apiPort}`);
+      
+      // Reinitialize Stagehand
+      const response = await fetch(`http://localhost:${apiPort}/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Stagehand initialization failed: ${response.status}`);
+      }
+      
+      console.log(`[Restart Browser] Stagehand browser reinitialized successfully`);
+      
+    } catch (error) {
+      console.error(`[Restart Browser] Failed to restart Stagehand:`, error);
+      throw error;
     }
-    
-    // For regular executions, restart is not applicable
-    return NextResponse.json({
-      success: false,
-      error: 'Browser restart is only available for VNC environments'
-    }, { status: 400 });
-    
-  } catch (error: any) {
-    console.error('❌ Failed to restart browser:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to restart browser',
-        details: error.message 
-      },
-      { status: 500 }
-    );
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Browser restarted successfully',
+      executionId,
+      containerName 
+    });
+
+  } catch (error) {
+    console.error('[Restart Browser] Error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to restart browser',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 } 

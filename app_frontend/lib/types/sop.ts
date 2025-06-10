@@ -38,7 +38,7 @@ export interface AutomationConfig {
 
 export interface SOPNode {
   id: string;
-  type: string; // e.g., "task", "loop", "decision", "end"
+  type: string; // e.g., "task", "loop", "decision", "end", "compound_task", "atomic_task", "iterative_loop"
   label: string;
   intent: string;
   context: string;
@@ -48,6 +48,9 @@ export interface SOPNode {
   children?: string[]; // IDs of child nodes
   parentId?: string; // ID of the parent node (useful for atomic steps)
   id_path?: string; // Hierarchical ID for visual display (e.g., "2.1", "2.3Y")
+  // Compound task properties
+  canExecuteAsGroup?: boolean; // Whether compound task can execute all children sequentially
+  actions?: any[]; // Actions for atomic tasks (compound tasks have empty actions array)
   // Populated by processing function
   childNodes?: SOPNode[]; 
   

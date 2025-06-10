@@ -206,6 +206,27 @@ app.post('/action', async (req, res) => {
         }
         result = { action: 'type', text: data.text };
         break;
+
+      case 'wait':
+        if (data.selector) {
+          await stagehand.page.waitForSelector(data.selector, { 
+            timeout: data.timeout || 5000 
+          });
+        }
+        result = { action: 'wait', selector: data.selector, timeout: data.timeout };
+        break;
+
+      case 'wait_for_navigation':
+        if (data.url_contains) {
+          // Wait for URL to contain specific text
+          await stagehand.page.waitForFunction(
+            (urlFragment) => window.location.href.includes(urlFragment), 
+            data.url_contains,
+            { timeout: data.timeout || 10000 }
+          );
+        }
+        result = { action: 'wait_for_navigation', url_contains: data.url_contains };
+        break;
         
       case 'act':
         result = await stagehand.page.act(data.instruction);
