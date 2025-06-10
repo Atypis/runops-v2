@@ -1,5 +1,7 @@
 import { SOPDocument, SOPNode, BrowserInstruction } from '../../lib/types/sop';
 import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
+import { CredentialInjectionService, ExecutionCredentials } from '@/lib/credentials/injection';
+import { WorkflowCredential } from '@/lib/types/aef';
 
 // A placeholder for the more complex node structure from the JSON file
 type WorkflowNode = SOPNode & {
@@ -27,13 +29,22 @@ export class ExecutionEngine {
   private sop: WorkflowDocument;
   private state: Map<string, any>;
   private currentNode: WorkflowNode | undefined;
+  private userId: string;
+  private workflowId: string;
 
-  constructor(sop: WorkflowDocument) {
+  constructor(sop: WorkflowDocument, userId: string, workflowId?: string) {
     this.sop = sop;
     this.state = new Map<string, any>();
+    this.userId = userId;
+    this.workflowId = workflowId || (sop as any).meta?.id || 'unknown';
   }
 
   public async start(executionId: string) {
+    console.log(`🚀 Starting execution for workflow ${this.workflowId}, user ${this.userId}`);
+    
+    // Validate credentials before starting execution
+    await this.validateCredentials();
+    
     // Find the start node (first node in the workflow)
     this.currentNode = this.sop.execution.workflow.nodes[0];
     console.log(`🚀 Starting execution with node: ${this.currentNode?.label}`);
@@ -187,14 +198,20 @@ export class ExecutionEngine {
                 case 'type':
                     console.log(`    - Typing text into: ${action.target?.selector}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
-                            type: 'type',
+                        // Create the browser action
+                        let browserAction = {
+                            type: 'type' as const,
                             data: { 
                                 selector: action.target?.selector,
                                 text: action.data?.text 
                             },
                             stepId: node.id
-                        });
+                        };
+                        
+                        // Inject credentials if needed
+                        browserAction = await this.injectCredentialsIntoAction(browserAction, node);
+                        
+                        const result = await hybridBrowserManager.executeAction(executionId, browserAction);
                         console.log(`    ✅ Type completed:`, result);
                     } catch (error) {
                         console.error(`    ❌ Type failed:`, error);
@@ -337,9 +354,131 @@ export class ExecutionEngine {
         node.children.includes(nodeId)
     );
   }
+
+  /**
+   * Validate credentials before execution starts
+   */
+  private async validateCredentials(): Promise<void> {
+    try {
+      console.log(`🔍 [ExecutionEngine] Validating credentials for workflow ${this.workflowId}`);
+      
+      // Extract credential requirements from workflow nodes
+      const requiredCredentials = this.extractWorkflowCredentials();
+      
+      if (requiredCredentials.length === 0) {
+        console.log(`✅ [ExecutionEngine] No credentials required for workflow ${this.workflowId}`);
+        return;
+      }
+      
+      // Validate credentials using injection service
+      const validation = await CredentialInjectionService.validateExecutionCredentials(
+        this.workflowId,
+        requiredCredentials
+      );
+      
+      if (!validation.isValid) {
+        const errorMessage = `Missing credentials: ${validation.missingCredentials.join(', ')}`;
+        console.error(`❌ [ExecutionEngine] Credential validation failed: ${errorMessage}`);
+        throw new Error(`Credential validation failed: ${errorMessage}`);
+      }
+      
+      console.log(`✅ [ExecutionEngine] All credentials validated for workflow ${this.workflowId}`);
+    } catch (error) {
+      console.error(`❌ [ExecutionEngine] Credential validation error:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Inject credentials into a browser action if needed
+   */
+  private async injectCredentialsIntoAction(
+    browserAction: any,
+    node: WorkflowNode
+  ): Promise<any> {
+    try {
+      // Check if action needs credential injection
+      if (!CredentialInjectionService.actionRequiresCredentials(browserAction)) {
+        return browserAction;
+      }
+      
+      console.log(`🔐 [ExecutionEngine] Action requires credentials, injecting for step ${node.id}`);
+      
+      // Get required credentials for this step
+      const requiredCreds = CredentialInjectionService.extractRequiredCredentialsFromStep(
+        node.id,
+        this.sop.execution.workflow.nodes
+      );
+      
+      // Get credentials for this step
+      const credentials = await CredentialInjectionService.getCredentialsForStep(
+        node.id,
+        this.userId,
+        this.workflowId,
+        requiredCreds
+      );
+      
+      // Inject credentials into action
+      const injectedAction = CredentialInjectionService.injectCredentialsIntoAction(
+        browserAction,
+        credentials
+      );
+      
+      // Clear credentials from memory for security
+      CredentialInjectionService.clearCredentialsFromMemory(credentials);
+      
+      return injectedAction;
+    } catch (error) {
+      console.error(`❌ [ExecutionEngine] Failed to inject credentials:`, error);
+      return browserAction; // Return original action if injection fails
+    }
+  }
+
+  /**
+   * Extract credential requirements from all workflow nodes
+   */
+  private extractWorkflowCredentials(): WorkflowCredential[] {
+    const credentials: WorkflowCredential[] = [];
+    const credentialMap = new Map<string, WorkflowCredential>();
+    
+    for (const node of this.sop.execution.workflow.nodes) {
+      if (!node.credentialsRequired) continue;
+      
+      Object.entries(node.credentialsRequired).forEach(([service, fields]) => {
+        if (!Array.isArray(fields)) return;
+        
+        fields.forEach(field => {
+          const credentialId = `${service}_${field}`;
+          
+          if (!credentialMap.has(credentialId)) {
+            credentialMap.set(credentialId, {
+              id: credentialId,
+              serviceType: service as any,
+              label: `${service} ${field}`,
+              description: `${service} ${field} for authentication`,
+              type: field === 'email' ? 'email' as any : 
+                    field === 'password' ? 'password' as any :
+                    field === 'api_key' ? 'api_key' as any : 'text' as any,
+              required: true,
+              requiredForSteps: [node.id],
+              placeholder: `Enter your ${field}`,
+              helpText: `Required for ${service} authentication`,
+              masked: field === 'password' || field === 'api_key'
+            });
+          } else {
+            // Add this step to existing credential
+            const existing = credentialMap.get(credentialId)!;
+            existing.requiredForSteps.push(node.id);
+          }
+        });
+      });
+    }
+    
+    return Array.from(credentialMap.values());
+  }
 }
 
 // To use this engine, you would do something like:
 // const mySop: SOPDocument = { ... }; // Your hardcoded SOP
-// const engine = new ExecutionEngine(mySop);
+// const engine = new ExecutionEngine(mySop, userId, workflowId);
 // engine.start(); 

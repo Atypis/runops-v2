@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
     // --- Start Execution Engine ---
     console.log(`Starting Execution Engine for ${executionId}`);
     // The AEFDocument is now directly compatible with what the engine expects
-    const engine = new ExecutionEngine(aefDocument);
+    const engine = new ExecutionEngine(aefDocument, user.id, aefDocumentId);
     
     // Start the engine but don't wait for it to finish
     engine.start(executionId).catch((err: Error) => {

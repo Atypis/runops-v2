@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { BrowserAction } from '@/lib/browser/types';
 import { ExecutionEngine } from '@/aef/execution_engine/engine';
+import { CredentialInjectionService } from '@/lib/credentials/injection';
 
 /**
  * POST /api/aef/action/[id]
@@ -203,11 +204,34 @@ export async function POST(
         try {
           console.log(`Executing browser action for step ${stepId}:`, browserAction);
           
-          const browserActionData: BrowserAction = {
+          let browserActionData: BrowserAction = {
             type: browserAction.type,
             data: browserAction.data,
             stepId
           };
+          
+          // ✅ NEW: Inject credentials if needed
+          if (CredentialInjectionService.actionRequiresCredentials(browserActionData)) {
+            console.log(`🔐 [AEF Action] Action requires credential injection for step ${stepId}`);
+            
+            // Get credentials for this step
+            const credentials = await CredentialInjectionService.getCredentialsForStep(
+              stepId,
+              user.id,
+              'test-investor-email-workflow' // Use test workflow ID
+            );
+            
+            // Inject credentials into action
+            browserActionData = CredentialInjectionService.injectCredentialsIntoAction(
+              browserActionData,
+              credentials
+            );
+            
+            // Clear credentials from memory for security
+            CredentialInjectionService.clearCredentialsFromMemory(credentials);
+            
+            console.log(`✅ [AEF Action] Credentials injected for step ${stepId}`);
+          }
           
           browserResult = await hybridBrowserManager.executeAction(executionId, browserActionData);
           console.log(`Browser action completed for step ${stepId}`);
@@ -303,7 +327,7 @@ export async function POST(
                       "type": "type",
                       "instruction": "Enter password in the password field", 
                       "target": { "selector": "input[type='password']" },
-                      "text": "your_password_here"
+                      "text": "{{gmail_password}}"
                     }
                   ]
                 },

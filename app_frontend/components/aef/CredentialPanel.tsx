@@ -5,6 +5,7 @@ import { WorkflowCredential, CredentialGroup as CredentialGroupType, ServiceType
 import CredentialGroup from './CredentialGroup';
 import { Button } from '@/components/ui/button';
 import { CredentialStorage } from '@/lib/credentials/storage';
+import { getAuthMethodsForService, getDefaultAuthMethod } from '@/lib/credentials/auth-methods';
 
 interface CredentialPanelProps {
   isOpen: boolean;
@@ -81,6 +82,8 @@ const CredentialPanel: React.FC<CredentialPanelProps> = ({
   const createCredentialGroup = (serviceType: ServiceType, credentials: WorkflowCredential[]): CredentialGroupType => {
     const serviceMetadata = getServiceMetadata(serviceType);
     const hasRequiredCredentials = credentials.some(c => c.required);
+    const supportedAuthMethods = getAuthMethodsForService(serviceType);
+    const selectedAuthMethod = getDefaultAuthMethod(serviceType) || undefined;
     
     return {
       service: serviceType,
@@ -89,7 +92,9 @@ const CredentialPanel: React.FC<CredentialPanelProps> = ({
       description: serviceMetadata.description,
       credentials,
       allSet: false, // Will be calculated dynamically
-      requiredForExecution: hasRequiredCredentials
+      requiredForExecution: hasRequiredCredentials,
+      supportedAuthMethods,
+      selectedAuthMethod
     };
   };
 

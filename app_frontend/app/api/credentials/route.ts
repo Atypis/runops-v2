@@ -91,7 +91,10 @@ export async function POST(request: NextRequest) {
         metadata: {
           created_from: 'credential_panel',
           last_validated: new Date().toISOString()
-        }
+        },
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,service_type,workflow_id'
       })
       .select()
       .single();

@@ -62,6 +62,14 @@ export interface SOPNode {
     custom?: string[];
   };
   
+  // NEW: Preferred authentication methods for this node
+  preferredAuthMethods?: {
+    gmail?: ('email_password' | 'google_sso')[];
+    airtable?: ('email_password' | 'google_sso' | 'microsoft_sso' | 'api_key')[];
+    oauth?: ('oauth2')[];
+    custom?: string[];
+  };
+  
   // New: Optional automation configuration (added by AEF enhancement)
   automation?: AutomationConfig;
 }

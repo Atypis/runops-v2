@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SOPDocument } from '@/lib/types/sop';
-import { AEFDocument, isAEFDocument, ExecutionMethod, WorkflowCredential, ServiceType, CredentialType } from '@/lib/types/aef';
+import { AEFDocument, isAEFDocument, ExecutionMethod, WorkflowCredential, ServiceType, CredentialType, AuthenticationMethod, AccountProvider, AccountAccess, ServiceSetting, EnhancedCredentialGroup } from '@/lib/types/aef';
 import { CheckpointType, CheckpointCondition } from '@/lib/types/checkpoint';
 import { createMockAEFTransformation, createMockExecutionState, shouldShowMockAEF, MockExecutionState, MockLogEntry } from '@/lib/mock-aef-data';
 import ExecutionPanel from './ExecutionPanel';
@@ -10,8 +10,17 @@ import BrowserPanel from './BrowserPanel';
 import ExecutionLog from './ExecutionLog';
 import TransformLoading from './TransformLoading';
 import CredentialPanel from './CredentialPanel';
+import AccountCredentialPanel from './AccountCredentialPanel';
+import EnhancedCredentialPanel from './EnhancedCredentialPanel';
 import { Button } from '@/components/ui/button';
 import { CredentialStorage } from '@/lib/credentials/storage';
+import { getAuthMethodsForService, getSharedOAuthCredentialId } from '@/lib/credentials/auth-methods';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { AlertCircle, CheckCircle, Clock, Settings, Key, Play, Pause, RotateCcw } from 'lucide-react';
+import { getAllAccountProviders, getAccountProvidersForService } from '@/lib/credentials/account-config';
+import { getServiceSettings, getServiceSettingsForAccount } from '@/lib/credentials/service-config';
+
 
 interface AEFControlCenterProps {
   sopData: SOPDocument;
@@ -25,6 +34,10 @@ interface AEFControlCenterProps {
 }
 
 // Hardcoded test workflow data with credential requirements
+// ✅ CREDENTIAL & AUTH METHOD INTEGRATION: This workflow demonstrates how nodes can declare
+// required credentials and preferred authentication methods. The credential management
+// system will automatically detect these requirements and provide appropriate auth method
+// selection in the UI, then substitute credential placeholders during execution.
 const HARDCODED_TEST_WORKFLOW = {
   "meta": {
     "id": "test-investor-email-workflow",
@@ -47,12 +60,15 @@ const HARDCODED_TEST_WORKFLOW = {
           "id": "gmail_login_flow",
           "type": "compound_task",
           "label": "Navigate and Log in to Gmail",
-          "intent": "Complete Gmail authentication process including navigation, email entry, password entry, and login confirmation.",
-          "context": "This compound task handles the complete Gmail login workflow. It can be executed as a single unit or broken down into individual steps for granular control.",
+          "intent": "Complete Gmail authentication process using stored credentials for email and password entry, including navigation and login confirmation.",
+          "context": "This compound task handles the complete Gmail login workflow using credentials from the credential management system. The system will automatically substitute {{gmail_email}} and {{gmail_password}} placeholders with the user's stored credentials.",
           "children": ["navigate_to_gmail", "enter_email", "enter_password", "complete_login"],
           "canExecuteAsGroup": true,
           "credentialsRequired": {
-            "gmail": ["email", "password"]
+            "gmail": ["email", "password"] as ('email' | 'password')[]
+          },
+          "preferredAuthMethods": {
+            "gmail": ["email_password", "google_sso"] as ('email_password' | 'google_sso')[]
           },
           "actions": [] // Parent nodes don't have direct actions
         },
@@ -81,9 +97,10 @@ const HARDCODED_TEST_WORKFLOW = {
           "actions": [
             {
               "type": "type",
-              "instruction": "Enter email address in the email field",
+              "instruction": "Enter email address in the email field using stored credential",
               "target": { "selector": "input[type='email']" },
-              "data": { "text": "your.email@gmail.com" } // This would be dynamic in real implementation
+              "data": { "text": "{{gmail_email}}" }, // ✅ Uses credential from storage
+              "credentialField": "gmail_email" // ✅ Links to credential ID
             },
             {
               "type": "click",
@@ -108,9 +125,10 @@ const HARDCODED_TEST_WORKFLOW = {
             },
             {
               "type": "type",
-              "instruction": "Enter password in the password field", 
+              "instruction": "Enter password in the password field using stored credential", 
               "target": { "selector": "input[type='password']" },
-              "data": { "text": "your_password_here" } // This would be secure/dynamic in real implementation
+              "data": { "text": "{{gmail_password}}" }, // ✅ Uses credential from storage
+              "credentialField": "gmail_password" // ✅ Links to credential ID
             }
           ]
         },
@@ -203,17 +221,32 @@ const HARDCODED_TEST_WORKFLOW = {
           "id": "open_airtable",
           "type": "atomic_task",
           "label": "Open Airtable CRM",
-          "intent": "Navigate to or switch to the Airtable CRM tab.",
-          "context": "Access the Airtable database where investor information is stored and managed.",
+          "intent": "Navigate to the Airtable CRM using stored base ID and authenticate with API key if needed.",
+          "context": "Access the Airtable database where investor information is stored and managed. Uses {{airtable_base_id}} from credentials to construct the correct URL and {{airtable_api_key}} for authentication if prompted.",
           "parentId": "email_processing_loop",
           "credentialsRequired": {
-            "airtable": ["api_key", "base_id"]
+            "airtable": ["api_key", "base_id"] as ('api_key' | 'base_id')[]
+          },
+          "preferredAuthMethods": {
+            "airtable": ["google_sso", "api_key"] as ('email_password' | 'google_sso' | 'microsoft_sso' | 'api_key')[]
           },
           "actions": [
             {
               "type": "navigate_or_switch_tab",
-              "instruction": "Navigate to Airtable CRM or switch to existing Airtable tab",
-              "target": { "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
+              "instruction": "Navigate to Airtable CRM using stored base ID",
+              "target": { "url": "https://airtable.com/{{airtable_base_id}}" },
+              "credentialField": "airtable_base_id" // ✅ Links to credential ID
+            },
+            {
+              "type": "wait",
+              "instruction": "Wait for Airtable base to load",
+              "timeout": 5000
+            },
+            {
+              "type": "conditional_auth",
+              "instruction": "If prompted for API authentication, use stored API key",
+              "data": { "api_key": "{{airtable_api_key}}" },
+              "credentialField": "airtable_api_key" // ✅ Links to credential ID
             }
           ]
         },
@@ -262,80 +295,194 @@ const HARDCODED_TEST_WORKFLOW = {
   }
 };
 
-// Simple function to extract credentials from workflow nodes
-function extractCredentialsFromWorkflow(aefDocument: AEFDocument): WorkflowCredential[] {
-  const credentials: WorkflowCredential[] = [];
+function extractAccountAndServiceRequirements(aefDocument: AEFDocument): {
+  requiredAccounts: AccountAccess[];
+  serviceGroups: EnhancedCredentialGroup[];
+} {
   const nodes = aefDocument.public?.nodes || [];
   
-  // Collect all credential requirements from nodes
-  const credentialMap = new Map<string, { serviceType: ServiceType; fields: Set<string>; steps: Set<string> }>();
+  // Collect services that need authentication
+  const requiredServices = new Set<ServiceType>();
+  const serviceStepsMap = new Map<ServiceType, Set<string>>();
   
   for (const node of nodes) {
     if (!node.credentialsRequired) continue;
     
     Object.entries(node.credentialsRequired).forEach(([service, fields]) => {
-      if (!fields || fields.length === 0) return;
-      
-      const serviceType = service as keyof typeof ServiceType;
-      const serviceEnum = ServiceType[serviceType.toUpperCase() as keyof typeof ServiceType];
-      if (!serviceEnum) return;
-      
-      const key = serviceEnum;
-      const existing = credentialMap.get(key) || { 
-        serviceType: serviceEnum, 
-        fields: new Set(), 
-        steps: new Set() 
-      };
-      
-      fields.forEach(field => existing.fields.add(field));
-      existing.steps.add(node.id);
-      credentialMap.set(key, existing);
+      const serviceEnum = service.toUpperCase() as keyof typeof ServiceType;
+      if (ServiceType[serviceEnum]) {
+        const serviceType = ServiceType[serviceEnum];
+        requiredServices.add(serviceType);
+        
+        const existingSteps = serviceStepsMap.get(serviceType) || new Set();
+        existingSteps.add(node.id);
+        serviceStepsMap.set(serviceType, existingSteps);
+      }
     });
   }
   
-  // Generate WorkflowCredential objects
-  for (const [service, config] of credentialMap.entries()) {
-    for (const field of config.fields) {
-      const credentialType = field === 'email' ? CredentialType.EMAIL :
-                           field === 'password' ? CredentialType.PASSWORD :
-                           field === 'api_key' ? CredentialType.API_KEY :
-                           field === 'base_id' ? CredentialType.TEXT :
-                           field === 'token' ? CredentialType.OAUTH_TOKEN :
-                           CredentialType.TEXT;
+  // Determine required account providers
+  const requiredAccountProviders = new Set<AccountProvider>();
+  const accountServiceMap = new Map<AccountProvider, Set<ServiceType>>();
+  
+  for (const serviceType of requiredServices) {
+    const supportedAccounts = getAccountProvidersForService(serviceType);
+    
+    // For now, choose the first (primary) account provider for each service
+    // In the future, this could be user-configurable
+    if (supportedAccounts.length > 0) {
+      const primaryAccount = supportedAccounts[0]; // Google for Gmail/Airtable
+      requiredAccountProviders.add(primaryAccount.provider);
       
-      const serviceTitle = service === ServiceType.GMAIL ? 'Gmail' :
-                          service === ServiceType.AIRTABLE ? 'Airtable' :
-                          'Service';
-      
-      const fieldLabel = field === 'email' ? 'Email Address' :
-                        field === 'password' ? 'Password' :
-                        field === 'api_key' ? 'API Key' :
-                        field === 'base_id' ? 'Base ID' :
-                        field === 'token' ? 'Token' :
-                        field;
+      const existingServices = accountServiceMap.get(primaryAccount.provider) || new Set();
+      existingServices.add(serviceType);
+      accountServiceMap.set(primaryAccount.provider, existingServices);
+    }
+  }
+  
+  // Build required accounts list
+  const requiredAccounts = Array.from(requiredAccountProviders).map(provider => {
+    const account = getAllAccountProviders().find(acc => acc.provider === provider);
+    if (account) {
+      const supportedServices = Array.from(accountServiceMap.get(provider) || []);
+      return {
+        ...account,
+        supportedServices // Override with actually required services
+      };
+    }
+    return null;
+  }).filter(Boolean) as AccountAccess[];
+  
+  // Build service groups
+  const serviceGroups: EnhancedCredentialGroup[] = [];
+  
+  for (const serviceType of requiredServices) {
+    const supportedAccounts = getAccountProvidersForService(serviceType);
+    const requiredAccount = supportedAccounts.length > 0 ? supportedAccounts[0].provider : undefined;
+    
+    // Get service-specific settings
+    const serviceSettings = getServiceSettings(serviceType);
+    const steps = Array.from(serviceStepsMap.get(serviceType) || []);
+    
+    // Update service settings with step requirements
+    const enhancedSettings = serviceSettings.map(setting => ({
+      ...setting,
+      requiredForSteps: steps
+    }));
+    
+    const serviceGroup: EnhancedCredentialGroup = {
+      service: serviceType,
+      icon: getServiceIcon(serviceType),
+      title: getServiceTitle(serviceType),
+      description: getServiceDescription(serviceType, requiredAccount),
+      requiredAccount,
+      serviceSettings: enhancedSettings,
+      allSet: false, // Will be calculated dynamically
+      requiredForExecution: true
+    };
+    
+    serviceGroups.push(serviceGroup);
+  }
+  
+  return {
+    requiredAccounts,
+    serviceGroups
+  };
+}
+
+// Helper functions
+function getServiceIcon(serviceType: ServiceType): string {
+  switch (serviceType) {
+    case ServiceType.GMAIL: return '📧';
+    case ServiceType.AIRTABLE: return '🗃️';
+    default: return '⚙️';
+  }
+}
+
+function getServiceTitle(serviceType: ServiceType): string {
+  switch (serviceType) {
+    case ServiceType.GMAIL: return 'Gmail';
+    case ServiceType.AIRTABLE: return 'Airtable';
+    default: return serviceType;
+  }
+}
+
+function getServiceDescription(serviceType: ServiceType, requiredAccount?: AccountProvider): string {
+  switch (serviceType) {
+    case ServiceType.GMAIL:
+      return requiredAccount === AccountProvider.GOOGLE 
+        ? 'Email access via your Google account'
+        : 'Email inbox and management';
+    case ServiceType.AIRTABLE:
+      return requiredAccount === AccountProvider.GOOGLE
+        ? 'Database access via your Google account' 
+        : 'CRM database and tables';
+    default:
+      return 'Service access';
+  }
+}
+
+// Temporary bridge function to convert new account system to legacy format
+function convertToLegacyCredentials(
+  requiredAccounts: AccountAccess[],
+  serviceGroups: EnhancedCredentialGroup[]
+): WorkflowCredential[] {
+  const credentials: WorkflowCredential[] = [];
+  
+  // Convert account access to credentials
+  for (const account of requiredAccounts) {
+    for (const field of account.credentialFields) {
+      // Map credential fields to supported auth methods
+      const authMethod = field.fieldType === CredentialType.EMAIL || field.fieldType === CredentialType.PASSWORD 
+        ? AuthenticationMethod.EMAIL_PASSWORD
+        : field.fieldType === CredentialType.OAUTH_TOKEN
+        ? AuthenticationMethod.GOOGLE_SSO
+        : AuthenticationMethod.EMAIL_PASSWORD; // Default fallback
       
       credentials.push({
-        id: `${service}_${field}`,
-        serviceType: config.serviceType,
-        label: `${serviceTitle} ${fieldLabel}`,
-        description: `Your ${serviceTitle.toLowerCase()} ${fieldLabel.toLowerCase()}`,
-        type: credentialType,
+        id: `${account.id}_${field.fieldType}`,
+        serviceType: account.supportedServices[0] || ServiceType.CUSTOM, // Use first supported service
+        authMethod: authMethod, // ✅ SET AUTH METHOD
+        label: field.label,
+        description: `${field.label} for ${account.label}`,
+        type: field.fieldType,
         required: true,
-        requiredForSteps: Array.from(config.steps),
-        placeholder: field === 'email' ? 'your.email@gmail.com' :
-                    field === 'api_key' ? 'pat***' :
-                    field === 'base_id' ? 'app***' :
-                    `Enter your ${fieldLabel.toLowerCase()}`,
-        helpText: field === 'password' ? 'Your password will be encrypted and stored securely' :
-                 field === 'api_key' && service === ServiceType.AIRTABLE ? 'Find this in your Airtable account settings' :
-                 field === 'base_id' ? 'Found in your Airtable base URL' :
-                 `Required for ${serviceTitle} authentication`,
-        masked: field === 'password' || field === 'api_key' || field === 'token'
+        requiredForSteps: [], // Will be populated by service groups
+        placeholder: field.placeholder,
+        helpText: field.helpText,
+        masked: field.masked
       });
     }
   }
   
-  console.log('🔧 [Simple] Generated', credentials.length, 'credentials from node declarations');
+  // Convert service settings to credentials
+  for (const serviceGroup of serviceGroups) {
+    for (const setting of serviceGroup.serviceSettings) {
+      if (setting.required) {
+        // Determine auth method for service settings
+        const authMethod = setting.fieldType === CredentialType.API_KEY
+          ? AuthenticationMethod.API_KEY
+          : setting.fieldType === CredentialType.TEXT
+          ? AuthenticationMethod.EMAIL_PASSWORD // For Base IDs, etc.
+          : AuthenticationMethod.EMAIL_PASSWORD; // Default fallback
+        
+        credentials.push({
+          id: setting.id,
+          serviceType: setting.serviceType,
+          authMethod: authMethod, // ✅ SET AUTH METHOD
+          label: setting.label,
+          description: setting.description,
+          type: setting.fieldType,
+          required: setting.required,
+          requiredForSteps: setting.requiredForSteps,
+          placeholder: setting.placeholder,
+          helpText: setting.helpText,
+          masked: setting.fieldType === CredentialType.API_KEY
+        });
+      }
+    }
+  }
+  
   return credentials;
 }
 
@@ -356,6 +503,8 @@ function createHardcodedAEFDocument(): AEFDocument {
     ...(node.children ? { children: node.children } : {}),
     // Add canExecuteAsGroup for compound tasks
     ...(node.canExecuteAsGroup !== undefined ? { canExecuteAsGroup: node.canExecuteAsGroup } : {}),
+    // ✅ ADD MISSING: credentialsRequired property
+    ...(node.credentialsRequired ? { credentialsRequired: node.credentialsRequired } : {}),
     // Add actions array
     actions: node.actions || []
   }));
@@ -480,6 +629,12 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     setCount: number;
     totalCount: number;
   }>({ isComplete: false, setCount: 0, totalCount: 0 });
+
+  // New credential panel state
+  const [newCredentialPanelOpen, setNewCredentialPanelOpen] = useState(false);
+
+  // Enhanced credential panel state (Advanced UI)
+  const [enhancedCredentialPanelOpen, setEnhancedCredentialPanelOpen] = useState(false);
 
   // Discovery session on component mount
   useEffect(() => {
@@ -648,6 +803,11 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   // Simple credential extraction and validation effect
   useEffect(() => {
+    // Skip old system when Enhanced panel is open (it has its own counting)
+    if (enhancedCredentialPanelOpen) {
+      return;
+    }
+    
     const extractAndValidateCredentials = async () => {
       console.log('🔍 [AEF] Starting credential extraction for:', aefDocument.meta.id);
       
@@ -657,7 +817,12 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
         
         if (credentialsToValidate.length === 0) {
           console.log('🔍 [AEF] No static credentials found, extracting from node declarations...');
-          credentialsToValidate = extractCredentialsFromWorkflow(aefDocument);
+          
+          // Use new account-based extraction
+          const { requiredAccounts, serviceGroups } = extractAccountAndServiceRequirements(aefDocument);
+          
+          // Convert to legacy WorkflowCredential format for compatibility
+          credentialsToValidate = convertToLegacyCredentials(requiredAccounts, serviceGroups);
           
           console.log('🔍 [AEF] Extracted', credentialsToValidate.length, 'credentials from nodes');
           
@@ -696,7 +861,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     };
 
     extractAndValidateCredentials();
-  }, [aefDocument.meta.id, credentialPanelOpen]); // Use stable ID instead of entire object
+  }, [aefDocument.meta.id, credentialPanelOpen, newCredentialPanelOpen, enhancedCredentialPanelOpen]); // Include enhanced panel state
 
   // Credential handlers
   const handleCredentialsUpdate = (isComplete: boolean, setCount: number, totalCount: number) => {
@@ -1375,14 +1540,118 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       </div>
       
       {/* Credential Management Panel */}
-      <CredentialPanel
-        isOpen={credentialPanelOpen}
-        onClose={() => setCredentialPanelOpen(false)}
-        workflowId={aefDocument.meta.id}
-        workflowTitle={aefDocument.meta.title}
-        requiredCredentials={aefDocument.aef?.config?.credentials || []}
-        onCredentialsUpdate={handleCredentialsUpdate}
-      />
+      <div className="space-y-6">
+        {/* Comparison: Old vs New Auth Systems */}
+        <div className="flex gap-4">
+          <Button
+            variant="outline"
+            onClick={() => setCredentialPanelOpen(true)}
+            className="flex items-center gap-2"
+          >
+            🔐 Old Auth System
+          </Button>
+          
+          <Button
+            variant="outline"
+            onClick={() => setNewCredentialPanelOpen(true)}
+            className="flex items-center gap-2"
+          >
+            🔐 New Account-Based Auth
+          </Button>
+          
+          <Button
+            variant="outline"
+            onClick={() => setEnhancedCredentialPanelOpen(true)}
+            className="flex items-center gap-2 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+          >
+            ✨ Advanced Credentials UI
+          </Button>
+        </div>
+
+        <CredentialPanel
+          isOpen={credentialPanelOpen}
+          onClose={() => setCredentialPanelOpen(false)}
+          workflowId={aefDocument.meta.id}
+          workflowTitle={aefDocument.meta.title}
+          requiredCredentials={aefDocument.aef?.config?.credentials || []}
+          onCredentialsUpdate={handleCredentialsUpdate}
+        />
+
+                 <AccountCredentialPanel
+           isOpen={newCredentialPanelOpen}
+           onClose={() => setNewCredentialPanelOpen(false)}
+           workflowId={aefDocument.meta.id}
+           workflowTitle={aefDocument.meta.title}
+           requiredAccounts={[
+             {
+               id: 'google_account',
+               provider: AccountProvider.GOOGLE,
+               label: 'Google Account',
+               description: 'Your Google account for Gmail and Airtable access',
+               icon: '🔵',
+               supportedServices: [ServiceType.GMAIL, ServiceType.AIRTABLE],
+               credentialFields: [
+                 {
+                   fieldType: CredentialType.EMAIL,
+                   label: 'Email Address',
+                   placeholder: 'your-email@gmail.com',
+                   helpText: 'Your Google account email address',
+                   masked: false
+                 },
+                 {
+                   fieldType: CredentialType.PASSWORD,
+                   label: 'Password',
+                   placeholder: 'Enter your password',
+                   helpText: 'Your Google account password (or App Password if 2FA enabled)',
+                   masked: true
+                 }
+               ]
+             }
+           ]}
+           serviceGroups={[
+             {
+               service: ServiceType.GMAIL,
+               title: 'Gmail',
+               description: 'Email automation via Google Account',
+               icon: '📧',
+               requiredAccount: AccountProvider.GOOGLE,
+               serviceSettings: [],
+               allSet: false,
+               requiredForExecution: true
+             },
+             {
+               service: ServiceType.AIRTABLE,
+               title: 'Airtable CRM',
+               description: 'Database management via Google Account + Base ID',
+               icon: '🗃️',
+               requiredAccount: AccountProvider.GOOGLE,
+               serviceSettings: [
+                 {
+                   id: 'airtable_base_id',
+                   serviceType: ServiceType.AIRTABLE,
+                   fieldType: CredentialType.TEXT,
+                   label: 'Airtable Base ID',
+                   description: 'Your Airtable base identifier (required for database access)',
+                   placeholder: 'appXXXXXXXXXXXXXX',
+                   helpText: 'Found in your Airtable base URL after connecting Google Account',
+                   required: true,
+                   requiredForSteps: []
+                 }
+               ],
+               allSet: false,
+               requiredForExecution: true
+             }
+           ]}
+           onCredentialsUpdate={handleCredentialsUpdate}
+         />
+         
+         <EnhancedCredentialPanel
+           isOpen={enhancedCredentialPanelOpen}
+           onClose={() => setEnhancedCredentialPanelOpen(false)}
+           aefDocument={aefDocument}
+           onCredentialsUpdate={handleCredentialsUpdate}
+         />
+      </div>
     </div>
   );
 };
