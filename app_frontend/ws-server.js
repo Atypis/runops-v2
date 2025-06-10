@@ -97,7 +97,14 @@ class SimpleVNCWebSocketServer {
         break;
         
       case 'vnc_connect':
-        this.handleVncConnection(ws, executionId);
+        this.handleVncConnection(ws, executionId).catch(error => {
+          console.error(`[WebSocketServer] VNC connection error:`, error);
+          ws.send(JSON.stringify({
+            type: 'vnc_error',
+            timestamp: Date.now(),
+            data: { error: 'Failed to establish VNC connection' }
+          }));
+        });
         break;
         
       case 'request_screenshot':
@@ -110,14 +117,14 @@ class SimpleVNCWebSocketServer {
     }
   }
   
-  handleVncConnection(ws, executionId) {
+  async handleVncConnection(ws, executionId) {
     console.log(`[WebSocketServer] VNC connection requested for ${executionId}`);
     
+    // First try: Check hybridBrowserManager for sessions created via start-vnc-environment
     if (this.browserManager) {
-      // Check for real Docker container
       const session = this.browserManager.getSessionByExecution(executionId);
       
-      console.log(`[WebSocketServer] Session lookup result:`, session ? {
+      console.log(`[WebSocketServer] HybridBrowserManager lookup:`, session ? {
         id: session.id,
         executionId: session.executionId,
         hasVncPort: 'vncPort' in session,
@@ -127,10 +134,8 @@ class SimpleVNCWebSocketServer {
       } : 'null');
       
       if (session && 'vncPort' in session && 'noVncPort' in session) {
-        // Real Docker container with VNC
-        console.log(`[WebSocketServer] Found Docker container for ${executionId} with VNC ports - VNC: ${session.vncPort}, noVNC: ${session.noVncPort}`);
+        console.log(`[WebSocketServer] Found session via HybridBrowserManager`);
         const vncUrl = `http://localhost:${session.noVncPort}/vnc.html`;
-        console.log(`[WebSocketServer] Sending VNC URL: ${vncUrl}`);
         
         ws.send(JSON.stringify({
           type: 'vnc_ready',
@@ -144,6 +149,51 @@ class SimpleVNCWebSocketServer {
         }));
         return;
       }
+    }
+    
+    // Second try: Check Supabase database for sessions created via /api/aef/session
+    console.log(`[WebSocketServer] Checking Supabase for session: ${executionId}`);
+    try {
+      const response = await fetch('http://localhost:3000/api/aef/session', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const sessionData = await response.json();
+        
+        if (sessionData.status === 'active_session' && sessionData.session) {
+          const dbSession = sessionData.session;
+          console.log(`[WebSocketServer] Found session in database:`, {
+            executionId: dbSession.executionId,
+            vncUrl: dbSession.vncUrl,
+            apiUrl: dbSession.apiUrl
+          });
+          
+          // Extract port from VNC URL (e.g., "http://localhost:16080" -> 16080)
+          const vncPortMatch = dbSession.vncUrl?.match(/localhost:(\d+)/);
+          const vncPort = vncPortMatch ? parseInt(vncPortMatch[1]) : null;
+          
+          if (vncPort) {
+            const vncUrl = `http://localhost:${vncPort}/vnc.html`;
+            console.log(`[WebSocketServer] Sending database VNC URL: ${vncUrl}`);
+            
+            ws.send(JSON.stringify({
+              type: 'vnc_ready',
+              timestamp: Date.now(),
+              data: { 
+                vncUrl: vncUrl,
+                vncPort: vncPort - 1000, // VNC protocol port (noVNC port - 1000)
+                noVncPort: vncPort,
+                message: 'Live VNC connection from database session'
+              }
+            }));
+            return;
+          }
+        }
+      }
+    } catch (dbError) {
+      console.warn(`[WebSocketServer] Database session lookup failed:`, dbError.message);
     }
     
     // Enhanced fallback - check all running containers for VNC ports

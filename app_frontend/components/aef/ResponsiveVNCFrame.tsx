@@ -27,7 +27,7 @@ const ResponsiveVNCFrame: React.FC<ResponsiveVNCFrameProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [resizeMode, setResizeMode] = useState<ResizeMode>('remote');
+  const [resizeMode, setResizeMode] = useState<ResizeMode>('off');
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [isConnected, setIsConnected] = useState(false);
 
@@ -128,13 +128,13 @@ const ResponsiveVNCFrame: React.FC<ResponsiveVNCFrameProps> = ({
           {/* Resize Mode Controls */}
           <div className="flex bg-black/80 text-white rounded-lg p-1 backdrop-blur-sm border border-white/20">
             <Button
-              onClick={() => setResizeMode('remote')}
-              variant={resizeMode === 'remote' ? 'secondary' : 'ghost'}
+              onClick={() => setResizeMode('off')}
+              variant={resizeMode === 'off' ? 'secondary' : 'ghost'}
               size="sm"
               className="text-xs px-2 py-1 h-auto"
-              title="Remote Resize (Dynamic Resolution)"
+              title="Native Resolution (Full Browser View)"
             >
-              🎯 Auto
+              🖥️ Full
             </Button>
             <Button
               onClick={() => setResizeMode('scale')}
@@ -146,13 +146,13 @@ const ResponsiveVNCFrame: React.FC<ResponsiveVNCFrameProps> = ({
               📏 Scale
             </Button>
             <Button
-              onClick={() => setResizeMode('off')}
-              variant={resizeMode === 'off' ? 'secondary' : 'ghost'}
+              onClick={() => setResizeMode('remote')}
+              variant={resizeMode === 'remote' ? 'secondary' : 'ghost'}
               size="sm"
               className="text-xs px-2 py-1 h-auto"
-              title="Native Resolution"
+              title="Remote Resize (Dynamic Resolution)"
             >
-              1:1
+              🎯 Auto
             </Button>
           </div>
 
@@ -207,8 +207,8 @@ const ResponsiveVNCFrame: React.FC<ResponsiveVNCFrameProps> = ({
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
           <span>
-            {resizeMode === 'remote' ? '🎯 Dynamic Resolution' : 
-             resizeMode === 'scale' ? '📏 Client Scaling' : '1:1 Native'} • 
+            {resizeMode === 'off' ? '🖥️ Full Browser View' :
+             resizeMode === 'scale' ? '📏 Client Scaling' : '🎯 Dynamic Resolution'} • 
             {containerSize.width}×{containerSize.height}
           </span>
         </div>

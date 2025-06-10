@@ -739,9 +739,33 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   const handleStopVncEnvironment = async () => {
     try {
-      console.log('🛑 [AEF Control Center] Stopping VNC environment...');
-      addLog('info', 'system', 'Stopping VNC environment...', 'Terminating remote desktop session');
+      console.log('🛑 [AEF Control Center] FORCE KILLING VNC environment...');
+      addLog('info', 'system', '🔥 FORCE KILLING VNC environment...', 'Completely destroying remote desktop session');
 
+      // 🔥 STEP 1: Call kill-session endpoint on the container first for thorough cleanup
+      if (discoveredSession?.apiUrl) {
+        try {
+          console.log('🔥 [AEF Control Center] Calling container kill-session endpoint...');
+          const killResponse = await fetch(`${discoveredSession.apiUrl.replace('/status', '')}/kill-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(5000) // 5 second timeout
+          });
+          
+          if (killResponse.ok) {
+            const killResult = await killResponse.json();
+            console.log('✅ [AEF Control Center] Container kill-session successful:', killResult);
+            addLog('success', 'system', '🔥 Browser state destroyed', killResult.message);
+          } else {
+            console.warn('⚠️ [AEF Control Center] Container kill-session failed, continuing with backend cleanup...');
+          }
+        } catch (killError) {
+          console.warn('⚠️ [AEF Control Center] Kill-session call failed, continuing with backend cleanup:', killError);
+          addLog('warning', 'system', '⚠️ Direct kill failed', 'Falling back to container destruction');
+        }
+      }
+
+      // 🔥 STEP 2: Call backend DELETE to destroy containers and cleanup database
       const response = await fetch('/api/aef/session', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
@@ -753,7 +777,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       }
 
       const result = await response.json();
-      console.log('✅ [AEF Control Center] VNC environment stopped:', result);
+      console.log('✅ [AEF Control Center] VNC environment FORCE KILLED:', result);
 
       // Clear all session state
       setVncEnvironmentId(null);
@@ -762,12 +786,50 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       setSessionDiscoveryStatus('not_found');
       setCurrentExecutionId('discovering...');
 
-      addLog('success', 'system', 'VNC environment stopped', 
-        'Remote desktop session terminated successfully');
+      addLog('success', 'system', '🔥 VNC environment FORCE KILLED', 
+        '✅ Remote desktop session completely destroyed - next start will be 100% fresh');
 
     } catch (error) {
-      console.error('❌ [AEF Control Center] Failed to stop VNC environment:', error);
-      addLog('error', 'system', 'Failed to stop VNC environment', 
+      console.error('❌ [AEF Control Center] Failed to FORCE KILL VNC environment:', error);
+      addLog('error', 'system', '❌ Failed to FORCE KILL VNC environment', 
+        error instanceof Error ? error.message : 'Unknown error');
+    }
+  };
+
+  // 💥 NUCLEAR OPTION: KILL EVERYTHING - ALL BROWSERS, ALL DOCKER, ALL STATE
+  const handleNuclearKillEverything = async () => {
+    try {
+      console.log('💥 [AEF Control Center] 💀 NUCLEAR KILL EVERYTHING INITIATED...');
+      addLog('error', 'system', '💥💀 NUCLEAR KILL EVERYTHING', 'DESTROYING ALL BROWSERS, ALL DOCKER CONTAINERS, ALL STATE');
+
+      // Call the nuclear kill endpoint
+      const response = await fetch('/api/aef/nuclear-kill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000) // 30 second timeout for nuclear operation
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Nuclear kill failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('💀 [AEF Control Center] NUCLEAR KILL COMPLETED:', result);
+
+      // Clear ALL session state
+      setVncEnvironmentId(null);
+      setVncEnvironmentStatus('idle');
+      setDiscoveredSession(null);
+      setSessionDiscoveryStatus('not_found');
+      setCurrentExecutionId('discovering...');
+
+      addLog('success', 'system', '💀 NUCLEAR KILL COMPLETED', 
+        '💥 ALL DOCKER CONTAINERS DESTROYED, ALL BROWSERS KILLED, ALL STATE WIPED - EVERYTHING IS GONE');
+
+    } catch (error) {
+      console.error('💀 [AEF Control Center] NUCLEAR KILL FAILED:', error);
+      addLog('error', 'system', '💀 NUCLEAR KILL FAILED', 
         error instanceof Error ? error.message : 'Unknown error');
     }
   };
@@ -915,6 +977,15 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
                     className="ml-1 h-6 text-xs px-2"
                   >
                     Kill
+                  </Button>
+                  <Button
+                    onClick={handleNuclearKillEverything}
+                    size="sm"
+                    variant="destructive"
+                    className="ml-1 h-6 text-xs px-2 bg-red-800 hover:bg-red-900 border-red-800"
+                    title="💀 NUCLEAR KILL: Destroys ALL Docker containers, ALL browsers, ALL state"
+                  >
+                    💀 NUKE
                   </Button>
                 </div>
               )}

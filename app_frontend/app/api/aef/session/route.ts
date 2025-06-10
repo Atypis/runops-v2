@@ -155,7 +155,9 @@ export async function POST(request: NextRequest) {
 
     console.log(`🚀 [Session Manager] Creating new session for user ${user.id}`);
 
-    // Check if user already has an active session
+    // CLEANUP STEP: Force cleanup any existing sessions for this user first
+    console.log(`🧹 [Session Manager] Cleaning up any existing sessions for user ${user.id}...`);
+    
     const { data: existingSessions } = await supabase
       .from('session_registry')
       .select('*')
@@ -163,27 +165,55 @@ export async function POST(request: NextRequest) {
       .in('status', ['creating', 'active', 'idle']);
 
     if (existingSessions && existingSessions.length > 0) {
-      const existing = existingSessions[0] as SessionRecord;
-      console.log(`⚠️ [Session Manager] User already has session: ${existing.session_id}`);
+      console.log(`🗑️ [Session Manager] Found ${existingSessions.length} existing sessions to cleanup`);
       
-      return NextResponse.json({
-        status: 'session_exists',
-        message: 'User already has an active session',
-        session: {
-          executionId: existing.session_id,
-          containerName: existing.container_name,
-          status: existing.status,
-          vncUrl: existing.vnc_url,
-          apiUrl: existing.api_url
+      for (const existing of existingSessions) {
+        console.log(`🛑 [Session Manager] Cleaning up session: ${existing.session_id}`);
+        
+        // 🔥 FORCE KILL: Try to call kill-session endpoint first, then destroy container
+        if (existing.container_name) {
+          try {
+            // Try to call kill-session endpoint for complete cleanup
+            if (existing.api_port) {
+              try {
+                const killResponse = await fetch(`http://localhost:${existing.api_port}/kill-session`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  signal: AbortSignal.timeout(3000) // 3 second timeout
+                });
+                if (killResponse.ok) {
+                  console.log(`✅ [Session Manager] Browser state killed via API`);
+                }
+                             } catch (killError) {
+                 console.warn(`⚠️ [Session Manager] Kill-session call failed:`, killError instanceof Error ? killError.message : killError);
+              }
+            }
+            
+            // Force stop and remove container
+            await execAsync(`docker stop ${existing.container_name} 2>/dev/null || true`);
+            await execAsync(`docker rm -f ${existing.container_name} 2>/dev/null || true`);
+            console.log(`✅ [Session Manager] Removed container: ${existing.container_name}`);
+          } catch (dockerError) {
+            console.warn(`⚠️ [Session Manager] Container cleanup failed: ${dockerError}`);
+          }
         }
-      });
+        
+        // Remove from database
+        await supabase
+          .from('session_registry')
+          .delete()
+          .eq('id', existing.id);
+        
+        console.log(`✅ [Session Manager] Removed database record: ${existing.id}`);
+      }
+      
+      console.log(`🎉 [Session Manager] Cleanup completed. Creating fresh session...`);
     }
 
     // Generate unique session ID with user prefix
     const sessionUuid = uuidv4();
-    const userId8 = user.id.substring(0, 8);
-    const sessionId = `vnc-env-${userId8}-${sessionUuid}`;
-    const containerName = `aef-browser-${userId8}-${sessionUuid}`;
+    const sessionId = `vnc-env-${sessionUuid}`;
+    const containerName = `aef-browser-${user.id.substring(0, 8)}-${sessionUuid}`;
 
     console.log(`🎯 [Session Manager] Generated session ID: ${sessionId}`);
     console.log(`🐳 [Session Manager] Container name: ${containerName}`);
@@ -255,7 +285,7 @@ export async function POST(request: NextRequest) {
 
       // Wait for container to be ready, then start browser
       console.log(`⏳ [Session Manager] Waiting for container to initialize...`);
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      await new Promise(resolve => setTimeout(resolve, 8000)); // Wait 8 seconds for full startup
 
       try {
         // Initialize Stagehand browser automation
@@ -360,11 +390,35 @@ export async function DELETE(request: NextRequest) {
     const session = sessions[0] as SessionRecord;
     console.log(`🎯 [Session Manager] Terminating session: ${session.session_id}`);
 
-    // Stop and remove Docker container
+    // 🔥 FORCE KILL SESSION: Call the container's kill-session endpoint first
+    try {
+      console.log(`🔥 [Session Manager] Calling kill-session endpoint for thorough cleanup...`);
+      
+      // Extract API port from the session record
+      const apiPort = session.api_port || 13000; // Default fallback
+      
+      // Call the kill-session endpoint inside the container
+      const killResponse = await fetch(`http://localhost:${apiPort}/kill-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      
+      if (killResponse.ok) {
+        console.log(`✅ [Session Manager] Browser state killed successfully via API`);
+      } else {
+        console.warn(`⚠️ [Session Manager] Kill-session endpoint returned: ${killResponse.status}`);
+      }
+         } catch (killError) {
+       console.warn(`⚠️ [Session Manager] Failed to call kill-session endpoint:`, killError instanceof Error ? killError.message : killError);
+      // Continue with container termination anyway
+    }
+
+    // Stop and remove Docker container (with force flags for complete cleanup)
     try {
       await execAsync(`docker stop ${session.container_name} || true`);
-      await execAsync(`docker rm ${session.container_name} || true`);
-      console.log(`🐳 [Session Manager] Container ${session.container_name} terminated`);
+      await execAsync(`docker rm -f ${session.container_name} || true`);
+      console.log(`🐳 [Session Manager] Container ${session.container_name} terminated and removed`);
     } catch (dockerError) {
       console.error('⚠️ [Session Manager] Container cleanup failed:', dockerError);
       // Continue anyway to clean up database record

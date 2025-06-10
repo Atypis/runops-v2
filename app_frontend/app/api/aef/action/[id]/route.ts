@@ -50,38 +50,55 @@ export async function POST(
 
     // Find the execution job
     // For VNC environments, extract UUID part for database lookup
-    const databaseId = executionId.startsWith('vnc-env-') 
+    let databaseId = executionId.startsWith('vnc-env-') 
       ? executionId.replace('vnc-env-', '') 
       : executionId;
-      
+    
+    // SAFETY CHECK: Validate UUID format to prevent PostgreSQL errors
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isValidUuid = uuidRegex.test(databaseId);
+    
     console.log(`🔍 Looking for execution in database:`);
     console.log(`  - Full execution ID: ${executionId}`);
     console.log(`  - Database lookup ID: ${databaseId}`);
+    console.log(`  - UUID valid: ${isValidUuid}`);
+    
+    let job = null;
+    let findError = null;
+    
+    // Only attempt database lookup if we have a valid UUID
+    if (isValidUuid) {
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('job_id', databaseId)
+        .single();
       
-    let { data: job, error: findError } = await supabase
-      .from('jobs')
-      .select('*')
-      .eq('job_id', databaseId)
-      .single();
+      job = data;
+      findError = error;
+    } else {
+      console.warn(`⚠️ Invalid UUID format detected: ${databaseId}`);
+      findError = { code: 'INVALID_UUID', message: 'Invalid UUID format' };
+    }
 
-    // WORKAROUND: If exact match fails for VNC environments, try to find the most recent VNC job
+    // ENHANCED WORKAROUND: If exact match fails for VNC environments, try to find the most recent VNC job
     if (findError && executionId.startsWith('vnc-env-')) {
-      console.log(`⚠️ Exact match failed, trying to find most recent VNC job for user ${user.id}`);
+      console.log(`⚠️ Exact match failed (${findError.code}), trying to find most recent VNC job for user ${user.id}`);
       
       const { data: recentJobs, error: recentError } = await supabase
         .from('jobs')
         .select('*')
         .eq('status', 'aef_vnc_ready')
         .order('created_at', { ascending: false })
-        .limit(3);
+        .limit(5); // Increased limit to 5 for better coverage
         
       if (!recentError && recentJobs && recentJobs.length > 0) {
-        // Find the most recent job for this user (created in the last 10 minutes)
-        const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        // Find the most recent job for this user (created in the last 15 minutes)
+        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
         const userJob = recentJobs.find(j => {
           const metadata = j.metadata as any;
           const isForUser = metadata?.user_id === user.id || metadata?.execution_record?.user_id === user.id;
-          const isRecent = j.created_at > tenMinutesAgo;
+          const isRecent = j.created_at > fifteenMinutesAgo;
           return isForUser && isRecent;
         });
         
@@ -98,8 +115,56 @@ export async function POST(
             executionId = correctExecutionId;
           }
         } else {
-          console.log(`❌ No recent VNC jobs found for user ${user.id} in the last 10 minutes`);
+          console.log(`❌ No recent VNC jobs found for user ${user.id} in the last 15 minutes`);
         }
+      }
+    }
+
+    // ULTIMATE FALLBACK: If still no database record found, check Docker directly for running container
+    if (findError && executionId.startsWith('vnc-env-')) {
+      console.log(`🐳 Ultimate fallback: Checking Docker for running containers...`);
+      
+      try {
+        const { execSync } = require('child_process');
+        
+        // Check for containers with patterns that might match this execution
+        const dockerOutput = execSync('docker ps --format "{{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "aef-browser"', { encoding: 'utf8' });
+        
+        if (dockerOutput.trim()) {
+          console.log(`🎯 Found running Docker containers: ${dockerOutput.trim()}`);
+          
+          // Create a minimal execution record for Docker-only execution
+          const mockJob = {
+            job_id: databaseId,
+            status: 'aef_vnc_ready',
+            metadata: {
+              execution_record: {
+                execution_id: executionId,
+                user_id: user.id,
+                document_id: 'test-investor-email-workflow',
+                status: 'vnc_ready',
+                created_at: new Date().toISOString(),
+                execution_context: {
+                  variables: {},
+                  currentStepIndex: 0,
+                  totalSteps: 8,
+                  sessionType: 'vnc_environment'
+                },
+                step_actions: []
+              },
+              user_id: user.id
+            },
+            progress_stage: 'vnc_environment_ready',
+            progress_percent: 0,
+            created_at: new Date().toISOString()
+          };
+          
+          console.log(`✅ Created mock execution record for Docker-only execution`);
+          job = mockJob;
+          findError = null;
+        }
+      } catch (dockerError) {
+        console.warn(`⚠️ Docker fallback check failed:`, dockerError instanceof Error ? dockerError.message : 'Unknown error');
       }
     }
 

@@ -11,6 +11,8 @@ const express = require('express');
 const { Stagehand } = require('@browserbasehq/stagehand');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const os = require('os');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -99,6 +101,12 @@ app.post('/init', async (req, res) => {
     // Find the correct browser executable
     const executablePath = findChromiumExecutable();
     
+    // 🔥 FORCE FRESH SESSION: Create unique temporary userDataDir for this session
+    const sessionId = crypto.randomBytes(8).toString('hex');
+    const freshUserDataDir = path.join(os.tmpdir(), `aef-browser-session-${sessionId}`);
+    
+    console.log(`[Browser Server] 🔥 Creating FRESH session with userDataDir: ${freshUserDataDir}`);
+    
     // Configuration using available Chromium
     const config = {
       modelName: 'claude-3-5-sonnet-20241022',
@@ -111,6 +119,8 @@ app.post('/init', async (req, res) => {
       browserLaunchOptions: {
         executablePath: executablePath,
         headless: false,
+        // 🔥 FORCE FRESH SESSION: Set explicit unique userDataDir to prevent ANY state persistence
+        userDataDir: freshUserDataDir,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -125,9 +135,15 @@ app.post('/init', async (req, res) => {
           '--disable-renderer-backgrounding',
           '--window-size=1280,720',
           '--window-position=0,0',
-          '--start-maximized',
+          '--disable-background-mode',
           '--force-device-scale-factor=1',
-          '--disable-background-mode'
+          '--incognito',
+          '--disable-session-crashed-bubble',
+          '--disable-restore-session-state',
+          '--disable-background-networking',
+          '--disable-sync',
+          '--disable-translate',
+          '--disable-ipc-flooding-protection'
         ],
         viewport: { width: 1280, height: 720 },
         env: {
@@ -142,6 +158,10 @@ app.post('/init', async (req, res) => {
     
     console.log('[Browser Server] Initializing Stagehand...');
     await stagehand.init();
+    
+    // Ensure the browser page uses the full VNC resolution
+    console.log('[Browser Server] Setting page viewport to full VNC resolution...');
+          await stagehand.page.setViewportSize({ width: 1280, height: 720 });
     
     console.log('[Browser Server] Stagehand initialized, navigating to welcome page...');
     
@@ -330,6 +350,64 @@ app.post('/restart-browser', async (req, res) => {
     
   } catch (error) {
     console.error('[Browser Server] Failed to restart browser:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 🔥 KILL SESSION: Force destroy all browser state and cleanup
+app.post('/kill-session', async (req, res) => {
+  try {
+    console.log('[Browser Server] 🔥 KILLING SESSION - Force destroying all browser state...');
+    
+    if (stagehand) {
+      try {
+        console.log('[Browser Server] Closing Stagehand instance...');
+        await stagehand.close();
+      } catch (error) {
+        console.warn('[Browser Server] Error closing Stagehand:', error.message);
+      }
+      stagehand = null;
+    }
+    
+    // Reset state flags
+    isInitialized = false;
+    lastActivity = Date.now();
+    
+    // 🔥 FORCE CLEANUP: Remove any lingering browser processes
+    try {
+      const { execSync } = require('child_process');
+      // Kill any remaining chromium processes
+      execSync('pkill -f chromium || true', { stdio: 'ignore' });
+      execSync('pkill -f chrome || true', { stdio: 'ignore' });
+      console.log('[Browser Server] 🔥 Killed all browser processes');
+    } catch (error) {
+      console.warn('[Browser Server] Error killing processes:', error.message);
+    }
+    
+    // 🔥 CLEANUP TEMP DIRECTORIES: Remove any stagehand temp directories
+    try {
+      const tempDir = os.tmpdir();
+      const { execSync } = require('child_process');
+      execSync(`find "${tempDir}" -name "aef-browser-session-*" -type d -exec rm -rf {} + 2>/dev/null || true`, { stdio: 'ignore' });
+      execSync(`find "${tempDir}" -name "stagehand*" -type d -exec rm -rf {} + 2>/dev/null || true`, { stdio: 'ignore' });
+      console.log('[Browser Server] 🔥 Cleaned up temporary directories');
+    } catch (error) {
+      console.warn('[Browser Server] Error cleaning temp directories:', error.message);
+    }
+    
+    console.log('[Browser Server] 🔥 Session killed completely - ready for fresh initialization');
+    
+    res.json({
+      success: true,
+      message: 'Session killed completely - all browser state destroyed',
+      isInitialized: false
+    });
+    
+  } catch (error) {
+    console.error('[Browser Server] Error killing session:', error);
     res.status(500).json({
       success: false,
       error: error.message

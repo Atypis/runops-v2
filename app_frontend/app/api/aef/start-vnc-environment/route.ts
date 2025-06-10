@@ -24,20 +24,51 @@ export async function POST(request: NextRequest) {
     
     console.log(`🖥️ Creating VNC environment: ${executionId}`);
     
-    // CLEANUP: Destroy any existing VNC containers to ensure only one exists
-    console.log('🧹 Cleaning up any existing VNC containers...');
+    // ENHANCED CLEANUP: Clean up both Docker containers AND database records
+    console.log('🧹 Cleaning up any existing VNC containers and database records...');
     try {
-      // First, destroy any session with the current execution ID
+      // 1. Clean up Docker containers through hybridBrowserManager
       await hybridBrowserManager.destroySessionByExecution(executionId);
       
-      // Then, clean up ALL existing aef-browser containers since we want only one
       const { DockerBrowserManager } = await import('@/lib/browser/DockerBrowserManager');
       const dockerManager = new DockerBrowserManager();
       await dockerManager.forceCleanupAll();
-      console.log('✅ All existing containers cleaned up');
+      console.log('✅ Docker containers cleaned up');
+      
+      // 2. Clean up database session_registry records that might cause unique constraint violation
+      if (userId !== 'anonymous') {
+        const { error: deleteError } = await supabase
+          .from('session_registry')
+          .delete()
+          .eq('user_id', userId);
+        
+        if (deleteError) {
+          console.warn('⚠️ Failed to cleanup session_registry records:', deleteError);
+          // Don't fail - this might just mean no records exist
+        } else {
+          console.log('✅ Session registry records cleaned up');
+        }
+      }
+      
+      // 3. Clean up any orphaned jobs records for this user's VNC environments
+      if (userId !== 'anonymous') {
+        const directSupabase = createDirectSupabaseClient();
+        const { error: jobsCleanupError } = await directSupabase
+          .from('jobs')
+          .delete()
+          .eq('metadata->>user_id', userId)
+          .like('job_id', '%vnc-env%');
+        
+        if (jobsCleanupError) {
+          console.warn('⚠️ Failed to cleanup jobs records:', jobsCleanupError);
+          // Don't fail - this is just cleanup
+        } else {
+          console.log('✅ Orphaned jobs records cleaned up');
+        }
+      }
       
     } catch (cleanupError) {
-      console.log('ℹ️ No existing containers to cleanup (this is normal)');
+      console.log('ℹ️ No existing containers/records to cleanup (this is normal)');
     }
 
     // Create the VNC environment with CONSISTENT PORTS
