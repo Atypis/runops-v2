@@ -11,13 +11,24 @@ interface BrowserPanelProps {
   executionId?: string;
   isActive?: boolean;
   mockExecutionState?: MockExecutionState | null;
+  vncUrl?: string | null;
+  vncSupported?: boolean;
 }
 
 const BrowserPanel: React.FC<BrowserPanelProps> = ({
   executionId,
   isActive = false,
-  mockExecutionState
+  mockExecutionState,
+  vncUrl: propVncUrl,
+  vncSupported: propVncSupported = false
 }) => {
+  console.log('🔍 [BrowserPanel] Rendered with props:', {
+    executionId,
+    isActive,
+    hasMockState: !!mockExecutionState,
+    propVncUrl,
+    propVncSupported
+  });
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,9 +41,33 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
   const [debugMode, setDebugMode] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // VNC direct mode - when VNC URL is provided as prop
+  useEffect(() => {
+    if (propVncUrl && propVncSupported && isActive) {
+      console.log('🖥️ BrowserPanel: Direct VNC mode enabled with URL:', propVncUrl);
+      setVncUrl(propVncUrl);
+      setVncSupported(true);
+      setVncMode(true);
+      setCurrentUrl('VNC Remote Desktop Session');
+      setLastUpdated(new Date());
+      setConnectionStatus('connected');
+      setIsLoading(false);
+      
+      // Don't use WebSocket when in direct VNC mode
+      disconnectWebSocket();
+      return;
+    }
+  }, [propVncUrl, propVncSupported, isActive]);
+
   // WebSocket connection management
   useEffect(() => {
-    console.log('🖥️ BrowserPanel: useEffect triggered with:', { isActive, executionId, mockExecutionState: !!mockExecutionState });
+    console.log('🖥️ BrowserPanel: useEffect triggered with:', { isActive, executionId, mockExecutionState: !!mockExecutionState, propVncUrl: !!propVncUrl });
+    
+    // Skip WebSocket if we have direct VNC props
+    if (propVncUrl && propVncSupported && isActive) {
+      console.log('🖥️ BrowserPanel: Using direct VNC mode - skipping WebSocket');
+      return;
+    }
     
     if (isActive && executionId && !mockExecutionState) {
       console.log('🖥️ BrowserPanel: Starting WebSocket connection for execution:', executionId);
@@ -53,7 +88,7 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
     return () => {
       disconnectWebSocket();
     };
-  }, [isActive, executionId, mockExecutionState]);
+  }, [isActive, executionId, mockExecutionState, propVncUrl, propVncSupported]);
 
   const connectToWebSocket = () => {
     if (!executionId) return;

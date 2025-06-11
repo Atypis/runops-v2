@@ -122,21 +122,25 @@ export async function POST(
     }
 
     // ULTIMATE FALLBACK: If still no database record found, check Docker directly for running container
-    if (findError && executionId.startsWith('vnc-env-')) {
+    if (findError && (executionId.startsWith('vnc-env-') || executionId.startsWith('single-vnc-'))) {
       console.log(`🐳 Ultimate fallback: Checking Docker for running containers...`);
       
       try {
         const { execSync } = require('child_process');
         
         // Check for containers with patterns that might match this execution
-        const dockerOutput = execSync('docker ps --format "{{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "aef-browser"', { encoding: 'utf8' });
+        const dockerOutput = execSync('docker ps --format "{{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(aef-browser|aef-vnc-single)"', { encoding: 'utf8' });
         
         if (dockerOutput.trim()) {
           console.log(`🎯 Found running Docker containers: ${dockerOutput.trim()}`);
           
+          // For single VNC sessions, use the execution ID as-is for the database ID
+          // This creates a mock execution record that bypasses the UUID requirement
+          const mockDatabaseId = executionId.startsWith('single-vnc-') ? executionId : databaseId;
+          
           // Create a minimal execution record for Docker-only execution
           const mockJob = {
-            job_id: databaseId,
+            job_id: mockDatabaseId,
             status: 'aef_vnc_ready',
             metadata: {
               execution_record: {
@@ -149,7 +153,7 @@ export async function POST(
                   variables: {},
                   currentStepIndex: 0,
                   totalSteps: 8,
-                  sessionType: 'vnc_environment'
+                  sessionType: executionId.startsWith('single-vnc-') ? 'single_vnc_session' : 'vnc_environment'
                 },
                 step_actions: []
               },
@@ -160,7 +164,7 @@ export async function POST(
             created_at: new Date().toISOString()
           };
           
-          console.log(`✅ Created mock execution record for Docker-only execution`);
+          console.log(`✅ Created mock execution record for Docker-only execution (single VNC: ${executionId.startsWith('single-vnc-')})`);
           job = mockJob;
           findError = null;
         }
@@ -584,25 +588,31 @@ export async function POST(
       newStatus = 'aef_execution_running'; // Resume if was paused
     }
 
-    // Save updated execution state
-    const { error: updateError } = await supabase
-      .from('jobs')
-      .update({
-        status: newStatus,
-        metadata: {
-          ...metadata,
-          execution_record: executionRecord
-        },
-        updated_at: new Date().toISOString()
-      })
-      .eq('job_id', databaseId);
+    // Save updated execution state (skip for VNC-only executions without real database records)
+    const isVncOnlyExecution = executionId.startsWith('single-vnc-') && !isValidUuid;
+    
+    if (!isVncOnlyExecution) {
+      const { error: updateError } = await supabase
+        .from('jobs')
+        .update({
+          status: newStatus,
+          metadata: {
+            ...metadata,
+            execution_record: executionRecord
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('job_id', databaseId);
 
-    if (updateError) {
-      console.error('Error updating step action:', updateError);
-      return NextResponse.json(
-        { error: 'Failed to execute step action' },
-        { status: 500 }
-      );
+      if (updateError) {
+        console.error('Error updating step action:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to execute step action' },
+          { status: 500 }
+        );
+      }
+    } else {
+      console.log(`🔄 [AEF API] Skipping database update for VNC-only execution: ${executionId}`);
     }
 
     // Generate response with next suggested action

@@ -7,13 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "worker": "node worker.js",
-    "test-worker": "node test-worker.js",
-    "browser-integration": "node scripts/start-browser-integration.js",
-    "dev:ws": "node ws-server.js",
-    "dev:full": "concurrently \"npm run dev\" \"npm run browser-integration\"",
-    "build-browser-image": "node scripts/build-browser-image.js",
-    "dev:docker": "npm run build-browser-image && npm run dev:full"
+    "dev:full": "./scripts/start-everything.sh",
+    "build-browser-image": "./scripts/build-browser-image.sh",
+    "check-docker": "./scripts/check-docker.sh",
+    "vnc:status": "curl -s http://localhost:3000/api/vnc/status | jq",
+    "vnc:start": "curl -s -X POST http://localhost:3000/api/vnc/start | jq",
+    "vnc:stop": "curl -s -X DELETE http://localhost:3000/api/vnc/stop | jq",
+    "vnc:clean": "docker rm -f aef-vnc-single 2>/dev/null || echo 'No container to remove'"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "^2.3.0",

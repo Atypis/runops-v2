@@ -640,29 +640,37 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   useEffect(() => {
     const discoverActiveSession = async () => {
       try {
-        console.log('🔍 [AEF Control Center] Discovering active VNC session...');
+        console.log('🔍 [AEF Control Center] Checking single VNC session status...');
         setSessionDiscoveryStatus('discovering');
         
-        const response = await fetch('/api/aef/discover-session');
-        const data: SessionDiscoveryResponse = await response.json();
+        const response = await fetch('/api/vnc/status');
+        const data = await response.json();
         
-        console.log('🔍 [AEF Control Center] Session discovery result:', data);
+        console.log('🔍 [AEF Control Center] VNC status result:', data);
         
-        if (data.status === 'active_session_found' && data.activeSession) {
-          console.log(`✅ [AEF Control Center] Found active session: ${data.activeSession.executionId}`);
+        if (data.status === 'ready' && data.session) {
+          console.log(`✅ [AEF Control Center] Found active VNC session: ${data.session.id}`);
           setDiscoveredSession({
-            executionId: data.activeSession.executionId,
-            containerName: data.activeSession.containerName,
-            status: data.activeSession.status,
-            vncUrl: data.activeSession.vncUrl,
-            apiUrl: data.activeSession.apiUrl,
-            isHealthy: data.activeSession.isHealthy,
-            apiHealthy: data.activeSession.apiHealthy
+            executionId: data.session.id,
+            containerName: 'aef-vnc-single', // Always the same
+            status: 'running',
+            vncUrl: data.vncUrl, // Always http://localhost:16080/vnc.html
+            apiUrl: 'http://localhost:13000', // Always port 13000
+            isHealthy: true,
+            apiHealthy: true
           });
-          setCurrentExecutionId(data.activeSession.executionId);
+          setCurrentExecutionId(data.session.id);
           setSessionDiscoveryStatus('found');
+          setVncEnvironmentId(data.session.id);
+          setVncEnvironmentStatus('running');
+        } else if (data.status === 'starting') {
+          console.log('⏳ [AEF Control Center] VNC session is starting...');
+          setSessionDiscoveryStatus('discovering');
+          setVncEnvironmentStatus('creating');
+          // Retry in a moment
+          setTimeout(() => discoverActiveSession(), 2000);
         } else {
-          console.log(`❌ [AEF Control Center] No active session found: ${data.message}`);
+          console.log(`❌ [AEF Control Center] No active VNC session: ${data.message}`);
           setSessionDiscoveryStatus('not_found');
         }
       } catch (error) {
@@ -682,26 +690,24 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
     const heartbeatInterval = setInterval(async () => {
       try {
-        const response = await fetch('/api/aef/discover-session');
-        const data: SessionDiscoveryResponse = await response.json();
+        const response = await fetch('/api/vnc/status');
+        const data = await response.json();
         
-        if (data.status === 'active_session_found' && data.activeSession) {
-          // Update session status
-          setDiscoveredSession(prev => prev ? {
-            ...prev,
-            status: data.activeSession!.status,
-            isHealthy: data.activeSession!.isHealthy
-          } : null);
+        if (data.status === 'ready' && data.session) {
+          // Session still healthy - no need to update since it's always the same config
+          console.log('💓 [AEF Control Center] VNC session heartbeat - healthy');
         } else {
           // Session lost
-          console.log('⚠️ [AEF Control Center] Session lost during heartbeat');
+          console.log('⚠️ [AEF Control Center] VNC session lost during heartbeat');
           setSessionDiscoveryStatus('not_found');
           setDiscoveredSession(null);
+          setVncEnvironmentId(null);
+          setVncEnvironmentStatus('idle');
         }
       } catch (error) {
         console.error('❌ [AEF Control Center] Heartbeat failed:', error);
       }
-    }, 30000); // Every 30 seconds
+    }, 15000); // Every 15 seconds (faster since it's simpler)
 
     return () => clearInterval(heartbeatInterval);
   }, [sessionDiscoveryStatus, discoveredSession]);
@@ -874,46 +880,57 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     console.log('🔐 [AEF] Credential panel state set to true');
   };
 
-  // Real execution handler
+  // Real execution handler - simplified for single VNC session
   const handleStartRealExecution = async () => {
-    // Always use the hardcoded test workflow for execution
-    const documentId = 'test-investor-email-workflow';
-    
-    addLog('info', 'system', 'Starting real execution session...', `Document ID: ${documentId}`);
-    
+    addLog('info', 'system', 'Starting real execution...', 'Sending workflow to single VNC session');
     setRealExecutionStatus('creating');
     
     try {
-      console.log('Creating real AEF execution for hardcoded test workflow:', documentId);
+      // Ensure VNC session is ready
+      const statusResponse = await fetch('/api/vnc/status');
+      const statusData = await statusResponse.json();
       
-      const response = await fetch('/api/aef/execute', {
+      if (statusData.status !== 'ready') {
+        throw new Error('VNC session not ready. Please start a VNC environment first.');
+      }
+
+      // Validate credentials
+      if (!credentialStatus.isComplete) {
+        throw new Error('Please complete all credential requirements before starting execution');
+      }
+      
+      console.log('Starting real execution in single VNC session');
+      
+      // Send workflow to VNC session
+      const response = await fetch('/api/vnc/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          aefDocumentId: documentId
+        body: JSON.stringify({
+          type: 'execute_workflow',
+          workflow: aefDocument,
+          executionMethod: 'real'
         })
       });
       
       if (!response.ok) {
         const errorData = await response.json();
-        const errorMsg = errorData.error || 'Failed to create execution';
-        addLog('error', 'system', 'Failed to create execution session', errorMsg);
+        const errorMsg = errorData.error || 'Failed to start execution';
+        addLog('error', 'system', 'Failed to start execution', errorMsg);
         throw new Error(errorMsg);
       }
       
-      const execution = await response.json();
-      console.log('Real execution created:', execution.executionId);
+      const result = await response.json();
+      console.log('Real execution started:', result);
       
-      setRealExecutionId(execution.executionId);
+      setRealExecutionId(statusData.session.id);
       setRealExecutionStatus('running');
       
-      addLog('success', 'system', 'Execution session created successfully', `Execution ID: ${execution.executionId}`);
-      addLog('info', 'system', 'Ready for step execution', 'You can now click "Run" on individual workflow steps');
+      addLog('success', 'system', 'Real execution started!', `Session ID: ${statusData.session.id}\nWorkflow is now running in the single VNC browser`);
       
     } catch (error) {
-      console.error('Failed to create real execution:', error);
+      console.error('Failed to start real execution:', error);
       setRealExecutionStatus('error');
-      addLog('error', 'system', 'Failed to create execution session', error instanceof Error ? error.message : 'Unknown error');
+      addLog('error', 'system', 'Failed to start real execution', error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
@@ -969,11 +986,12 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   // VNC Environment handlers
   const handleStartVncEnvironment = async () => {
     try {
-      console.log('🚀 [AEF Control Center] Starting VNC environment...');
+      console.log('🚀 [AEF Control Center] Starting VNC environment (Single Session Mode)...');
       setVncEnvironmentStatus('creating');
-      addLog('info', 'system', 'Starting VNC environment...', 'Creating remote desktop session');
+      addLog('info', 'system', 'Starting fresh VNC session...', '🔥 Killing any existing sessions for clean start');
 
-      const response = await fetch('/api/aef/session', {
+      // Call the simplified VNC start endpoint
+      const response = await fetch('/api/vnc/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -986,45 +1004,26 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       const result = await response.json();
       console.log('✅ [AEF Control Center] VNC environment started:', result);
 
-      if (result.status === 'session_created' && result.session) {
-        setVncEnvironmentId(result.session.executionId);
+      if (result.success) {
+        const sessionId = result.session.id;
+        setVncEnvironmentId(sessionId);
         setVncEnvironmentStatus('running');
         
-        // Update discovered session state
+        // Update discovered session state with fixed ports (always the same!)
         setDiscoveredSession({
-          executionId: result.session.executionId,
-          containerName: result.session.containerName,
-          status: result.session.status,
-          vncUrl: result.session.vncUrl,
-          apiUrl: result.session.apiUrl,
+          executionId: sessionId,
+          containerName: 'aef-vnc-single', // Fixed container name
+          status: result.status,
+          vncUrl: result.vncUrl, // Always http://localhost:16080/vnc.html
+          apiUrl: 'http://localhost:13000', // Always port 13000
           isHealthy: true,
           apiHealthy: true
         });
-        setCurrentExecutionId(result.session.executionId);
+        setCurrentExecutionId(sessionId);
         setSessionDiscoveryStatus('found');
 
-        addLog('success', 'system', 'VNC environment ready!', 
-          `🖥️ VNC Desktop: ${result.session.vncUrl}\n🔧 Action API: ${result.session.apiUrl}\n📝 Execution ID: ${result.session.executionId}`);
-      } else if (result.status === 'session_exists' && result.session) {
-        // User already has a session
-        setVncEnvironmentId(result.session.executionId);
-        setVncEnvironmentStatus('running');
-        
-        // Update discovered session state
-        setDiscoveredSession({
-          executionId: result.session.executionId,
-          containerName: result.session.containerName,
-          status: result.session.status,
-          vncUrl: result.session.vncUrl,
-          apiUrl: result.session.apiUrl,
-          isHealthy: true,
-          apiHealthy: true
-        });
-        setCurrentExecutionId(result.session.executionId);
-        setSessionDiscoveryStatus('found');
-
-        addLog('info', 'system', 'Using existing VNC session', 
-          `Found active session: ${result.session.executionId}`);
+        addLog('success', 'system', '✅ Single VNC session ready!', 
+          `🖥️ VNC Desktop: ${result.vncUrl} (ALWAYS THE SAME URL)\n🔧 Action API: http://localhost:13000 (ALWAYS THE SAME PORT)\n📝 Session ID: ${sessionId}`);
       }
 
     } catch (error) {
@@ -1068,34 +1067,11 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   const handleStopVncEnvironment = async () => {
     try {
-      console.log('🛑 [AEF Control Center] FORCE KILLING VNC environment...');
-      addLog('info', 'system', '🔥 FORCE KILLING VNC environment...', 'Completely destroying remote desktop session');
+      console.log('🛑 [AEF Control Center] Stopping single VNC session...');
+      addLog('info', 'system', '🔥 Stopping VNC session...', 'Destroying the single remote desktop session');
 
-      // 🔥 STEP 1: Call kill-session endpoint on the container first for thorough cleanup
-      if (discoveredSession?.apiUrl) {
-        try {
-          console.log('🔥 [AEF Control Center] Calling container kill-session endpoint...');
-          const killResponse = await fetch(`${discoveredSession.apiUrl.replace('/status', '')}/kill-session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(5000) // 5 second timeout
-          });
-          
-          if (killResponse.ok) {
-            const killResult = await killResponse.json();
-            console.log('✅ [AEF Control Center] Container kill-session successful:', killResult);
-            addLog('success', 'system', '🔥 Browser state destroyed', killResult.message);
-          } else {
-            console.warn('⚠️ [AEF Control Center] Container kill-session failed, continuing with backend cleanup...');
-          }
-        } catch (killError) {
-          console.warn('⚠️ [AEF Control Center] Kill-session call failed, continuing with backend cleanup:', killError);
-          addLog('warning', 'system', '⚠️ Direct kill failed', 'Falling back to container destruction');
-        }
-      }
-
-      // 🔥 STEP 2: Call backend DELETE to destroy containers and cleanup database
-      const response = await fetch('/api/aef/session', {
+      // Call the simplified VNC stop endpoint
+      const response = await fetch('/api/vnc/stop', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1106,7 +1082,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       }
 
       const result = await response.json();
-      console.log('✅ [AEF Control Center] VNC environment FORCE KILLED:', result);
+      console.log('✅ [AEF Control Center] VNC session stopped:', result);
 
       // Clear all session state
       setVncEnvironmentId(null);
@@ -1115,12 +1091,12 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       setSessionDiscoveryStatus('not_found');
       setCurrentExecutionId('discovering...');
 
-      addLog('success', 'system', '🔥 VNC environment FORCE KILLED', 
-        '✅ Remote desktop session completely destroyed - next start will be 100% fresh');
+      addLog('success', 'system', '✅ Single VNC session stopped', 
+        '🔥 Remote desktop completely destroyed - next start will be 100% fresh');
 
     } catch (error) {
-      console.error('❌ [AEF Control Center] Failed to FORCE KILL VNC environment:', error);
-      addLog('error', 'system', '❌ Failed to FORCE KILL VNC environment', 
+      console.error('❌ [AEF Control Center] Failed to stop VNC environment:', error);
+      addLog('error', 'system', '❌ Failed to stop VNC environment', 
         error instanceof Error ? error.message : 'Unknown error');
     }
   };
@@ -1526,6 +1502,8 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
               executionId={activeExecutionId}
               isActive={isExecutionActive}
               mockExecutionState={currentMockState}
+              vncUrl={discoveredSession?.vncUrl}
+              vncSupported={!!discoveredSession?.vncUrl}
             />
           </div>
         </div>
