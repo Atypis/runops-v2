@@ -5,6 +5,10 @@ import { AEFDocument } from '@/lib/types/aef';
 import { ExecutionStatus } from '@/lib/types/execution';
 import { MockExecutionState } from '@/lib/mock-aef-data';
 import { Button } from '@/components/ui/button';
+import { CredentialIndicator } from '@/components/sop/CredentialIndicator';
+import { OverallCredentialStatus } from '@/components/sop/OverallCredentialStatus';
+import { useCredentialStatus } from '@/lib/hooks/useCredentialStatus';
+import { extractNodeCredentialRequirements, extractWorkflowCredentialRequirements } from '@/lib/utils/credentialExtractor';
 import { 
   Play, 
   Square, 
@@ -48,6 +52,14 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   // Use mock execution state when available
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>(ExecutionStatus.IDLE);
   
+  // Credential status tracking
+  const workflowSteps = aefDocument?.public?.nodes || [];
+  const credentialRequirements = extractWorkflowCredentialRequirements(workflowSteps);
+  const { nodeStatuses, overallStatus, isLoading: credentialLoading, totalRequired, totalConfigured } = useCredentialStatus(
+    aefDocument?.meta?.id || 'unknown',
+    credentialRequirements
+  );
+  
   // Update state based on mock execution
   useEffect(() => {
     if (mockExecutionState) {
@@ -61,9 +73,6 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
     }
   }, [mockExecutionState]);
   
-  // Extract workflow steps from AEF document 
-  const workflowSteps = aefDocument?.public?.nodes || [];
-
   // Get step actions directly from the node data (loaded from JSON)
   const getStepActions = (stepId: string) => {
     const stepNode = workflowSteps.find(step => step.id === stepId);
@@ -294,6 +303,18 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           <span className="text-gray-500">.aef</span>
         </div>
         
+        {/* Overall Credential Status */}
+        {totalRequired > 0 && (
+          <div className="mb-3">
+            <OverallCredentialStatus
+              status={overallStatus}
+              totalRequired={totalRequired}
+              totalConfigured={totalConfigured}
+              isLoading={credentialLoading}
+            />
+          </div>
+        )}
+        
         {/* Command Line Controls */}
         <div className="flex gap-2">
           {(executionStatus === ExecutionStatus.IDLE || executionStatus === ExecutionStatus.COMPLETED) ? (
@@ -373,6 +394,21 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
               const isCompoundTask = step.type === 'compound_task';
               const childSteps = isCompoundTask ? workflowSteps.filter(s => s.parentId === step.id) : [];
               
+              // Get credential status for this step
+              const stepCredentialStatus = nodeStatuses.get(step.id);
+              const stepRequiredCredentials = extractNodeCredentialRequirements(step);
+              
+              // Debug logging
+              if (step.id === 'gmail_login_flow' || step.id === 'enter_email' || step.id === 'open_airtable') {
+                console.log(`[DEBUG] Step ${step.id}:`, {
+                  step,
+                  stepRequiredCredentials,
+                  stepCredentialStatus,
+                  credentialsRequired: step.credentialsRequired,
+                  actions: step.actions
+                });
+              }
+
               return (
                 <div key={step.id} className={`p-2 ${isCurrentStep ? 'bg-gray-800 border-l-2 border-cyan-400' : ''}`}>
                   {/* Function Declaration Style Header */}
@@ -412,6 +448,24 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                             </span>
                           )}
                           <span className="text-gray-500 text-xs">{"{}"}</span>
+                          
+                          {/* Credential Indicator */}
+                          {stepRequiredCredentials.length > 0 && (
+                            <div className="ml-2">
+                              <CredentialIndicator
+                                status={stepCredentialStatus?.status || 'missing'}
+                                requiredCount={stepRequiredCredentials.length}
+                                configuredCount={stepCredentialStatus?.configuredCredentials.length || 0}
+                              />
+                            </div>
+                          )}
+                          
+                          {/* Temporary Test Indicator - Show for specific steps */}
+                          {(step.id === 'gmail_login_flow' || step.id === 'enter_email' || step.id === 'open_airtable') && (
+                            <div className="ml-2">
+                              <span className="px-2 py-1 bg-red-500 text-white text-xs rounded">🔒 TEST</span>
+                            </div>
+                          )}
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5">
                           <span className="text-gray-500">//</span> {step.label}

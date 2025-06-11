@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { ChevronUp, Edit2 } from 'lucide-react';
+import { CredentialIndicator } from './CredentialIndicator';
 
 // The data shape will match what's in our SOPNode from the data model
 interface StepNodeData {
@@ -22,6 +23,10 @@ interface StepNodeData {
   containerWidth?: number; // Number of columns for children
   currentDepth?: number; // Depth in the nesting hierarchy
   maxDepth?: number; // Maximum depth in the entire structure
+  // Credential-related properties
+  credentialStatus?: 'none' | 'missing' | 'partial' | 'complete';
+  requiredCredentials?: string[];
+  configuredCredentials?: string[];
   [key: string]: any; // Allow other properties
 }
 
@@ -196,6 +201,19 @@ const StepNode: React.FC<NodeProps<StepNodeData>> = ({ data, id, isConnectable, 
       onMouseLeave={() => setIsHovered(false)}
       onClick={toggleExpand} // Directly toggle on click
     >
+      {/* Credential Status Indicator */}
+      {data.credentialStatus && data.credentialStatus !== 'none' && (
+        <CredentialIndicator
+          status={data.credentialStatus}
+          requiredCount={data.requiredCredentials?.length || 0}
+          configuredCount={data.configuredCredentials?.length || 0}
+          onClick={() => {
+            // TODO: Open credential panel
+            console.log('Open credential panel for node:', id);
+          }}
+        />
+      )}
+      
       <Handle
         id="top"
         type="target"

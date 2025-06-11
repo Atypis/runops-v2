@@ -225,7 +225,7 @@ export async function POST(
             const credentials = await CredentialInjectionService.getCredentialsForStep(
               stepId,
               user.id,
-              'test-investor-email-workflow' // Use test workflow ID
+              'gmail-investor-crm' // Use correct workflow ID
             );
             
             // Inject credentials into action
@@ -308,7 +308,7 @@ export async function POST(
               
               try {
                 // Convert action to BrowserAction format
-                const browserAction: BrowserAction = {
+                let browserAction: BrowserAction = {
                   type: action.type as any,
                   data: {
                     instruction: action.instruction,
@@ -320,6 +320,30 @@ export async function POST(
                   },
                   stepId: stepId
                 };
+                
+                // ✅ NEW: Inject credentials if needed (this was missing!)
+                if (CredentialInjectionService.actionRequiresCredentials(browserAction)) {
+                  console.log(`🔐 [AEF API] Action requires credential injection for step ${stepId}`);
+                  
+                  // Get credentials for this step using authenticated Supabase client
+                  const credentials = await CredentialInjectionService.getCredentialsForStepWithSupabase(
+                    stepId,
+                    user.id,
+                    'gmail-investor-crm', // Use correct workflow ID
+                    supabase
+                  );
+                  
+                  // Inject credentials into action
+                  browserAction = CredentialInjectionService.injectCredentialsIntoAction(
+                    browserAction,
+                    credentials
+                  );
+                  
+                  // Clear credentials from memory for security
+                  CredentialInjectionService.clearCredentialsFromMemory(credentials);
+                  
+                  console.log(`✅ [AEF API] Credentials injected for step ${stepId}`);
+                }
                 
                 await hybridBrowserManager.executeAction(executionId, browserAction);
                 console.log(`✅ [AEF API] Action executed successfully`);

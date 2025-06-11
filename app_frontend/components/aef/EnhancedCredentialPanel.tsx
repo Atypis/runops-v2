@@ -687,6 +687,17 @@ const EnhancedCredentialPanel: React.FC<EnhancedCredentialPanelProps> = ({
     }
   };
 
+  // Enhanced close handler to ensure parent gets final status
+  const handlePanelClose = () => {
+    // Final status update to parent before closing
+    if (workspace) {
+      updateParentCompletionStatus(workspace, ssoCredentialStatus);
+    }
+    
+    // Close the panel
+    onClose();
+  };
+
   // Prevent any form submission from causing page reload
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -700,7 +711,7 @@ const EnhancedCredentialPanel: React.FC<EnhancedCredentialPanelProps> = ({
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-black bg-opacity-25 z-40"
-        onClick={onClose}
+        onClick={handlePanelClose}
       />
       
       {/* Panel */}
@@ -713,7 +724,7 @@ const EnhancedCredentialPanel: React.FC<EnhancedCredentialPanelProps> = ({
               <h3 className="text-2xl font-light text-gray-900">Credentials</h3>
               <button 
                 type="button"
-                onClick={onClose}
+                onClick={handlePanelClose}
                 className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-lg"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
@@ -836,7 +847,7 @@ const EnhancedCredentialPanel: React.FC<EnhancedCredentialPanelProps> = ({
                 
                 <Button
                   type="button"
-                  onClick={onClose}
+                  onClick={handlePanelClose}
                   size="sm"
                   className={workspace.isComplete ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}
                 >

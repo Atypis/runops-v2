@@ -80,21 +80,26 @@ export async function POST(request: NextRequest) {
     // Encrypt credentials before storing
     const encryptedCredentials = encrypt(credentials);
 
+    // Prepare the upsert data
+    const upsertData = {
+      user_id: user.id,
+      workflow_id: workflowId || null,
+      service_type: serviceType,
+      auth_method: authMethod,
+      credential_data: encryptedCredentials,
+      metadata: {
+        created_from: 'credential_panel',
+        last_validated: new Date().toISOString()
+      },
+      updated_at: new Date().toISOString()
+    };
+
+    // Use proper upsert with the exact constraint name from the database
     const { data, error } = await supabase
       .from('user_credentials')
-      .upsert({
-        user_id: user.id,
-        workflow_id: workflowId || null,
-        service_type: serviceType,
-        auth_method: authMethod,
-        credential_data: encryptedCredentials,
-        metadata: {
-          created_from: 'credential_panel',
-          last_validated: new Date().toISOString()
-        },
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id,service_type,workflow_id'
+      .upsert(upsertData, {
+        onConflict: 'user_id,service_type,workflow_id',
+        ignoreDuplicates: false
       })
       .select()
       .single();

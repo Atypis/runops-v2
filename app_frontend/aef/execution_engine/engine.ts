@@ -268,6 +268,29 @@ export class ExecutionEngine {
                         console.error(`    ❌ Extract failed:`, error);
                     }
                     break;
+
+                case 'act':
+                    console.log(`    - AI-powered action: ${action.instruction}`);
+                    try {
+                        // Create the browser action
+                        let browserAction = {
+                            type: 'act' as const,
+                            data: { 
+                                instruction: action.instruction,
+                                ...action.data  // Include any additional data from the workflow
+                            },
+                            stepId: node.id
+                        };
+                        
+                        // Inject credentials if needed (this handles {{gmail_email}} replacement)
+                        browserAction = await this.injectCredentialsIntoAction(browserAction, node);
+                        
+                        const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+                        console.log(`    ✅ Act completed:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Act failed:`, error);
+                    }
+                    break;
                     
                 case 'visual_scan':
                     console.log(`    - Simulating visual scan: ${action.instruction}`);

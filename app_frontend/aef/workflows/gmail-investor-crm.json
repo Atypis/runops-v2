@@ -7,7 +7,7 @@
     "purpose": "Automated workflow for processing investor inquiries from Gmail into Airtable CRM",
     "owner": ["aef-dev-team"],
     "created": "2025-01-02T00:00:00Z",
-    "updated": "2025-01-02T00:00:00Z",
+    "updated": "2025-01-15T00:00:00Z",
     "aiGenerated": false,
     "tags": ["gmail", "airtable", "crm", "investor", "automation"]
   },
@@ -25,8 +25,8 @@
           "type": "compound_task",
           "label": "Navigate and Log in to Gmail",
           "intent": "Complete Gmail authentication process using stored credentials for email and password entry, including navigation and login confirmation.",
-          "context": "This compound task handles the complete Gmail login workflow using credentials from the credential management system. The system will automatically substitute {{gmail_email}} and {{gmail_password}} placeholders with the user's stored credentials.",
-          "children": ["navigate_to_gmail", "enter_email", "enter_password", "complete_login"],
+          "context": "This compound task handles the complete Gmail login workflow using credentials from the credential management system. The system will automatically substitute {{gmail_email}} and {{gmail_password}} placeholders with the user's stored credentials. Uses robust Stagehand .act() commands for reliable automation.",
+          "children": ["navigate_to_gmail", "enter_email_and_next", "enter_password_and_next", "verify_login_success"],
           "canExecuteAsGroup": true,
           "credentialsRequired": {
             "gmail": ["email", "password"]
@@ -39,72 +39,90 @@
         {
           "id": "navigate_to_gmail",
           "type": "atomic_task",
-          "label": "Navigate to Gmail",
+          "label": "Navigate to Gmail Login",
           "intent": "Navigate to the Gmail login page to begin authentication.",
-          "context": "Open Gmail in the browser. If user is already logged in, this will go to inbox. If not, it will show the login page.",
+          "context": "Open Gmail in the browser. Direct navigation to the Google accounts login page for Gmail service.",
           "parentId": "gmail_login_flow",
           "actions": [
             {
               "type": "navigate",
               "instruction": "Navigate to Gmail login page",
               "target": { "url": "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com" }
+            },
+            {
+              "type": "wait",
+              "instruction": "Wait for login page to fully load",
+              "timeout": 5000
             }
           ]
         },
         {
-          "id": "enter_email",
+          "id": "enter_email_and_next",
           "type": "atomic_task", 
-          "label": "Enter Email Address",
-          "intent": "Input the Gmail email address in the login form.",
-          "context": "Locate the email input field and enter the Gmail address. This step assumes we're on the Gmail login page.",
+          "label": "Enter Email and Click Next",
+          "intent": "Input the Gmail email address and proceed to password step.",
+          "context": "Use Stagehand .act() for robust email entry and Next button clicking. This handles dynamic page layouts and various login UI variations.",
           "parentId": "gmail_login_flow",
+          "credentialsRequired": {
+            "gmail": ["email"]
+          },
           "actions": [
             {
               "type": "act",
-              "instruction": "Enter the email address michaelburner595@gmail.com in the email field and click Next to proceed"
-            }
-          ]
-        },
-        {
-          "id": "enter_password",
-          "type": "atomic_task",
-          "label": "Enter Password", 
-          "intent": "Input the Gmail password in the password field.",
-          "context": "After email verification, enter the password. Wait for password field to appear after email step.",
-          "parentId": "gmail_login_flow",
-          "actions": [
+              "instruction": "Enter the email address {{gmail_email}} in the email field and click Next to proceed",
+              "data": { "email": "{{gmail_email}}" },
+              "credentialField": "gmail_email",
+              "timeout": 10000
+            },
             {
               "type": "wait",
-              "instruction": "Wait for password field to appear",
-              "target": { "selector": "input[type='password']" },
-              "timeout": 5000
-            },
-            {
-              "type": "type",
-              "instruction": "Enter password in the password field using stored credential", 
-              "target": { "selector": "input[type='password']" },
-              "data": { "text": "{{gmail_password}}" },
-              "credentialField": "gmail_password"
+              "instruction": "Wait for transition to password step",
+              "timeout": 8000
             }
           ]
         },
         {
-          "id": "complete_login",
+          "id": "enter_password_and_next",
           "type": "atomic_task",
-          "label": "Complete Login",
-          "intent": "Click the sign in button and wait for login completion.",
-          "context": "Final step of login process - submit the login form and wait for redirect to Gmail inbox.",
-          "parentId": "gmail_login_flow", 
+          "label": "Enter Password and Sign In", 
+          "intent": "Input the Gmail password and complete the login process.",
+          "context": "Use Stagehand .act() for robust password entry and sign-in button clicking. Handles various password field presentations and button variations.",
+          "parentId": "gmail_login_flow",
+          "credentialsRequired": {
+            "gmail": ["password"]
+          },
           "actions": [
             {
-              "type": "click",
-              "instruction": "Click the password Next/Sign in button",
-              "target": { "selector": "#passwordNext" }
-            },
+              "type": "act",
+              "instruction": "Enter the password {{gmail_password}} in the password field and click Next or Sign in to complete login",
+              "data": { "password": "{{gmail_password}}" },
+              "credentialField": "gmail_password",
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "verify_login_success",
+          "type": "atomic_task",
+          "label": "Verify Login Success",
+          "intent": "Confirm successful login and wait for Gmail inbox to load.",
+          "context": "Wait for successful authentication and redirect to Gmail inbox. Handle any additional verification steps if needed.",
+          "parentId": "gmail_login_flow", 
+          "actions": [
             {
               "type": "wait_for_navigation",
               "instruction": "Wait for successful login and redirect to Gmail inbox",
               "target": { "url_contains": "mail.google.com/mail" },
+              "timeout": 15000
+            },
+            {
+              "type": "act",
+              "instruction": "If prompted for additional verification or 2FA, handle it appropriately or wait for manual intervention",
+              "timeout": 5000
+            },
+            {
+              "type": "wait",
+              "instruction": "Wait for Gmail inbox to fully load",
               "timeout": 10000
             }
           ]
@@ -238,6 +256,9 @@
         }
       ],
       "flow": [
+        { "from": "navigate_to_gmail", "to": "enter_email_and_next" },
+        { "from": "enter_email_and_next", "to": "enter_password_and_next" },
+        { "from": "enter_password_and_next", "to": "verify_login_success" },
         { "from": "gmail_login_flow", "to": "scan_email_list" },
         { "from": "scan_email_list", "to": "email_processing_loop" },
         { "from": "email_processing_loop", "to": "select_email" },

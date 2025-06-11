@@ -38,6 +38,9 @@ import {
   getOptimalHandles
 } from './utils/edgeUtils';
 import CompoundNodeMarker from './utils/CompoundNodeMarker';
+import { useCredentialStatus } from '@/lib/hooks/useCredentialStatus';
+import { extractWorkflowCredentialRequirements } from '@/lib/utils/credentialExtractor';
+import { OverallCredentialStatus } from './OverallCredentialStatus';
 
 // Debug utility to track edge processing pipeline
 const debugEdgeProcessing = (stage: string, edges: FlowEdge[], showFullEdge: boolean = false) => {
@@ -1206,6 +1209,22 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
   // Add ref for the ReactFlow wrapper
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  
+  // Credential status tracking
+  const workflowCredentialRequirements = React.useMemo(() => {
+    if (!sopData?.public?.nodes) return new Map();
+    return extractWorkflowCredentialRequirements(sopData.public.nodes);
+  }, [sopData]);
+  
+  const {
+    nodeStatuses: credentialStatuses,
+    overallStatus,
+    isLoading: credentialsLoading,
+    error: credentialsError,
+    refetch: refetchCredentials,
+    totalRequired,
+    totalConfigured
+  } = useCredentialStatus(sopData?.meta?.id || '', workflowCredentialRequirements);
 
   const handleToggleCollapse = useCallback((nodeId: string) => {
     setExpandedNodes(prev => ({
@@ -1391,20 +1410,38 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       });
       setExpandedNodes(initialExpandedState);
       
-      // Attach toggle handler and expansion state to node data
+      // Attach toggle handler, expansion state, and credential status to node data
       const nodesWithCollapseProps = initialFlowNodes.map(node => {
         const appNode = node.data as AppSOPNode;
+        
+        // Get credential status for this node
+        const nodeCredentialStatus = credentialStatuses.get(node.id);
+        
+        const nodeEnhanced = {
+          ...node,
+          data: {
+            ...node.data,
+            // Add credential status data
+            credentialStatus: nodeCredentialStatus?.status || 'none',
+            requiredCredentials: nodeCredentialStatus?.requiredCredentials || [],
+            configuredCredentials: nodeCredentialStatus?.configuredCredentials || [],
+            missingCredentials: nodeCredentialStatus?.missingCredentials || [],
+          },
+        };
+        
+        // Add collapse functionality for container nodes
         if (appNode.childNodes && appNode.childNodes.length > 0) {
           return {
-            ...node,
+            ...nodeEnhanced,
             data: {
-              ...node.data,
+              ...nodeEnhanced.data,
               isExpanded: true, // Always initialize as expanded for first render
               onToggleCollapse: handleToggleCollapse,
             },
           };
         }
-        return node;
+        
+        return nodeEnhanced;
       });
       
       // Use the nodesWithCollapseProps for the initial layout
@@ -1427,7 +1464,7 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
       setEdges([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sopData, handleToggleCollapse, layoutDirection]); // Add layoutDirection as dependency
+  }, [sopData, handleToggleCollapse, layoutDirection, credentialStatuses]); // Add credential statuses as dependency
 
   if (!sopData) {
     return <div className="flex items-center justify-center h-full"><p className="text-muted-foreground">Loading diagram data...</p></div>;
@@ -1510,6 +1547,22 @@ const SOPFlowView: React.FC<SOPFlowViewProps> = ({ sopData }) => {
             fitViewOptions={{ padding: 0.2 }}
           />
           
+          {/* Overall Credential Status */}
+          <div className="absolute top-4 left-4 z-10 max-w-sm">
+            <OverallCredentialStatus
+              status={overallStatus}
+              totalRequired={totalRequired}
+              totalConfigured={totalConfigured}
+              isLoading={credentialsLoading}
+              error={credentialsError}
+              onRefresh={refetchCredentials}
+              onClick={() => {
+                // TODO: Open credential panel
+                console.log('Open credential configuration panel');
+              }}
+            />
+          </div>
+
           {/* Layout direction control */}
           <button 
             onClick={toggleLayoutDirection}
