@@ -4,6 +4,9 @@ import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { BrowserAction } from '@/lib/browser/types';
 import { ExecutionEngine } from '@/aef/execution_engine/engine';
 import { CredentialInjectionService } from '@/lib/credentials/injection';
+import { ServerWorkflowLoader } from '@/lib/workflow/ServerWorkflowLoader';
+import { WorkflowLoadError, WorkflowValidationError } from '@/lib/workflow/WorkflowLoader';
+import { HybridActionMapper } from '@/lib/workflow/HybridActionMapper';
 
 /**
  * POST /api/aef/action/[id]
@@ -257,219 +260,34 @@ export async function POST(
           console.log(`🎯 [AEF API] Executing individual node ${stepId} with direct browser actions`);
           console.log(`🎯 [AEF API] Using existing VNC executionId: ${executionId}`);
           
-          // Find the node in the hardcoded workflow to get its actions
-          const HARDCODED_TEST_WORKFLOW = {
-            "meta": {
-              "version": "1.0",
-              "title": "Gmail to Airtable Investor Processing",
-              "description": "Automatically process investor emails from Gmail and add them to Airtable CRM"
-            },
-            "sop": {
-              "id": "gmail_airtable_processor_v3",
-              "name": "Gmail to Airtable Processor v3",
-              "nodes": [
-                {
-                  "id": "gmail_login_flow",
-                  "type": "compound_task",
-                  "label": "Navigate and Log in to Gmail",
-                  "intent": "Complete the entire Gmail login process from navigation to accessing inbox.",
-                  "context": "This is a compound task that handles the complete Gmail authentication flow including navigation, email entry, password entry, and login completion.",
-                  "canExecuteAsGroup": true,
-                  "children": ["navigate_to_gmail", "enter_email", "enter_password", "complete_login"],
-                  "actions": []
-                },
-                {
-                  "id": "navigate_to_gmail",
-                  "type": "atomic_task",
-                  "label": "Navigate to Gmail",
-                  "intent": "Navigate to the Gmail login page to begin authentication.",
-                  "context": "Open Gmail in the browser. If user is already logged in, it will go to inbox. If not, it will show the login page.",
-                  "parentId": "gmail_login_flow",
-                  "actions": [
-                    {
-                      "type": "navigate",
-                      "instruction": "Navigate to Gmail login page",
-                      "target": { "url": "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com/mail/" }
-                    }
-                  ]
-                },
-                {
-                  "id": "enter_email",
-                  "type": "atomic_task", 
-                  "label": "Enter Email",
-                  "intent": "Enter the email address in the login form and proceed to password step.",
-                  "context": "Type the email address and click Next to proceed to password entry.",
-                  "parentId": "gmail_login_flow",
-                  "actions": [
-                    {
-                      "type": "act",
-                      "instruction": "Enter the email address michaelburner595@gmail.com in the email field and click Next to proceed"
-                    }
-                  ]
-                },
-                {
-                  "id": "enter_password",
-                  "type": "atomic_task",
-                  "label": "Enter Password", 
-                  "intent": "Wait for password field to appear, then enter password.",
-                  "context": "After clicking Next on email, wait for the password field to load and then enter the password.",
-                  "parentId": "gmail_login_flow",
-                  "actions": [
-                    {
-                      "type": "wait",
-                      "instruction": "Wait for password field to appear",
-                      "duration": 2000
-                    },
-                    {
-                      "type": "type",
-                      "instruction": "Enter password in the password field", 
-                      "target": { "selector": "input[type='password']" },
-                      "text": "{{gmail_password}}"
-                    }
-                  ]
-                },
-                {
-                  "id": "complete_login",
-                  "type": "atomic_task",
-                  "label": "Complete Login",
-                  "intent": "Click sign in button and wait for redirect to Gmail inbox.",
-                  "context": "Complete the login process by clicking the sign in button and waiting for Gmail to load.",
-                  "parentId": "gmail_login_flow", 
-                  "actions": [
-                    {
-                      "type": "click",
-                      "instruction": "Click Sign In button to complete login",
-                      "target": { "selector": "#passwordNext" }
-                    },
-                    {
-                      "type": "wait_for_navigation",
-                      "instruction": "Wait for redirect to Gmail inbox",
-                      "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
-                    }
-                  ]
-                },
-                {
-                  "id": "scan_email_list",
-                  "type": "atomic_task",
-                  "label": "Scan Email List",
-                  "intent": "Look through the Gmail inbox to identify investor-related emails.",
-                  "context": "Review the email list in the inbox to find emails that contain investor inquiries, partnership requests, or business opportunities.",
-                  "actions": [
-                    {
-                      "type": "navigate_or_switch_tab",
-                      "instruction": "Ensure we're on the Gmail inbox page",
-                      "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
-                    }
-                  ]
-                },
-                {
-                  "id": "email_processing_loop",
-                  "type": "compound_task",
-                  "label": "Process Email Loop",
-                  "intent": "Iteratively process each investor email found in the inbox.",
-                  "context": "This loop will continue processing emails until all investor-related emails have been handled.",
-                  "canExecuteAsGroup": true,
-                  "children": ["select_email", "extract_investor_info", "open_airtable", "add_to_crm", "mark_processed"],
-                  "actions": []
-                },
-                {
-                  "id": "select_email",
-                  "type": "atomic_task",
-                  "label": "Select Investor Email",
-                  "intent": "Click on an unprocessed investor email to open it.",
-                  "context": "Identify and click on an email that appears to be from an investor or contains investment-related content.",
-                  "parentId": "email_processing_loop",
-                  "actions": [
-                    {
-                      "type": "click",
-                      "instruction": "Click on the first unread investor email in the list",
-                      "target": { "selector": ".zA:first-child" }
-                    }
-                  ]
-                },
-                {
-                  "id": "extract_investor_info",
-                  "type": "atomic_task",
-                  "label": "Extract Investor Information", 
-                  "intent": "Read and extract key investor details from the email content.",
-                  "context": "Parse the email content to identify investor name, company, contact information, investment interests, and other relevant details.",
-                  "parentId": "email_processing_loop",
-                  "actions": [
-                    {
-                      "type": "extract",
-                      "instruction": "Extract investor information from email content",
-                      "schema": {
-                        "name": "string",
-                        "company": "string", 
-                        "email": "string",
-                        "phone": "string",
-                        "investment_focus": "string",
-                        "message_summary": "string"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "id": "open_airtable",
-                  "type": "atomic_task",
-                  "label": "Open Airtable CRM",
-                  "intent": "Navigate to or switch to the Airtable CRM tab.",
-                  "context": "Access the Airtable database where investor information is stored and managed.",
-                  "parentId": "email_processing_loop",
-                  "actions": [
-                    {
-                      "type": "navigate_or_switch_tab",
-                      "instruction": "Navigate to Airtable CRM or switch to existing Airtable tab",
-                      "target": { "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
-                    }
-                  ]
-                },
-                {
-                  "id": "add_to_crm",
-                  "type": "atomic_task",
-                  "label": "Add Investor to CRM",
-                  "intent": "Create a new record in Airtable with the extracted investor information.",
-                  "context": "Fill out the investor information form in Airtable with the details extracted from the email.",
-                  "parentId": "email_processing_loop",
-                  "actions": [
-                    {
-                      "type": "click", 
-                      "instruction": "Click the 'Add Record' or '+' button to create a new investor entry",
-                      "target": { "selector": "[data-testid='add-record-button']" }
-                    }
-                  ]
-                },
-                {
-                  "id": "mark_processed",
-                  "type": "atomic_task",
-                  "label": "Mark Email as Processed",
-                  "intent": "Return to Gmail and mark the email as processed to avoid reprocessing.",
-                  "context": "Go back to Gmail and add a label or flag to indicate this email has been processed.",
-                  "parentId": "email_processing_loop",
-                  "actions": [
-                    {
-                      "type": "navigate_or_switch_tab",
-                      "instruction": "Switch back to Gmail tab",
-                      "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
-                    }
-                  ]
-                }
-              ],
-              "flow": [
-                { "from": "gmail_login_flow", "to": "scan_email_list" },
-                { "from": "scan_email_list", "to": "email_processing_loop" },
-                { "from": "email_processing_loop", "to": "select_email" },
-                { "from": "select_email", "to": "extract_investor_info" },
-                { "from": "extract_investor_info", "to": "open_airtable" },
-                { "from": "open_airtable", "to": "add_to_crm" },
-                { "from": "add_to_crm", "to": "mark_processed" },
-                { "from": "mark_processed", "to": "email_processing_loop", "condition": "more_emails_to_process" }
-              ]
+          // Load workflow from JSON - NEW APPROACH
+          let workflow;
+          try {
+            console.log(`🔄 [AEF API] Loading JSON workflow for execution...`);
+            workflow = await ServerWorkflowLoader.loadWorkflow('gmail-investor-crm');
+            console.log(`✅ [AEF API] Successfully loaded workflow: ${workflow.meta.title}`);
+          } catch (error) {
+            console.error('❌ [AEF API] Failed to load JSON workflow:', error);
+            if (error instanceof WorkflowValidationError) {
+              return NextResponse.json(
+                { error: `Workflow validation failed: ${error.message}` },
+                { status: 400 }
+              );
             }
-          };
+            if (error instanceof WorkflowLoadError) {
+              return NextResponse.json(
+                { error: `Failed to load workflow: ${error.message}` },
+                { status: 404 }
+              );
+            }
+            return NextResponse.json(
+              { error: 'Failed to load workflow' },
+              { status: 500 }
+            );
+          }
           
           // Find the specific node to execute
-          const targetNode = HARDCODED_TEST_WORKFLOW.sop.nodes.find(node => node.id === stepId);
+          const targetNode = workflow.execution.workflow.nodes.find((node: any) => node.id === stepId);
           if (!targetNode) {
             console.error(`❌ [AEF API] Node ${stepId} not found in workflow`);
             return NextResponse.json(

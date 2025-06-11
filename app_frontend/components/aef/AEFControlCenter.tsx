@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Clock, Settings, Key, Play, Pause, RotateCcw } from 'lucide-react';
 import { getAllAccountProviders, getAccountProvidersForService } from '@/lib/credentials/account-config';
 import { getServiceSettings, getServiceSettingsForAccount } from '@/lib/credentials/service-config';
+import { workflowLoader, AEFWorkflow, WorkflowLoadError, WorkflowValidationError } from '@/lib/workflow/WorkflowLoader';
 
 
 interface AEFControlCenterProps {
@@ -478,104 +479,132 @@ function convertToLegacyCredentials(
   return credentials;
 }
 
-// Convert the hardcoded workflow to AEF format
-function createHardcodedAEFDocument(): AEFDocument {
-  // Convert ALL hardcoded workflow nodes to SOPDocument format
-  // This includes both parent nodes and child nodes with parentId
-  const sopNodes = HARDCODED_TEST_WORKFLOW.execution.workflow.nodes.map(node => ({
-    id: node.id,
-    type: node.type,
-    label: node.label,
-    intent: node.intent,
-    context: node.context,
-    position: { x: 0, y: 0 }, // Default positions
-    // Add parentId if it exists
-    ...(node.parentId ? { parentId: node.parentId } : {}),
-    // Add children array if it exists  
-    ...(node.children ? { children: node.children } : {}),
-    // Add canExecuteAsGroup for compound tasks
-    ...(node.canExecuteAsGroup !== undefined ? { canExecuteAsGroup: node.canExecuteAsGroup } : {}),
-    // ✅ ADD MISSING: credentialsRequired property
-    ...(node.credentialsRequired ? { credentialsRequired: node.credentialsRequired } : {}),
-    // Add actions array
-    actions: node.actions || []
-  }));
+// Load workflow from JSON or fall back to hardcoded
+async function loadWorkflowAsAEFDocument(): Promise<AEFDocument> {
+  try {
+    console.log('🔄 [AEF Control Center] Loading JSON workflow...');
+    
+    // Load the JSON workflow
+    const workflow = await workflowLoader.loadWorkflow('gmail-investor-crm');
+    console.log(`✅ [AEF Control Center] Successfully loaded workflow: ${workflow.meta.title}`);
+    
+    // Convert workflow nodes to AEF format
+    const sopNodes = workflow.execution.workflow.nodes.map(node => ({
+      id: node.id,
+      type: node.type,
+      label: node.label,
+      intent: node.intent,
+      context: node.context,
+      position: { x: 0, y: 0 }, // Default positions
+      // Add parentId if it exists
+      ...(node.parentId ? { parentId: node.parentId } : {}),
+      // Add children array if it exists  
+      ...(node.children ? { children: node.children } : {}),
+      // Add canExecuteAsGroup for compound tasks
+      ...(node.canExecuteAsGroup !== undefined ? { canExecuteAsGroup: node.canExecuteAsGroup } : {}),
+      // Add credentialsRequired property
+      ...(node.credentialsRequired ? { credentialsRequired: node.credentialsRequired } : {}),
+      // Add actions array
+      actions: node.actions || []
+    }));
 
-  const mockSOP: SOPDocument = {
-    meta: HARDCODED_TEST_WORKFLOW.meta,
-    public: {
-      nodes: sopNodes,
-      edges: HARDCODED_TEST_WORKFLOW.execution.workflow.flow.map(flow => ({
-        id: `${flow.from}-${flow.to}`,
-        source: flow.from,
-        target: flow.to,
-        type: 'default'
-      })),
-      variables: {},
-      triggers: [],
-      clarification_requests: []
-    },
-    private: {
-      skills: [],
-      steps: [],
-      artifacts: []
-    }
-  };
-
-  // Create AEF document with the specific workflow data
-  const aefDocument: AEFDocument = {
-    ...mockSOP,
-    aef: {
-      config: {
-        checkpoints: sopNodes.map(node => ({
-          id: `checkpoint-${node.id}`,
-          stepId: node.id,
-          type: CheckpointType.BEFORE_EXECUTION,
-          condition: CheckpointCondition.ALWAYS,
-          required: true,
-          title: `Approve: ${node.label}`,
-          description: `About to execute: ${node.intent || node.label}`,
-          timeout: 300,
-          showContext: true,
-          showPreview: true
+    const mockSOP: SOPDocument = {
+              meta: {
+          ...workflow.meta,
+          goal: workflow.meta.goal || 'Default goal',
+          purpose: workflow.meta.purpose || 'Default purpose',
+          owner: workflow.meta.owner || ['default-owner']
+        },
+      public: {
+        nodes: sopNodes.map(node => ({
+          ...node,
+          context: node.context || 'Default context'
         })),
-        executionMethod: ExecutionMethod.BROWSER_AUTOMATION,
-        secrets: [
-          {
-            id: 'gmail_credentials',
-            name: 'Gmail Access',
-            description: 'Gmail account credentials for email automation',
-            type: 'oauth_token' as const,
-            required: true,
-            stepIds: ['start_workflow', 'scan_email_list', 'select_email', 'mark_processed']
-          },
-          {
-            id: 'airtable_api',
-            name: 'Airtable API Key', 
-            description: 'Airtable API access for CRM operations',
-            type: 'api_key' as const,
-            required: true,
-            stepIds: ['open_airtable', 'add_to_crm']
-          }
-        ],
-        credentials: [], // Will be dynamically generated from node credentialsRequired properties
-        estimatedDuration: 30,
-        stepTimeout: 60,
-        checkpointTimeout: 300,
-        enableDetailedLogging: true,
-        pauseOnErrors: true
+        edges: workflow.execution.workflow.flow.map(flow => ({
+          id: `${flow.from}-${flow.to}`,
+          source: flow.from,
+          target: flow.to,
+          type: 'default'
+        })),
+        variables: {},
+        triggers: [],
+        clarification_requests: []
       },
-      transformedAt: new Date(),
-      transformedBy: 'hardcoded-test',
-      version: '1.0.0',
-      automationEnhanced: true
+      private: {
+        skills: [],
+        steps: [],
+        artifacts: []
+      }
+    };
+
+    // Create AEF document with the JSON workflow data
+    const aefDocument: AEFDocument = {
+      ...mockSOP,
+      aef: {
+        config: {
+          checkpoints: sopNodes.map(node => ({
+            id: `checkpoint-${node.id}`,
+            stepId: node.id,
+            type: CheckpointType.BEFORE_EXECUTION,
+            condition: CheckpointCondition.ALWAYS,
+            required: true,
+            title: `Approve: ${node.label}`,
+            description: `About to execute: ${node.intent || node.label}`,
+            timeout: 300,
+            showContext: true,
+            showPreview: true
+          })),
+          executionMethod: ExecutionMethod.BROWSER_AUTOMATION,
+          secrets: [
+            {
+              id: 'gmail_credentials',
+              name: 'Gmail Access',
+              description: 'Gmail account credentials for email automation',
+              type: 'oauth_token' as const,
+              required: true,
+              stepIds: ['gmail_login_flow', 'scan_email_list', 'select_email', 'mark_processed']
+            },
+            {
+              id: 'airtable_api',
+              name: 'Airtable API Key', 
+              description: 'Airtable API access for CRM operations',
+              type: 'api_key' as const,
+              required: true,
+              stepIds: ['open_airtable', 'add_to_crm']
+            }
+          ],
+          credentials: [], // Will be dynamically generated from node credentialsRequired properties
+          estimatedDuration: workflow.config?.executionTimeout || 1800,
+          stepTimeout: 60,
+          checkpointTimeout: 300,
+          enableDetailedLogging: true,
+          pauseOnErrors: workflow.config?.pauseOnErrors ?? true
+        },
+        transformedAt: new Date(),
+        transformedBy: 'json-workflow',
+        version: workflow.meta.version,
+        automationEnhanced: true
+      }
+    };
+
+    // Store the original workflow structure as a property for the execution engine to access
+    (aefDocument as any).execution = workflow.execution;
+
+    return aefDocument;
+  } catch (error) {
+    console.error('❌ [AEF Control Center] Failed to load JSON workflow:', error);
+    
+    // Re-throw the error instead of falling back to hardcoded data
+    if (error instanceof WorkflowValidationError) {
+      throw new Error(`Workflow validation failed: ${error.message}`);
     }
-  };
-
-  // Store the original workflow structure as a property for the execution engine to access
-  (aefDocument as any).execution = HARDCODED_TEST_WORKFLOW.execution;
-
-  return aefDocument;
+    
+    if (error instanceof WorkflowLoadError) {
+      throw new Error(`Failed to load workflow: ${error.message}`);
+    }
+    
+    throw new Error(`Failed to load JSON workflow: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Add interface for discovered session
@@ -785,14 +814,28 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     };
   }, [isResizing]);
   
-  // ALWAYS use the hardcoded test workflow for testing purposes - memoized to prevent infinite re-renders
-  const aefDocument = React.useMemo(() => {
-    const doc = createHardcodedAEFDocument();
-    console.log('🔍 [AEF] Created AEF Document:', doc);
-    console.log('🔍 [AEF] AEF Config:', doc.aef?.config);
-    console.log('🔍 [AEF] Credentials Array:', doc.aef?.config?.credentials);
-    console.log('🔍 [AEF] Credentials Length:', doc.aef?.config?.credentials?.length);
-    return doc;
+  // Load workflow from JSON - no fallback anymore
+  const [aefDocument, setAefDocument] = useState<AEFDocument | null>(null);
+  const [workflowLoadError, setWorkflowLoadError] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const loadWorkflow = async () => {
+      try {
+        setWorkflowLoadError(null);
+        const doc = await loadWorkflowAsAEFDocument();
+        console.log('🔍 [AEF] Loaded AEF Document:', doc);
+        console.log('🔍 [AEF] AEF Config:', doc.aef?.config);
+        console.log('🔍 [AEF] Credentials Array:', doc.aef?.config?.credentials);
+        console.log('🔍 [AEF] Credentials Length:', doc.aef?.config?.credentials?.length);
+        setAefDocument(doc);
+      } catch (error) {
+        console.error('❌ Failed to load JSON workflow:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error loading workflow';
+        setWorkflowLoadError(errorMessage);
+      }
+    };
+    
+    loadWorkflow();
   }, []);
   const isAEF = true; // Always true since we're using hardcoded AEF data
   
@@ -801,6 +844,11 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   // Simple credential extraction and validation effect
   useEffect(() => {
+    // Skip if aefDocument is not loaded yet
+    if (!aefDocument) {
+      return;
+    }
+    
     // Skip old system when Enhanced panel is open (it has its own counting)
     if (enhancedCredentialPanelOpen) {
       return;
@@ -859,7 +907,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     };
 
     extractAndValidateCredentials();
-  }, [aefDocument.meta.id, credentialPanelOpen, newCredentialPanelOpen, enhancedCredentialPanelOpen]); // Include enhanced panel state
+  }, [aefDocument?.meta?.id, credentialPanelOpen, newCredentialPanelOpen, enhancedCredentialPanelOpen]); // Include enhanced panel state
 
   // Credential handlers
   const handleCredentialsUpdate = (isComplete: boolean, setCount: number, totalCount: number) => {
@@ -1169,6 +1217,45 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   // Combine mock logs with real execution logs
   const combinedLogs = currentMockState?.logs ? [...executionLogs, ...currentMockState.logs] : executionLogs;
+
+  // Show loading or error state if aefDocument is not loaded yet
+  if (!aefDocument) {
+    if (workflowLoadError) {
+      return (
+        <div className="h-full flex items-center justify-center bg-muted/30">
+          <div className="text-center max-w-md">
+            <div className="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+              <span className="text-2xl">❌</span>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Failed to Load Workflow
+            </h3>
+            <p className="text-gray-600 mb-4">
+              The JSON workflow could not be loaded. The fallback mechanism has been removed to ensure we're testing the pure JSON implementation.
+            </p>
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4 text-left">
+              <p className="text-red-600 text-sm font-mono">{workflowLoadError}</p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Retry Loading
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="h-full flex items-center justify-center bg-muted/30">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading JSON workflow...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show transformation loading state
   if (isTransforming) {

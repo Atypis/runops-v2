@@ -5,6 +5,8 @@ import { ExecutionStatus } from '@/lib/types/execution';
 import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { v4 as uuidv4 } from 'uuid';
 import { ExecutionEngine } from '@/aef/execution_engine/engine';
+import { ServerWorkflowLoader } from '@/lib/workflow/ServerWorkflowLoader';
+import { WorkflowLoadError, WorkflowValidationError } from '@/lib/workflow/WorkflowLoader';
 
 /**
  * POST /api/aef/execute
@@ -36,47 +38,83 @@ export async function POST(request: NextRequest) {
 
     console.log(`Starting AEF execution for document ${aefDocumentId}, user ${user.id}`);
 
-    // Fetch the AEF document
-    // TEMPORARY: Use test document for development
+    // Fetch the AEF document - NEW JSON WORKFLOW APPROACH
     let aefDocument: any;
     
-    if (aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa') {
-      // Load our test investor email workflow
-      const fs = require('fs');
-      const path = require('path');
-      const testDocPath = path.join(process.cwd(), '..', 'stagehand-test', 'downloads', 'investor_email_crm_workflow.json');
-      
+    // First try to load as a JSON workflow
+    if (aefDocumentId === 'gmail-investor-crm' || aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa') {
       try {
-        const testDocContent = fs.readFileSync(testDocPath, 'utf8');
-        const testDoc = JSON.parse(testDocContent);
+        console.log(`🔄 Loading JSON workflow: ${aefDocumentId}`);
+        const workflowId = aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa' ? 'gmail-investor-crm' : aefDocumentId;
         
-        // The testDoc is already in the format our engine expects.
-        // We will just cast it and add the AEF-specific metadata.
-         aefDocument = {
-           ...testDoc,
-           aef: {
-             config: {
-               checkpoints: [],
-               executionMethod: ExecutionMethod.BROWSER_AUTOMATION,
-               secrets: [],
-               estimatedDuration: 20,
-               stepTimeout: 30,
-               checkpointTimeout: 300,
-               enableDetailedLogging: true,
-               pauseOnErrors: true
-             },
-             transformedAt: new Date(),
-             transformedBy: user.id,
-             version: '1.0.0',
-             automationEnhanced: true
-           }
-         };
+        const workflow = await ServerWorkflowLoader.loadWorkflow(workflowId);
         
-        console.log('✅ Using test investor email workflow document');
+        // Transform JSON workflow to AEF document format
+        aefDocument = {
+          id: workflow.meta.id,
+          title: workflow.meta.title,
+          goal: workflow.meta.goal,
+          purpose: workflow.meta.purpose,
+          
+          // Transform workflow nodes to AEF format
+          public: {
+            nodes: workflow.execution.workflow.nodes.map(node => ({
+              id: node.id,
+              type: node.type,
+              label: node.label,
+              intent: node.intent,
+              context: node.context,
+              parent_id: node.parentId,
+              children: node.children || [],
+              can_execute_as_group: node.canExecuteAsGroup,
+              credentials_required: node.credentialsRequired,
+              preferred_auth_methods: node.preferredAuthMethods,
+              actions: node.actions
+            })),
+            flow: workflow.execution.workflow.flow
+          },
+          
+          // AEF configuration
+          aef: {
+            config: {
+              checkpoints: [],
+              executionMethod: ExecutionMethod.BROWSER_AUTOMATION,
+              secrets: [],
+              estimatedDuration: workflow.config?.executionTimeout || 1800,
+              stepTimeout: 30,
+              checkpointTimeout: 300,
+              enableDetailedLogging: true,
+              pauseOnErrors: workflow.config?.pauseOnErrors ?? true,
+              retryAttempts: workflow.config?.retryAttempts || 3,
+              hybridMode: workflow.config?.hybridMode ?? true
+            },
+            transformedAt: new Date(),
+            transformedBy: user.id,
+            version: workflow.meta.version,
+            automationEnhanced: true
+          }
+        };
+        
+        console.log(`✅ Successfully loaded JSON workflow: ${workflow.meta.title}`);
       } catch (error) {
-        console.error('❌ Failed to load test document:', error);
+        console.error('❌ Failed to load JSON workflow:', error);
+        
+        if (error instanceof WorkflowValidationError) {
+          return NextResponse.json(
+            { error: `Workflow validation failed: ${error.message}` },
+            { status: 400 }
+          );
+        }
+        
+        if (error instanceof WorkflowLoadError) {
+          return NextResponse.json(
+            { error: `Failed to load workflow: ${error.message}` },
+            { status: 404 }
+          );
+        }
+        
         return NextResponse.json(
-          { error: 'Failed to load test AEF document' },
+          { error: 'Failed to load workflow document' },
           { status: 500 }
         );
       }

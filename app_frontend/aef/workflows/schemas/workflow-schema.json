@@ -1,0 +1,272 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AEF Workflow Schema",
+  "description": "Schema for AEF (Autonomous Execution Framework) workflows",
+  "type": "object",
+  "required": ["meta", "execution"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["id", "title", "version"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique workflow identifier"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human readable workflow name"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
+          "description": "Semantic version (e.g., 1.0.0)"
+        },
+        "goal": {
+          "type": "string",
+          "description": "High-level goal of the workflow"
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Detailed purpose description"
+        },
+        "owner": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of workflow owners"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        },
+        "aiGenerated": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this workflow was AI-generated"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Categorization tags"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["workflow"],
+      "properties": {
+        "environment": {
+          "type": "object",
+          "properties": {
+            "required_tabs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "url"],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "workflow": {
+          "type": "object",
+          "required": ["nodes", "flow"],
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/workflowNode"
+              }
+            },
+            "flow": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["from", "to"],
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "condition": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "executionTimeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Max execution time in seconds"
+        },
+        "retryAttempts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of retry attempts for failed actions"
+        },
+        "hybridMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use cached selectors with AI fallback"
+        },
+        "pauseOnErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pause execution on errors"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "workflowNode": {
+      "type": "object",
+      "required": ["id", "type", "label", "intent"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique node identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["atomic_task", "compound_task", "iterative_loop"],
+          "description": "Type of workflow node"
+        },
+        "label": {
+          "type": "string",
+          "description": "Human readable node name"
+        },
+        "intent": {
+          "type": "string",
+          "description": "What this node accomplishes"
+        },
+        "context": {
+          "type": "string",
+          "description": "Additional context about the node"
+        },
+        "parentId": {
+          "type": "string",
+          "description": "Parent node ID for hierarchical nodes"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Child node IDs"
+        },
+        "canExecuteAsGroup": {
+          "type": "boolean",
+          "description": "Whether compound tasks can execute all children"
+        },
+        "credentialsRequired": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Required credentials by service"
+        },
+        "preferredAuthMethods": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Preferred authentication methods by service"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/workflowAction"
+          }
+        }
+      }
+    },
+    "workflowAction": {
+      "type": "object",
+      "required": ["type", "instruction"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "navigate_or_switch_tab", 
+            "click",
+            "type",
+            "wait",
+            "wait_for_navigation",
+            "act",
+            "extract",
+            "visual_scan",
+            "conditional_auth"
+          ]
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Human readable instruction for the action"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "url_contains": {
+              "type": "string"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "description": "Action-specific data"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schema": {
+          "type": "object",
+          "description": "Data extraction schema"
+        },
+        "credentialField": {
+          "type": "string",
+          "description": "Credential field this action uses"
+        }
+      }
+    }
+  }
+} 
