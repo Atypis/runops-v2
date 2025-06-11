@@ -302,15 +302,8 @@ export async function POST(
                   "parentId": "gmail_login_flow",
                   "actions": [
                     {
-                      "type": "type",
-                      "instruction": "Enter email address in the email field",
-                      "target": { "selector": "input[type='email']" },
-                      "text": "your.email@gmail.com"
-                    },
-                    {
-                      "type": "click",
-                      "instruction": "Click Next button to proceed to password",
-                      "target": { "selector": "#identifierNext" }
+                      "type": "act",
+                      "instruction": "Enter the email address michaelburner595@gmail.com in the email field and click Next to proceed"
                     }
                   ]
                 },

@@ -96,16 +96,8 @@ const HARDCODED_TEST_WORKFLOW = {
           "parentId": "gmail_login_flow",
           "actions": [
             {
-              "type": "type",
-              "instruction": "Enter email address in the email field using stored credential",
-              "target": { "selector": "input[type='email']" },
-              "data": { "text": "{{gmail_email}}" }, // ✅ Uses credential from storage
-              "credentialField": "gmail_email" // ✅ Links to credential ID
-            },
-            {
-              "type": "click",
-              "instruction": "Click Next button after entering email",
-              "target": { "selector": "#identifierNext" }
+              "type": "act",
+              "instruction": "Enter the email address michaelburner595@gmail.com in the email field and click Next to proceed"
             }
           ]
         },
