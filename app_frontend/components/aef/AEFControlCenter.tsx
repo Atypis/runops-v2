@@ -34,259 +34,11 @@ interface AEFControlCenterProps {
   sopId?: string;
 }
 
-// Hardcoded test workflow data with credential requirements
-// ✅ CREDENTIAL & AUTH METHOD INTEGRATION: This workflow demonstrates how nodes can declare
-// required credentials and preferred authentication methods. The credential management
-// system will automatically detect these requirements and provide appropriate auth method
-// selection in the UI, then substitute credential placeholders during execution.
-const HARDCODED_TEST_WORKFLOW = {
-  "meta": {
-    "id": "test-investor-email-workflow",
-    "title": "Investor Email CRM Workflow (TEST)",
-    "version": "1.0",
-    "goal": "Extract investor information from an email and add it to a CRM.",
-    "purpose": "A test SOP for developing the execution engine.",
-    "owner": ["aef-dev-team"]
-  },
-  "execution": {
-    "environment": {
-      "required_tabs": [
-        { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox" },
-        { "name": "Airtable CRM", "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
-      ]
-    },
-    "workflow": {
-      "nodes": [
-        {
-          "id": "gmail_login_flow",
-          "type": "compound_task",
-          "label": "Navigate and Log in to Gmail",
-          "intent": "Complete Gmail authentication process using stored credentials for email and password entry, including navigation and login confirmation.",
-          "context": "This compound task handles the complete Gmail login workflow using credentials from the credential management system. The system will automatically substitute {{gmail_email}} and {{gmail_password}} placeholders with the user's stored credentials.",
-          "children": ["navigate_to_gmail", "enter_email", "enter_password", "complete_login"],
-          "canExecuteAsGroup": true,
-          "credentialsRequired": {
-            "gmail": ["email", "password"] as ('email' | 'password')[]
-          },
-          "preferredAuthMethods": {
-            "gmail": ["email_password", "google_sso"] as ('email_password' | 'google_sso')[]
-          },
-          "actions": [] // Parent nodes don't have direct actions
-        },
-        {
-          "id": "navigate_to_gmail",
-          "type": "atomic_task",
-          "label": "Navigate to Gmail",
-          "intent": "Navigate to the Gmail login page to begin authentication.",
-          "context": "Open Gmail in the browser. If user is already logged in, this will go to inbox. If not, it will show the login page.",
-          "parentId": "gmail_login_flow",
-          "actions": [
-            {
-              "type": "navigate",
-              "instruction": "Navigate to Gmail login page",
-              "target": { "url": "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com" }
-            }
-          ]
-        },
-        {
-          "id": "enter_email",
-          "type": "atomic_task", 
-          "label": "Enter Email Address",
-          "intent": "Input the Gmail email address in the login form.",
-          "context": "Locate the email input field and enter the Gmail address. This step assumes we're on the Gmail login page.",
-          "parentId": "gmail_login_flow",
-          "actions": [
-            {
-              "type": "act",
-              "instruction": "Enter the email address michaelburner595@gmail.com in the email field and click Next to proceed"
-            }
-          ]
-        },
-        {
-          "id": "enter_password",
-          "type": "atomic_task",
-          "label": "Enter Password", 
-          "intent": "Input the Gmail password in the password field.",
-          "context": "After email verification, enter the password. Wait for password field to appear after email step.",
-          "parentId": "gmail_login_flow",
-          "actions": [
-            {
-              "type": "wait",
-              "instruction": "Wait for password field to appear",
-              "target": { "selector": "input[type='password']" },
-              "timeout": 5000
-            },
-            {
-              "type": "type",
-              "instruction": "Enter password in the password field using stored credential", 
-              "target": { "selector": "input[type='password']" },
-              "data": { "text": "{{gmail_password}}" }, // ✅ Uses credential from storage
-              "credentialField": "gmail_password" // ✅ Links to credential ID
-            }
-          ]
-        },
-        {
-          "id": "complete_login",
-          "type": "atomic_task",
-          "label": "Complete Login",
-          "intent": "Click the sign in button and wait for login completion.",
-          "context": "Final step of login process - submit the login form and wait for redirect to Gmail inbox.",
-          "parentId": "gmail_login_flow", 
-          "actions": [
-            {
-              "type": "click",
-              "instruction": "Click the password Next/Sign in button",
-              "target": { "selector": "#passwordNext" }
-            },
-            {
-              "type": "wait_for_navigation",
-              "instruction": "Wait for successful login and redirect to Gmail inbox",
-              "target": { "url_contains": "mail.google.com/mail" },
-              "timeout": 10000
-            }
-          ]
-        },
-        {
-          "id": "scan_email_list",
-          "type": "atomic_task", 
-          "label": "Scan Email List",
-          "intent": "Visually scan the email list to identify potential investor-related emails.",
-          "context": "Look through the email list in the inbox to find emails that might contain investor information, inquiries, or business opportunities.",
-          "actions": [
-            {
-              "type": "visual_scan",
-              "instruction": "Scan the email list for subject lines and senders that might indicate investor-related content"
-            }
-          ]
-        },
-        {
-          "id": "email_processing_loop",
-          "type": "iterative_loop",
-          "label": "Process Each Investor Email",
-          "intent": "For each identified investor email, extract information and add to CRM.",
-          "context": "This loop processes each investor-related email found in the inbox.",
-          "children": [
-            "select_email",
-            "extract_investor_info", 
-            "open_airtable",
-            "add_to_crm",
-            "mark_processed"
-          ]
-        },
-        {
-          "id": "select_email",
-          "type": "atomic_task",
-          "label": "Select Investor Email",
-          "intent": "Click on an unprocessed investor email to open it.",
-          "context": "Select and open the next investor email that needs to be processed.",
-          "parentId": "email_processing_loop",
-          "actions": [
-            {
-              "type": "click",
-              "instruction": "Click on the first unprocessed investor email in the list",
-              "target": { "selector": "[data-thread-id]:not([data-processed='true'])" }
-            }
-          ]
-        },
-        {
-          "id": "extract_investor_info",
-          "type": "atomic_task",
-          "label": "Extract Investor Information", 
-          "intent": "Read and extract key investor details from the email content.",
-          "context": "Parse the email content to identify investor name, company, contact information, investment interests, and other relevant details.",
-          "parentId": "email_processing_loop",
-          "actions": [
-            {
-              "type": "extract",
-              "instruction": "Extract investor information from email content",
-              "schema": {
-                "name": "string",
-                "company": "string", 
-                "email": "string",
-                "phone": "string",
-                "investment_focus": "string",
-                "message_summary": "string"
-              }
-            }
-          ]
-        },
-        {
-          "id": "open_airtable",
-          "type": "atomic_task",
-          "label": "Open Airtable CRM",
-          "intent": "Navigate to the Airtable CRM using stored base ID and authenticate with API key if needed.",
-          "context": "Access the Airtable database where investor information is stored and managed. Uses {{airtable_base_id}} from credentials to construct the correct URL and {{airtable_api_key}} for authentication if prompted.",
-          "parentId": "email_processing_loop",
-          "credentialsRequired": {
-            "airtable": ["api_key", "base_id"] as ('api_key' | 'base_id')[]
-          },
-          "preferredAuthMethods": {
-            "airtable": ["google_sso", "api_key"] as ('email_password' | 'google_sso' | 'microsoft_sso' | 'api_key')[]
-          },
-          "actions": [
-            {
-              "type": "navigate_or_switch_tab",
-              "instruction": "Navigate to Airtable CRM using stored base ID",
-              "target": { "url": "https://airtable.com/{{airtable_base_id}}" },
-              "credentialField": "airtable_base_id" // ✅ Links to credential ID
-            },
-            {
-              "type": "wait",
-              "instruction": "Wait for Airtable base to load",
-              "timeout": 5000
-            },
-            {
-              "type": "conditional_auth",
-              "instruction": "If prompted for API authentication, use stored API key",
-              "data": { "api_key": "{{airtable_api_key}}" },
-              "credentialField": "airtable_api_key" // ✅ Links to credential ID
-            }
-          ]
-        },
-        {
-          "id": "add_to_crm",
-          "type": "atomic_task",
-          "label": "Add Investor to CRM",
-          "intent": "Create a new record in Airtable with the extracted investor information.",
-          "context": "Fill out the investor information form in Airtable with the details extracted from the email.",
-          "parentId": "email_processing_loop",
-          "actions": [
-            {
-              "type": "click", 
-              "instruction": "Click the 'Add Record' or '+' button to create a new investor entry",
-              "target": { "selector": "[data-testid='add-record-button']" }
-            }
-          ]
-        },
-        {
-          "id": "mark_processed",
-          "type": "atomic_task",
-          "label": "Mark Email as Processed",
-          "intent": "Return to Gmail and mark the email as processed to avoid reprocessing.",
-          "context": "Go back to Gmail and add a label or flag to indicate this email has been processed.",
-          "parentId": "email_processing_loop",
-          "actions": [
-            {
-              "type": "navigate_or_switch_tab",
-              "instruction": "Switch back to Gmail tab",
-              "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
-            }
-          ]
-        }
-      ],
-      "flow": [
-        { "from": "gmail_login_flow", "to": "scan_email_list" },
-        { "from": "scan_email_list", "to": "email_processing_loop" },
-        { "from": "email_processing_loop", "to": "select_email" },
-        { "from": "select_email", "to": "extract_investor_info" },
-        { "from": "extract_investor_info", "to": "open_airtable" },
-        { "from": "open_airtable", "to": "add_to_crm" },
-        { "from": "add_to_crm", "to": "mark_processed" },
-        { "from": "mark_processed", "to": "email_processing_loop", "condition": "more_emails_to_process" }
-      ]
-    }
-  }
-};
+// ✅ CREDENTIAL & AUTH METHOD INTEGRATION: Workflow credential requirements are now
+// dynamically loaded from JSON files using the WorkflowLoader system.
+// The system automatically detects credential requirements from node declarations
+// and provides appropriate auth method selection in the UI, then substitutes 
+// credential placeholders during execution.
 
 function extractAccountAndServiceRequirements(aefDocument: AEFDocument): {
   requiredAccounts: AccountAccess[];
@@ -415,7 +167,7 @@ function getServiceDescription(serviceType: ServiceType, requiredAccount?: Accou
   }
 }
 
-// Temporary bridge function to convert new account system to legacy format
+// Bridge function to convert new account system to legacy format for compatibility
 function convertToLegacyCredentials(
   requiredAccounts: AccountAccess[],
   serviceGroups: EnhancedCredentialGroup[]
@@ -430,17 +182,17 @@ function convertToLegacyCredentials(
         ? AuthenticationMethod.EMAIL_PASSWORD
         : field.fieldType === CredentialType.OAUTH_TOKEN
         ? AuthenticationMethod.GOOGLE_SSO
-        : AuthenticationMethod.EMAIL_PASSWORD; // Default fallback
+        : AuthenticationMethod.EMAIL_PASSWORD;
       
       credentials.push({
         id: `${account.id}_${field.fieldType}`,
-        serviceType: account.supportedServices[0] || ServiceType.CUSTOM, // Use first supported service
-        authMethod: authMethod, // ✅ SET AUTH METHOD
+        serviceType: account.supportedServices[0] || ServiceType.CUSTOM,
+        authMethod: authMethod,
         label: field.label,
         description: `${field.label} for ${account.label}`,
         type: field.fieldType,
         required: true,
-        requiredForSteps: [], // Will be populated by service groups
+        requiredForSteps: [],
         placeholder: field.placeholder,
         helpText: field.helpText,
         masked: field.masked
@@ -456,13 +208,13 @@ function convertToLegacyCredentials(
         const authMethod = setting.fieldType === CredentialType.API_KEY
           ? AuthenticationMethod.API_KEY
           : setting.fieldType === CredentialType.TEXT
-          ? AuthenticationMethod.EMAIL_PASSWORD // For Base IDs, etc.
-          : AuthenticationMethod.EMAIL_PASSWORD; // Default fallback
+          ? AuthenticationMethod.EMAIL_PASSWORD
+          : AuthenticationMethod.EMAIL_PASSWORD;
         
         credentials.push({
           id: setting.id,
           serviceType: setting.serviceType,
-          authMethod: authMethod, // ✅ SET AUTH METHOD
+          authMethod: authMethod,
           label: setting.label,
           description: setting.description,
           type: setting.fieldType,
@@ -479,7 +231,7 @@ function convertToLegacyCredentials(
   return credentials;
 }
 
-// Load workflow from JSON or fall back to hardcoded
+// Load workflow from JSON
 async function loadWorkflowAsAEFDocument(): Promise<AEFDocument> {
   try {
     console.log('🔄 [AEF Control Center] Loading JSON workflow...');
@@ -594,7 +346,7 @@ async function loadWorkflowAsAEFDocument(): Promise<AEFDocument> {
   } catch (error) {
     console.error('❌ [AEF Control Center] Failed to load JSON workflow:', error);
     
-    // Re-throw the error instead of falling back to hardcoded data
+    // Re-throw the error since we're now 100% JSON-driven
     if (error instanceof WorkflowValidationError) {
       throw new Error(`Workflow validation failed: ${error.message}`);
     }
@@ -814,7 +566,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     };
   }, [isResizing]);
   
-  // Load workflow from JSON - no fallback anymore
+  // Load workflow from JSON
   const [aefDocument, setAefDocument] = useState<AEFDocument | null>(null);
   const [workflowLoadError, setWorkflowLoadError] = useState<string | null>(null);
   
@@ -837,7 +589,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     
     loadWorkflow();
   }, []);
-  const isAEF = true; // Always true since we're using hardcoded AEF data
+  const isAEF = true; // Always true since we're using JSON-driven AEF workflow
   
   // Check if this SOP has been transformed to AEF (using mock for demo)
   const shouldShowMock = shouldShowMockAEF(sopId || '');
@@ -849,7 +601,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       return;
     }
     
-    // Skip old system when Enhanced panel is open (it has its own counting)
+    // Skip credential extraction when Enhanced panel is open (it has its own counting)
     if (enhancedCredentialPanelOpen) {
       return;
     }
@@ -867,7 +619,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
           // Use new account-based extraction
           const { requiredAccounts, serviceGroups } = extractAccountAndServiceRequirements(aefDocument);
           
-          // Convert to legacy WorkflowCredential format for compatibility
+          // Convert to WorkflowCredential format for compatibility
           credentialsToValidate = convertToLegacyCredentials(requiredAccounts, serviceGroups);
           
           console.log('🔍 [AEF] Extracted', credentialsToValidate.length, 'credentials from nodes');
@@ -1181,7 +933,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
 
   // Initialize logs on component mount
   useEffect(() => {
-    addLog('info', 'system', 'AEF Control Center initialized', 'Hardcoded test workflow loaded and ready for execution');
+    addLog('info', 'system', 'AEF Control Center initialized', 'JSON workflow loaded and ready for execution');
   }, []);
 
   // Determine the active execution ID based on priority: 
@@ -1189,7 +941,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   // 2. VNC environment ID 
   // 3. Real execution ID
   // 4. Mock execution ID  
-  // 5. Prop execution ID (fallback)
+      // 5. Prop execution ID
   const activeExecutionId = discoveredSession?.executionId || vncEnvironmentId || realExecutionId || mockExecutionState?.executionId || currentExecutionId;
   
   // Debug logging for activeExecutionId
@@ -1231,7 +983,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
               Failed to Load Workflow
             </h3>
             <p className="text-gray-600 mb-4">
-              The JSON workflow could not be loaded. The fallback mechanism has been removed to ensure we're testing the pure JSON implementation.
+              The JSON workflow could not be loaded. Please check the workflow file and schema validation.
             </p>
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4 text-left">
               <p className="text-red-600 text-sm font-mono">{workflowLoadError}</p>

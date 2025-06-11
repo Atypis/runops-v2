@@ -61,64 +61,13 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
     }
   }, [mockExecutionState]);
   
-  // Extract workflow steps from SOP data and get actions from hardcoded data
+  // Extract workflow steps from AEF document 
   const workflowSteps = aefDocument?.public?.nodes || [];
 
-  // Get the hardcoded workflow data to access actions
+  // Get step actions directly from the node data (loaded from JSON)
   const getStepActions = (stepId: string) => {
-    // This is a temporary solution to get the actions from the hardcoded data
-    // In a real implementation, actions would be part of the SOPNode structure
-    const hardcodedActions: { [key: string]: any[] } = {
-      'start_workflow': [
-        {
-          type: 'navigate_or_switch_tab',
-          instruction: 'Navigate to https://mail.google.com/mail/u/0/#inbox or switch to Gmail tab if already open',
-          target: { url: 'https://mail.google.com/mail/u/0/#inbox' }
-        }
-      ],
-      'scan_email_list': [
-        {
-          type: 'visual_scan',
-          instruction: 'Scan the email list for subject lines and senders that might indicate investor-related content'
-        }
-      ],
-      'select_email': [
-        {
-          type: 'click',
-          instruction: 'Click on the first unprocessed investor email in the list',
-          target: { selector: '[data-thread-id]:not([data-processed="true"])' }
-        }
-      ],
-      'extract_investor_info': [
-        {
-          type: 'visual_scan',
-          instruction: 'Read email content and identify investor information including name, company, email, phone, investment focus'
-        }
-      ],
-      'open_airtable': [
-        {
-          type: 'navigate_or_switch_tab',
-          instruction: 'Navigate to Airtable CRM or switch to existing Airtable tab',
-          target: { url: 'https://airtable.com/appXXX/tblYYY/viwZZZ' }
-        }
-      ],
-      'add_to_crm': [
-        {
-          type: 'click',
-          instruction: 'Click the "Add Record" or "+" button to create a new investor entry',
-          target: { selector: '[data-testid="add-record-button"]' }
-        }
-      ],
-      'mark_processed': [
-        {
-          type: 'navigate_or_switch_tab',
-          instruction: 'Switch back to Gmail tab',
-          target: { url: 'https://mail.google.com/mail/u/0/#inbox' }
-        }
-      ]
-    };
-    
-    return hardcodedActions[stepId] || [];
+    const stepNode = workflowSteps.find(step => step.id === stepId);
+    return stepNode?.actions || [];
   };
 
   const toggleStepExpansion = (stepId: string) => {
