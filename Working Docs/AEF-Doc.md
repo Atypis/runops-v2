@@ -747,3 +747,142 @@ app_frontend/aef/workflows/
 - **Lines Removed**: 700+ (hardcoded workflow definitions)
 - **Lines Added**: 800+ (JSON infrastructure and validation)
 - **Execution**: 100% JSON-driven with schema validation and credential injection
+
+---
+
+## 🆕 v4.1 – Unified Execution Path
+
+> **Why this change?** Prior to v4.1 we had two parallel execution routes:
+> 1. `/api/aef/action/[id]` – triggered by the **RUN** button on an individual node.
+> 2. `/api/aef/execute-nodes` – triggered by **Select-nodes → Run** (multi-node execution).
+>
+> These diverged over time (different credential-injection logic, authentication context, logging), causing bugs such as credential placeholders not being replaced for multi-node runs. v4.1 collapses the two flows into *one* canonical pipeline driven by the **ExecutionEngine**.
+
+### 🔗 Public API Surface
+| Endpoint | Purpose | Notes |
+|----------|---------|-------|
+| **POST `/api/aef/execute-nodes`** | Execute one or more workflow nodes consecutively | Accepts `nodeIds[]`, `executionId`, `workflowId` (defaults to `gmail-investor-crm-v2`). Requires an authenticated session cookie. |
+| **POST `/api/aef/action/[id]`** | _Legacy compatibility_. Internally proxies to `/execute-nodes` with `nodeIds=[stepId]`. Will be deprecated in v4.2. |
+
+### 🛣️  Request → Execution Flow
+1. **Authentication** – Route uses `createSupabaseServerClient()` to retrieve the logged-in user (`SUPABASE_AUTH`).
+2. **Workflow Load** – `ServerWorkflowLoader.loadWorkflow(workflowId)` parses the JSON file and validates against `workflow-schema.json`.
+3. **ExecutionEngine Instantiation**
+   ```ts
+   const engine = new ExecutionEngine(workflow, user.id, workflowId);
+   engine.setSupabaseClient(serviceRoleSupabase); // credential db access
+   ```
+4. **Credential Validation** – `engine.validateCredentials()` checks that all required credentials exist before any node runs.
+5. **Node Execution** – `engine.executeNodesConsecutively(executionId, nodeIds)` iterates through each node:
+   • Variable resolution  →  • Credential injection  →  • HybridBrowserManager action dispatch  →  • Node-level logging.
+6. **Logging** – All node logs are stored in‐memory (`nodeLogs` Map) and streamed to the frontend via `/api/aef/logs/[executionId]/[nodeId]` (unchanged).
+7. **Response** – JSON object keyed by `nodeId` → `{ success, message, nextNodeId }`.
+
+### 🔐  Credential Injection – Single Source of Truth
+* `ExecutionEngine.injectCredentialsIntoAction()` is now the *only* place where credentials are fetched & injected.
+* Uses the **service-role** Supabase client passed from the route ➜ direct database read (no HTTP round-trip).
+* After injection, credentials are wiped from memory with `CredentialInjectionService.clearCredentialsFromMemory()`.
+
+### 🗺️  Architectural Diagram
+```mermaid
+graph TD
+    A[Frontend RUN / Select-Nodes] -->|HTTP POST| B[/api/aef/execute-nodes]
+    B --> C{Auth & Validation}
+    C -->|load JSON| D[ServerWorkflowLoader]
+    D --> E[ExecutionEngine]
+    E --> F[CredentialInjectionService]
+    E --> G[HybridBrowserManager]
+    G --> H[VNC Container]
+    E --> I[NodeLogs Map]
+    I --> J[/api/aef/logs/...]
+```
+
+### 🚦  Deprecation Timeline
+| Version | Change |
+|---------|--------|
+| 4.1 (current) | `/api/aef/action/[id]` proxies to the unified route. |
+| 4.2 | Route will emit a deprecation warning header. |
+| 4.3 | Route removed; clients must call `/execute-nodes` directly. |
+
+### ✅  Benefits
+* **Consistent behaviour** across single & multi-node runs.
+* **One credential path** – eliminates placeholder-leak bugs.
+* **Simpler maintenance** – all enhancements (parallel runs, breakpoints, etc.) touch only `ExecutionEngine`.
+* **Clear logging** – every node passes its own `nodeId` → no log cross-contamination.
+
+### 📑 Comprehensive Reference (v4.1)
+
+#### Workflow Node Types
+| Type | Purpose | Notes |
+|------|---------|-------|
+| `atomic_task` | Smallest executable unit (1–N actions) | Default leaf node |
+| `compound_task` | Parent that orchestrates children | Supports `canExecuteAsGroup` flag |
+| `iterative_loop` | Repeat its children until loop-exit condition | Children executed in order each iteration |
+| `decision` | Branch based on runtime evaluation | Exposes `outgoingEdges` with conditions |
+| `assert` | Validate state (URL match, text present, etc.) | Halts/flags on failure |
+| `error_handler` | Local recover block for sibling/child failures | Can retry / skip / abort |
+| `data_transform` | Pure function node that transforms extracted data | Runs in server context (no browser) |
+| `generator` | Produces new data (e.g. AI generation) | Output persisted to variable store |
+| `explore` | Open-ended AI exploration step | Uses GPT-4o auto-tooling |
+
+#### Action Types (ExecutionEngine → HybridBrowserManager)
+| Action | Description |
+|--------|-------------|
+| `navigate` | Hard, direct URL navigation |
+| `navigate_or_switch_tab` | If `url_contains` already open, switches, else navigates |
+| `click` | DOM click by selector or AI heuristics |
+| `type` | Direct keystroke entry |
+| `wait` | Fixed sleep in ms |
+| `wait_for_navigation` | Wait until URL regex / DOM condition satisfied |
+| `act` | **AI-powered**; large-context instruction (fallback when selectors fail) |
+| `extract` | Structured extraction with JSON schema |
+| `visual_scan` | CV scan for template-free element recognition |
+| `conditional_auth` | Detect & perform login prompts |
+| `paginate_extract` | Scroll/paginate list & extract batch JSON data |
+| `search_airtable` | Hit Airtable API to locate record (server-only action) |
+| `label_email` | Add Gmail label via keyboard/API |
+| `clear_memory` | Flush in-engine transient state |
+| `generator` | (paired with generator node) produce content via LLM |
+
+> **Tip:** All actions accept `stepId`, `nodeId`, `actionIndex` fields – these drive granular logging & replay.
+
+#### Logging & Debugging Enhancements
+* **NodeLogViewer** – Expandable, colour-coded log pane under each node.
+* **Seven log types**
+  | Color | Type |
+  |-------|------|
+  | 🔵 `prompt` | LLM prompt sent |
+  | 🟣 `accessibility_tree` | AX tree snapshot |
+  | 🟢 `llm_response` | Model completion |
+  | 🟠 `action` | Browser action dispatched |
+  | ⚫ `screenshot` | Screenshot reference |
+  | 🔴 `error` | Failure w/ stack |
+  | 🟢 `success` | Successful completion |
+* **Auto-scroll** – Only if user is already near bottom (≤10 px) to avoid jump.
+* Endpoint: `GET /api/aef/logs/[executionId]/[nodeId]` (poll every 2 s).
+
+#### UI Quality-of-Life
+* **Resizable Panels** – Drag vertical & horizontal splitters in `AEFControlCenter` to resize ExecutionEngine, RemoteDesktop, and Log pane.
+* **Credential Badge Removed** – Top-of-panel red "Credentials required" banner eliminated for cleaner UI; credential status now lives inside Execution sidebar.
+
+#### Credential Pipeline Changes
+1. **Single Injection Point** – `ExecutionEngine.injectCredentialsIntoAction()`.
+2. **Service-Role DB Access** – Credentials fetched server-side (no XHR round-trip).
+3. **Memory Hygiene** – Every injection followed by `clearCredentialsFromMemory()`.
+4. **Validation Pre-flight** – `validateCredentials()` blocks run if any credential missing.
+
+#### Endpoint Quick-Sheet (v4.1)
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/aef/execute` | POST | ✅ | Run entire workflow (unchanged) |
+| `/api/aef/execute-nodes` | POST | ✅ | **NEW canonical** – run 1-N nodes |
+| `/api/aef/action/[id]` | POST | ✅ | Legacy single-node, proxies to above |
+| `/api/aef/logs/[executionId]/[nodeId]` | GET | ✅ | Live log stream |
+| `/api/vnc/*` | var | – | Remote desktop ops |
+
+#### Developer Notes
+* **Dev server** – Run from project root: `pnpm --filter app_frontend dev` (workspace) or `npm --workspace app_frontend run dev` (package.json inside workspace).
+* **Unit tests** – `pnpm --filter app_frontend test` (jest + playwright stub).
+* **Schema updates** – After editing `workflow-schema.json`, regenerate TS types via `npm run schema:gen`.
+
+---

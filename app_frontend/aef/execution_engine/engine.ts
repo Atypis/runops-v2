@@ -3,6 +3,7 @@ import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { CredentialInjectionService, ExecutionCredentials } from '@/lib/credentials/injection';
 import { WorkflowCredential } from '@/lib/types/aef';
 import { VariableResolver, VariableContext } from '@/lib/workflow/VariableResolver';
+import { NodeLogger } from '@/lib/logging/NodeLogger';
 
 // A placeholder for the more complex node structure from the JSON file
 type WorkflowNode = SOPNode & {
@@ -33,6 +34,7 @@ export class ExecutionEngine {
   private userId: string;
   private workflowId: string;
   private supabaseClient: any; // Service role Supabase client for credential access
+  private loggers: Map<string, NodeLogger> = new Map(); // Node ID -> Logger
 
   constructor(sop: WorkflowDocument, userId: string, workflowId?: string) {
     this.sop = sop;
@@ -46,6 +48,17 @@ export class ExecutionEngine {
    */
   public setSupabaseClient(supabaseClient: any): void {
     this.supabaseClient = supabaseClient;
+  }
+
+  /**
+   * Get or create a logger for a specific node
+   */
+  private getLogger(executionId: string, nodeId: string): NodeLogger {
+    const key = `${executionId}-${nodeId}`;
+    if (!this.loggers.has(key)) {
+      this.loggers.set(key, new NodeLogger(executionId, nodeId, this.supabaseClient));
+    }
+    return this.loggers.get(key)!;
   }
 
   public async start(executionId: string) {
@@ -71,7 +84,13 @@ export class ExecutionEngine {
       return { success: false, message };
     }
 
+    const logger = this.getLogger(executionId, nodeId);
+    const startTime = Date.now();
+
     try {
+      // Log node start
+      await logger.logNodeStart(node.label, node.type);
+      
       this.currentNode = node;
       await this.executeNode(executionId, node);
       
@@ -79,8 +98,12 @@ export class ExecutionEngine {
       const nextNode = this.findNextNode(nodeId);
       const nextNodeId = nextNode?.id;
       
+      const duration = Date.now() - startTime;
       const message = `Node ${nodeId} (${node.label}) executed successfully`;
       console.log(`✅ ${message}`);
+      
+      // Log node completion
+      await logger.logNodeComplete(node.label, duration);
       
       return { 
         success: true, 
@@ -88,8 +111,13 @@ export class ExecutionEngine {
         nextNodeId 
       };
     } catch (error) {
+      const duration = Date.now() - startTime;
       const message = `Failed to execute node ${nodeId}: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(message);
+      
+      // Log node error
+      await logger.logNodeError(node.label, error instanceof Error ? error : new Error(String(error)), duration);
+      
       return { success: false, message };
     }
   }
@@ -151,6 +179,8 @@ export class ExecutionEngine {
   private async executeNode(executionId: string, node: WorkflowNode) {
     console.log(`  🔍 Node type: ${node.type}`);
     console.log(`  💭 Intent: ${node.intent}`);
+    
+    const logger = this.getLogger(executionId, node.id);
     
     // Create variable context for this node
     const variableContext = VariableResolver.createContext(
@@ -227,6 +257,8 @@ export class ExecutionEngine {
                 case 'navigate':
                 case 'navigate_or_switch_tab':
                     console.log(`    - Navigating to: ${action.target?.url}`);
+                    await logger.logActionStart('navigate', action.instruction || `Navigate to ${action.target?.url}`);
+                    const navStartTime = Date.now();
                     try {
                         const result = await hybridBrowserManager.executeAction(executionId, {
                             type: 'navigate',
@@ -234,13 +266,17 @@ export class ExecutionEngine {
                             stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Navigation completed:`, result);
+                        await logger.logActionResult('navigate', result, Date.now() - navStartTime);
                     } catch (error) {
                         console.error(`    ❌ Navigation failed:`, error);
+                        await logger.logActionResult('navigate', { success: false, error: error instanceof Error ? error.message : String(error) }, Date.now() - navStartTime);
                     }
                     break;
                     
                 case 'click':
                     console.log(`    - Clicking element: ${action.target?.selector || 'using instruction'}`);
+                    await logger.logActionStart('click', action.instruction || `Click ${action.target?.selector}`);
+                    const clickStartTime = Date.now();
                     try {
                         const result = await hybridBrowserManager.executeAction(executionId, {
                             type: 'click',
@@ -251,8 +287,10 @@ export class ExecutionEngine {
                             stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Click completed:`, result);
+                        await logger.logActionResult('click', result, Date.now() - clickStartTime);
                     } catch (error) {
                         console.error(`    ❌ Click failed:`, error);
+                        await logger.logActionResult('click', { success: false, error: error instanceof Error ? error.message : String(error) }, Date.now() - clickStartTime);
                     }
                     break;
 
