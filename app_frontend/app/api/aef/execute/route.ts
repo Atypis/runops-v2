@@ -42,10 +42,10 @@ export async function POST(request: NextRequest) {
     let aefDocument: any;
     
     // First try to load as a JSON workflow
-    if (aefDocumentId === 'gmail-investor-crm' || aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa') {
+    if (aefDocumentId === 'gmail-investor-crm-v2' || aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa') {
       try {
         console.log(`🔄 Loading JSON workflow: ${aefDocumentId}`);
-        const workflowId = aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa' ? 'gmail-investor-crm' : aefDocumentId;
+        const workflowId = aefDocumentId === 'test-investor-email-workflow' || aefDocumentId === '51e93cf8-074a-48c3-8678-39c3076dd5fa' ? 'gmail-investor-crm-v2' : aefDocumentId;
         
         const workflow = await ServerWorkflowLoader.loadWorkflow(workflowId);
         

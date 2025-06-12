@@ -2,6 +2,7 @@ import { SOPDocument, SOPNode, BrowserInstruction } from '../../lib/types/sop';
 import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
 import { CredentialInjectionService, ExecutionCredentials } from '@/lib/credentials/injection';
 import { WorkflowCredential } from '@/lib/types/aef';
+import { VariableResolver, VariableContext } from '@/lib/workflow/VariableResolver';
 
 // A placeholder for the more complex node structure from the JSON file
 type WorkflowNode = SOPNode & {
@@ -31,12 +32,20 @@ export class ExecutionEngine {
   private currentNode: WorkflowNode | undefined;
   private userId: string;
   private workflowId: string;
+  private supabaseClient: any; // Service role Supabase client for credential access
 
   constructor(sop: WorkflowDocument, userId: string, workflowId?: string) {
     this.sop = sop;
     this.state = new Map<string, any>();
     this.userId = userId;
     this.workflowId = workflowId || (sop as any).meta?.id || 'unknown';
+  }
+
+  /**
+   * Set the Supabase client for credential access
+   */
+  public setSupabaseClient(supabaseClient: any): void {
+    this.supabaseClient = supabaseClient;
   }
 
   public async start(executionId: string) {
@@ -85,6 +94,31 @@ export class ExecutionEngine {
     }
   }
 
+  // New method: Execute multiple nodes consecutively
+  public async executeNodesConsecutively(executionId: string, nodeIds: string[]): Promise<Map<string, { success: boolean; message: string; nextNodeId?: string }>> {
+    console.log(`🎯 Executing ${nodeIds.length} nodes consecutively:`, nodeIds);
+    
+    const results = new Map<string, { success: boolean; message: string; nextNodeId?: string }>();
+    
+    for (const nodeId of nodeIds) {
+      console.log(`🔄 Executing node ${nodeId}...`);
+      
+      const result = await this.executeNodeById(executionId, nodeId);
+      results.set(nodeId, result);
+      
+      if (!result.success) {
+        console.warn(`⚠️ Node ${nodeId} failed, continuing with next node...`);
+        // Continue with next node even if current one fails
+      }
+      
+      // Add delay between nodes for better observability
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    console.log(`✅ Completed consecutive execution of ${nodeIds.length} nodes`);
+    return results;
+  }
+
   private async execute(executionId: string) {
     let nodeCount = 0;
     const maxNodes = 20; // Safety limit
@@ -118,23 +152,50 @@ export class ExecutionEngine {
     console.log(`  🔍 Node type: ${node.type}`);
     console.log(`  💭 Intent: ${node.intent}`);
     
-    // Handle different node types
-    if (node.type === 'iterative_loop') {
-        console.log(`  🔄 Loop node detected: ${node.label}`);
+    // Create variable context for this node
+    const variableContext = VariableResolver.createContext(
+      this.userId,
+      this.workflowId,
+      executionId,
+      node.id
+    );
+    
+    // Resolve variables in the node before execution
+    const resolvedNode = VariableResolver.resolveObjectVariables(node, variableContext) as WorkflowNode;
+    
+    // Handle new bulletproof node types
+    switch (resolvedNode.type) {
+      case 'decision':
+        return await this.executeDecisionNode(executionId, resolvedNode);
+      case 'assert':
+        return await this.executeAssertNode(executionId, resolvedNode);
+      case 'error_handler':
+        return await this.executeErrorHandlerNode(executionId, resolvedNode);
+      case 'data_transform':
+        return await this.executeDataTransformNode(executionId, resolvedNode);
+      case 'generator':
+        return await this.executeGeneratorNode(executionId, resolvedNode);
+      case 'explore':
+        return await this.executeExploreNode(executionId, resolvedNode);
+    }
+    
+    // Handle legacy node types
+    if (resolvedNode.type === 'iterative_loop') {
+        console.log(`  🔄 Loop node detected: ${resolvedNode.label}`);
         // For MVP, we'll just log that we're entering the loop
         // In a full implementation, this would set up loop state
         return;
     }
     
-    if (node.type === 'compound_task') {
-        console.log(`  📦 Compound task detected: ${node.label}`);
-        console.log(`  👶 Children: ${node.children?.join(', ')}`);
+    if (resolvedNode.type === 'compound_task') {
+        console.log(`  📦 Compound task detected: ${resolvedNode.label}`);
+        console.log(`  👶 Children: ${resolvedNode.children?.join(', ')}`);
         
         // Check if this compound task should execute all children
-        if (node.canExecuteAsGroup && node.children) {
+        if (resolvedNode.canExecuteAsGroup && resolvedNode.children) {
             console.log(`  🎬 Executing all children sequentially for compound task`);
             
-            for (const childId of node.children) {
+            for (const childId of resolvedNode.children) {
                 const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
                 if (childNode) {
                     console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
@@ -147,19 +208,19 @@ export class ExecutionEngine {
                 }
             }
             
-            console.log(`  ✅ Compound task completed: ${node.label}`);
+            console.log(`  ✅ Compound task completed: ${resolvedNode.label}`);
             return;
         } else {
-            console.log(`  ℹ️ Compound task defined but not executing children (canExecuteAsGroup: ${node.canExecuteAsGroup})`);
+            console.log(`  ℹ️ Compound task defined but not executing children (canExecuteAsGroup: ${resolvedNode.canExecuteAsGroup})`);
             return;
         }
     }
     
     // Execute actions for atomic tasks
-    if (node.actions && Array.isArray(node.actions)) {
-        console.log(`  🎬 Executing ${node.actions.length} actions`);
+    if (resolvedNode.actions && Array.isArray(resolvedNode.actions)) {
+        console.log(`  🎬 Executing ${resolvedNode.actions.length} actions`);
         
-        for (const action of node.actions) {
+        for (const action of resolvedNode.actions) {
             console.log(`    - Action: ${action.type}`);
             
             switch (action.type) {
@@ -170,7 +231,7 @@ export class ExecutionEngine {
                         const result = await hybridBrowserManager.executeAction(executionId, {
                             type: 'navigate',
                             data: { url: action.target?.url },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Navigation completed:`, result);
                     } catch (error) {
@@ -187,7 +248,7 @@ export class ExecutionEngine {
                                 selector: action.target?.selector,
                                 instruction: action.instruction 
                             },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Click completed:`, result);
                     } catch (error) {
@@ -205,11 +266,11 @@ export class ExecutionEngine {
                                 selector: action.target?.selector,
                                 text: action.data?.text 
                             },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         };
                         
                         // Inject credentials if needed
-                        browserAction = await this.injectCredentialsIntoAction(browserAction, node);
+                        browserAction = await this.injectCredentialsIntoAction(browserAction, resolvedNode);
                         
                         const result = await hybridBrowserManager.executeAction(executionId, browserAction);
                         console.log(`    ✅ Type completed:`, result);
@@ -227,7 +288,7 @@ export class ExecutionEngine {
                                 selector: action.target?.selector,
                                 timeout: action.timeout || 5000
                             },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Wait completed:`, result);
                     } catch (error) {
@@ -244,7 +305,7 @@ export class ExecutionEngine {
                                 url_contains: action.target?.url_contains,
                                 timeout: action.timeout || 10000
                             },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Navigation wait completed:`, result);
                     } catch (error) {
@@ -261,7 +322,7 @@ export class ExecutionEngine {
                                 instruction: action.instruction,
                                 schema: action.schema
                             },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         });
                         console.log(`    ✅ Extract completed:`, result);
                     } catch (error) {
@@ -279,11 +340,11 @@ export class ExecutionEngine {
                                 instruction: action.instruction,
                                 ...action.data  // Include any additional data from the workflow
                             },
-                            stepId: node.id
+                            stepId: resolvedNode.id
                         };
                         
                         // Inject credentials if needed (this handles {{gmail_email}} replacement)
-                        browserAction = await this.injectCredentialsIntoAction(browserAction, node);
+                        browserAction = await this.injectCredentialsIntoAction(browserAction, resolvedNode);
                         
                         const result = await hybridBrowserManager.executeAction(executionId, browserAction);
                         console.log(`    ✅ Act completed:`, result);
@@ -299,11 +360,408 @@ export class ExecutionEngine {
                     await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate work
                     break;
 
+                case 'observe':
+                    console.log(`    - Observing action: ${action.instruction}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'observe',
+                            data: { 
+                                instruction: action.instruction,
+                                maxActions: action.maxActions || 1
+                            },
+                            stepId: resolvedNode.id
+                        });
+                        console.log(`    ✅ Observe completed:`, result);
+                        // Store observed actions for later use
+                        this.state.set(`${resolvedNode.id}_observed_actions`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Observe failed:`, error);
+                    }
+                    break;
+
+                case 'clear_memory':
+                    console.log(`    - Clearing Stagehand memory`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'clear_memory',
+                            data: {},
+                            stepId: resolvedNode.id
+                        });
+                        console.log(`    ✅ Memory cleared:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Memory clear failed:`, error);
+                    }
+                    break;
+
+                case 'label_email':
+                    console.log(`    - Labeling email: ${action.data?.label}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'label_email',
+                            data: { 
+                                label: action.data?.label || 'AEF-Processed'
+                            },
+                            stepId: resolvedNode.id
+                        });
+                        console.log(`    ✅ Email labeled:`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Email labeling failed:`, error);
+                    }
+                    break;
+
+                case 'search_airtable':
+                    console.log(`    - Searching Airtable: ${action.data?.searchValue}`);
+                    try {
+                        const result = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'search_airtable',
+                            data: { 
+                                searchFields: action.data?.searchFields || ['name'],
+                                searchValue: action.data?.searchValue
+                            },
+                            stepId: resolvedNode.id
+                        });
+                        console.log(`    ✅ Airtable search completed:`, result);
+                        // Store search results for decision nodes
+                        this.state.set(`${resolvedNode.id}_search_results`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Airtable search failed:`, error);
+                    }
+                    break;
+
+                case 'paginate_extract':
+                    console.log(`    - Paginating and extracting: ${action.instruction}`);
+                    try {
+                        const result = await this.executePaginateExtract(executionId, action, resolvedNode);
+                        console.log(`    ✅ Paginate extract completed:`, result);
+                        // Store extracted data for processing
+                        this.state.set(`${resolvedNode.id}_extracted_data`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Paginate extract failed:`, error);
+                    }
+                    break;
+
                 default:
                     console.log(`    - Action type '${action.type}' is not yet implemented.`);
             }
         }
     }
+  }
+
+  // New node type handlers
+  private async executeDecisionNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  🔀 Decision node: ${node.label}`);
+    
+    if (!node.actions || node.actions.length === 0) {
+      console.warn(`  ⚠️ Decision node ${node.id} has no actions to evaluate condition`);
+      return;
+    }
+
+    // Execute the decision action (usually an extract)
+    const action = node.actions[0];
+    let decisionResult: any = null;
+
+    try {
+      if (action.type === 'extract') {
+        const result = await hybridBrowserManager.executeAction(executionId, {
+          type: 'extract',
+          data: { 
+            instruction: action.instruction,
+            schema: action.schema
+          },
+          stepId: node.id
+        });
+        decisionResult = result;
+      }
+
+      // Store decision result for flow navigation
+      this.state.set(`${node.id}_decision_result`, decisionResult);
+      console.log(`  ✅ Decision evaluated:`, decisionResult);
+    } catch (error) {
+      console.error(`  ❌ Decision evaluation failed:`, error);
+      // Default to 'N' path on error
+      this.state.set(`${node.id}_decision_result`, { decision: false });
+    }
+  }
+
+  private async executeAssertNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  ✅ Assert node: ${node.label}`);
+    
+    // Check assert conditions
+    if (node.assertConditions && Array.isArray(node.assertConditions)) {
+      for (const condition of node.assertConditions) {
+        console.log(`    - Checking condition: ${condition.type} = ${condition.value}`);
+        
+        try {
+          let conditionMet = false;
+          
+          switch (condition.type) {
+            case 'selectorVisible':
+              const visibilityResult = await hybridBrowserManager.executeAction(executionId, {
+                type: 'extract',
+                data: { 
+                  instruction: `Check if element with selector "${condition.value}" is visible`,
+                  schema: { visible: 'boolean' }
+                },
+                stepId: node.id
+              });
+              conditionMet = visibilityResult?.visible === true;
+              break;
+              
+            case 'urlMatch':
+              const urlResult = await hybridBrowserManager.executeAction(executionId, {
+                type: 'extract',
+                data: { 
+                  instruction: `Check if current URL contains "${condition.value}"`,
+                  schema: { urlMatches: 'boolean' }
+                },
+                stepId: node.id
+              });
+              conditionMet = urlResult?.urlMatches === true;
+              break;
+              
+            case 'textPresent':
+              const textResult = await hybridBrowserManager.executeAction(executionId, {
+                type: 'extract',
+                data: { 
+                  instruction: `Check if text "${condition.value}" is present on the page`,
+                  schema: { textPresent: 'boolean' }
+                },
+                stepId: node.id
+              });
+              conditionMet = textResult?.textPresent === true;
+              break;
+          }
+          
+          if (!conditionMet) {
+            throw new Error(`Assertion failed: ${condition.type} = ${condition.value}`);
+          }
+          
+          console.log(`    ✅ Condition met: ${condition.type}`);
+        } catch (error) {
+          console.error(`    ❌ Assertion failed:`, error);
+          throw error; // Re-throw to stop execution
+        }
+      }
+    }
+
+    // Execute any additional actions
+    if (node.actions && node.actions.length > 0) {
+      for (const action of node.actions) {
+        await this.executeAction(executionId, action, node);
+      }
+    }
+  }
+
+  private async executeErrorHandlerNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  🚨 Error handler node: ${node.label}`);
+    
+    if (node.humanEscalate) {
+      console.log(`  👤 Human escalation required for: ${node.label}`);
+      // In a real implementation, this would send notifications
+      // For now, we'll pause execution and log
+      console.log(`  ⏸️ Execution paused for human intervention`);
+      
+      // Execute any actions (like waiting for human input)
+      if (node.actions && node.actions.length > 0) {
+        for (const action of node.actions) {
+          await this.executeAction(executionId, action, node);
+        }
+      }
+    } else if (node.fallbackAction) {
+      console.log(`  🔄 Executing fallback action: ${node.fallbackAction}`);
+      // Execute fallback logic
+    }
+  }
+
+  private async executeDataTransformNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  🔄 Data transform node: ${node.label}`);
+    
+    if (node.transformFunction) {
+      try {
+        // Get input data from previous node or state
+        const inputData = this.state.get(`${node.id}_input_data`) || {};
+        
+        // WARNING: This is a security risk in production - should use sandboxed execution
+        const transformFn = new Function('data', `return (${node.transformFunction})(data);`);
+        const transformedData = transformFn(inputData);
+        
+        // Store transformed data
+        this.state.set(`${node.id}_transformed_data`, transformedData);
+        console.log(`  ✅ Data transformed:`, transformedData);
+      } catch (error) {
+        console.error(`  ❌ Data transformation failed:`, error);
+        throw error;
+      }
+    }
+  }
+
+  private async executeGeneratorNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  📝 Generator node: ${node.label}`);
+    
+    // Execute actions (usually extract with generation instruction)
+    if (node.actions && node.actions.length > 0) {
+      for (const action of node.actions) {
+        if (action.type === 'extract') {
+          try {
+            const result = await hybridBrowserManager.executeAction(executionId, {
+              type: 'extract',
+              data: { 
+                instruction: action.instruction,
+                schema: action.schema
+              },
+              stepId: node.id
+            });
+            
+            // Store generated content
+            this.state.set(`${node.id}_generated_content`, result);
+            console.log(`  ✅ Content generated:`, result);
+          } catch (error) {
+            console.error(`  ❌ Content generation failed:`, error);
+          }
+        }
+      }
+    }
+  }
+
+  private async executeExploreNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  🔍 Explore node: ${node.label}`);
+    
+    const maxActions = node.maxActions || 6;
+    console.log(`  📊 Max exploration actions: ${maxActions}`);
+    
+    // Execute bounded exploration
+    if (node.actions && node.actions.length > 0) {
+      for (const action of node.actions) {
+        if (action.type === 'observe') {
+          try {
+            const result = await hybridBrowserManager.executeAction(executionId, {
+              type: 'observe',
+              data: { 
+                instruction: action.instruction,
+                maxActions: maxActions
+              },
+              stepId: node.id
+            });
+            
+            // Store exploration results
+            this.state.set(`${node.id}_exploration_results`, result);
+            console.log(`  ✅ Exploration completed:`, result);
+          } catch (error) {
+            console.error(`  ❌ Exploration failed:`, error);
+          }
+        }
+      }
+    }
+  }
+
+  // Helper method to execute individual actions
+  private async executeAction(executionId: string, action: any, node: WorkflowNode): Promise<void> {
+    console.log(`    - Action: ${action.type}`);
+    
+    switch (action.type) {
+      case 'extract':
+        try {
+          const result = await hybridBrowserManager.executeAction(executionId, {
+            type: 'extract',
+            data: { 
+              instruction: action.instruction,
+              schema: action.schema
+            },
+            stepId: node.id
+          });
+          console.log(`    ✅ Extract completed:`, result);
+          return result;
+        } catch (error) {
+          console.error(`    ❌ Extract failed:`, error);
+          throw error;
+        }
+        
+      case 'act':
+        try {
+          let browserAction = {
+            type: 'act' as const,
+            data: { 
+              instruction: action.instruction,
+              ...action.data
+            },
+            stepId: node.id
+          };
+          
+          browserAction = await this.injectCredentialsIntoAction(browserAction, node);
+          
+          const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+          console.log(`    ✅ Act completed:`, result);
+          return result;
+        } catch (error) {
+          console.error(`    ❌ Act failed:`, error);
+          throw error;
+        }
+        
+      default:
+        console.log(`    - Action type '${action.type}' not handled in executeAction`);
+    }
+  }
+
+  // Helper method for paginate_extract
+  private async executePaginateExtract(executionId: string, action: any, node: WorkflowNode): Promise<any> {
+    const allResults: any[] = [];
+    let hasMorePages = true;
+    let pageCount = 0;
+    const maxPages = 10; // Safety limit
+    
+    while (hasMorePages && pageCount < maxPages) {
+      console.log(`    📄 Processing page ${pageCount + 1}`);
+      
+      try {
+        // Extract current page
+        const pageResult = await hybridBrowserManager.executeAction(executionId, {
+          type: 'extract',
+          data: { 
+            instruction: action.instruction,
+            schema: action.schema
+          },
+          stepId: node.id
+        });
+        
+        if (pageResult && pageResult.threads && Array.isArray(pageResult.threads)) {
+          allResults.push(...pageResult.threads);
+        }
+        
+        // Check for next page
+        const hasNext = await hybridBrowserManager.executeAction(executionId, {
+          type: 'extract',
+          data: { 
+            instruction: "Check if 'Older' or 'Next' button is enabled and visible",
+            schema: { hasNextPage: 'boolean' }
+          },
+          stepId: node.id
+        });
+        
+        if (hasNext?.hasNextPage) {
+          // Click next page
+          await hybridBrowserManager.executeAction(executionId, {
+            type: 'act',
+            data: { 
+              instruction: "Click the 'Older' or 'Next' button to go to next page"
+            },
+            stepId: node.id
+          });
+          
+          // Wait for page to load
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } else {
+          hasMorePages = false;
+        }
+        
+        pageCount++;
+      } catch (error) {
+        console.error(`    ❌ Page ${pageCount + 1} extraction failed:`, error);
+        hasMorePages = false;
+      }
+    }
+    
+    console.log(`    📊 Extracted ${allResults.length} items from ${pageCount} pages`);
+    return { threads: allResults, totalPages: pageCount };
   }
 
   private findNextNode(currentId: string): WorkflowNode | undefined {
@@ -426,6 +884,7 @@ export class ExecutionEngine {
       }
       
       console.log(`🔐 [ExecutionEngine] Action requires credentials, injecting for step ${node.id}`);
+      console.log(`🔐 [ExecutionEngine] User ID: ${this.userId}, Workflow ID: ${this.workflowId}`);
       
       // Get required credentials for this step
       const requiredCreds = CredentialInjectionService.extractRequiredCredentialsFromStep(
@@ -433,13 +892,26 @@ export class ExecutionEngine {
         this.sop.execution.workflow.nodes
       );
       
-      // Get credentials for this step
-      const credentials = await CredentialInjectionService.getCredentialsForStep(
+      console.log(`🔐 [ExecutionEngine] Required credentials for step ${node.id}:`, requiredCreds);
+      
+      // ✅ FIXED: Use the passed Supabase client for credential access
+      if (!this.supabaseClient) {
+        console.error(`❌ [ExecutionEngine] No Supabase client available for credential injection`);
+        return browserAction;
+      }
+      
+      console.log(`🔐 [ExecutionEngine] Using Supabase client for credential access`);
+      
+      // Get credentials for this step using authenticated Supabase client
+      const credentials = await CredentialInjectionService.getCredentialsForStepWithSupabase(
         node.id,
         this.userId,
         this.workflowId,
+        this.supabaseClient,
         requiredCreds
       );
+      
+      console.log(`🔐 [ExecutionEngine] Retrieved credentials:`, Object.keys(credentials || {}));
       
       // Inject credentials into action
       const injectedAction = CredentialInjectionService.injectCredentialsIntoAction(

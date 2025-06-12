@@ -21,6 +21,25 @@ let stagehand = null;
 let isInitialized = false;
 let lastActivity = Date.now();
 
+// In-memory log storage for debugging
+const nodeLogs = new Map(); // nodeId -> logs[]
+
+function addNodeLog(nodeId, logEntry) {
+  if (!nodeLogs.has(nodeId)) {
+    nodeLogs.set(nodeId, []);
+  }
+  nodeLogs.get(nodeId).push({
+    ...logEntry,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Keep only last 50 logs per node to prevent memory issues
+  const logs = nodeLogs.get(nodeId);
+  if (logs.length > 50) {
+    logs.splice(0, logs.length - 50);
+  }
+}
+
 // Health endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -199,11 +218,26 @@ app.post('/action', async (req, res) => {
     }
     
     const { type, data } = req.body;
+    // FIXED: Use the correct nodeId from the data
+    const nodeId = data.nodeId || data.stepId || 'unknown';
     lastActivity = Date.now();
     
-    console.log(`[Browser Server] Executing action: ${type}`);
+    console.log(`[Browser Server] Executing action: ${type} for node: ${nodeId}`);
+    
+    // Log the action start
+    addNodeLog(nodeId, {
+      type: 'action',
+      title: `Executing ${type}`,
+      content: `Starting ${type} action with data:\n${JSON.stringify(data, null, 2)}`,
+      metadata: {
+        actionType: type,
+        url: stagehand.page.url(),
+        actionIndex: data.actionIndex
+      }
+    });
     
     let result;
+    const startTime = Date.now();
     
     switch (type) {
       case 'navigate':
@@ -249,13 +283,57 @@ app.post('/action', async (req, res) => {
         break;
         
       case 'act':
+        // Log the prompt being sent to LLM
+        addNodeLog(nodeId, {
+          type: 'prompt',
+          title: 'LLM Prompt for Act',
+          content: `Instruction: ${data.instruction}\n\nContext: Performing browser action on page: ${stagehand.page.url()}`,
+          metadata: {
+            actionType: 'act',
+            url: stagehand.page.url()
+          }
+        });
+        
         result = await stagehand.page.act(data.instruction);
+        
+        // Log the result
+        addNodeLog(nodeId, {
+          type: 'success',
+          title: 'Act Action Completed',
+          content: `Successfully executed act instruction: "${data.instruction}"\n\nResult: ${JSON.stringify(result, null, 2)}`,
+          metadata: {
+            actionType: 'act',
+            duration: Date.now() - startTime
+          }
+        });
         break;
         
       case 'extract':
+        // Log the extraction prompt
+        addNodeLog(nodeId, {
+          type: 'prompt',
+          title: 'LLM Prompt for Extract',
+          content: `Instruction: ${data.instruction}\n\nSchema: ${JSON.stringify(data.schema, null, 2)}\n\nContext: Extracting data from page: ${stagehand.page.url()}`,
+          metadata: {
+            actionType: 'extract',
+            url: stagehand.page.url()
+          }
+        });
+        
         result = await stagehand.page.extract({
           instruction: data.instruction,
           schema: data.schema
+        });
+        
+        // Log the extraction result
+        addNodeLog(nodeId, {
+          type: 'llm_response',
+          title: 'Extract Result',
+          content: `Extraction completed successfully!\n\nExtracted data:\n${JSON.stringify(result, null, 2)}`,
+          metadata: {
+            actionType: 'extract',
+            duration: Date.now() - startTime
+          }
         });
         break;
         
@@ -264,6 +342,93 @@ app.post('/action', async (req, res) => {
           fullPage: false 
         });
         result = screenshot.toString('base64');
+        break;
+
+      case 'observe':
+        // Log the observation prompt
+        addNodeLog(nodeId, {
+          type: 'prompt',
+          title: 'LLM Prompt for Observe',
+          content: `Instruction: ${data.instruction}\n\nMax Actions: ${data.maxActions || 1}\n\nContext: Observing page: ${stagehand.page.url()}`,
+          metadata: {
+            actionType: 'observe',
+            url: stagehand.page.url()
+          }
+        });
+        
+        result = await stagehand.page.observe({
+          instruction: data.instruction,
+          maxActions: data.maxActions || 1
+        });
+        
+        // Log the observation result
+        addNodeLog(nodeId, {
+          type: 'llm_response',
+          title: 'Observe Result',
+          content: `Observation completed!\n\nDiscovered actions:\n${JSON.stringify(result, null, 2)}`,
+          metadata: {
+            actionType: 'observe',
+            duration: Date.now() - startTime
+          }
+        });
+        break;
+
+      case 'clear_memory':
+        await stagehand.page.clearMemory();
+        result = { action: 'clear_memory', success: true };
+        break;
+
+      case 'label_email':
+        // Gmail-specific action to label emails
+        await stagehand.page.act(`Apply label "${data.label || 'AEF-Processed'}" to the current email`);
+        result = { action: 'label_email', label: data.label || 'AEF-Processed' };
+        break;
+
+      case 'search_airtable':
+        // Airtable-specific search action
+        const searchFields = data.searchFields || ['name'];
+        const searchValue = data.searchValue;
+        await stagehand.page.act(`Search for "${searchValue}" in fields: ${searchFields.join(', ')}`);
+        result = { action: 'search_airtable', searchValue, searchFields };
+        break;
+
+      case 'paginate_extract':
+        // Complex pagination with extraction
+        const allResults = [];
+        let hasMorePages = true;
+        let pageCount = 0;
+        const maxPages = 10; // Safety limit
+        
+        while (hasMorePages && pageCount < maxPages) {
+          // Extract current page
+          const pageResult = await stagehand.page.extract({
+            instruction: data.instruction,
+            schema: data.schema
+          });
+          
+          if (pageResult && pageResult.threads && Array.isArray(pageResult.threads)) {
+            allResults.push(...pageResult.threads);
+          }
+          
+          // Check for next page
+          const hasNext = await stagehand.page.extract({
+            instruction: "Check if 'Older' or 'Next' button is enabled and visible",
+            schema: { hasNextPage: 'boolean' }
+          });
+          
+          if (hasNext?.hasNextPage) {
+            // Click next page
+            await stagehand.page.act("Click the 'Older' or 'Next' button to go to next page");
+            // Wait for page to load
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            hasMorePages = false;
+          }
+          
+          pageCount++;
+        }
+        
+        result = { threads: allResults, totalPages: pageCount };
         break;
         
       default:
@@ -277,11 +442,36 @@ app.post('/action', async (req, res) => {
       timestamp: Date.now()
     };
     
+    // Log successful completion
+    addNodeLog(nodeId, {
+      type: 'success',
+      title: `${type} Action Completed`,
+      content: `Action completed successfully in ${Date.now() - startTime}ms\n\nResult:\n${JSON.stringify(result, null, 2)}`,
+      metadata: {
+        actionType: type,
+        duration: Date.now() - startTime,
+        url: stagehand.page.url()
+      }
+    });
+    
     console.log(`[Browser Server] Action completed: ${type}`);
     res.json(response);
     
   } catch (error) {
     console.error(`[Browser Server] Action failed:`, error);
+    
+    // Log the error
+    const errorNodeId = req.body.data?.nodeId || req.body.data?.stepId || 'unknown';
+    addNodeLog(errorNodeId, {
+      type: 'error',
+      title: `${req.body.type} Action Failed`,
+      content: `Action failed with error:\n\n${error.message}\n\nStack trace:\n${error.stack}`,
+      metadata: {
+        actionType: req.body.type,
+        duration: Date.now() - startTime,
+        url: stagehand?.page?.url() || 'unknown'
+      }
+    });
     res.status(500).json({
       success: false,
       error: error.message
@@ -408,6 +598,27 @@ app.post('/kill-session', async (req, res) => {
     
   } catch (error) {
     console.error('[Browser Server] Error killing session:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get node logs for debugging
+app.get('/logs/:nodeId', (req, res) => {
+  try {
+    const { nodeId } = req.params;
+    const logs = nodeLogs.get(nodeId) || [];
+    
+    res.json({
+      success: true,
+      nodeId,
+      logs,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Browser Server] Error getting logs:', error);
     res.status(500).json({
       success: false,
       error: error.message

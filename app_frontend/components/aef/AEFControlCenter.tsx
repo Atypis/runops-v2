@@ -79,7 +79,7 @@ async function loadWorkflowAsAEFDocument(): Promise<AEFDocument> {
     console.log('🔄 [AEF Control Center] Loading JSON workflow...');
     
     // Load the JSON workflow
-    const workflow = await workflowLoader.loadWorkflow('gmail-investor-crm');
+    const workflow = await workflowLoader.loadWorkflow('gmail-investor-crm-v2');
     console.log(`✅ [AEF Control Center] Successfully loaded workflow: ${workflow.meta.title}`);
     
     // Convert workflow nodes to AEF format
@@ -339,6 +339,8 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(35); // percentage
   const [isResizing, setIsResizing] = useState(false);
+  const [topPanelHeight, setTopPanelHeight] = useState(70); // Top area height percentage
+  const [isVerticalResizing, setIsVerticalResizing] = useState(false);
   
   // Helper function to add logs
   const addLog = (level: 'info' | 'warning' | 'error' | 'success', category: 'system' | 'step' | 'browser' | 'checkpoint', message: string, details?: string, stepName?: string) => {
@@ -356,7 +358,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     setExecutionLogs(prev => [...prev, newLog]);
   };
   
-  // Resizing functionality
+  // Horizontal resizing functionality
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsResizing(true);
@@ -379,6 +381,32 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   const handleMouseUp = () => {
     setIsResizing(false);
   };
+
+  // Vertical resizing functionality
+  const handleVerticalMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsVerticalResizing(true);
+  };
+  
+  const handleVerticalMouseMove = (e: MouseEvent) => {
+    if (!isVerticalResizing) return;
+    
+    const container = document.querySelector('.aef-control-center');
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const headerHeight = 120; // Approximate header height
+    const availableHeight = containerRect.height - headerHeight;
+    const newTopHeight = ((e.clientY - containerRect.top - headerHeight) / availableHeight) * 100;
+    
+    // Constrain the height between 30% and 90%
+    const constrainedHeight = Math.max(30, Math.min(90, newTopHeight));
+    setTopPanelHeight(constrainedHeight);
+  };
+  
+  const handleVerticalMouseUp = () => {
+    setIsVerticalResizing(false);
+  };
   
   // Add global mouse event listeners for resizing
   useEffect(() => {
@@ -387,9 +415,16 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       document.addEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
+    } else if (isVerticalResizing) {
+      document.addEventListener('mousemove', handleVerticalMouseMove);
+      document.addEventListener('mouseup', handleVerticalMouseUp);
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
     } else {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleVerticalMouseMove);
+      document.removeEventListener('mouseup', handleVerticalMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     }
@@ -397,10 +432,12 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleVerticalMouseMove);
+      document.removeEventListener('mouseup', handleVerticalMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing]);
+  }, [isResizing, isVerticalResizing]);
   
   // Load workflow from JSON
   const [aefDocument, setAefDocument] = useState<AEFDocument | null>(null);
@@ -1135,8 +1172,8 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
       
       {/* Main content area with Resizable Layout */}
       <div className="flex flex-col overflow-hidden h-full">
-        {/* Top area - 70% with resizable panels */}
-        <div className="flex-1 flex overflow-hidden" style={{ height: '70%' }}>
+        {/* Top area - Resizable height with horizontal panels */}
+        <div className="flex overflow-hidden" style={{ height: `${topPanelHeight}%` }}>
           {/* Left panel - Resizable */}
           <div 
             className="overflow-hidden border-r border-gray-200"
@@ -1151,7 +1188,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
             />
           </div>
           
-          {/* Resizable Divider */}
+          {/* Horizontal Resizable Divider */}
           <div
             className={`
               w-1 bg-gray-300 hover:bg-blue-400 cursor-col-resize flex-shrink-0
@@ -1182,8 +1219,24 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
           </div>
         </div>
         
-        {/* Bottom area - 30% */}
-        <div className="border-t border-gray-200 overflow-hidden" style={{ height: '30%' }}>
+        {/* Vertical Resizable Divider */}
+        <div
+          className={`
+            h-1 bg-gray-300 hover:bg-blue-400 cursor-row-resize flex-shrink-0
+            transition-colors duration-200 relative group
+            ${isVerticalResizing ? 'bg-blue-500' : ''}
+          `}
+          onMouseDown={handleVerticalMouseDown}
+        >
+          {/* Drag Handle Visual Indicator */}
+          <div className="absolute inset-x-0 top-1/2 transform -translate-y-1/2 h-1 bg-gray-400 group-hover:bg-blue-500 transition-colors duration-200"></div>
+          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-3 bg-gray-400 group-hover:bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+            <div className="w-4 h-0.5 bg-white rounded"></div>
+          </div>
+        </div>
+        
+        {/* Bottom area - Resizable height */}
+        <div className="border-t border-gray-200 overflow-hidden flex-1" style={{ height: `${100 - topPanelHeight}%` }}>
           <ExecutionLog 
             executionId={activeExecutionId}
             mockLogs={combinedLogs}

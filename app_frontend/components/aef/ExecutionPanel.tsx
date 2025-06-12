@@ -29,6 +29,8 @@ import {
   Target,
   ArrowRight
 } from 'lucide-react';
+import NodeSelector from './NodeSelector';
+import NodeLogViewer from './NodeLogViewer';
 
 interface ExecutionPanelProps {
   aefDocument: AEFDocument;
@@ -48,6 +50,10 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const [showNodeSelector, setShowNodeSelector] = useState(false);
+  const [nodeExecutionResults, setNodeExecutionResults] = useState<Map<string, { success: boolean; message: string; nextNodeId?: string }>>(new Map());
+  const [isExecutingNodes, setIsExecutingNodes] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
 
   // Use mock execution state when available
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>(ExecutionStatus.IDLE);
@@ -87,6 +93,16 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
       newExpanded.add(stepId);
     }
     setExpandedSteps(newExpanded);
+  };
+
+  const toggleLogExpansion = (stepId: string) => {
+    const newExpanded = new Set(expandedLogs);
+    if (newExpanded.has(stepId)) {
+      newExpanded.delete(stepId);
+    } else {
+      newExpanded.add(stepId);
+    }
+    setExpandedLogs(newExpanded);
   };
 
   const handleRunAll = async () => {
@@ -281,6 +297,52 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
     navigator.clipboard.writeText(text);
   };
 
+  const handleExecuteSelectedNodes = async (nodeIds: string[]): Promise<void> => {
+    if (!executionId) {
+      alert('❌ Error: Cannot execute nodes without an active execution session. Please start an execution first.');
+      return;
+    }
+
+    setIsExecutingNodes(true);
+    setNodeExecutionResults(new Map());
+
+    try {
+      console.log(`🎯 [ExecutionPanel] Executing ${nodeIds.length} selected nodes:`, nodeIds);
+
+      const response = await fetch('/api/aef/execute-nodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeIds,
+          executionId,
+          workflowId: aefDocument.meta?.id
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to execute nodes: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ [ExecutionPanel] Node execution completed:`, result);
+
+      // Convert results object back to Map
+      const resultsMap = new Map();
+      Object.entries(result.results).forEach(([nodeId, nodeResult]) => {
+        resultsMap.set(nodeId, nodeResult);
+      });
+      
+      setNodeExecutionResults(resultsMap);
+
+    } catch (error) {
+      console.error('❌ [ExecutionPanel] Failed to execute selected nodes:', error);
+      alert(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsExecutingNodes(false);
+    }
+  };
+
   return (
     <div className="execution-panel h-full flex flex-col bg-gray-900 text-gray-100 font-mono">
       {/* Terminal-style Header */}
@@ -303,8 +365,8 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           <span className="text-gray-500">.aef</span>
         </div>
         
-        {/* Overall Credential Status */}
-        {totalRequired > 0 && (
+        {/* Overall Credential Status - REMOVED per user request */}
+        {/* {totalRequired > 0 && (
           <div className="mb-3">
             <OverallCredentialStatus
               status={overallStatus}
@@ -313,7 +375,7 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
               isLoading={credentialLoading}
             />
           </div>
-        )}
+        )} */}
         
         {/* Command Line Controls */}
         <div className="flex gap-2">
@@ -336,6 +398,16 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
               $ kill -9
             </Button>
           )}
+          
+          <Button 
+            onClick={() => setShowNodeSelector(!showNodeSelector)}
+            variant="outline" 
+            size="sm"
+            className={`border-gray-600 text-gray-300 hover:bg-gray-700 font-mono ${showNodeSelector ? 'bg-gray-700' : ''}`}
+          >
+            <Target className="w-4 h-4 mr-1" />
+            Select
+          </Button>
           
           <Button 
             variant="outline" 
@@ -377,9 +449,18 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
         )}
       </div>
 
-      {/* Code-style Steps List */}
+      {/* Node Selector or Code-style Steps List */}
       <div className="flex-1 overflow-y-auto">
-        {workflowSteps.length === 0 ? (
+        {showNodeSelector ? (
+          <div className="h-full bg-white">
+            <NodeSelector
+              aefDocument={aefDocument}
+              onExecuteSelectedNodes={handleExecuteSelectedNodes}
+              isExecuting={isExecutingNodes}
+              executionResults={nodeExecutionResults}
+            />
+          </div>
+        ) : workflowSteps.length === 0 ? (
           <div className="p-4 text-center text-gray-500 font-mono">
             <Terminal className="w-8 h-8 mx-auto mb-2 text-gray-600" />
             <div>No workflow steps found</div>
@@ -678,6 +759,15 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                       )}
                     </div>
                   )}
+
+                  {/* Node Debug Logs */}
+                  <NodeLogViewer
+                    nodeId={step.id}
+                    nodeName={step.label}
+                    executionId={executionId}
+                    isExpanded={expandedLogs.has(step.id)}
+                    onToggleExpanded={() => toggleLogExpansion(step.id)}
+                  />
                 </div>
               );
             })}

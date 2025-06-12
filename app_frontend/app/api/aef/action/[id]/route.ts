@@ -35,6 +35,54 @@ export async function POST(
     console.log(`🎯 [AEF API] Request body:`, body);
     const { stepId, action, browserAction } = body;
 
+    // 🔄 UNIFIED EXECUTION: Proxy single-node execution to the unified endpoint
+    if (action === 'execute' && stepId && !browserAction) {
+      console.log(`🔄 [AEF API] Proxying single-node execution to unified endpoint`);
+      
+      try {
+        // Call the unified execute-nodes endpoint
+        const unifiedResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/aef/execute-nodes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cookie': request.headers.get('cookie') || ''
+          },
+          body: JSON.stringify({
+            nodeIds: [stepId],
+            executionId: executionId,
+            workflowId: 'gmail-investor-crm-v2'
+          })
+        });
+
+        if (!unifiedResponse.ok) {
+          const errorData = await unifiedResponse.json();
+          console.error(`❌ [AEF API] Unified endpoint failed:`, errorData);
+          throw new Error(errorData.error || 'Unified execution failed');
+        }
+
+        const unifiedResult = await unifiedResponse.json();
+        console.log(`✅ [AEF API] Unified execution completed:`, unifiedResult);
+
+        // Transform the response to match the expected format
+        const nodeResult = unifiedResult.results?.[stepId];
+        if (nodeResult) {
+          return NextResponse.json({
+            success: nodeResult.success,
+            message: nodeResult.message,
+            executionId: executionId,
+            nodeId: stepId,
+            nextNodeId: nodeResult.nextNodeId
+          });
+        } else {
+          return NextResponse.json(unifiedResult);
+        }
+      } catch (proxyError) {
+        console.error(`❌ [AEF API] Proxy to unified endpoint failed:`, proxyError);
+        // Fall back to the original implementation
+        console.log(`🔄 [AEF API] Falling back to original implementation`);
+      }
+    }
+
     if (!executionId || !stepId) {
       return NextResponse.json(
         { error: 'Execution ID and Step ID are required' },
@@ -225,7 +273,7 @@ export async function POST(
             const credentials = await CredentialInjectionService.getCredentialsForStep(
               stepId,
               user.id,
-              'gmail-investor-crm' // Use correct workflow ID
+              'gmail-investor-crm-v2' // Use correct workflow ID
             );
             
             // Inject credentials into action
@@ -264,7 +312,7 @@ export async function POST(
           let workflow;
           try {
             console.log(`🔄 [AEF API] Loading JSON workflow for execution...`);
-            workflow = await ServerWorkflowLoader.loadWorkflow('gmail-investor-crm');
+            workflow = await ServerWorkflowLoader.loadWorkflow('gmail-investor-crm-v2');
             console.log(`✅ [AEF API] Successfully loaded workflow: ${workflow.meta.title}`);
           } catch (error) {
             console.error('❌ [AEF API] Failed to load JSON workflow:', error);
@@ -303,8 +351,9 @@ export async function POST(
             
             console.log(`🎯 [AEF API] Executing ${targetNode.actions.length} actions for node ${stepId}`);
             
-            for (const action of targetNode.actions) {
-              console.log(`🎯 [AEF API] Executing action:`, action);
+            for (let actionIndex = 0; actionIndex < targetNode.actions.length; actionIndex++) {
+              const action = targetNode.actions[actionIndex];
+              console.log(`🎯 [AEF API] Executing action ${actionIndex + 1}/${targetNode.actions.length}:`, action);
               
               try {
                 // Convert action to BrowserAction format
@@ -316,7 +365,17 @@ export async function POST(
                     text: (action as any).text,
                     duration: (action as any).duration,
                     url: (action as any).target?.url,
-                    schema: (action as any).schema
+                    schema: (action as any).schema,
+                    // Additional properties for new action types
+                    searchFields: (action as any).data?.searchFields,
+                    searchValue: (action as any).data?.searchValue,
+                    api_key: (action as any).data?.api_key,
+                    // Spread all action properties to ensure nothing is missed
+                    ...(action as any),
+                    // FIXED: Pass the correct node ID for logging
+                    stepId: stepId,
+                    nodeId: stepId,
+                    actionIndex: actionIndex
                   },
                   stepId: stepId
                 };
@@ -329,7 +388,7 @@ export async function POST(
                   const credentials = await CredentialInjectionService.getCredentialsForStepWithSupabase(
                     stepId,
                     user.id,
-                    'gmail-investor-crm', // Use correct workflow ID
+                    'gmail-investor-crm-v2', // Use correct workflow ID
                     supabase
                   );
                   

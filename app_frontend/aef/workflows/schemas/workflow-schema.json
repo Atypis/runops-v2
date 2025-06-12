@@ -155,7 +155,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["atomic_task", "compound_task", "iterative_loop"],
+          "enum": ["atomic_task", "compound_task", "iterative_loop", "decision", "assert", "error_handler", "data_transform", "generator", "explore"],
           "description": "Type of workflow node"
         },
         "label": {
@@ -210,6 +210,49 @@
           "items": {
             "$ref": "#/definitions/workflowAction"
           }
+        },
+        "retryPolicy": {
+          "$ref": "#/definitions/retryPolicy"
+        },
+        "conditionSchema": {
+          "type": "object",
+          "description": "Schema for decision node conditions"
+        },
+        "outboundEdges": {
+          "type": "object",
+          "properties": {
+            "Y": { "type": "string" },
+            "N": { "type": "string" }
+          },
+          "description": "Decision node outbound edges"
+        },
+        "assertConditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["selectorVisible", "urlMatch", "textPresent"] },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "fallbackAction": {
+          "type": "string",
+          "description": "Fallback action for error handler"
+        },
+        "humanEscalate": {
+          "type": "boolean",
+          "description": "Whether to escalate to human on error"
+        },
+        "transformFunction": {
+          "type": "string",
+          "description": "JavaScript function for data transformation"
+        },
+        "maxActions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum actions for explore node"
         }
       }
     },
@@ -229,7 +272,12 @@
             "act",
             "extract",
             "visual_scan",
-            "conditional_auth"
+            "conditional_auth",
+            "observe",
+            "clear_memory",
+            "label_email",
+            "search_airtable",
+            "paginate_extract"
           ]
         },
         "instruction": {
@@ -265,6 +313,36 @@
         "credentialField": {
           "type": "string",
           "description": "Credential field this action uses"
+        },
+        "useVision": {
+          "type": "string",
+          "enum": ["always", "fallback", "false"],
+          "default": "fallback"
+        },
+        "retryPolicy": {
+          "$ref": "#/definitions/retryPolicy"
+        }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "properties": {
+        "max": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3
+        },
+        "backoffMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": [0, 1000, 3000]
+        },
+        "circuitBreaker": {
+          "type": "boolean",
+          "default": false
         }
       }
     }
