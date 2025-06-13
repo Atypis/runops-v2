@@ -60,14 +60,6 @@ tests.push({
   ])
 });
 
-// TEST 3 – list_iterator valid
-tests.push({
-  name: 'list_iterator with iteratorConfig', expectValid: true,
-  workflow: createTestWorkflow([
-    { id: 't3', type: 'atomic_task', label: 't3', intent: 'demo', actions: [ { type: 'list_iterator', instruction: 'demo', iteratorConfig: { listVariable: 'listVar' } } ] }
-  ])
-});
-
 // TEST 4 – assert_element valid
 tests.push({ name: 'assert_element with assertConfig', expectValid: true,
   workflow: createTestWorkflow([
@@ -86,13 +78,6 @@ tests.push({ name: 'update_row with rowConfig', expectValid: true,
 tests.push({ name: 'create_row with rowConfig', expectValid: true,
   workflow: createTestWorkflow([
     { id: 't6', type: 'atomic_task', label: 't6', intent: 'demo', actions: [ { type: 'create_row', instruction: 'demo', rowConfig: { tableName: 'tbl' } } ] }
-  ])
-});
-
-// TEST 6b – record_search_or_upsert valid
-tests.push({ name: 'record_search_or_upsert with rowConfig', expectValid: true,
-  workflow: createTestWorkflow([
-    { id: 't6b', type: 'atomic_task', label: 't6b', intent: 'demo', actions: [ { type: 'record_search_or_upsert', instruction: 'demo', rowConfig: { tableName: 'tbl' } } ] }
   ])
 });
 
@@ -129,6 +114,23 @@ tests.push({ name: 'filter_list node validation', expectValid: true,
   workflow: createTestWorkflow([
     { id: 't11', type: 'atomic_task', label: 't11', intent: 'demo',
       actions: [ { type: 'filter_list', instruction: 'demo', listConfig: { filterCriteria: { includeKeywords: ['foo'] } } } ] }
+  ])
+});
+
+// TEST 12 – list_iterator node validation
+tests.push({ name: 'list_iterator node validation', expectValid: true,
+  workflow: createTestWorkflow([
+    { id: 't12', type: 'list_iterator', label: 't12', intent: 'demo',
+      iteratorConfig: { listVariable: 'myList', itemVariable: 'currentItem', maxIterations: 100 },
+      children: ['child1'] }
+  ])
+});
+
+// TEST 13 – list_iterator missing required listVariable
+tests.push({ name: 'list_iterator missing listVariable should fail', expectValid: false,
+  workflow: createTestWorkflow([
+    { id: 't13', type: 'list_iterator', label: 't13', intent: 'demo',
+      iteratorConfig: { itemVariable: 'currentItem' } }
   ])
 });
 

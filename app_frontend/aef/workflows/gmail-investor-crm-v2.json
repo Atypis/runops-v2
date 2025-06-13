@@ -283,6 +283,13 @@
             {
               "type": "extract_list",
               "instruction": "Extract all email threads from Gmail search results with automatic pagination",
+              "listConfig": {
+                "scrollStrategy": "auto",
+                "maxItems": 100,
+                "deduplication": true,
+                "itemSelector": ".zA",
+                "nextPageSelector": ".T-I-J3.J-J5-Ji"
+              },
               "fields": {
                 "threadId": "@data-thread-id",
                 "subject": "[data-tooltip] .bog",
@@ -290,12 +297,6 @@
                 "snippet": ".y2",
                 "date": ".xY span"
               },
-              "maxItems": 100,
-              "maxPages": 10,
-              "scrollStrategy": "auto",
-              "deduplication": true,
-              "throttleMs": 250,
-              "debug": false,
               "timeout": 30000
             }
           ]
@@ -316,7 +317,7 @@
         },
         {
           "id": "email_processing_loop",
-          "type": "iterative_loop",
+          "type": "list_iterator",
           "label": "Process Each Investor Email",
           "intent": "Process each filtered investor email with full error handling",
           "context": "Main processing loop with circuit breaker and memory management",
@@ -334,6 +335,13 @@
             "assert_processing_complete",
             "clear_memory"
           ],
+          "iteratorConfig": {
+            "listVariable": "investorQueue",
+            "itemVariable": "currentItem",
+            "indexVariable": "emailIndex",
+            "continueOnError": true,
+            "maxIterations": 1000
+          },
           "retryPolicy": {
             "max": 5,
             "backoffMs": [0, 2000, 5000, 10000, 20000],
@@ -431,7 +439,7 @@
               "timeout": 10000
             },
             {
-              "type": "conditional_auth",
+              "type": "act",
               "instruction": "Handle Airtable authentication if prompted",
               "data": { "api_key": "{{airtable_api_key}}" },
               "credentialField": "airtable_api_key"
@@ -447,7 +455,7 @@
           "parentId": "email_processing_loop",
           "actions": [
             {
-              "type": "search_airtable",
+              "type": "act",
               "instruction": "Search for existing investor record by name or email",
               "data": {
                 "searchFields": ["name", "email"],
@@ -666,7 +674,7 @@
               "timeout": 5000
             },
             {
-              "type": "label_email",
+              "type": "act",
               "instruction": "Add AEF-Processed label to current email",
               "data": { "label": "AEF-Processed" },
               "timeout": 8000
@@ -711,32 +719,7 @@
             }
           ]
         },
-        {
-          "id": "decide_more_emails",
-          "type": "decision",
-          "label": "More Emails to Process",
-          "intent": "Determine if more emails remain in queue",
-          "context": "Loop exit condition check",
-          "conditionSchema": {
-            "type": "object",
-            "properties": {
-              "moreEmails": { "type": "boolean" }
-            }
-          },
-          "outboundEdges": {
-            "Y": "email_processing_loop",
-            "N": "final_summary"
-          },
-          "actions": [
-            {
-              "type": "extract",
-              "instruction": "Check if more unprocessed emails remain in the queue",
-              "schema": {
-                "moreEmails": "boolean"
-              }
-            }
-          ]
-        },
+
         {
           "id": "final_summary",
           "type": "generator",
@@ -794,9 +777,7 @@
         { "from": "set_follow_up", "to": "close_record_modal" },
         { "from": "label_email_processed", "to": "assert_processing_complete" },
         { "from": "assert_processing_complete", "to": "clear_memory" },
-        { "from": "clear_memory", "to": "decide_more_emails" },
-        { "from": "decide_more_emails", "to": "email_processing_loop", "condition": "Y" },
-        { "from": "decide_more_emails", "to": "final_summary", "condition": "N" }
+        { "from": "email_processing_loop", "to": "final_summary" }
       ]
     }
   },

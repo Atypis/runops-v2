@@ -155,7 +155,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["atomic_task", "compound_task", "iterative_loop", "decision", "assert", "error_handler", "data_transform", "filter_list", "generator", "explore"],
+          "enum": ["atomic_task", "compound_task", "list_iterator", "decision", "assert", "error_handler", "data_transform", "filter_list", "generator", "explore"],
           "description": "Type of workflow node"
         },
         "label": {
@@ -271,6 +271,15 @@
         "promptTemplate": {
           "type": "string",
           "description": "LLM prompt template for filter_list nodes"
+        },
+        "iteratorConfig": {
+          "$ref": "#/definitions/iteratorConfig"
+        },
+        "delayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Delay in milliseconds between iterations"
         }
       }
     },
@@ -290,18 +299,14 @@
             "act",
             "extract",
             "visual_scan",
-            "conditional_auth",
             "observe",
             "clear_memory",
-            "label_email",
             "paginate_extract",
             "extract_list",
             "filter_list",
-            "list_iterator",
             "assert_element",
             "update_row",
-            "create_row",
-            "record_search_or_upsert"
+            "create_row"
           ]
         },
         "instruction": {
@@ -366,8 +371,7 @@
         { "if": { "properties": { "type": { "const": "assert_element" } } }, "then": { "required": ["assertConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["listConfig"] }, { "required": ["iteratorConfig"] } ] } } },
         { "if": { "properties": { "type": { "const": "update_row" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
         { "if": { "properties": { "type": { "const": "create_row" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
-        { "if": { "properties": { "type": { "const": "record_search_or_upsert" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
-        { "if": { "properties": { "type": { "enum": ["navigate", "click", "type", "wait", "wait_for_navigation", "act", "visual_scan", "observe", "clear_memory", "label_email", "paginate_extract"] } } }, "then": { "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } }
+        { "if": { "properties": { "type": { "enum": ["navigate", "click", "type", "wait", "wait_for_navigation", "act", "visual_scan", "observe", "clear_memory", "paginate_extract"] } } }, "then": { "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } }
       ]
     },
     "retryPolicy": {
@@ -500,6 +504,12 @@
           "minimum": 1,
           "default": 1,
           "description": "Number of items to process in each batch"
+        },
+        "delayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Delay in milliseconds between iterations"
         }
       },
       "required": ["listVariable"]

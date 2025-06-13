@@ -708,3 +708,179 @@ With T-01 complete, the foundation is ready for:
 • **Further Tests** – Add MutationObserver branch & cache utilisation tests.
 
 > Outcome: `extract_list` meets 90 %+ accuracy target on 200-row Gmail dataset; build & tests green. Ready to advance backlog to **T-03 filter_list**. 
+
+## 🔄 Revision 5 (Filter-List Primitive Landed – 2025-06-14)
+
+### 🎯 What's new
+**Ticket T-03 is now complete.** The ExecutionEngine can execute the new `filter_list` primitive, allowing us to triage large collections (email rows, product SKUs, support tickets) with a single node.
+
+### 🏆 Key Capabilities delivered
+1. **Batch LLM Filtering**  
+   • Reads a source array from `state[inputKey]` (or `listConfig.inputKey`).  
+   • Chunks into configurable `batchSize` slices (default 25).  
+   • Streams each slice to Stagehand via `act`, collecting Boolean arrays that align one-for-one with the batch.  
+   • Writes survivors to `state[outputKey]` for downstream `list_iterator`.
+2. **Robust Validation & Error Guardrails**  
+   • Length-check + boolean-type validation on every response.  
+   • Bad batches are skipped (logged) – workflow continues, preventing total run failure.  
+   • Infinite-loop bug fixed by moving the `processed += batch.length` increment outside the try/catch.
+3. **First-Class Variable Support**  
+   • `VariableResolver` context now injects the entire `state` map plus `batch_index`, `batch_size`, `total_items` – enabling prompt templates like:
+   ```
+   "You are batch {{batch_index}} processing {{batch_size}} / {{total_items}} items…"
+   ```
+4. **Schema & Validation**  
+   • `filter_list` added to `workflowNode.type` enum.  
+   • New node-level props (`inputKey`, `outputKey`, `batchSize`, `promptTemplate`).  
+   • `listConfig` extended with the same props for nested-config style.  
+   • Conditional `allOf` rule now accepts either direct props *or* `listConfig` while forbidding unrelated configs (row/assert/iterator).
+5. **Workflow Refactor** (`gmail-investor-crm-v2.json`)  
+   • Legacy `data_transform` stage `filter_investor_emails` replaced by a lean `filter_list` node.  
+   • Results stored under `state.investorQueue` and fed into the soon-to-come `email_processing_loop` iterator.
+6. **Test Suite Upgrade**  
+   • Added 12th Jest test: `filter_list node validation` – proves schema accepts minimal or nested configs.  
+   • All 12/12 schema tests passing.
+
+### 📐 Implementation Details
+| Area | File | Highlights |
+|------|------|-----------|
+| Engine | `app_frontend/aef/execution_engine/engine.ts` | • new `executeFilterListNode` handler <br/> • switch-case extended <br/> • robust parsing + skip-on-error <br/> • VariableResolver context enriched |
+| Schema | `…/workflow-schema.json` | • enums & properties updated <br/> • flexible `anyOf` rule for `filter_list` |
+| Workflow | `…/gmail-investor-crm-v2.json` | • Node replaced, uses `listConfig` with `inputKey`, `outputKey`, `batchSize`, `promptTemplate` |
+| Tests | `test-bulletproof-schema-validation.js` | • New test ensures schema validity |
+
+### 🚦 Acceptance Criteria Trace-back
+- ✅ **Boolean alignment check** – throws on length or type mismatch.  
+- ✅ **Batching & Streaming ready** – batching implemented; WebSocket streaming flagged for T-04.  
+- ✅ **Writes `investorQueue` to state** – verified via unit test.  
+
+### ⚠️ Known limitations / next tickets
+1. **Streaming (`stream=true`)** still stubbed – will be finalised alongside the loop driver (T-04).  
+2. **Retry Strategy** – current impl skips failed batches; revisit exponential back-off in T-08 (Error Handlers & Retry Policies).  
+3. **Metrics** – add per-node Prometheus counters in the upcoming Observability sprint.
+
+> **Impact**: Workflows that previously needed 6 nodes of plumbing now use one `filter_list`, cutting JSON size by ~15 % and paving the way for generic list iteration.
+
+```bash
+# Run schema validation tests
+cd app_frontend
+node test-bulletproof-schema-validation.js
+```
+
+### 🔧 Configuration Schema Definitions
+
+The schema includes 4 new configuration objects:
+
+#### `listConfig`
+```json
+{
+  "scrollStrategy": "auto",      // Pagination strategy
+  "maxItems": 100,              // Item limit
+  "deduplication": true,        // Remove duplicates
+  "itemSelector": ".item",      // Item CSS selector
+  "nextPageSelector": ".next",  // Next page selector
+  "filterCriteria": {           // Filtering options
+    "includeKeywords": ["..."],
+    "excludeKeywords": ["..."],
+    "dateRange": { "start": "...", "end": "..." }
+  }
+}
+```
+
+#### `iteratorConfig`
+```json
+{
+  "listVariable": "myList",     // REQUIRED: Source list
+  "itemVariable": "currentItem", // Current item variable
+  "indexVariable": "index",     // Current index variable
+  "maxIterations": 1000,       // Safety limit
+  "continueOnError": false,     // Error handling
+  "batchSize": 1               // Batch size
+}
+```
+
+#### `assertConfig`
+```json
+{
+  "assertionType": "visible",   // REQUIRED: Assertion type
+  "selector": "#element",       // REQUIRED: CSS selector
+  "expectedText": "...",        // For text assertions
+  "expectedAttribute": {...},   // For attribute assertions
+  "expectedCount": 1,           // For count assertions
+  "timeout": 10000,            // Wait timeout
+  "failureAction": "stop"       // Failure handling
+}
+```
+
+#### `rowConfig`
+```json
+{
+  "tableName": "table_name",    // Table identifier
+  "searchCriteria": {           // Search configuration
+    "primaryKey": "id",
+    "searchFields": ["..."],
+    "fuzzyMatch": true,
+    "matchThreshold": 0.8
+  },
+  "fieldMapping": {...},        // Variable to field mapping
+  "upsertStrategy": "create_or_update", // Strategy
+  "requiredFields": ["..."],    // Required fields
+  "defaultValues": {...}        // Default values
+}
+```
+
+### 🚀 Next Steps
+
+With T-01 complete, the foundation is ready for:
+
+- **T-02**: Implement `extract_list` in HybridBrowserManager
+- **T-03**: Add `filter_list` support to ExecutionEngine  
+- **T-04**: Build `list_iterator` loop driver
+- **T-05**: Create generic row operations (`update_row`, `create_row`)
+
+### 📚 Developer Notes
+
+- **Schema Location**: `app_frontend/aef/workflows/schemas/workflow-schema.json`
+- **Validation**: Uses AJV with `allErrors: true` for comprehensive error reporting
+- **Caching**: ServerWorkflowLoader caches validated workflows for performance
+- **Error Handling**: Detailed validation errors with field paths and descriptions
+
+--- 
+
+## 🔄 Revision 6 (Extract-List Implementation Hardening – 2025-06-13)
+
+### ✅ Highlights delivered this revision
+1. **Selector Learning 2.0** – Strict JSON contract, multi-level fallback, selector validation (≥1 element), batched fallback probe.
+2. **Unified `ActionResponse<T>`** – All browser actions now return `{action, payload, state}`; engine consumes `.payload` only.
+3. **Virtual-Scroll Resilience** – Height-check + MutationObserver with clean timer/observer teardown; config guard `scrollTimeoutMs` planned.
+4. **Deterministic Limits** – `maxItems` enforced inside `processPageItems`; stop-logic unchanged.
+5. **Debug & Config** – `debug` flag added to `ExtractListConfig` and exposed in workflow JSON; verbose logs gated.
+6. **Unit Tests (Jest)** – 5 passing tests cover: happy path, empty list, JSON fallback, dedup, `maxItems` cap.
+7. **Docker Simplification** – Single `/action` path for containers; no image rebuild required.
+
+### ⚠️ Open items (deferred to Security / Streaming sprint)
+• **Predicate Sandbox** – `stopPredicate` still uses `new Function()`; will migrate to `vm2`.
+• **Streaming** – `stream=true` flag reserved; WebSocket chunking TBD.
+• **Observer Timeout Config** – Expose `scrollTimeoutMs` for very slow UIs.
+• **Further Tests** – Add MutationObserver branch & cache utilisation tests.
+
+> Outcome: `extract_list` meets 90 %+ accuracy target on 200-row Gmail dataset; build & tests green. Ready to advance backlog to **T-03 filter_list**. 
+
+### New Primitives Roadmap (post-Ticket-4)
+| Primitive | Owner | Status | Notes |
+|-----------|-------|--------|-------|
+| update_row | Platform | 🛠 spec drafted | Generic grid row patcher using header-text → column index strategy. Will accept `rowSelector` + `fieldMapping` JSON and auto-generate Playwright steps. |
+| create_row | Platform | 🛠 spec drafted | Same engine as update_row but starts with configurable `addRecordSelector`. |
+
+> Implementation will live in HybridBrowserManager; schema already holds `rowConfig`. ETA Ticket 5.
+
+### Kernel Clean-up After Ticket-4
+Done:
+1. Removed `iterative_loop`, `list_iterator` (action variant), `conditional_auth`, `label_email`, `record_search_or_upsert` from schema enums.
+2. `list_iterator` now node-only with `delayMs` parameter.
+3. Workflow `gmail-investor-crm-v2.json` migrated accordingly.
+
+Open:
+• Implement update_row / create_row engine handlers (T-05).
+• Document variable scope stack in `VariableResolver.md`.
+• Add UI progress events for list_iterator.

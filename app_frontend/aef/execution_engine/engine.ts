@@ -35,6 +35,7 @@ export class ExecutionEngine {
   private workflowId: string;
   private supabaseClient: any; // Service role Supabase client for credential access
   private loggers: Map<string, NodeLogger> = new Map(); // Node ID -> Logger
+  private loopStates: Map<string, { index: number; length: number; queueKey: string }> = new Map(); // Loop state tracking
 
   constructor(sop: WorkflowDocument, userId: string, workflowId?: string) {
     this.sop = sop;
@@ -63,6 +64,9 @@ export class ExecutionEngine {
 
   public async start(executionId: string) {
     console.log(`🚀 Starting execution for workflow ${this.workflowId}, user ${this.userId}`);
+    
+    // Reset variable scopes to avoid bleed-over from previous runs
+    VariableResolver.clearScopes();
     
     // Validate credentials before starting execution
     await this.validateCredentials();
@@ -210,6 +214,8 @@ export class ExecutionEngine {
         return await this.executeExploreNode(executionId, resolvedNode);
       case 'filter_list':
         return await this.executeFilterListNode(executionId, resolvedNode);
+      case 'list_iterator':
+        return await this.executeListIteratorNode(executionId, resolvedNode);
     }
     
     // Handle legacy node types
@@ -266,7 +272,7 @@ export class ExecutionEngine {
                         const result = await hybridBrowserManager.executeAction(executionId, {
                             type: 'navigate',
                             data: { url: action.target?.url },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Navigation completed:`, result);
                         await logger.logActionResult('navigate', result, Date.now() - navStartTime);
@@ -287,7 +293,7 @@ export class ExecutionEngine {
                                 selector: action.target?.selector,
                                 instruction: action.instruction 
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Click completed:`, result);
                         await logger.logActionResult('click', result, Date.now() - clickStartTime);
@@ -307,7 +313,7 @@ export class ExecutionEngine {
                                 selector: action.target?.selector,
                                 text: action.data?.text 
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         };
                         
                         // Inject credentials if needed
@@ -329,7 +335,7 @@ export class ExecutionEngine {
                                 selector: action.target?.selector,
                                 timeout: action.timeout || 5000
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Wait completed:`, result);
                     } catch (error) {
@@ -346,7 +352,7 @@ export class ExecutionEngine {
                                 url_contains: action.target?.url_contains,
                                 timeout: action.timeout || 10000
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Navigation wait completed:`, result);
                     } catch (error) {
@@ -363,7 +369,7 @@ export class ExecutionEngine {
                                 instruction: action.instruction,
                                 schema: action.schema
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Extract completed:`, result);
                     } catch (error) {
@@ -381,7 +387,7 @@ export class ExecutionEngine {
                                 instruction: action.instruction,
                                 ...action.data  // Include any additional data from the workflow
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         };
                         
                         // Inject credentials if needed (this handles {{gmail_email}} replacement)
@@ -389,11 +395,12 @@ export class ExecutionEngine {
                         
                         const result = await hybridBrowserManager.executeAction(executionId, browserAction);
                         console.log(`    ✅ Act completed:`, result);
+                        return result;
                     } catch (error) {
                         console.error(`    ❌ Act failed:`, error);
+                        throw error;
                     }
-                    break;
-                    
+
                 case 'visual_scan':
                     console.log(`    - Simulating visual scan: ${action.instruction}`);
                     // In a real implementation, this would involve more complex AI vision processing.
@@ -410,11 +417,11 @@ export class ExecutionEngine {
                                 instruction: action.instruction,
                                 maxActions: action.maxActions || 1
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Observe completed:`, result);
                         // Store observed actions for later use
-                        this.state.set(`${resolvedNode.id}_observed_actions`, result);
+                        this.state.set(`${node.id}_observed_actions`, result);
                     } catch (error) {
                         console.error(`    ❌ Observe failed:`, error);
                     }
@@ -426,7 +433,7 @@ export class ExecutionEngine {
                         const result = await hybridBrowserManager.executeAction(executionId, {
                             type: 'clear_memory',
                             data: {},
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Memory cleared:`, result);
                     } catch (error) {
@@ -442,7 +449,7 @@ export class ExecutionEngine {
                             data: { 
                                 label: action.data?.label || 'AEF-Processed'
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Email labeled:`, result);
                     } catch (error) {
@@ -459,11 +466,11 @@ export class ExecutionEngine {
                                 searchFields: action.data?.searchFields || ['name'],
                                 searchValue: action.data?.searchValue
                             },
-                            stepId: resolvedNode.id
+                            stepId: node.id
                         });
                         console.log(`    ✅ Airtable search completed:`, result);
                         // Store search results for decision nodes
-                        this.state.set(`${resolvedNode.id}_search_results`, result);
+                        this.state.set(`${node.id}_search_results`, result);
                     } catch (error) {
                         console.error(`    ❌ Airtable search failed:`, error);
                     }
@@ -475,7 +482,7 @@ export class ExecutionEngine {
                         const result = await this.executePaginateExtract(executionId, action, resolvedNode);
                         console.log(`    ✅ Paginate extract completed:`, result);
                         // Store extracted data for processing
-                        this.state.set(`${resolvedNode.id}_extracted_data`, result);
+                        this.state.set(`${node.id}_extracted_data`, result);
                     } catch (error) {
                         console.error(`    ❌ Paginate extract failed:`, error);
                     }
@@ -487,14 +494,15 @@ export class ExecutionEngine {
                         const result = await this.executeExtractList(executionId, action, resolvedNode);
                         console.log(`    ✅ Extract list completed:`, result);
                         // Store extracted data for processing
-                        this.state.set(`${resolvedNode.id}_extracted_data`, result);
+                        this.state.set(`${node.id}_extracted_data`, result);
                     } catch (error) {
                         console.error(`    ❌ Extract list failed:`, error);
                     }
                     break;
 
                 default:
-                    console.log(`    - Action type '${action.type}' is not yet implemented.`);
+                    console.log(`    - Delegating '${action.type}' to executeAction helper`);
+                    await this.executeAction(executionId, action, resolvedNode);
             }
         }
     }
@@ -804,6 +812,109 @@ export class ExecutionEngine {
     console.log(`  ✅ Filter-list complete. Kept ${kept.length} / ${total} items. Stored at state[${outputKey}].`);
   }
 
+  /**
+   * Execute a list_iterator node: iterates through a list in state, injecting currentItem and index variables
+   * for each iteration, then executes all child nodes for each item.
+   */
+  private async executeListIteratorNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  🔄 List-iterator node: ${node.label}`);
+
+    const config = node.iteratorConfig;
+    if (!config) {
+      throw new Error(`List iterator node ${node.id} missing iteratorConfig`);
+    }
+
+    const {
+      listVariable,
+      itemVariable = 'currentItem',
+      indexVariable = 'currentIndex',
+      maxIterations = 1000,
+      continueOnError = false,
+      batchSize = 1,
+      delayMs = 0
+    } = config;
+
+    // Get the list from state
+    let sourceList: any = this.state.get(listVariable);
+    if (sourceList && Array.isArray(sourceList.items)) {
+      sourceList = sourceList.items;
+    }
+
+    if (!Array.isArray(sourceList)) {
+      console.warn(`  ⚠️  List-iterator node ${node.id}: No array found at state[${listVariable}]. Skipping.`);
+      return;
+    }
+
+    const totalItems = sourceList.length;
+    console.log(`  📊 Processing ${totalItems} items with iterator`);
+
+    // Initialize or get existing loop state
+    let loopState = this.loopStates.get(node.id);
+    if (!loopState) {
+      loopState = { index: 0, length: totalItems, queueKey: listVariable };
+      this.loopStates.set(node.id, loopState);
+    }
+
+    // Process items
+    let processedCount = 0;
+    while (loopState.index < loopState.length && processedCount < maxIterations) {
+      const currentItem = sourceList[loopState.index];
+      
+      console.log(`  🔄 Processing item ${loopState.index + 1}/${loopState.length}`);
+
+      // Push scope with current item and index
+      VariableResolver.pushScope({
+        [itemVariable]: currentItem,
+        [indexVariable]: loopState.index,
+        length: loopState.length
+      });
+
+      try {
+        // Execute child nodes if they exist
+        if (node.children && node.children.length > 0) {
+          for (const childId of node.children) {
+            const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
+            if (childNode) {
+              console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
+              await this.executeNode(executionId, childNode);
+            } else {
+              console.warn(`    ⚠️ Child node ${childId} not found`);
+            }
+          }
+        }
+
+        console.log(`  ✅ Item ${loopState.index + 1} processed successfully`);
+      } catch (error) {
+        console.error(`  ❌ Error processing item ${loopState.index + 1}:`, error);
+        
+        if (!continueOnError) {
+          throw error;
+        } else {
+          console.log(`  ⚠️ Continuing with next item due to continueOnError=true`);
+        }
+      } finally {
+        // Always pop scope after processing item
+        VariableResolver.popScope();
+      }
+
+      // Move to next item
+      loopState.index++;
+      processedCount++;
+
+      // Add small delay between iterations for observability
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+
+    // Clean up loop state
+    this.loopStates.delete(node.id);
+    
+    if (processedCount >= maxIterations) {
+      console.warn(`  ⚠️ List iterator stopped at maxIterations limit (${maxIterations})`);
+    }
+
+    console.log(`  ✅ List-iterator complete. Processed ${processedCount} items.`);
+  }
+
   // Helper method to execute individual actions
   private async executeAction(executionId: string, action: any, node: WorkflowNode): Promise<void> {
     console.log(`    - Action: ${action.type}`);
@@ -844,6 +955,26 @@ export class ExecutionEngine {
           return result;
         } catch (error) {
           console.error(`    ❌ Act failed:`, error);
+          throw error;
+        }
+        
+      case 'update_row':
+      case 'create_row':
+        try {
+          const browserAction = {
+            type: action.type,
+            data: {
+              rowConfig: action.rowConfig,
+              variables: Object.fromEntries(this.state)
+            },
+            stepId: node.id
+          } as any;
+
+          const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+          console.log(`    ✅ ${action.type} completed:`, result);
+          return result;
+        } catch (error) {
+          console.error(`    ❌ ${action.type} failed:`, error);
           throw error;
         }
         
