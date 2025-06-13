@@ -276,8 +276,14 @@
             "observe",
             "clear_memory",
             "label_email",
-            "search_airtable",
-            "paginate_extract"
+            "paginate_extract",
+            "extract_list",
+            "filter_list",
+            "list_iterator",
+            "assert_element",
+            "update_row",
+            "create_row",
+            "record_search_or_upsert"
           ]
         },
         "instruction": {
@@ -321,8 +327,30 @@
         },
         "retryPolicy": {
           "$ref": "#/definitions/retryPolicy"
+        },
+        "listConfig": {
+          "$ref": "#/definitions/listConfig"
+        },
+        "iteratorConfig": {
+          "$ref": "#/definitions/iteratorConfig"
+        },
+        "assertConfig": {
+          "$ref": "#/definitions/assertConfig"
+        },
+        "rowConfig": {
+          "$ref": "#/definitions/rowConfig"
         }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "extract_list" } } }, "then": { "required": ["listConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "filter_list" } } }, "then": { "required": ["listConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "list_iterator" } } }, "then": { "required": ["iteratorConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["listConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "assert_element" } } }, "then": { "required": ["assertConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["listConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "update_row" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "create_row" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "record_search_or_upsert" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "enum": ["navigate", "click", "type", "wait", "wait_for_navigation", "act", "visual_scan", "observe", "clear_memory", "label_email", "paginate_extract"] } } }, "then": { "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } }
+      ]
     },
     "retryPolicy": {
       "type": "object",
@@ -343,6 +371,204 @@
         "circuitBreaker": {
           "type": "boolean",
           "default": false
+        }
+      }
+    },
+    "listConfig": {
+      "type": "object",
+      "description": "Configuration for list-based actions (extract_list, filter_list)",
+      "properties": {
+        "scrollStrategy": {
+          "type": "string",
+          "enum": ["auto", "manual", "infinite"],
+          "default": "auto",
+          "description": "How to handle scrolling for list extraction"
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum number of items to extract"
+        },
+        "deduplication": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove duplicate items from list"
+        },
+        "itemSelector": {
+          "type": "string",
+          "description": "CSS selector for individual list items"
+        },
+        "nextPageSelector": {
+          "type": "string",
+          "description": "CSS selector for next page button"
+        },
+        "filterCriteria": {
+          "type": "object",
+          "description": "Criteria for filtering list items",
+          "properties": {
+            "includeKeywords": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Keywords that must be present"
+            },
+            "excludeKeywords": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Keywords that must not be present"
+            },
+            "dateRange": {
+              "type": "object",
+              "properties": {
+                "start": { "type": "string", "format": "date" },
+                "end": { "type": "string", "format": "date" }
+              },
+              "description": "Date range filter"
+            }
+          }
+        }
+      }
+    },
+    "iteratorConfig": {
+      "type": "object",
+      "description": "Configuration for list_iterator action",
+      "properties": {
+        "listVariable": {
+          "type": "string",
+          "description": "Variable name containing the list to iterate"
+        },
+        "itemVariable": {
+          "type": "string",
+          "default": "currentItem",
+          "description": "Variable name for current iteration item"
+        },
+        "indexVariable": {
+          "type": "string",
+          "default": "currentIndex",
+          "description": "Variable name for current iteration index"
+        },
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000,
+          "description": "Maximum number of iterations to prevent infinite loops"
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "default": false,
+          "description": "Continue iteration if single item processing fails"
+        },
+        "batchSize": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Number of items to process in each batch"
+        }
+      },
+      "required": ["listVariable"]
+    },
+    "assertConfig": {
+      "type": "object",
+      "description": "Configuration for assert_element action",
+      "properties": {
+        "assertionType": {
+          "type": "string",
+          "enum": ["exists", "visible", "hidden", "enabled", "disabled", "contains_text", "has_attribute", "count"],
+          "description": "Type of assertion to perform"
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector for element to assert"
+        },
+        "expectedText": {
+          "type": "string",
+          "description": "Expected text content (for contains_text assertion)"
+        },
+        "expectedAttribute": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "value": { "type": "string" }
+          },
+          "description": "Expected attribute name and value"
+        },
+        "expectedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Expected number of matching elements"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 10000,
+          "description": "Timeout in milliseconds"
+        },
+        "failureAction": {
+          "type": "string",
+          "enum": ["stop", "continue", "retry", "escalate"],
+          "default": "stop",
+          "description": "Action to take if assertion fails"
+        }
+      },
+      "required": ["assertionType", "selector"]
+    },
+    "rowConfig": {
+      "type": "object",
+      "description": "Configuration for row-based actions (update_row, create_row)",
+      "properties": {
+        "tableName": {
+          "type": "string",
+          "description": "Name of the table/sheet to operate on"
+        },
+        "searchCriteria": {
+          "type": "object",
+          "description": "Criteria for finding existing rows (update_row only)",
+          "properties": {
+            "primaryKey": {
+              "type": "string",
+              "description": "Primary key field name"
+            },
+            "searchFields": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Fields to search for matching records"
+            },
+            "fuzzyMatch": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable fuzzy matching for text fields"
+            },
+            "matchThreshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.8,
+              "description": "Similarity threshold for fuzzy matching"
+            }
+          }
+        },
+        "fieldMapping": {
+          "type": "object",
+          "description": "Mapping of variable names to table fields",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "upsertStrategy": {
+          "type": "string",
+          "enum": ["create_only", "update_only", "create_or_update"],
+          "default": "create_or_update",
+          "description": "Strategy for handling existing records"
+        },
+        "requiredFields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Fields that must be populated"
+        },
+        "defaultValues": {
+          "type": "object",
+          "description": "Default values for fields",
+          "additionalProperties": true
         }
       }
     }
