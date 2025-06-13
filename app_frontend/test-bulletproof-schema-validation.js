@@ -124,6 +124,14 @@ tests.push({ name: 'navigate action with rowConfig should fail', expectValid: fa
   ])
 });
 
+// TEST 11 – filter_list node validation
+tests.push({ name: 'filter_list node validation', expectValid: true,
+  workflow: createTestWorkflow([
+    { id: 't11', type: 'atomic_task', label: 't11', intent: 'demo',
+      actions: [ { type: 'filter_list', instruction: 'demo', listConfig: { filterCriteria: { includeKeywords: ['foo'] } } } ] }
+  ])
+});
+
 // -----------------------
 // Run all tests
 // -----------------------

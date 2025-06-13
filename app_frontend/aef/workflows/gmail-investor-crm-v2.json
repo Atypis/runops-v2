@@ -281,35 +281,37 @@
           "context": "Get structured list of emails to process, handling pagination",
           "actions": [
             {
-              "type": "paginate_extract",
-              "instruction": "Extract all email threads from search results, paginating through all pages",
-              "schema": {
-                "threads": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": { "type": "string" },
-                      "subject": { "type": "string" },
-                      "sender": { "type": "string" },
-                      "date": { "type": "string" },
-                      "isInvestorRelated": { "type": "boolean" }
-                    }
-                  }
-                }
+              "type": "extract_list",
+              "instruction": "Extract all email threads from Gmail search results with automatic pagination",
+              "fields": {
+                "threadId": "@data-thread-id",
+                "subject": "[data-tooltip] .bog",
+                "sender": ".yW span[email]",
+                "snippet": ".y2",
+                "date": ".xY span"
               },
-              "useVision": "false",
+              "maxItems": 100,
+              "maxPages": 10,
+              "scrollStrategy": "auto",
+              "deduplication": true,
+              "throttleMs": 250,
+              "debug": false,
               "timeout": 30000
             }
           ]
         },
         {
           "id": "filter_investor_emails",
-          "type": "data_transform",
+          "type": "filter_list",
           "label": "Filter Investor Emails",
           "intent": "Filter email candidates to only investor-related emails",
           "context": "Apply investor detection logic to filter relevant emails",
-          "transformFunction": "emails => emails.filter(email => email.isInvestorRelated || /\\b(capital|fund|venture|investment|investor|vc|angel)\\b/i.test(email.subject + ' ' + email.sender))",
+          "listConfig": {
+            "inputKey": "extract_email_candidates_extracted_data",
+            "outputKey": "investorQueue",
+            "batchSize": 25,
+            "promptTemplate": "You will receive an array of email metadata objects. Return a JSON boolean array of equal length where true means the email is investor-related."
+          },
           "actions": []
         },
         {

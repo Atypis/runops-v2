@@ -5,6 +5,30 @@
 
 ---
 
+## 🕰️ Chronological Execution Flow (Plain English)
+1. **Session Setup** – Launch fresh browser container; open two tabs: Email Client (tab 1) and CRM grid (tab 2).
+2. **Authenticate Email** – Log in using stored credentials; assert inbox counter visible.
+3. **Date-Range Search** – In the email search bar type `after:2025/06/05 before:2025/06/07` to restrict list to 6 Jun 2025 threads.
+4. **List Extraction (`extract_list`)** – Scroll the results, capture `{threadId, subject, sender, snippet, date}` until no new rows appear.
+5. **Phase-0 Fast Reject** – JS regex filters out obvious non-investor rows (e.g. "newsletter", "receipt").
+6. **Phase-1 Mini-Classifier** – Batch LLM prompt on row metadata marks rows as *reject / keep*.
+7. **Phase-2 Content Sampler** – For kept rows, open each thread, grab 1st paragraph (≤600 chars), run second LLM prompt to set `isInvestor` flag; domain whitelist rescue applies.
+8. **Investor Queue Built** – If queue is empty → finish; else move to loop.
+9. **Iterate with `list_iterator`** – For each `currentItem` in queue:
+   a. Open the thread (click the row).
+   b. `extract` investor data (name, email, company, phone, focus, 280-char summary).
+   c. Switch to CRM tab; if "Continue with Google" present → click to log in via existing Gmail session.
+   d. Run `record_search_or_upsert`:
+      • Exact email match → update row.  
+      • Else fuzzy name/company passes (≤ 6 attempts) → update row.  
+      • Else create row with `DuplicateCheckNeeded=true`.
+   e. Append interaction note and save.
+   f. Execute `clear_memory`; delete large state objects; every 10th iteration refresh inbox list.
+10. **Run Summary** – Count threads scanned / investors processed / rows created / updated; return JSON summary.
+11. **Cleanup** – Purge credentials, close container, respond HTTP 200.
+
+---
+
 ### 🎯 High-Level Goals
 1. Deterministically identify and process every investor-relevant thread dated 6 Jun 2025.
 2. Update existing Airtable rows when the investor already exists (match on *Email* or *Investor Name*); otherwise create a new row.
@@ -50,6 +74,13 @@ Total ≈ 40 pts (1 sprint).
 - Captures attributes as per `fields` map.
 - Uses throttle (250 ms) between scrolls.
 - Returns deterministic order (oldest → newest or as specified).
+- **LLM Discovery Pass**: On the first run for a given `domain+path`, call `stagehand.page.act()` to learn a stable `itemSelector` and optional `nextPageSelector`; cache them keyed by domain. Subsequent runs skip the LLM pass unless the cached selector fails.
+- **Safety Limits**: Hard cap `maxItems` (300 default) and `maxPages` (20 default) to avoid runaway scrolls.
+- **Deduplication & Hashing**: Maintain a `seenIds` `Set`; if duplicate threadId is missing use SHA-1 of row text as fallback. List is de-duplicated before return.
+- **Stop Predicate Hook**: Optional JS predicate or LLM mini-prompt can be supplied (e.g. stop when extracted row dates drop below `targetDate`).
+- **Error Recovery**: If cached selector fails 2×, fall back to one `act("Scroll the list once")` step, re-learn selectors, then resume deterministic loop.
+- **Streaming Option**: When `stream=true` return partial pages via websocket `action_complete` events.
+- **Unit Tests**: cover (a) selector-learning path, (b) cached path, (c) duplicate elimination, (d) stop-predicate logic, (e) selector failure & recovery.
 
 ### T-03 • `filter_list` Node
 - Splits queue into batches of `batchSize` (default 25).
@@ -517,4 +548,163 @@ All existing workflows continue to work unchanged. The new action types are addi
 - **TS type-gen**: run `npm run schema:gen` once T-01 lands on `main` (ownership: Backend).  
 - **CI hook**: add `"test:schema"` script and integrate with GitHub Actions (ownership: DevOps).
 
+---
+
+## 🔄 Revision 3 (Node-Type Philosophy & extract_list deep-dive – 2025-06-07)
+
+### 🌐 Why a Small Kernel Matters
+Our engine should expose only primitives that:
+1. Are useful across many unrelated apps (generic).
+2. Would otherwise require ≥5 boiler-plate nodes each time (JSON bloat).
+3. Can be implemented once and optimised centrally.
+
+Anything that fails #1 or #2 stays a **JSON macro** (composed of primitives) rather than becoming engine code.  Domain-specific helpers like `search_airtable` became macros; cross-domain utilities like `extract_list`, `filter_list`, `list_iterator` graduated to primitives because they satisfy the bar above.
+
+### ✅ Current Primitive Node-Types and Their Status
+| Type | Purpose | Verdict |
+|------|---------|---------|
+| atomic_task / compound_task / iterative_loop | structural | ✅ (core)
+| decision | branching | ✅
+| assert | validations | ✅
+| error_handler | retries / escalation | ✅
+| data_transform | pure JS/WASM on data | 🟡 (generic but optional)
+| generator | LLM content | ✅
+| explore | open-ended AI | 🟡 (expensive – use sparingly)
+| extract_list | scroll & harvest lists | ✅ (promoted in Ticket 2)
+| filter_list | regex/LLM filter queues | ✅
+| list_iterator | inject `currentItem` in loops | ✅
+
+Everything else (e.g. Airtable row ops) stays as JSON-level macros.
+
+### 🔑 Key Acceptance Gate for Future Primitives
+1. Is it reusable across ≥3 workflows?  
+2. Does it hide significant boiler-plate that would otherwise clutter SOP JSON (or is it something generally new)?  
+3. Can the behaviour be made deterministic with an LLM fallback (Hybrid Strategy)? (OPTIONAL)  
+If **yes to all**, we add it; otherwise we author a macro.
+
+### 🛠️ Ticket T-02 — Expanded Implementation Plan
+1. **Selector Discovery (LLM pass)**  
+   • Call `act("Scroll the list once")` + `act("Identify CSS selector for each row")`.  
+   • Persist `{domain,path,itemSelector,nextPageSelector}` in selector cache.
+2. **Deterministic Loop**  
+   • JS snippet scroll → wait 250 ms → evaluate row nodes via cached selector.  
+   • Append mapped objects `{threadId,subject,sender,snippet,date}` into `state.rows`.
+3. **Stop Logic**  
+   • End when `seenIds` size unchanged for 2 iterations **OR** `stopPredicate` returns true **OR** safety caps hit.
+4. **Output & Streaming**  
+   • Final return `{items,pagesVisited}`.  
+   • If `stream=true`, emit incremental batches through WebSocket for real-time dashboards.
+5. **Fallback & Healing**  
+   • On selector failure, invoke one LLM `act()` step, refresh cache, resume deterministic loop.
+6. **Unit / Integration Tests** (Playwright)  
+   • Gmail stub inbox (200 rows), verify extraction ends at correct count.  
+   • Edge case: empty list.  
+   • Duplicate rows / out-of-order rows.  
+   • Simulate selector drift → ensure fallback path repairs.
+
+> This revision formalises the generic-vs-specific policy and elevates `extract_list` with a concrete, testable spec that aligns with the Hybrid Automation strategy.
+
+```bash
+# Run schema validation tests
+cd app_frontend
+node test-bulletproof-schema-validation.js
+```
+
+### 🔧 Configuration Schema Definitions
+
+The schema includes 4 new configuration objects:
+
+#### `listConfig`
+```json
+{
+  "scrollStrategy": "auto",      // Pagination strategy
+  "maxItems": 100,              // Item limit
+  "deduplication": true,        // Remove duplicates
+  "itemSelector": ".item",      // Item CSS selector
+  "nextPageSelector": ".next",  // Next page selector
+  "filterCriteria": {           // Filtering options
+    "includeKeywords": ["..."],
+    "excludeKeywords": ["..."],
+    "dateRange": { "start": "...", "end": "..." }
+  }
+}
+```
+
+#### `iteratorConfig`
+```json
+{
+  "listVariable": "myList",     // REQUIRED: Source list
+  "itemVariable": "currentItem", // Current item variable
+  "indexVariable": "index",     // Current index variable
+  "maxIterations": 1000,       // Safety limit
+  "continueOnError": false,     // Error handling
+  "batchSize": 1               // Batch size
+}
+```
+
+#### `assertConfig`
+```json
+{
+  "assertionType": "visible",   // REQUIRED: Assertion type
+  "selector": "#element",       // REQUIRED: CSS selector
+  "expectedText": "...",        // For text assertions
+  "expectedAttribute": {...},   // For attribute assertions
+  "expectedCount": 1,           // For count assertions
+  "timeout": 10000,            // Wait timeout
+  "failureAction": "stop"       // Failure handling
+}
+```
+
+#### `rowConfig`
+```json
+{
+  "tableName": "table_name",    // Table identifier
+  "searchCriteria": {           // Search configuration
+    "primaryKey": "id",
+    "searchFields": ["..."],
+    "fuzzyMatch": true,
+    "matchThreshold": 0.8
+  },
+  "fieldMapping": {...},        // Variable to field mapping
+  "upsertStrategy": "create_or_update", // Strategy
+  "requiredFields": ["..."],    // Required fields
+  "defaultValues": {...}        // Default values
+}
+```
+
+### 🚀 Next Steps
+
+With T-01 complete, the foundation is ready for:
+
+- **T-02**: Implement `extract_list` in HybridBrowserManager
+- **T-03**: Add `filter_list` support to ExecutionEngine  
+- **T-04**: Build `list_iterator` loop driver
+- **T-05**: Create generic row operations (`update_row`, `create_row`)
+
+### 📚 Developer Notes
+
+- **Schema Location**: `app_frontend/aef/workflows/schemas/workflow-schema.json`
+- **Validation**: Uses AJV with `allErrors: true` for comprehensive error reporting
+- **Caching**: ServerWorkflowLoader caches validated workflows for performance
+- **Error Handling**: Detailed validation errors with field paths and descriptions
+
 --- 
+
+## 🔄 Revision 4 (Extract-List Implementation Hardening – 2025-06-13)
+
+### ✅ Highlights delivered this revision
+1. **Selector Learning 2.0** – Strict JSON contract, multi-level fallback, selector validation (≥1 element), batched fallback probe.
+2. **Unified `ActionResponse<T>`** – All browser actions now return `{action, payload, state}`; engine consumes `.payload` only.
+3. **Virtual-Scroll Resilience** – Height-check + MutationObserver with clean timer/observer teardown; config guard `scrollTimeoutMs` planned.
+4. **Deterministic Limits** – `maxItems` enforced inside `processPageItems`; stop-logic unchanged.
+5. **Debug & Config** – `debug` flag added to `ExtractListConfig` and exposed in workflow JSON; verbose logs gated.
+6. **Unit Tests (Jest)** – 5 passing tests cover: happy path, empty list, JSON fallback, dedup, `maxItems` cap.
+7. **Docker Simplification** – Single `/action` path for containers; no image rebuild required.
+
+### ⚠️ Open items (deferred to Security / Streaming sprint)
+• **Predicate Sandbox** – `stopPredicate` still uses `new Function()`; will migrate to `vm2`.
+• **Streaming** – `stream=true` flag reserved; WebSocket chunking TBD.
+• **Observer Timeout Config** – Expose `scrollTimeoutMs` for very slow UIs.
+• **Further Tests** – Add MutationObserver branch & cache utilisation tests.
+
+> Outcome: `extract_list` meets 90 %+ accuracy target on 200-row Gmail dataset; build & tests green. Ready to advance backlog to **T-03 filter_list**. 

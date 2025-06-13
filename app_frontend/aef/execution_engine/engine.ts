@@ -187,7 +187,8 @@ export class ExecutionEngine {
       this.userId,
       this.workflowId,
       executionId,
-      node.id
+      node.id,
+      { state: Object.fromEntries(this.state) }
     );
     
     // Resolve variables in the node before execution
@@ -207,6 +208,8 @@ export class ExecutionEngine {
         return await this.executeGeneratorNode(executionId, resolvedNode);
       case 'explore':
         return await this.executeExploreNode(executionId, resolvedNode);
+      case 'filter_list':
+        return await this.executeFilterListNode(executionId, resolvedNode);
     }
     
     // Handle legacy node types
@@ -478,6 +481,18 @@ export class ExecutionEngine {
                     }
                     break;
 
+                case 'extract_list':
+                    console.log(`    - Extracting list: ${action.instruction || 'List extraction'}`);
+                    try {
+                        const result = await this.executeExtractList(executionId, action, resolvedNode);
+                        console.log(`    ✅ Extract list completed:`, result);
+                        // Store extracted data for processing
+                        this.state.set(`${resolvedNode.id}_extracted_data`, result);
+                    } catch (error) {
+                        console.error(`    ❌ Extract list failed:`, error);
+                    }
+                    break;
+
                 default:
                     console.log(`    - Action type '${action.type}' is not yet implemented.`);
             }
@@ -692,6 +707,103 @@ export class ExecutionEngine {
     }
   }
 
+  /**
+   * Execute a filter_list node: reads an input array from engine state, chunks it, sends each chunk to Stagehand via an `act` call,
+   * expects a JSON boolean array back (same length as the chunk) and writes the kept items to state[outputKey].
+   */
+  private async executeFilterListNode(executionId: string, node: WorkflowNode): Promise<void> {
+    console.log(`  🗂️  Filter-list node: ${node.label}`);
+
+    const inputKey: string = node.inputKey || (node as any).listConfig?.inputKey || `${node.id}_input`;
+    const outputKey: string = node.outputKey || (node as any).listConfig?.outputKey || `${node.id}_filtered`;
+    const batchSize: number = node.batchSize || (node as any).listConfig?.batchSize || 25;
+    const promptTemplate: string = node.promptTemplate || (node as any).listConfig?.promptTemplate ||
+      'You will receive JSON array of items. Return a JSON array of booleans of equal length where true means keep.';
+
+    // Retrieve source items – try direct, then .items field
+    let sourceData: any = this.state.get(inputKey);
+    if (sourceData && Array.isArray(sourceData.items)) {
+      sourceData = sourceData.items;
+    }
+
+    if (!Array.isArray(sourceData)) {
+      console.warn(`  ⚠️  Filter-list node ${node.id}: No array found at state[${inputKey}]. Skipping.`);
+      return;
+    }
+
+    const kept: any[] = [];
+    const total = sourceData.length;
+    let processed = 0;
+
+    while (processed < total) {
+      const batch = sourceData.slice(processed, processed + batchSize);
+
+      // Use VariableResolver for consistent placeholder replacement
+      const batchContext = VariableResolver.createContext(
+        this.userId,
+        this.workflowId,
+        executionId,
+        node.id,
+        { 
+          state: Object.fromEntries(this.state),
+          batch_index: Math.floor(processed / batchSize),
+          batch_size: batch.length,
+          total_items: total
+        }
+      );
+      const instruction = VariableResolver.resolveVariables(promptTemplate, batchContext);
+
+      try {
+        const result = await hybridBrowserManager.executeAction(executionId, {
+          type: 'act',
+          data: {
+            instruction,
+            payload: batch
+          },
+          stepId: node.id
+        });
+
+        // Stagehand is expected to return a boolean array either in payload or directly
+        let boolArray: boolean[] | null = null;
+        if (Array.isArray(result)) {
+          boolArray = result as boolean[];
+        } else if (Array.isArray(result?.payload)) {
+          boolArray = result.payload as boolean[];
+        } else if (typeof result?.payload === 'string') {
+          try {
+            const parsed = JSON.parse(result.payload);
+            if (Array.isArray(parsed)) boolArray = parsed as boolean[];
+          } catch (_) {/* ignore parse error */}
+        }
+
+        if (!boolArray || boolArray.length !== batch.length) {
+          throw new Error(`Length mismatch: expected ${batch.length}, got ${boolArray ? boolArray.length : 'null'}`);
+        }
+
+        // Validate boolean values
+        const validBooleans = boolArray.every(val => typeof val === 'boolean');
+        if (!validBooleans) {
+          throw new Error(`Invalid response: expected boolean array, got mixed types`);
+        }
+
+        // Keep items where boolArray[i] == true
+        boolArray.forEach((keep, idx) => {
+          if (keep) kept.push(batch[idx]);
+        });
+
+      } catch (error) {
+        console.error(`  ❌ Filter-list batch ${processed}-${processed + batch.length} failed:`, error);
+        console.warn(`  ⚠️ Skipping failed batch and continuing with next batch`);
+        // Don't retry - just skip this batch and continue
+      }
+
+      processed += batch.length;
+    }
+
+    this.state.set(outputKey, kept);
+    console.log(`  ✅ Filter-list complete. Kept ${kept.length} / ${total} items. Stored at state[${outputKey}].`);
+  }
+
   // Helper method to execute individual actions
   private async executeAction(executionId: string, action: any, node: WorkflowNode): Promise<void> {
     console.log(`    - Action: ${action.type}`);
@@ -800,6 +912,44 @@ export class ExecutionEngine {
     
     console.log(`    📊 Extracted ${allResults.length} items from ${pageCount} pages`);
     return { threads: allResults, totalPages: pageCount };
+  }
+
+  // Helper method for extract_list
+  private async executeExtractList(executionId: string, action: any, node: WorkflowNode): Promise<any> {
+    console.log(`    📋 Starting extract_list for node ${node.id}`);
+    
+    try {
+      // Execute extract_list action via HybridBrowserManager
+      const result = await hybridBrowserManager.executeAction(executionId, {
+        type: 'extract_list',
+        data: {
+          fields: action.fields || {},
+          itemSelector: action.itemSelector,
+          nextPageSelector: action.nextPageSelector,
+          maxItems: action.maxItems || 300,
+          maxPages: action.maxPages || 20,
+          scrollStrategy: action.scrollStrategy || 'auto',
+          deduplication: action.deduplication !== false,
+          stream: action.stream || false,
+          stopPredicate: action.stopPredicate,
+          throttleMs: action.throttleMs || 250
+        },
+        stepId: node.id
+      });
+
+             console.log(`    ✅ Extract list completed: ${result.payload?.items?.length || 0} items, ${result.payload?.pagesVisited || 0} pages`);
+       
+       // Return the extracted data in a consistent format
+       return {
+         items: result.payload?.items || [],
+         pagesVisited: result.payload?.pagesVisited || 0,
+         totalItems: result.payload?.totalItems || 0,
+         selectorCache: result.payload?.selectorCache
+       };
+    } catch (error) {
+      console.error(`    ❌ Extract list failed for node ${node.id}:`, error);
+      throw error;
+    }
   }
 
   private findNextNode(currentId: string): WorkflowNode | undefined {

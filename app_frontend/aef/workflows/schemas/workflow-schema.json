@@ -155,7 +155,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["atomic_task", "compound_task", "iterative_loop", "decision", "assert", "error_handler", "data_transform", "generator", "explore"],
+          "enum": ["atomic_task", "compound_task", "iterative_loop", "decision", "assert", "error_handler", "data_transform", "filter_list", "generator", "explore"],
           "description": "Type of workflow node"
         },
         "label": {
@@ -253,6 +253,24 @@
           "minimum": 1,
           "maximum": 10,
           "description": "Maximum actions for explore node"
+        },
+        "inputKey": {
+          "type": "string",
+          "description": "Input state key for filter_list nodes"
+        },
+        "outputKey": {
+          "type": "string",
+          "description": "Output state key for filter_list nodes"
+        },
+        "batchSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Batch size for filter_list processing"
+        },
+        "promptTemplate": {
+          "type": "string",
+          "description": "LLM prompt template for filter_list nodes"
         }
       }
     },
@@ -343,7 +361,7 @@
       },
       "allOf": [
         { "if": { "properties": { "type": { "const": "extract_list" } } }, "then": { "required": ["listConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
-        { "if": { "properties": { "type": { "const": "filter_list" } } }, "then": { "required": ["listConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
+        { "if": { "properties": { "type": { "const": "filter_list" } } }, "then": { "anyOf": [ { "required": ["listConfig"] }, { "allOf": [ { "required": ["inputKey", "outputKey"] }, { "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } ] } ], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
         { "if": { "properties": { "type": { "const": "list_iterator" } } }, "then": { "required": ["iteratorConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["assertConfig"] }, { "required": ["listConfig"] } ] } } },
         { "if": { "properties": { "type": { "const": "assert_element" } } }, "then": { "required": ["assertConfig"], "not": { "anyOf": [ { "required": ["rowConfig"] }, { "required": ["listConfig"] }, { "required": ["iteratorConfig"] } ] } } },
         { "if": { "properties": { "type": { "const": "update_row" } } }, "then": { "required": ["rowConfig"], "not": { "anyOf": [ { "required": ["listConfig"] }, { "required": ["assertConfig"] }, { "required": ["iteratorConfig"] } ] } } },
@@ -426,6 +444,25 @@
               "description": "Date range filter"
             }
           }
+        },
+        "inputKey": {
+          "type": "string",
+          "description": "Input state key for filter_list (source data)"
+        },
+        "outputKey": {
+          "type": "string",
+          "description": "Output state key for filter_list (filtered results)"
+        },
+        "batchSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25,
+          "description": "Batch size for filter_list LLM processing"
+        },
+        "promptTemplate": {
+          "type": "string",
+          "description": "LLM prompt template for filter_list decisions"
         }
       }
     },
