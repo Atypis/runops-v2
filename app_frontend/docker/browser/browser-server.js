@@ -73,10 +73,28 @@ async function waitForXServer() {
 
 // Find the correct Chromium executable
 function findChromiumExecutable() {
+  // First, try to find Playwright Chromium dynamically
+  const playwrightCacheDir = '/home/aefuser/.cache/ms-playwright';
+  
+  try {
+    if (fs.existsSync(playwrightCacheDir)) {
+      const entries = fs.readdirSync(playwrightCacheDir);
+      const chromiumDirs = entries.filter(entry => entry.startsWith('chromium-'));
+      
+      for (const chromiumDir of chromiumDirs) {
+        const chromePath = path.join(playwrightCacheDir, chromiumDir, 'chrome-linux', 'chrome');
+        if (fs.existsSync(chromePath)) {
+          console.log(`[Browser Server] Found Playwright Chromium at: ${chromePath}`);
+          return chromePath;
+        }
+      }
+    }
+  } catch (error) {
+    console.log(`[Browser Server] Error searching for Playwright Chromium: ${error.message}`);
+  }
+  
+  // Fallback to hardcoded paths
   const possiblePaths = [
-    // Playwright Chromium (preferred for Stagehand)
-    '/home/aefuser/.cache/ms-playwright/chromium-1169/chrome-linux/chrome',
-    process.env.HOME + '/.cache/ms-playwright/chromium-1169/chrome-linux/chrome',
     // System Chromium fallback
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
@@ -86,7 +104,7 @@ function findChromiumExecutable() {
   
   for (const execPath of possiblePaths) {
     if (fs.existsSync(execPath)) {
-      console.log(`[Browser Server] Found Chromium at: ${execPath}`);
+      console.log(`[Browser Server] Found system Chromium at: ${execPath}`);
       return execPath;
     }
   }
@@ -430,6 +448,74 @@ app.post('/action', async (req, res) => {
         
         result = { threads: allResults, totalPages: pageCount };
         break;
+
+      case 'extract_list':
+        // Extract list of items with pagination support
+        console.log(`[Browser Server] Starting extract_list with config:`, JSON.stringify(data, null, 2));
+        
+        // Log the extraction prompt
+        addNodeLog(nodeId, {
+          type: 'prompt',
+          title: 'LLM Prompt for Extract List',
+          content: `Instruction: ${data.instruction}\n\nFields: ${JSON.stringify(data.fields, null, 2)}\n\nConfig: ${JSON.stringify({
+            itemSelector: data.itemSelector,
+            maxItems: data.maxItems,
+            scrollStrategy: data.scrollStrategy
+          }, null, 2)}\n\nContext: Extracting list from page: ${stagehand.page.url()}`,
+          metadata: {
+            actionType: 'extract_list',
+            url: stagehand.page.url()
+          }
+        });
+
+        // Import zod for schema creation
+        const { z } = require('zod');
+        
+        // Create proper Zod schema for the fields
+        const fieldSchema = {};
+        const fields = data.fields || { text: "string", link: "string" };
+        
+        // Convert field definitions to Zod schema properties
+        for (const [fieldName, fieldType] of Object.entries(fields)) {
+          if (typeof fieldType === 'string') {
+            // Simple string type
+            fieldSchema[fieldName] = z.string().describe(`The ${fieldName} field`);
+          } else {
+            // Default to string for complex selectors
+            fieldSchema[fieldName] = z.string().describe(`The ${fieldName} field`);
+          }
+        }
+        
+        // Use Stagehand's built-in extract with proper Zod schema
+        const extractResult = await stagehand.page.extract({
+          instruction: data.instruction || "Extract all items from the current page",
+          schema: z.object({
+            items: z.array(z.object(fieldSchema))
+          })
+        });
+
+        // Format result to match expected structure
+        const extractListResult = {
+          items: extractResult?.items || [],
+          pagesVisited: 1,
+          totalItems: extractResult?.items?.length || 0,
+          hasMore: false
+        };
+
+        // Log the extraction result
+        addNodeLog(nodeId, {
+          type: 'llm_response',
+          title: 'Extract List Result',
+          content: `List extraction completed!\n\nExtracted ${extractListResult.items.length} items:\n${JSON.stringify(extractListResult.items.slice(0, 3), null, 2)}${extractListResult.items.length > 3 ? '\n... and ' + (extractListResult.items.length - 3) + ' more items' : ''}`,
+          metadata: {
+            actionType: 'extract_list',
+            duration: Date.now() - startTime,
+            itemCount: extractListResult.items.length
+          }
+        });
+
+        result = extractListResult;
+        break;
         
       default:
         throw new Error(`Unknown action type: ${type}`);
@@ -468,7 +554,7 @@ app.post('/action', async (req, res) => {
       content: `Action failed with error:\n\n${error.message}\n\nStack trace:\n${error.stack}`,
       metadata: {
         actionType: req.body.type,
-        duration: Date.now() - startTime,
+        duration: typeof startTime !== 'undefined' ? Date.now() - startTime : 0,
         url: stagehand?.page?.url() || 'unknown'
       }
     });

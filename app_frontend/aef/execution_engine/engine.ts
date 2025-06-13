@@ -299,7 +299,21 @@ export class ExecutionEngine {
                         await logger.logActionResult('click', result, Date.now() - clickStartTime);
                     } catch (error) {
                         console.error(`    ❌ Click failed:`, error);
-                        await logger.logActionResult('click', { success: false, error: error instanceof Error ? error.message : String(error) }, Date.now() - clickStartTime);
+
+                        // 🔄 Fallback to Stagehand act
+                        try {
+                          console.log(`    🔄 Falling back to Stagehand act for click`);
+                          const fallbackResult = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'act',
+                            data: { instruction: action.instruction || `Click the element ${action.target?.selector}` },
+                            stepId: node.id
+                          });
+                          console.log(`    ✅ Fallback act completed:`, fallbackResult);
+                          await logger.logActionResult('click_fallback', fallbackResult, Date.now() - clickStartTime);
+                        } catch (fallbackErr) {
+                          console.error(`    ❌ Fallback act failed:`, fallbackErr);
+                          await logger.logActionResult('click', { success: false, error: String(fallbackErr) }, Date.now() - clickStartTime);
+                        }
                     }
                     break;
 
@@ -323,6 +337,20 @@ export class ExecutionEngine {
                         console.log(`    ✅ Type completed:`, result);
                     } catch (error) {
                         console.error(`    ❌ Type failed:`, error);
+
+                        // 🔄 Fallback to Stagehand act
+                        try {
+                          console.log(`    🔄 Falling back to Stagehand act for type`);
+                          const fallbackResult = await hybridBrowserManager.executeAction(executionId, {
+                            type: 'act',
+                            data: { instruction: action.instruction || `Type the required text` },
+                            stepId: node.id
+                          });
+                          console.log(`    ✅ Fallback act completed:`, fallbackResult);
+                        } catch (fallbackErr) {
+                          console.error(`    ❌ Fallback act failed:`, fallbackErr);
+                          throw fallbackErr;
+                        }
                     }
                     break;
 
@@ -395,7 +423,6 @@ export class ExecutionEngine {
                         
                         const result = await hybridBrowserManager.executeAction(executionId, browserAction);
                         console.log(`    ✅ Act completed:`, result);
-                        return result;
                     } catch (error) {
                         console.error(`    ❌ Act failed:`, error);
                         throw error;

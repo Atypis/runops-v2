@@ -257,19 +257,28 @@
           "actions": [
             {
               "type": "act",
-              "instruction": "Click on the Gmail search box",
+              "instruction": "Click the Gmail search mail textbox",
               "useVision": "fallback",
               "timeout": 5000
             },
             {
-              "type": "act",
-              "instruction": "Type search query for June 2nd emails: after:2025/06/01 before:2025/06/03",
-              "timeout": 5000
+              "type": "type",
+              "instruction": "Enter date filter",
+              "target": { "selector": "input[aria-label='Search mail']" },
+              "data": { "text": "after:2025/06/01 before:2025/06/03" },
+              "timeout": 7000
             },
             {
               "type": "act",
-              "instruction": "Press Enter to execute search",
+              "instruction": "Press Enter to execute the search",
+              "useVision": "fallback",
               "timeout": 5000
+            },
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for Gmail to load search results",
+              "target": { "url_contains": "#search" },
+              "timeout": 10000
             }
           ]
         },
