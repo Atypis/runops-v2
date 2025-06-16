@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import NodeSelector from './NodeSelector';
 import NodeMemoryPanel from './NodeMemoryPanel';
+import eventBus from '@/lib/utils/eventBus';
 
 interface ExecutionPanelProps {
   aefDocument: AEFDocument;
@@ -220,6 +221,9 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
       const result = await response.json();
       console.log(`✅ [ExecutionPanel] Step execution result:`, result);
       
+      // Notify listeners (e.g., NodeMemoryPanel) that this node has executed
+      eventBus.emit('nodeExecuted', { executionId, nodeId: stepId });
+
     } catch (error) {
       console.error(`❌ [ExecutionPanel] Step execution failed:`, error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

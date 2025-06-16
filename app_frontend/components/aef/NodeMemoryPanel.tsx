@@ -21,6 +21,7 @@ import { MemoryArtifact } from '@/lib/memory/types';
 import MemoryPhaseView from './MemoryPhaseView';
 import MemoryDetailModal from './MemoryDetailModal';
 import { useMemoryData } from '@/lib/hooks/useMemoryData';
+import eventBus from '@/lib/utils/eventBus';
 
 interface NodeMemoryPanelProps {
   nodeId: string;
@@ -43,8 +44,13 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
   const [selectedPhase, setSelectedPhase] = useState<'inputs' | 'processing' | 'outputs' | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // Fetch memory data using our custom hook
-  const { memoryArtifact, isLoading, error, refetch, isWaitingForMemory } = useMemoryData(executionId, nodeId);
+  // Internal flag toggled when we hear that this node actually executed
+  const [shouldFetch, setShouldFetch] = useState(false);
+
+  // Fetch memory data using our custom hook – only when (a) panel expanded, (b) already displaying data, or (c) node executed
+  const shouldFetchMemory = isExpanded || displayState !== 'collapsed' || shouldFetch;
+  const effectiveExecutionId = shouldFetchMemory ? executionId : undefined;
+  const { memoryArtifact, isLoading, error, refetch, isWaitingForMemory } = useMemoryData(effectiveExecutionId, nodeId);
 
   // Debug logging to track execution ID issues
   useEffect(() => {
@@ -56,6 +62,23 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
       error: error?.message
     });
   }, [executionId, nodeId, memoryArtifact, isLoading, error]);
+
+  // Listen for the nodeExecuted event so we can start fetching memory as soon as backend finishes
+  useEffect(() => {
+    const handler = (payload?: { executionId?: string; nodeId?: string }) => {
+      if (!payload) return;
+      if (payload.executionId === executionId && payload.nodeId === nodeId) {
+        console.log(`📥 [NodeMemoryPanel] nodeExecuted event received for ${nodeId}. Triggering memory fetch.`);
+        setShouldFetch(true);
+        refetch();
+      }
+    };
+
+    eventBus.on('nodeExecuted', handler);
+    return () => {
+      eventBus.off('nodeExecuted', handler);
+    };
+  }, [executionId, nodeId]);
 
   // Auto-expand if there are errors in memory
   useEffect(() => {

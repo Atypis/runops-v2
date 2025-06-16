@@ -49,7 +49,7 @@ export function useMemoryData(executionId?: string, nodeId?: string): UseMemoryD
   };
 
   const fetchMemoryData = async (isRetryAttempt = false) => {
-    if (!executionId || !nodeId) {
+    if (!executionId || !nodeId || executionId.includes('discovering')) {
       setMemoryArtifact(null);
       clearRetryTimers();
       return;
@@ -330,7 +330,7 @@ export function useCachedMemoryData(executionId?: string, nodeId?: string): UseM
   const [error, setError] = useState<Error | null>(null);
 
   const fetchMemoryData = async () => {
-    if (!executionId || !nodeId) {
+    if (!executionId || !nodeId || executionId.includes('discovering')) {
       setMemoryArtifact(null);
       return;
     }
