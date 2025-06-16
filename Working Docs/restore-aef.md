@@ -29,6 +29,8 @@ We have now **recovered, committed and pushed** 39 source files (≈87 KB) and r
 | 17:00 | `HybridBrowserManager.ts` recreated & committed (`849e7cc`). |
 | 17:05 | New branch **memory-system-recovery** created & pushed. |
 | 17:10 | Build now fails on missing `DockerBrowserManager`. |
+| 17:15 | **.gitignore cleaned** - removed Python patterns (`9b5ebee`). |
+| 17:20 | **DockerBrowserManager requirements analyzed** from codebase. |
 
 ---
 
@@ -61,33 +63,100 @@ We have now **recovered, committed and pushed** 39 source files (≈87 KB) and r
 
 ---
 
-## 5. Immediate Action Plan
+## 5. DockerBrowserManager Requirements Analysis
 
-1. **Finalize Git Hygiene**  
-   a. Remove any remaining source-code directories from _.gitignore_.  
-   b. Run `git ls-files --others --exclude-standard` to surface anything still untracked.  
-   c. Merge `memory-system-recovery` ➜ protected branch (PR, reviews, CI).
-2. **Re-implement DockerBrowserManager**  
+### 5.1 Interface Requirements (Based on Usage)
+
+**Core Class:**
+```typescript
+export class DockerBrowserManager {
+  // Container lifecycle management
+  async forceCleanupAll(): Promise<void>
+  
+  // Integration with HybridBrowserManager required
+  // Should support same session interface as BrowserManager
+}
+```
+
+**Container Type:**
+```typescript
+export interface DockerBrowserContainer {
+  id: string              // Session ID  
+  port: number           // Container HTTP port
+  vncPort: number        // VNC server port (5900)
+  noVncPort: number      // NoVNC web client port (6080)
+  containerId?: string   // Docker container ID
+}
+```
+
+### 5.2 Usage Patterns Identified
+
+**1. VNC Environment Creation (`start-vnc-environment/route.ts`):**
+- `hybridBrowserManager.createSession()` returns `DockerBrowserContainer`
+- Container should auto-expose VNC ports (5900, 6080)
+- Support browser auto-initialization via HTTP `/init` endpoint
+- Integration with memory system via HybridBrowserManager
+
+**2. VNC Environment Cleanup (`stop-vnc-environment/route.ts`):**
+- `dockerManager.forceCleanupAll()` - destroys ALL containers
+- Works in conjunction with `hybridBrowserManager.destroySessionByExecution()`
+- Should clean up Docker resources completely
+
+**3. Integration Points:**
+- Must work with `HybridBrowserManager` session management
+- Should support memory capture via `StagehandMemoryHooks`
+- Container lifecycle tied to execution IDs (VNC prefix: `vnc-env-*`)
+
+### 5.3 Docker Container Requirements
+
+**Container Features:**
+- Chrome browser with automation capabilities
+- VNC server (port 5900) 
+- NoVNC web client (port 6080)
+- HTTP API for browser control (`/init` endpoint)
+- Stagehand integration for automation
+- Consistent port mapping for single-container mode
+
+**Container Names/Images:**
+- Evidence suggests: `aef-browser`, `aef-vnc-single`
+- Should be VNC-enabled Chrome containers
+- Built with browser automation tools
+
+---
+
+## 6. Immediate Action Plan
+
+1. **✅ Finalize Git Hygiene** (**COMPLETED**)  
+   a. ✅ Remove any remaining source-code directories from _.gitignore_.  
+   b. ✅ Run `git ls-files --others --exclude-standard` to surface anything still untracked.  
+   c. 🔄 Merge `memory-system-recovery` ➜ protected branch (PR, reviews, CI).
+
+2. **🔄 Re-implement DockerBrowserManager** (**IN PROGRESS**)  
    Requirements (based on imports):
-   * `createContainer`, `destroyContainer`, `executeAction` wrappers.  
-   * Integrates with **BrowserManager** sessions & memory hooks.  
-   * Starts/stops VNC-enabled Chrome container (`aef-browser`, `aef-vnc-single`).
+   * `DockerBrowserManager` class with `forceCleanupAll()` method
+   * `DockerBrowserContainer` interface with VNC ports
+   * Integration with **HybridBrowserManager** session creation
+   * Docker container lifecycle management for VNC environments
+
 3. **Green Build**  
    * `npm run build` should compile w/out webpack errors.  
    * Run existing Jest tests; add unit tests for new managers.
+
 4. **Database Verification**  
    * Compare `supabase/migrations` vs live schema (`mcp_supabase_list_tables`, `get_advisors`).  
    * Ensure `memory_artifacts`: indexes, RLS, helper views intact.
+
 5. **CI/CD Hardening**  
    * Add step to fail build if anything under `app_frontend/lib/` becomes untracked.  
    * Basic test: `import hybridBrowserManager` resolves.  
    * Lint + type-check `lib/` path.
+
 6. **Documentation Sync**  
    * Update **memory.md** & new docs to reflect actual class/method names.
 
 ---
 
-## 6. Verification Checklist
+## 7. Verification Checklist
 
 - [ ] Build completes (`npm run build`)
 - [ ] `next dev` starts without 404 on HybridBrowserManager
@@ -98,7 +167,7 @@ We have now **recovered, committed and pushed** 39 source files (≈87 KB) and r
 
 ---
 
-## 7. Longer-Term Follow-ups
+## 8. Longer-Term Follow-ups
 
 1. **Lock Git Hygiene** – Pre-commit hook rejecting *.ts* files in ignored paths.  
 2. **Code Ownership** – OWNERS for `app_frontend/lib/` to get mandatory review.  
@@ -107,7 +176,7 @@ We have now **recovered, committed and pushed** 39 source files (≈87 KB) and r
 
 ---
 
-## 8. References & Links
+## 9. References & Links
 
 * Branch with recovery:  <https://github.com/Atypis/runops-v2/tree/memory-system-recovery>  
 * Memory architecture doc: `Working Docs/memory.md`  
@@ -115,4 +184,4 @@ We have now **recovered, committed and pushed** 39 source files (≈87 KB) and r
 
 ---
 
-> **Status:** Recovery branch pushed — build red due to missing DockerBrowserManager. Follow action plan above to reach green build. 
+> **Status:** Git hygiene completed ✅ — DockerBrowserManager requirements analyzed ✅ — Ready to implement missing Docker integration. 
