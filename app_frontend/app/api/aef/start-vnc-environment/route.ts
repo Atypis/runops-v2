@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
-import { DockerBrowserContainer } from '@/lib/browser/DockerBrowserManager';
 import { createSupabaseServerClient, createDirectSupabaseClient } from '@/lib/supabase-server';
 
 /**
@@ -72,13 +71,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the VNC environment with CONSISTENT PORTS
-    const session = await hybridBrowserManager.createSession({
+    // Note: hybridBrowserManager currently returns a BrowserSession object.
+    // Casting to 'any' to avoid strict type mismatch for experimental Docker integration.
+    const session: any = await hybridBrowserManager.createSession({
       executionId,
       userId,
       mode: 'docker',
       headless: false,
       viewport: { width: 1280, height: 720 }
-    }) as DockerBrowserContainer;
+    });
 
     if (!session) {
       throw new Error('Failed to create VNC session');

@@ -140,9 +140,9 @@ export class AEFWebSocketServer {
         screenshot = screenshotResult || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
         state = session.getState();
       } else {
-        // Docker container - use a placeholder for now
+        // Docker container or unknown session type - use placeholder
         screenshot = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-        state = { status: session.status };
+        state = { status: (session as any).status || 'unknown' };
       }
       
       ws.send(JSON.stringify({

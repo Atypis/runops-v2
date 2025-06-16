@@ -7,6 +7,7 @@ export interface BrowserSessionConfig {
     height: number;
   };
   timeout?: number;
+  mode?: 'local' | 'docker'; // Browser session mode
 }
 
 export interface BrowserAction {

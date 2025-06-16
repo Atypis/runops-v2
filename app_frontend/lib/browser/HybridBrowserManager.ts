@@ -90,6 +90,7 @@ export class HybridBrowserManager extends EventEmitter {
    */
   public async executeAction(executionId: string, action: BrowserAction): Promise<any> {
     const actionId = `${action.type}_${Date.now()}`;
+    const isInternalMemoryCapture = action.stepId?.startsWith('memory-');
     
     // Memory Hook: Action start
     this.stagehandMemoryHooks.onActionStart(
@@ -99,16 +100,23 @@ export class HybridBrowserManager extends EventEmitter {
       action.instruction || `${action.type} action`
     );
 
-         try {
-       // Capture browser state before action
-       const browserStateBefore = await this.captureBrowserState(executionId);
-       
-       // Execute the action
-       const result = await this.browserManager.executeAction(executionId, action);
-       
-       // Capture browser state after action
-       const browserStateAfter = await this.captureBrowserState(executionId);
+    try {
+      let browserStateBefore: any = undefined;
+      let browserStateAfter: any = undefined;
       
+      if (!isInternalMemoryCapture) {
+        // Capture browser state before action
+        browserStateBefore = await this.captureBrowserState(executionId);
+      }
+      
+      // Execute the action
+      const result = await this.browserManager.executeAction(executionId, action);
+      
+      if (!isInternalMemoryCapture) {
+        // Capture browser state after action
+        browserStateAfter = await this.captureBrowserState(executionId);
+      }
+
       // Memory Hook: Action complete with state capture
       this.stagehandMemoryHooks.onActionComplete(
         executionId,

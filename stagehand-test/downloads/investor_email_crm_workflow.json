@@ -1,0 +1,496 @@
+{
+  "meta": {
+    "id": "inv-email-crm-001",
+    "title": "Daily Investor Email Processing & CRM Updates",
+    "version": "1.0",
+    "goal": "Process daily Gmail inbox to identify investor-related emails and update Airtable CRM with interaction details",
+    "purpose": "Maintain accurate investor relationship tracking by capturing all email communications and updating CRM records",
+    "owner": ["Michael"],
+    "created": "2025-01-02T10:00:00Z",
+    "estimated_duration": "15-30 minutes",
+    "frequency": "daily_evening"
+  },
+  "execution": {
+    "environment": {
+      "required_tabs": [
+        {
+          "name": "gmail",
+          "url": "https://mail.google.com/mail/u/0/#inbox",
+          "description": "Gmail inbox for michaelburnett91@gmail.com"
+        },
+        {
+          "name": "airtable", 
+          "url": "https://airtable.com/app*/tbl*/viw*",
+          "description": "Investor Relationship Management App base"
+        }
+      ],
+      "required_logins": ["gmail", "airtable"],
+      "browser_setup": "Two tabs open side by side for easy switching"
+    },
+    "workflow": {
+      "nodes": [
+        {
+          "id": "start_workflow",
+          "type": "initialize",
+          "title": "Begin Daily Email Processing",
+          "description": "Start the daily investor email review process",
+          "actions": []
+        },
+        {
+          "id": "open_gmail_inbox", 
+          "type": "navigation",
+          "title": "Navigate to Gmail Inbox",
+          "description": "Open Gmail inbox and prepare for email review",
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "target": "gmail_inbox",
+              "instruction": "Go to Gmail inbox tab or switch to existing Gmail tab",
+              "selectors": ["title containing 'Inbox'", "url containing 'mail.google.com'"],
+              "wait_for": "email list visible"
+            }
+          ]
+        },
+        {
+          "id": "scan_email_list",
+          "type": "assessment",
+          "title": "Scan Inbox for Unprocessed Emails", 
+          "description": "Review inbox to identify emails that need processing",
+          "actions": [
+            {
+              "type": "visual_scan",
+              "target": "email_list",
+              "instruction": "Look at email list to identify unread or recent emails from today",
+              "focus_areas": ["sender names", "subject lines", "timestamps"]
+            }
+          ]
+        },
+        {
+          "id": "email_processing_loop",
+          "type": "iterative_loop",
+          "title": "Process Each Relevant Email",
+          "description": "Go through emails one by one to process investor communications",
+          "loop_condition": "while unprocessed emails remain",
+          "children": [
+            "select_next_email",
+            "extract_email_details", 
+            "classify_email_type",
+            "process_investor_email",
+            "process_non_investor_email"
+          ]
+        },
+        {
+          "id": "select_next_email",
+          "type": "interaction",
+          "title": "Open Next Email",
+          "description": "Click on the next email to review its contents",
+          "actions": [
+            {
+              "type": "click",
+              "target": "email_list_item",
+              "instruction": "Click on the next unread or relevant email in the list",
+              "selectors": ["div[role='listitem']", "email list item"],
+              "wait_for": "email content loads"
+            }
+          ]
+        },
+        {
+          "id": "extract_email_details",
+          "type": "data_extraction", 
+          "title": "Extract Email Information",
+          "description": "Gather key details from the opened email",
+          "actions": [
+            {
+              "type": "extract_data",
+              "target": "email_content",
+              "instruction": "Extract sender name, email address, subject, date, and body content",
+              "schema": {
+                "sender_name": "string",
+                "sender_email": "string", 
+                "subject": "string",
+                "date": "string",
+                "body_content": "string",
+                "company_name": "string (derived from email domain or signature)"
+              }
+            }
+          ]
+        },
+        {
+          "id": "classify_email_type",
+          "type": "decision",
+          "title": "Determine if Investor-Related",
+          "description": "Analyze email content to determine if it's investor communication",
+          "decision_criteria": {
+            "investor_indicators": [
+              "sender domain contains: vc, fund, capital, invest, ventures",
+              "subject contains: pitch deck, diligence, fundraising, investment, round, IC",
+              "body contains: fund, investment, due diligence, term sheet, valuation",
+              "known investor contact from CRM"
+            ],
+            "non_investor_indicators": [
+              "HR/team communications",
+              "newsletters", 
+              "billing/invoices",
+              "marketing emails",
+              "automated notifications"
+            ]
+          },
+          "branches": {
+            "investor_email": "process_investor_email",
+            "non_investor_email": "process_non_investor_email"
+          }
+        },
+        {
+          "id": "process_non_investor_email",
+          "type": "task_sequence",
+          "title": "Handle Non-Investor Email",
+          "description": "Process emails that are not investor-related",
+          "actions": [
+            {
+              "type": "mark_processed",
+              "instruction": "Mark email as read or archive if needed",
+              "optional": true
+            },
+            {
+              "type": "navigate_back",
+              "instruction": "Return to inbox list to continue processing",
+              "target": "inbox_list"
+            }
+          ]
+        },
+        {
+          "id": "process_investor_email",
+          "type": "task_sequence", 
+          "title": "Process Investor Email",
+          "description": "Handle investor-related email by updating CRM",
+          "children": [
+            "switch_to_airtable",
+            "find_or_create_investor_record", 
+            "update_interaction_details",
+            "save_and_close_record",
+            "return_to_gmail"
+          ]
+        },
+        {
+          "id": "switch_to_airtable",
+          "type": "navigation",
+          "title": "Open Airtable CRM",
+          "description": "Switch to Airtable tab with Investor Relationship Management base",
+          "actions": [
+            {
+              "type": "switch_tab",
+              "target": "airtable_tab",
+              "instruction": "Switch to Airtable tab or open new tab if needed",
+              "selectors": ["title containing 'Investor Relationship Management'", "url containing 'airtable.com'"],
+              "wait_for": "airtable grid view loads"
+            }
+          ]
+        },
+        {
+          "id": "find_or_create_investor_record",
+          "type": "conditional_task",
+          "title": "Locate Investor Record",
+          "description": "Find existing investor record or create new one",
+          "decision_point": "Does investor record exist?",
+          "branches": {
+            "record_exists": "open_existing_record",
+            "record_not_found": "create_new_record"
+          },
+          "search_strategy": {
+            "method": "visual_scan_then_search",
+            "scan_target": "investor_name_column",
+            "search_fields": ["company name", "contact person name"],
+            "fallback": "create_new_record"
+          }
+        },
+        {
+          "id": "open_existing_record",
+          "type": "interaction",
+          "title": "Open Existing Investor Record",
+          "description": "Click on the matching investor record row",
+          "actions": [
+            {
+              "type": "click",
+              "target": "investor_row",
+              "instruction": "Click on the row containing the matching investor/company name",
+              "selectors": ["grid row containing investor name"],
+              "wait_for": "modal opens with investor details"
+            }
+          ]
+        },
+        {
+          "id": "create_new_record",
+          "type": "task_sequence",
+          "title": "Create New Investor Record",
+          "description": "Add a new investor to the CRM with basic information",
+          "actions": [
+            {
+              "type": "click",
+              "target": "add_record_button",
+              "instruction": "Click the add new record button or empty row",
+              "selectors": ["button with '+' icon", "empty grid row"],
+              "wait_for": "new record modal opens"
+            },
+            {
+              "type": "fill_form",
+              "target": "new_record_form",
+              "instruction": "Fill in basic investor information",
+              "fields": {
+                "investor_name": "{{extracted_company_name}}",
+                "contact_person": "{{extracted_sender_name}}", 
+                "email": "{{extracted_sender_email}}",
+                "stage": "determine from email content (Contacted/Interested/etc)",
+                "last_interaction": "{{current_date}}",
+                "notes": "Initial contact via email"
+              }
+            }
+          ]
+        },
+        {
+          "id": "update_interaction_details",
+          "type": "form_update",
+          "title": "Update Interaction Information", 
+          "description": "Record the latest email interaction details",
+          "actions": [
+            {
+              "type": "update_date_field",
+              "target": "last_interaction_date",
+              "instruction": "Click date field and select today's date",
+              "value": "{{current_date}}"
+            },
+            {
+              "type": "update_text_field",
+              "target": "thread_summary_notes",
+              "instruction": "Append or update notes with email summary",
+              "value": "{{email_date}}: {{email_subject}} - {{email_summary}}",
+              "mode": "append"
+            },
+            {
+              "type": "update_stage_if_needed",
+              "target": "stage_dropdown", 
+              "instruction": "Update stage based on email content progression",
+              "logic": {
+                "initial_contact": "Contacted",
+                "showed_interest": "Interested", 
+                "in_diligence": "In Diligence",
+                "follow_up_needed": "Awaiting Reply"
+              }
+            },
+            {
+              "type": "update_checkbox",
+              "target": "follow_up_needed",
+              "instruction": "Check/uncheck follow-up needed based on email content",
+              "logic": "Check if email requires response or action"
+            },
+            {
+              "type": "update_text_field",
+              "target": "next_step_action",
+              "instruction": "Add next action if follow-up is needed",
+              "conditional": "if follow_up_needed is checked",
+              "examples": [
+                "Send pitch deck",
+                "Schedule call", 
+                "Provide additional data",
+                "Follow up on timeline"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "save_and_close_record",
+          "type": "interaction",
+          "title": "Save Record and Close Modal",
+          "description": "Save changes and return to grid view",
+          "actions": [
+            {
+              "type": "click",
+              "target": "close_modal_button",
+              "instruction": "Click the X button to close modal and save changes",
+              "selectors": ["button[aria-label='Close']", "close icon"],
+              "wait_for": "modal closes and grid view is visible"
+            },
+            {
+              "type": "verify_save",
+              "instruction": "Confirm changes were saved by checking grid view",
+              "validation": "Updated information visible in grid"
+            }
+          ]
+        },
+        {
+          "id": "return_to_gmail",
+          "type": "navigation",
+          "title": "Switch Back to Gmail", 
+          "description": "Return to Gmail tab to continue processing emails",
+          "actions": [
+            {
+              "type": "switch_tab",
+              "target": "gmail_tab",
+              "instruction": "Switch back to Gmail tab",
+              "selectors": ["title containing 'Gmail'", "url containing 'mail.google.com'"],
+              "wait_for": "gmail loads"
+            },
+            {
+              "type": "navigate_back_if_needed",
+              "instruction": "Return to inbox list if still viewing individual email",
+              "target": "inbox_list"
+            }
+          ]
+        },
+        {
+          "id": "workflow_complete",
+          "type": "completion",
+          "title": "Email Processing Complete",
+          "description": "All relevant emails have been processed and CRM is updated",
+          "actions": [
+            {
+              "type": "final_verification",
+              "instruction": "Quick scan to ensure no missed investor emails",
+              "target": "inbox_list"
+            }
+          ]
+        }
+      ],
+      "flow": [
+        {
+          "from": "start_workflow",
+          "to": "open_gmail_inbox"
+        },
+        {
+          "from": "open_gmail_inbox", 
+          "to": "scan_email_list"
+        },
+        {
+          "from": "scan_email_list",
+          "to": "email_processing_loop"
+        },
+        {
+          "from": "email_processing_loop",
+          "to": "select_next_email"
+        },
+        {
+          "from": "select_next_email",
+          "to": "extract_email_details"
+        },
+        {
+          "from": "extract_email_details",
+          "to": "classify_email_type"
+        },
+        {
+          "from": "classify_email_type",
+          "to": "process_investor_email",
+          "condition": "investor_email"
+        },
+        {
+          "from": "classify_email_type", 
+          "to": "process_non_investor_email",
+          "condition": "non_investor_email"
+        },
+        {
+          "from": "process_non_investor_email",
+          "to": "email_processing_loop",
+          "condition": "continue_loop"
+        },
+        {
+          "from": "process_investor_email",
+          "to": "switch_to_airtable"
+        },
+        {
+          "from": "switch_to_airtable",
+          "to": "find_or_create_investor_record"
+        },
+        {
+          "from": "find_or_create_investor_record",
+          "to": "open_existing_record",
+          "condition": "record_exists"
+        },
+        {
+          "from": "find_or_create_investor_record",
+          "to": "create_new_record", 
+          "condition": "record_not_found"
+        },
+        {
+          "from": "open_existing_record",
+          "to": "update_interaction_details"
+        },
+        {
+          "from": "create_new_record",
+          "to": "update_interaction_details"
+        },
+        {
+          "from": "update_interaction_details",
+          "to": "save_and_close_record"
+        },
+        {
+          "from": "save_and_close_record",
+          "to": "return_to_gmail"
+        },
+        {
+          "from": "return_to_gmail",
+          "to": "email_processing_loop",
+          "condition": "continue_loop"
+        },
+        {
+          "from": "email_processing_loop",
+          "to": "workflow_complete",
+          "condition": "no_more_emails"
+        }
+      ]
+    },
+    "data_context": {
+      "email_patterns": {
+        "investor_examples": [
+          "ben@betacapital.com - Beta Capital - pitch deck discussions",
+          "carla@gammafund.io - Gamma Fund - diligence session follow-ups", 
+          "alice@alphaventures.com - Alpha Ventures - deck review updates",
+          "elena.rios@orionventures.com - Orion Ventures - investment opportunities",
+          "raymond.liu@novacap.com - Nova Cap - fund closing communications"
+        ],
+        "non_investor_examples": [
+          "people@companyhub.com - internal team communications",
+          "newsletter@saasweekly.com - industry newsletters",
+          "billing@cloudtool.io - service invoices and billing"
+        ]
+      },
+      "airtable_schema": {
+        "base_name": "Investor Relationship Management App",
+        "primary_table": "Investors",
+        "key_fields": {
+          "investor_name": "Single line text - Company/Fund name",
+          "contact_person": "Single line text - Primary contact name", 
+          "email": "Email - Contact email address",
+          "stage": "Single select - Contacted/Interested/In Diligence/Awaiting Reply/Not Contacted",
+          "last_interaction": "Date - Most recent communication date",
+          "thread_summary_notes": "Long text - Communication history and notes",
+          "follow_up_needed": "Checkbox - Whether action is required",
+          "next_step_action": "Single line text - Specific next action needed"
+        }
+      }
+    },
+    "error_handling": {
+      "common_issues": [
+        {
+          "issue": "Cannot find investor record in Airtable",
+          "solution": "Create new record with extracted information"
+        },
+        {
+          "issue": "Email content unclear or ambiguous", 
+          "solution": "Flag for manual review and continue with best interpretation"
+        },
+        {
+          "issue": "Airtable modal won't open",
+          "solution": "Refresh page and retry, or use keyboard shortcut"
+        },
+        {
+          "issue": "Gmail tab becomes unresponsive",
+          "solution": "Refresh Gmail tab and restart from current position"
+        }
+      ],
+      "validation_checks": [
+        "Verify record saved successfully before moving to next email",
+        "Confirm date field updated correctly", 
+        "Check that notes were appended properly",
+        "Validate email was marked as processed"
+      ]
+    }
+  }
+} 

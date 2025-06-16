@@ -117,6 +117,22 @@ export class BrowserManager extends EventEmitter {
   public async executeAction(executionId: string, action: BrowserAction): Promise<any> {
     const session = this.getSessionByExecution(executionId);
     if (!session) {
+      // Fallback: Use SingleVNCSessionManager for Docker-based single VNC sessions
+      if (executionId.startsWith('single-vnc-')) {
+        try {
+          const { singleVNCSessionManager } = await import('../vnc/SingleVNCSessionManager');
+          // Ensure session is ready
+          const isReady = await singleVNCSessionManager.isSessionReady();
+          if (!isReady) {
+            throw new Error('Single VNC session not ready');
+          }
+          // Execute action via SingleVNCSessionManager API proxy
+          const result = await singleVNCSessionManager.executeAction(action);
+          return result;
+        } catch (fallbackError) {
+          throw new Error(`No browser session found for execution ${executionId} and fallback failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
+        }
+      }
       throw new Error(`No browser session found for execution ${executionId}`);
     }
     
