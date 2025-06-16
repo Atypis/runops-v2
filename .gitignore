@@ -3,27 +3,21 @@ node_modules/
 .env.local
 .env
 
-# Python
+# Python (keep minimal - this is a TypeScript project)
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
-build/
-develop-eggs/
+
+# Build artifacts (appropriate for TypeScript/Next.js)
 dist/
-downloads/
-eggs/
-.eggs/
-# lib/ - REMOVED: This is source code in TypeScript projects!
-# lib64/ - REMOVED: This is for Python, not TypeScript
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+
+# Note: Removed Python-specific patterns that don't apply to TypeScript:
+# - lib/ (TypeScript source code!)
+# - lib64/ (Python-specific)
+# - parts/, sdist/, var/, wheels/, eggs/, .eggs/ (Python packaging)
+# - build/ (could conflict with TypeScript build dirs)
+# - develop-eggs/, .installed.cfg, *.egg (Python packaging)
 
 # Virtual environments
 venv/
