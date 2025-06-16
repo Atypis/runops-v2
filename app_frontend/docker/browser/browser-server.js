@@ -9,6 +9,7 @@
 
 const express = require('express');
 const { Stagehand } = require('@browserbasehq/stagehand');
+const { z } = require('zod');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -331,28 +332,77 @@ app.post('/action', async (req, res) => {
         addNodeLog(nodeId, {
           type: 'prompt',
           title: 'LLM Prompt for Extract',
-          content: `Instruction: ${data.instruction}\n\nSchema: ${JSON.stringify(data.schema, null, 2)}\n\nContext: Extracting data from page: ${stagehand.page.url()}`,
+          content: `Instruction: ${data.instruction}\\n\\nSchema: ${JSON.stringify(data.schema, null, 2)}\\n\\nContext: Extracting data from page: ${stagehand.page.url()}`,
           metadata: {
             actionType: 'extract',
             url: stagehand.page.url()
           }
         });
         
-        result = await stagehand.page.extract({
-          instruction: data.instruction,
-          schema: data.schema
-        });
-        
-        // Log the extraction result
-        addNodeLog(nodeId, {
-          type: 'llm_response',
-          title: 'Extract Result',
-          content: `Extraction completed successfully!\n\nExtracted data:\n${JSON.stringify(result, null, 2)}`,
-          metadata: {
-            actionType: 'extract',
-            duration: Date.now() - startTime
+        // Convert simple schema definition to Zod schema
+        function createZodSchema(schemaDefinition) {
+          if (!schemaDefinition || typeof schemaDefinition !== 'object') {
+            return z.object({ result: z.string() }); // fallback
           }
-        });
+          
+          const zodProps = {};
+          
+          for (const [key, value] of Object.entries(schemaDefinition)) {
+            if (typeof value === 'string') {
+              // Simple type definitions
+              switch (value) {
+                case 'string':
+                  zodProps[key] = z.string();
+                  break;
+                case 'number':
+                  zodProps[key] = z.number();
+                  break;
+                case 'boolean':
+                  zodProps[key] = z.boolean();
+                  break;
+                default:
+                  zodProps[key] = z.string(); // fallback
+              }
+            } else if (typeof value === 'object' && value !== null) {
+              if (value.type === 'array') {
+                // Handle array types
+                if (value.items && typeof value.items === 'object') {
+                  const itemSchema = createZodSchema(value.items);
+                  zodProps[key] = z.array(itemSchema);
+                } else {
+                  zodProps[key] = z.array(z.string()); // fallback
+                }
+              } else if (value.type === 'string' && value.optional) {
+                // Handle optional strings
+                zodProps[key] = z.string().optional();
+              } else if (value.type === 'number' && value.optional) {
+                // Handle optional numbers
+                zodProps[key] = z.number().optional();
+              } else {
+                // Handle nested objects
+                const nestedSchema = createZodSchema(value);
+                zodProps[key] = nestedSchema;
+              }
+            } else {
+              zodProps[key] = z.string(); // fallback
+            }
+          }
+          
+          return z.object(zodProps);
+        }
+        
+        // Create proper Zod schema from simple definition
+        const zodSchema = createZodSchema(data.schema);
+        
+        try {
+          result = await stagehand.page.extract({
+            instruction: data.instruction,
+            schema: zodSchema
+          });
+        } catch (extractError) {
+          console.error('Extract action failed:', extractError);
+          result = { error: extractError.message };
+        }
         break;
         
       case 'screenshot':
@@ -468,9 +518,6 @@ app.post('/action', async (req, res) => {
           }
         });
 
-        // Import zod for schema creation
-        const { z } = require('zod');
-        
         // Create proper Zod schema for the fields
         const fieldSchema = {};
         const fields = data.fields || { text: "string", link: "string" };

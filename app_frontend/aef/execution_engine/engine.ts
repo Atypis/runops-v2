@@ -4,6 +4,15 @@ import { CredentialInjectionService, ExecutionCredentials } from '@/lib/credenti
 import { WorkflowCredential } from '@/lib/types/aef';
 import { VariableResolver, VariableContext } from '@/lib/workflow/VariableResolver';
 import { NodeLogger } from '@/lib/logging/NodeLogger';
+import { MemoryManager } from '@/lib/memory/MemoryManager';
+import { 
+  MemoryInputs, 
+  MemoryProcessing, 
+  MemoryOutputs, 
+  ForwardingRules,
+  ProcessingCapture,
+  NodeExecutionContext 
+} from '@/lib/memory/types';
 
 // A placeholder for the more complex node structure from the JSON file
 type WorkflowNode = SOPNode & {
@@ -36,6 +45,7 @@ export class ExecutionEngine {
   private supabaseClient: any; // Service role Supabase client for credential access
   private loggers: Map<string, NodeLogger> = new Map(); // Node ID -> Logger
   private loopStates: Map<string, { index: number; length: number; queueKey: string }> = new Map(); // Loop state tracking
+  private memoryManager?: MemoryManager; // Universal Memory Manager for complete memory visibility
 
   constructor(sop: WorkflowDocument, userId: string, workflowId?: string) {
     this.sop = sop;
@@ -43,12 +53,42 @@ export class ExecutionEngine {
     this.userId = userId;
     this.workflowId = workflowId || (sop as any).meta?.id || 'unknown';
   }
+  
+  /**
+   * Initialize memory manager when Supabase client is available
+   */
+  private async initializeMemoryManager(): Promise<void> {
+    if (!this.supabaseClient) {
+      console.warn('Cannot initialize memory manager without Supabase client');
+      return;
+    }
+    
+    try {
+      const { MemoryManager } = await import('@/lib/memory/MemoryManager');
+      this.memoryManager = new MemoryManager(this.supabaseClient);
+      console.log(`💾 [ExecutionEngine] Memory manager initialized for complete execution capture`);
+    } catch (error) {
+      console.warn('Failed to initialize memory manager:', error);
+    }
+  }
 
   /**
-   * Set the Supabase client for credential access
+   * Set the Supabase client for credential access and initialize memory manager
    */
   public setSupabaseClient(supabaseClient: any): void {
     this.supabaseClient = supabaseClient;
+    
+    // Auto-initialize memory manager now that we have a Supabase client
+    this.initializeMemoryManager();
+  }
+
+  /**
+   * Set the Memory Manager for complete memory visibility
+   * CRITICAL: Memory management controls information flow between nodes
+   */
+  public setMemoryManager(memoryManager: MemoryManager): void {
+    this.memoryManager = memoryManager;
+    console.log('🧠 Memory Manager enabled - complete execution visibility activated');
   }
 
   /**
@@ -185,6 +225,7 @@ export class ExecutionEngine {
     console.log(`  💭 Intent: ${node.intent}`);
     
     const logger = this.getLogger(executionId, node.id);
+    const nodeStartTime = Date.now();
     
     // Create variable context for this node
     const variableContext = VariableResolver.createContext(
@@ -196,7 +237,71 @@ export class ExecutionEngine {
     );
     
     // Resolve variables in the node before execution
-    const resolvedNode = VariableResolver.resolveObjectVariables(node, variableContext) as WorkflowNode;
+    let resolvedNode = VariableResolver.resolveObjectVariables(node, variableContext) as WorkflowNode;
+    
+    // === MEMORY CAPTURE 1: INPUTS (BLOCKING) ===
+    let processingCapture: ProcessingCapture | undefined;
+    if (this.memoryManager) {
+      console.log(`🧠 Capturing inputs for node ${node.id}...`);
+      
+      // Build context for next node if memory manager is available
+      const nextNode = this.findNextNode(node.id);
+      if (nextNode) {
+        try {
+          const nodeContext = await this.memoryManager.getContextForNextNode(
+            executionId, 
+            node.id, 
+            nextNode.id
+          );
+          
+          // Update node with memory context
+          resolvedNode = {
+            ...resolvedNode,
+            memoryContext: nodeContext
+          };
+          
+          console.log(`🔄 Memory context loaded: ${Object.keys(nodeContext.availableVariables).length} variables available`);
+        } catch (error) {
+          console.warn(`⚠️ Could not load memory context for node ${node.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+      
+      const inputs: MemoryInputs = {
+        previousState: Object.fromEntries(this.state),
+        nodeVariables: resolvedNode.variables || {},
+        credentials: {}, // Will be populated during credential injection
+        environment: {
+          currentUrl: await this.getCurrentUrl(executionId),
+          domSnapshot: await this.getDOMSnapshot(executionId),
+          activeTab: await this.getActiveTab(executionId),
+          sessionState: {}
+        },
+        contextData: {
+          loopContext: this.getLoopContext(node.id),
+          parentContext: resolvedNode.memoryContext?.previousNodeOutputs || {}
+        },
+        actionInputs: {
+          instruction: node.intent,
+          schema: (resolvedNode as any).schema,
+          target: (resolvedNode as any).target,
+          data: (resolvedNode as any).data,
+          timeout: (resolvedNode as any).timeout,
+          config: resolvedNode
+        }
+      };
+      
+      try {
+        await this.memoryManager.captureNodeInputs(executionId, node.id, this.userId, inputs);
+        console.log(`✅ Inputs captured for node ${node.id}`);
+      } catch (error) {
+        const message = `CRITICAL: Input capture failed for node ${node.id}`;
+        console.error(`❌ ${message}:`, error);
+        throw new Error(`${message}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+      
+      // Initialize processing capture
+      processingCapture = new ProcessingCapture();
+    }
     
     // Handle new bulletproof node types
     switch (resolvedNode.type) {
@@ -530,8 +635,127 @@ export class ExecutionEngine {
                 default:
                     console.log(`    - Delegating '${action.type}' to executeAction helper`);
                     await this.executeAction(executionId, action, resolvedNode);
+                    
+                    // === MEMORY CAPTURE 2: PROCESSING (BLOCKING) ===
+                    if (this.memoryManager && processingCapture) {
+                      processingCapture.addAction({
+                        type: action.type,
+                        instruction: action.instruction || `${action.type} action`,
+                        target: action.target,
+                        data: action.data,
+                        result: null, // Would be populated with actual result
+                        timestamp: new Date(),
+                        duration: 0 // Would be calculated from actual execution
+                      });
+                    }
             }
         }
+    }
+    
+    // === MEMORY CAPTURE 3: OUTPUTS (BLOCKING) ===
+    if (this.memoryManager) {
+      const nodeDuration = Date.now() - nodeStartTime;
+      console.log(`🧠 Capturing outputs for node ${node.id}...`);
+      
+      const outputs: MemoryOutputs = {
+        primaryData: this.state.get(`${node.id}_result`) || null,
+        stateChanges: {
+          [`${node.id}_completed`]: true,
+          [`${node.id}_timestamp`]: new Date().toISOString()
+        },
+        extractedData: this.state.get(`${node.id}_extracted_data`),
+        decisionResult: this.state.get(`${node.id}_decision_result`) ? {
+          condition: node.intent || 'decision',
+          result: this.state.get(`${node.id}_decision_result`).decision || false,
+          nextNode: this.findNextNode(node.id)?.id || 'none'
+        } : undefined,
+        executionMetadata: {
+          status: 'success',
+          duration: nodeDuration,
+          retryCount: 0,
+          finalState: Object.fromEntries(this.state),
+          resourceUsage: {
+            tokens: 0, // Would be populated from actual LLM usage
+            apiCalls: resolvedNode.actions?.length || 0,
+            memoryUsage: 0
+          }
+        }
+      };
+      
+      const forwardingRules: ForwardingRules = {
+        forwardToNext: ['primaryData', 'extractedData'], // Forward main results
+        keepInLoop: [], // No loop context for now
+        aggregateAcrossIterations: [],
+        clearFromMemory: [],
+        compressLargeData: false
+      };
+      
+      // Get inputs that were captured earlier
+      const inputs: MemoryInputs = {
+        previousState: Object.fromEntries(this.state),
+        nodeVariables: resolvedNode.variables || {},
+        credentials: {},
+        environment: {
+          currentUrl: await this.getCurrentUrl(executionId),
+          domSnapshot: await this.getDOMSnapshot(executionId),
+          activeTab: await this.getActiveTab(executionId),
+          sessionState: {}
+        },
+        contextData: {
+          loopContext: this.getLoopContext(node.id),
+          parentContext: {}
+        },
+        actionInputs: {
+          instruction: node.intent,
+          schema: (resolvedNode as any).schema,
+          target: (resolvedNode as any).target,
+          data: (resolvedNode as any).data,
+          timeout: (resolvedNode as any).timeout,
+          config: resolvedNode
+        }
+      };
+      
+      const processing = processingCapture?.getProcessingData() || {
+        llmInteractions: [],
+        actions: [],
+        browserEvents: [],
+        errors: []
+      };
+      
+      try {
+        await this.memoryManager.captureNodeMemory(
+          executionId,
+          node.id,
+          this.userId,
+          inputs,
+          processing,
+          outputs,
+          forwardingRules
+        );
+        console.log(`✅ Complete memory captured for node ${node.id} in ${nodeDuration}ms`);
+        
+        // === MEMORY CAPTURE 4: CONTEXT FORWARDING (BLOCKING) ===
+        const nextNode = this.findNextNode(node.id);
+        if (nextNode) {
+          const nextContext = await this.memoryManager.getContextForNextNode(
+            executionId,
+            node.id,
+            nextNode.id
+          );
+          
+          // Update state with forwarded context for next node
+          for (const [key, value] of Object.entries(nextContext.availableVariables)) {
+            this.state.set(key, value);
+          }
+          
+          console.log(`🔄 Context forwarded to next node ${nextNode.id}: ${Object.keys(nextContext.availableVariables).length} variables`);
+        }
+        
+      } catch (error) {
+        const message = `CRITICAL: Memory capture failed for node ${node.id}`;
+        console.error(`❌ ${message}:`, error);
+        throw new Error(`${message}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   }
 
@@ -1316,6 +1540,138 @@ export class ExecutionEngine {
     }
     
     return Array.from(credentialMap.values());
+  }
+
+  // === MEMORY HELPER METHODS ===
+  
+  /**
+   * Capture complete browser state for memory
+   */
+  private async captureBrowserState(executionId: string): Promise<any> {
+    try {
+      console.log(`📸 [ExecutionEngine] Capturing browser state for ${executionId}`);
+      
+      const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
+      
+      const [currentUrl, domSnapshot, activeTab, sessionState, screenshot] = await Promise.all([
+        BrowserStateCapture.getCurrentUrl(executionId),
+        BrowserStateCapture.getDOMSnapshot(executionId),
+        BrowserStateCapture.getActiveTab(executionId),
+        BrowserStateCapture.getSessionState(executionId),
+        BrowserStateCapture.takeScreenshot(executionId)
+      ]);
+      
+      const browserState = {
+        currentUrl,
+        domSnapshot,
+        activeTab,
+        sessionState,
+        screenshot,
+        timestamp: Date.now()
+      };
+      
+      console.log(`✅ [ExecutionEngine] Browser state captured: ${Object.keys(browserState).length} properties`);
+      return browserState;
+    } catch (error) {
+      console.warn('Could not capture browser state:', error);
+      return { timestamp: Date.now(), error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+  
+  /**
+   * Get LLM conversations for memory capture
+   */
+  private async getLLMConversations(executionId: string): Promise<any[]> {
+    try {
+      console.log(`🤖 [ExecutionEngine] Getting LLM conversations for ${executionId}`);
+      
+      const { stagehandMemoryHooks } = await import('@/lib/memory/StagehandMemoryHooks');
+      
+      const conversations = stagehandMemoryHooks.getLLMConversations(executionId);
+      
+      console.log(`✅ [ExecutionEngine] LLM conversations retrieved: ${conversations.length} conversations`);
+      return conversations;
+    } catch (error) {
+      console.warn('Could not get LLM conversations:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Get screenshots for memory capture
+   */
+  private async getScreenshots(executionId: string): Promise<string[]> {
+    try {
+      console.log(`📷 [ExecutionEngine] Getting screenshots for ${executionId}`);
+      
+      const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
+      
+      const screenshot = await BrowserStateCapture.takeScreenshot(executionId);
+      
+      const screenshots = screenshot ? [screenshot] : [];
+      
+      console.log(`✅ [ExecutionEngine] Screenshots retrieved: ${screenshots.length} screenshots`);
+      return screenshots;
+    } catch (error) {
+      console.warn('Could not get screenshots:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Get current URL from browser
+   */
+  private async getCurrentUrl(executionId: string): Promise<string | undefined> {
+    try {
+      const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
+      return await BrowserStateCapture.getCurrentUrl(executionId);
+    } catch (error) {
+      console.warn('Could not get current URL:', error);
+      return undefined;
+    }
+  }
+  
+  /**
+   * Get DOM snapshot for memory capture
+   */
+  private async getDOMSnapshot(executionId: string): Promise<string | undefined> {
+    try {
+      const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
+      return await BrowserStateCapture.getDOMSnapshot(executionId);
+    } catch (error) {
+      console.warn('Could not get DOM snapshot:', error);
+      return undefined;
+    }
+  }
+  
+  /**
+   * Get active browser tab info
+   */
+  private async getActiveTab(executionId: string): Promise<string | undefined> {
+    try {
+      const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
+      return await BrowserStateCapture.getActiveTab(executionId);
+    } catch (error) {
+      console.warn('Could not get active tab:', error);
+      return undefined;
+    }
+  }
+  
+  /**
+   * Get loop context for current node
+   */
+  private getLoopContext(nodeId: string): any {
+    // Check if this node is part of a loop
+    const loopState = this.loopStates.get(nodeId);
+    if (loopState) {
+      return {
+        currentItem: null, // Would be populated from actual loop state
+        iteration: loopState.index,
+        totalItems: loopState.length,
+        accumulatedResults: []
+      };
+    }
+    return undefined;
   }
 }
 

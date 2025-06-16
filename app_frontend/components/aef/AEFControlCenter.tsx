@@ -816,13 +816,8 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
     addLog('info', 'system', 'AEF Control Center initialized', 'JSON workflow loaded and ready for execution');
   }, []);
 
-  // Determine the active execution ID based on priority: 
-  // 1. Discovered VNC session (highest priority - what's actually running)
-  // 2. VNC environment ID 
-  // 3. Real execution ID
-  // 4. Mock execution ID  
-      // 5. Prop execution ID
-  const activeExecutionId = discoveredSession?.executionId || vncEnvironmentId || realExecutionId || mockExecutionState?.executionId || currentExecutionId;
+  // Prefer the explicitly set currentExecutionId (frozen for this execution) before falling back to discovered sessions.
+  const activeExecutionId = currentExecutionId || discoveredSession?.executionId || vncEnvironmentId || realExecutionId || mockExecutionState?.executionId;
   
   // Debug logging for activeExecutionId
   console.log('🔍 [AEF Control Center] Active execution ID calculation:', {

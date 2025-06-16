@@ -30,7 +30,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import NodeSelector from './NodeSelector';
-import NodeLogViewer from './NodeLogViewer';
+import NodeMemoryPanel from './NodeMemoryPanel';
 
 interface ExecutionPanelProps {
   aefDocument: AEFDocument;
@@ -760,8 +760,8 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Node Debug Logs */}
-                  <NodeLogViewer
+                  {/* Node Memory Debug Panel */}
+                  <NodeMemoryPanel
                     nodeId={step.id}
                     nodeName={step.label}
                     executionId={executionId}
