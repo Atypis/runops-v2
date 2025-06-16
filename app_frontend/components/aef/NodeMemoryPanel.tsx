@@ -264,7 +264,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
             onClick={() => handleViewDetails()}
             variant="outline"
             size="sm"
-            className="text-xs h-6 px-2"
+            className="text-xs h-6 px-2 text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
           >
             <Eye className="w-3 h-3 mr-1" />
             Full Details

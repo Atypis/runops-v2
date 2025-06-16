@@ -249,7 +249,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
           onClick={onViewDetails}
           variant="ghost"
           size="sm"
-          className="h-5 w-5 p-0 text-gray-500 hover:text-gray-700"
+          className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
         >
           <Eye className="w-3 h-3" />
         </Button>
@@ -263,7 +263,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         onClick={onViewDetails}
         variant="outline"
         size="sm"
-        className="w-full mt-3 h-6 text-xs"
+        className="w-full mt-3 h-6 text-xs text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
       >
         View Details
       </Button>
