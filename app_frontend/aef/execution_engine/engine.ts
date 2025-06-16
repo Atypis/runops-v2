@@ -1,5 +1,5 @@
 import { SOPDocument, SOPNode, BrowserInstruction } from '../../lib/types/sop';
-import { hybridBrowserManager } from '@/lib/browser/HybridBrowserManager';
+import { singleVNCSessionManager } from '@/lib/vnc/SingleVNCSessionManager';
 import { CredentialInjectionService, ExecutionCredentials } from '@/lib/credentials/injection';
 import { WorkflowCredential } from '@/lib/types/aef';
 import { VariableResolver, VariableContext } from '@/lib/workflow/VariableResolver';
@@ -42,16 +42,20 @@ export class ExecutionEngine {
   private currentNode: WorkflowNode | undefined;
   private userId: string;
   private workflowId: string;
+  private executionId: string; // REQUIRED: Single source of truth for execution ID
   private supabaseClient: any; // Service role Supabase client for credential access
   private loggers: Map<string, NodeLogger> = new Map(); // Node ID -> Logger
   private loopStates: Map<string, { index: number; length: number; queueKey: string }> = new Map(); // Loop state tracking
   private memoryManager?: MemoryManager; // Universal Memory Manager for complete memory visibility
 
-  constructor(sop: WorkflowDocument, userId: string, workflowId?: string) {
+  constructor(sop: WorkflowDocument, userId: string, executionId: string, workflowId?: string) {
     this.sop = sop;
     this.state = new Map<string, any>();
     this.userId = userId;
+    this.executionId = executionId; // Store the database-provided execution ID
     this.workflowId = workflowId || (sop as any).meta?.id || 'unknown';
+    
+    console.log(`🎬 [ExecutionEngine] Initialized with execution ID: ${this.executionId}`);
   }
   
   /**
@@ -94,16 +98,16 @@ export class ExecutionEngine {
   /**
    * Get or create a logger for a specific node
    */
-  private getLogger(executionId: string, nodeId: string): NodeLogger {
-    const key = `${executionId}-${nodeId}`;
+  private getLogger(nodeId: string): NodeLogger {
+    const key = `${this.executionId}-${nodeId}`;
     if (!this.loggers.has(key)) {
-      this.loggers.set(key, new NodeLogger(executionId, nodeId, this.supabaseClient));
+      this.loggers.set(key, new NodeLogger(this.executionId, nodeId, this.supabaseClient));
     }
     return this.loggers.get(key)!;
   }
 
-  public async start(executionId: string) {
-    console.log(`🚀 Starting execution for workflow ${this.workflowId}, user ${this.userId}`);
+  public async start() {
+    console.log(`🚀 Starting execution for workflow ${this.workflowId}, user ${this.userId}, execution ${this.executionId}`);
     
     // Reset variable scopes to avoid bleed-over from previous runs
     VariableResolver.clearScopes();
@@ -114,11 +118,11 @@ export class ExecutionEngine {
     // Find the start node (first node in the workflow)
     this.currentNode = this.sop.execution.workflow.nodes[0];
     console.log(`🚀 Starting execution with node: ${this.currentNode?.label}`);
-    await this.execute(executionId);
+    await this.execute();
   }
 
   // New method: Execute a specific node by ID
-  public async executeNodeById(executionId: string, nodeId: string): Promise<{ success: boolean; message: string; nextNodeId?: string }> {
+  public async executeNodeById(nodeId: string): Promise<{ success: boolean; message: string; nextNodeId?: string }> {
     console.log(`🎯 Executing specific node: ${nodeId}`);
     
     const node = this.sop.execution.workflow.nodes.find(n => n.id === nodeId);
@@ -128,7 +132,7 @@ export class ExecutionEngine {
       return { success: false, message };
     }
 
-    const logger = this.getLogger(executionId, nodeId);
+    const logger = this.getLogger(nodeId);
     const startTime = Date.now();
 
     try {
@@ -136,7 +140,7 @@ export class ExecutionEngine {
       await logger.logNodeStart(node.label, node.type);
       
       this.currentNode = node;
-      await this.executeNode(executionId, node);
+      await this.executeNode(node);
       
       // Find the next node
       const nextNode = this.findNextNode(nodeId);
@@ -167,7 +171,7 @@ export class ExecutionEngine {
   }
 
   // New method: Execute multiple nodes consecutively
-  public async executeNodesConsecutively(executionId: string, nodeIds: string[]): Promise<Map<string, { success: boolean; message: string; nextNodeId?: string }>> {
+  public async executeNodesConsecutively(nodeIds: string[]): Promise<Map<string, { success: boolean; message: string; nextNodeId?: string }>> {
     console.log(`🎯 Executing ${nodeIds.length} nodes consecutively:`, nodeIds);
     
     const results = new Map<string, { success: boolean; message: string; nextNodeId?: string }>();
@@ -175,7 +179,7 @@ export class ExecutionEngine {
     for (const nodeId of nodeIds) {
       console.log(`🔄 Executing node ${nodeId}...`);
       
-      const result = await this.executeNodeById(executionId, nodeId);
+      const result = await this.executeNodeById(nodeId);
       results.set(nodeId, result);
       
       if (!result.success) {
@@ -191,14 +195,14 @@ export class ExecutionEngine {
     return results;
   }
 
-  private async execute(executionId: string) {
+  private async execute() {
     let nodeCount = 0;
     const maxNodes = 20; // Safety limit
     
     while (this.currentNode && nodeCount < maxNodes) {
       console.log(`📋 Executing node ${nodeCount + 1}: ${this.currentNode.label} (${this.currentNode.id})`);
       
-      await this.executeNode(executionId, this.currentNode);
+      await this.executeNode(this.currentNode);
       
       // Find the next node to execute
       const nextNode = this.findNextNode(this.currentNode.id);
@@ -220,18 +224,18 @@ export class ExecutionEngine {
     }
   }
 
-  private async executeNode(executionId: string, node: WorkflowNode) {
+  private async executeNode(node: WorkflowNode) {
     console.log(`  🔍 Node type: ${node.type}`);
     console.log(`  💭 Intent: ${node.intent}`);
     
-    const logger = this.getLogger(executionId, node.id);
+    const logger = this.getLogger(node.id);
     const nodeStartTime = Date.now();
     
     // Create variable context for this node
     const variableContext = VariableResolver.createContext(
       this.userId,
       this.workflowId,
-      executionId,
+      this.executionId,
       node.id,
       { state: Object.fromEntries(this.state) }
     );
@@ -249,8 +253,7 @@ export class ExecutionEngine {
       if (nextNode) {
         try {
           const nodeContext = await this.memoryManager.getContextForNextNode(
-            executionId, 
-            node.id, 
+            this.executionId, node.id, 
             nextNode.id
           );
           
@@ -271,9 +274,9 @@ export class ExecutionEngine {
         nodeVariables: resolvedNode.variables || {},
         credentials: {}, // Will be populated during credential injection
         environment: {
-          currentUrl: await this.getCurrentUrl(executionId),
-          domSnapshot: await this.getDOMSnapshot(executionId),
-          activeTab: await this.getActiveTab(executionId),
+          currentUrl: await this.getCurrentUrl(),
+          domSnapshot: await this.getDOMSnapshot(),
+          activeTab: await this.getActiveTab(),
           sessionState: {}
         },
         contextData: {
@@ -291,7 +294,7 @@ export class ExecutionEngine {
       };
       
       try {
-        await this.memoryManager.captureNodeInputs(executionId, node.id, this.userId, inputs);
+        await this.memoryManager.captureNodeInputs(this.executionId, node.id, this.userId, inputs);
         console.log(`✅ Inputs captured for node ${node.id}`);
       } catch (error) {
         const message = `CRITICAL: Input capture failed for node ${node.id}`;
@@ -306,21 +309,21 @@ export class ExecutionEngine {
     // Handle new bulletproof node types
     switch (resolvedNode.type) {
       case 'decision':
-        return await this.executeDecisionNode(executionId, resolvedNode);
+        return await this.executeDecisionNode(resolvedNode);
       case 'assert':
-        return await this.executeAssertNode(executionId, resolvedNode);
+        return await this.executeAssertNode(resolvedNode);
       case 'error_handler':
-        return await this.executeErrorHandlerNode(executionId, resolvedNode);
+        return await this.executeErrorHandlerNode(resolvedNode);
       case 'data_transform':
-        return await this.executeDataTransformNode(executionId, resolvedNode);
+        return await this.executeDataTransformNode(resolvedNode);
       case 'generator':
-        return await this.executeGeneratorNode(executionId, resolvedNode);
+        return await this.executeGeneratorNode(resolvedNode);
       case 'explore':
-        return await this.executeExploreNode(executionId, resolvedNode);
+        return await this.executeExploreNode(resolvedNode);
       case 'filter_list':
-        return await this.executeFilterListNode(executionId, resolvedNode);
+        return await this.executeFilterListNode(resolvedNode);
       case 'list_iterator':
-        return await this.executeListIteratorNode(executionId, resolvedNode);
+        return await this.executeListIteratorNode(resolvedNode);
     }
     
     // Handle legacy node types
@@ -343,7 +346,7 @@ export class ExecutionEngine {
                 const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
                 if (childNode) {
                     console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
-                    await this.executeNode(executionId, childNode);
+                    await this.executeNode(childNode);
                     
                     // Add delay between child executions
                     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -374,7 +377,7 @@ export class ExecutionEngine {
                     await logger.logActionStart('navigate', action.instruction || `Navigate to ${action.target?.url}`);
                     const navStartTime = Date.now();
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'navigate',
                             data: { url: action.target?.url },
                             stepId: node.id
@@ -392,7 +395,7 @@ export class ExecutionEngine {
                     await logger.logActionStart('click', action.instruction || `Click ${action.target?.selector}`);
                     const clickStartTime = Date.now();
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'click',
                             data: { 
                                 selector: action.target?.selector,
@@ -408,7 +411,7 @@ export class ExecutionEngine {
                         // 🔄 Fallback to Stagehand act
                         try {
                           console.log(`    🔄 Falling back to Stagehand act for click`);
-                          const fallbackResult = await hybridBrowserManager.executeAction(executionId, {
+                          const fallbackResult = await singleVNCSessionManager.executeAction({
                             type: 'act',
                             data: { instruction: action.instruction || `Click the element ${action.target?.selector}` },
                             stepId: node.id
@@ -438,7 +441,7 @@ export class ExecutionEngine {
                         // Inject credentials if needed
                         browserAction = await this.injectCredentialsIntoAction(browserAction, resolvedNode);
                         
-                        const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+                        const result = await singleVNCSessionManager.executeAction(browserAction);
                         console.log(`    ✅ Type completed:`, result);
                     } catch (error) {
                         console.error(`    ❌ Type failed:`, error);
@@ -446,7 +449,7 @@ export class ExecutionEngine {
                         // 🔄 Fallback to Stagehand act
                         try {
                           console.log(`    🔄 Falling back to Stagehand act for type`);
-                          const fallbackResult = await hybridBrowserManager.executeAction(executionId, {
+                          const fallbackResult = await singleVNCSessionManager.executeAction({
                             type: 'act',
                             data: { instruction: action.instruction || `Type the required text` },
                             stepId: node.id
@@ -462,7 +465,7 @@ export class ExecutionEngine {
                 case 'wait':
                     console.log(`    - Waiting for element: ${action.target?.selector}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'wait',
                             data: { 
                                 selector: action.target?.selector,
@@ -479,7 +482,7 @@ export class ExecutionEngine {
                 case 'wait_for_navigation':
                     console.log(`    - Waiting for navigation to: ${action.target?.url_contains}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'wait_for_navigation',
                             data: { 
                                 url_contains: action.target?.url_contains,
@@ -496,7 +499,7 @@ export class ExecutionEngine {
                 case 'extract':
                     console.log(`    - Extracting data: ${action.instruction}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'extract',
                             data: { 
                                 instruction: action.instruction,
@@ -526,7 +529,7 @@ export class ExecutionEngine {
                         // Inject credentials if needed (this handles {{gmail_email}} replacement)
                         browserAction = await this.injectCredentialsIntoAction(browserAction, resolvedNode);
                         
-                        const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+                        const result = await singleVNCSessionManager.executeAction(browserAction);
                         console.log(`    ✅ Act completed:`, result);
                     } catch (error) {
                         console.error(`    ❌ Act failed:`, error);
@@ -543,7 +546,7 @@ export class ExecutionEngine {
                 case 'observe':
                     console.log(`    - Observing action: ${action.instruction}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'observe',
                             data: { 
                                 instruction: action.instruction,
@@ -562,7 +565,7 @@ export class ExecutionEngine {
                 case 'clear_memory':
                     console.log(`    - Clearing Stagehand memory`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'clear_memory',
                             data: {},
                             stepId: node.id
@@ -576,7 +579,7 @@ export class ExecutionEngine {
                 case 'label_email':
                     console.log(`    - Labeling email: ${action.data?.label}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'label_email',
                             data: { 
                                 label: action.data?.label || 'AEF-Processed'
@@ -592,7 +595,7 @@ export class ExecutionEngine {
                 case 'search_airtable':
                     console.log(`    - Searching Airtable: ${action.data?.searchValue}`);
                     try {
-                        const result = await hybridBrowserManager.executeAction(executionId, {
+                        const result = await singleVNCSessionManager.executeAction({
                             type: 'search_airtable',
                             data: { 
                                 searchFields: action.data?.searchFields || ['name'],
@@ -611,7 +614,7 @@ export class ExecutionEngine {
                 case 'paginate_extract':
                     console.log(`    - Paginating and extracting: ${action.instruction}`);
                     try {
-                        const result = await this.executePaginateExtract(executionId, action, resolvedNode);
+                        const result = await this.executePaginateExtract( action, resolvedNode);
                         console.log(`    ✅ Paginate extract completed:`, result);
                         // Store extracted data for processing
                         this.state.set(`${node.id}_extracted_data`, result);
@@ -623,7 +626,7 @@ export class ExecutionEngine {
                 case 'extract_list':
                     console.log(`    - Extracting list: ${action.instruction || 'List extraction'}`);
                     try {
-                        const result = await this.executeExtractList(executionId, action, resolvedNode);
+                        const result = await this.executeExtractList( action, resolvedNode);
                         console.log(`    ✅ Extract list completed:`, result);
                         // Store extracted data for processing
                         this.state.set(`${node.id}_extracted_data`, result);
@@ -634,7 +637,7 @@ export class ExecutionEngine {
 
                 default:
                     console.log(`    - Delegating '${action.type}' to executeAction helper`);
-                    await this.executeAction(executionId, action, resolvedNode);
+                    await this.executeAction( action, resolvedNode);
                     
                     // === MEMORY CAPTURE 2: PROCESSING (BLOCKING) ===
                     if (this.memoryManager && processingCapture) {
@@ -696,9 +699,9 @@ export class ExecutionEngine {
         nodeVariables: resolvedNode.variables || {},
         credentials: {},
         environment: {
-          currentUrl: await this.getCurrentUrl(executionId),
-          domSnapshot: await this.getDOMSnapshot(executionId),
-          activeTab: await this.getActiveTab(executionId),
+          currentUrl: await this.getCurrentUrl(),
+          domSnapshot: await this.getDOMSnapshot(),
+          activeTab: await this.getActiveTab(),
           sessionState: {}
         },
         contextData: {
@@ -724,9 +727,7 @@ export class ExecutionEngine {
       
       try {
         await this.memoryManager.captureNodeMemory(
-          executionId,
-          node.id,
-          this.userId,
+          this.executionId, node.id, this.userId,
           inputs,
           processing,
           outputs,
@@ -738,8 +739,7 @@ export class ExecutionEngine {
         const nextNode = this.findNextNode(node.id);
         if (nextNode) {
           const nextContext = await this.memoryManager.getContextForNextNode(
-            executionId,
-            node.id,
+            this.executionId, node.id,
             nextNode.id
           );
           
@@ -760,7 +760,7 @@ export class ExecutionEngine {
   }
 
   // New node type handlers
-  private async executeDecisionNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeDecisionNode(node: WorkflowNode): Promise<void> {
     console.log(`  🔀 Decision node: ${node.label}`);
     
     if (!node.actions || node.actions.length === 0) {
@@ -774,7 +774,7 @@ export class ExecutionEngine {
 
     try {
       if (action.type === 'extract') {
-        const result = await hybridBrowserManager.executeAction(executionId, {
+        const result = await singleVNCSessionManager.executeAction({
           type: 'extract',
           data: { 
             instruction: action.instruction,
@@ -795,7 +795,7 @@ export class ExecutionEngine {
     }
   }
 
-  private async executeAssertNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeAssertNode(node: WorkflowNode): Promise<void> {
     console.log(`  ✅ Assert node: ${node.label}`);
     
     // Check assert conditions
@@ -808,7 +808,7 @@ export class ExecutionEngine {
           
           switch (condition.type) {
             case 'selectorVisible':
-              const visibilityResult = await hybridBrowserManager.executeAction(executionId, {
+              const visibilityResult = await singleVNCSessionManager.executeAction({
                 type: 'extract',
                 data: { 
                   instruction: `Check if element with selector "${condition.value}" is visible`,
@@ -820,7 +820,7 @@ export class ExecutionEngine {
               break;
               
             case 'urlMatch':
-              const urlResult = await hybridBrowserManager.executeAction(executionId, {
+              const urlResult = await singleVNCSessionManager.executeAction({
                 type: 'extract',
                 data: { 
                   instruction: `Check if current URL contains "${condition.value}"`,
@@ -832,7 +832,7 @@ export class ExecutionEngine {
               break;
               
             case 'textPresent':
-              const textResult = await hybridBrowserManager.executeAction(executionId, {
+              const textResult = await singleVNCSessionManager.executeAction({
                 type: 'extract',
                 data: { 
                   instruction: `Check if text "${condition.value}" is present on the page`,
@@ -859,12 +859,12 @@ export class ExecutionEngine {
     // Execute any additional actions
     if (node.actions && node.actions.length > 0) {
       for (const action of node.actions) {
-        await this.executeAction(executionId, action, node);
+        await this.executeAction( action, node);
       }
     }
   }
 
-  private async executeErrorHandlerNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeErrorHandlerNode(node: WorkflowNode): Promise<void> {
     console.log(`  🚨 Error handler node: ${node.label}`);
     
     if (node.humanEscalate) {
@@ -876,7 +876,7 @@ export class ExecutionEngine {
       // Execute any actions (like waiting for human input)
       if (node.actions && node.actions.length > 0) {
         for (const action of node.actions) {
-          await this.executeAction(executionId, action, node);
+          await this.executeAction( action, node);
         }
       }
     } else if (node.fallbackAction) {
@@ -885,7 +885,7 @@ export class ExecutionEngine {
     }
   }
 
-  private async executeDataTransformNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeDataTransformNode(node: WorkflowNode): Promise<void> {
     console.log(`  🔄 Data transform node: ${node.label}`);
     
     if (node.transformFunction) {
@@ -907,7 +907,7 @@ export class ExecutionEngine {
     }
   }
 
-  private async executeGeneratorNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeGeneratorNode(node: WorkflowNode): Promise<void> {
     console.log(`  📝 Generator node: ${node.label}`);
     
     // Execute actions (usually extract with generation instruction)
@@ -915,7 +915,7 @@ export class ExecutionEngine {
       for (const action of node.actions) {
         if (action.type === 'extract') {
           try {
-            const result = await hybridBrowserManager.executeAction(executionId, {
+            const result = await singleVNCSessionManager.executeAction({
               type: 'extract',
               data: { 
                 instruction: action.instruction,
@@ -935,7 +935,7 @@ export class ExecutionEngine {
     }
   }
 
-  private async executeExploreNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeExploreNode(node: WorkflowNode): Promise<void> {
     console.log(`  🔍 Explore node: ${node.label}`);
     
     const maxActions = node.maxActions || 6;
@@ -946,7 +946,7 @@ export class ExecutionEngine {
       for (const action of node.actions) {
         if (action.type === 'observe') {
           try {
-            const result = await hybridBrowserManager.executeAction(executionId, {
+            const result = await singleVNCSessionManager.executeAction({
               type: 'observe',
               data: { 
                 instruction: action.instruction,
@@ -970,7 +970,7 @@ export class ExecutionEngine {
    * Execute a filter_list node: reads an input array from engine state, chunks it, sends each chunk to Stagehand via an `act` call,
    * expects a JSON boolean array back (same length as the chunk) and writes the kept items to state[outputKey].
    */
-  private async executeFilterListNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeFilterListNode(node: WorkflowNode): Promise<void> {
     console.log(`  🗂️  Filter-list node: ${node.label}`);
 
     const inputKey: string = node.inputKey || (node as any).listConfig?.inputKey || `${node.id}_input`;
@@ -1001,8 +1001,7 @@ export class ExecutionEngine {
       const batchContext = VariableResolver.createContext(
         this.userId,
         this.workflowId,
-        executionId,
-        node.id,
+        this.executionId, node.id,
         { 
           state: Object.fromEntries(this.state),
           batch_index: Math.floor(processed / batchSize),
@@ -1013,7 +1012,7 @@ export class ExecutionEngine {
       const instruction = VariableResolver.resolveVariables(promptTemplate, batchContext);
 
       try {
-        const result = await hybridBrowserManager.executeAction(executionId, {
+        const result = await singleVNCSessionManager.executeAction({
           type: 'act',
           data: {
             instruction,
@@ -1067,7 +1066,7 @@ export class ExecutionEngine {
    * Execute a list_iterator node: iterates through a list in state, injecting currentItem and index variables
    * for each iteration, then executes all child nodes for each item.
    */
-  private async executeListIteratorNode(executionId: string, node: WorkflowNode): Promise<void> {
+  private async executeListIteratorNode(node: WorkflowNode): Promise<void> {
     console.log(`  🔄 List-iterator node: ${node.label}`);
 
     const config = node.iteratorConfig;
@@ -1127,7 +1126,7 @@ export class ExecutionEngine {
             const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
             if (childNode) {
               console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
-              await this.executeNode(executionId, childNode);
+              await this.executeNode(childNode);
             } else {
               console.warn(`    ⚠️ Child node ${childId} not found`);
             }
@@ -1167,13 +1166,13 @@ export class ExecutionEngine {
   }
 
   // Helper method to execute individual actions
-  private async executeAction(executionId: string, action: any, node: WorkflowNode): Promise<void> {
+  private async executeAction(action: any, node: WorkflowNode): Promise<void> {
     console.log(`    - Action: ${action.type}`);
     
     switch (action.type) {
       case 'extract':
         try {
-          const result = await hybridBrowserManager.executeAction(executionId, {
+          const result = await singleVNCSessionManager.executeAction({
             type: 'extract',
             data: { 
               instruction: action.instruction,
@@ -1201,7 +1200,7 @@ export class ExecutionEngine {
           
           browserAction = await this.injectCredentialsIntoAction(browserAction, node);
           
-          const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+          const result = await singleVNCSessionManager.executeAction(browserAction);
           console.log(`    ✅ Act completed:`, result);
           return result;
         } catch (error) {
@@ -1221,7 +1220,7 @@ export class ExecutionEngine {
             stepId: node.id
           } as any;
 
-          const result = await hybridBrowserManager.executeAction(executionId, browserAction);
+          const result = await singleVNCSessionManager.executeAction(browserAction);
           console.log(`    ✅ ${action.type} completed:`, result);
           return result;
         } catch (error) {
@@ -1235,7 +1234,7 @@ export class ExecutionEngine {
   }
 
   // Helper method for paginate_extract
-  private async executePaginateExtract(executionId: string, action: any, node: WorkflowNode): Promise<any> {
+  private async executePaginateExtract(action: any, node: WorkflowNode): Promise<any> {
     const allResults: any[] = [];
     let hasMorePages = true;
     let pageCount = 0;
@@ -1246,7 +1245,7 @@ export class ExecutionEngine {
       
       try {
         // Extract current page
-        const pageResult = await hybridBrowserManager.executeAction(executionId, {
+        const pageResult = await singleVNCSessionManager.executeAction({
           type: 'extract',
           data: { 
             instruction: action.instruction,
@@ -1260,7 +1259,7 @@ export class ExecutionEngine {
         }
         
         // Check for next page
-        const hasNext = await hybridBrowserManager.executeAction(executionId, {
+        const hasNext = await singleVNCSessionManager.executeAction({
           type: 'extract',
           data: { 
             instruction: "Check if 'Older' or 'Next' button is enabled and visible",
@@ -1271,7 +1270,7 @@ export class ExecutionEngine {
         
         if (hasNext?.hasNextPage) {
           // Click next page
-          await hybridBrowserManager.executeAction(executionId, {
+          await singleVNCSessionManager.executeAction({
             type: 'act',
             data: { 
               instruction: "Click the 'Older' or 'Next' button to go to next page"
@@ -1297,12 +1296,12 @@ export class ExecutionEngine {
   }
 
   // Helper method for extract_list
-  private async executeExtractList(executionId: string, action: any, node: WorkflowNode): Promise<any> {
+  private async executeExtractList(action: any, node: WorkflowNode): Promise<any> {
     console.log(`    📋 Starting extract_list for node ${node.id}`);
     
     try {
-      // Execute extract_list action via HybridBrowserManager
-      const result = await hybridBrowserManager.executeAction(executionId, {
+              // Execute extract_list action via SingleVNCSessionManager
+      const result = await singleVNCSessionManager.executeAction({
         type: 'extract_list',
         data: {
           fields: action.fields || {},
@@ -1547,18 +1546,18 @@ export class ExecutionEngine {
   /**
    * Capture complete browser state for memory
    */
-  private async captureBrowserState(executionId: string): Promise<any> {
+  private async captureBrowserState(): Promise<any> {
     try {
-      console.log(`📸 [ExecutionEngine] Capturing browser state for ${executionId}`);
+      console.log(`📸 [ExecutionEngine] Capturing browser state for ${this.executionId}`);
       
       const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
       
       const [currentUrl, domSnapshot, activeTab, sessionState, screenshot] = await Promise.all([
-        BrowserStateCapture.getCurrentUrl(executionId),
-        BrowserStateCapture.getDOMSnapshot(executionId),
-        BrowserStateCapture.getActiveTab(executionId),
-        BrowserStateCapture.getSessionState(executionId),
-        BrowserStateCapture.takeScreenshot(executionId)
+        BrowserStateCapture.getCurrentUrl(this.executionId),
+        BrowserStateCapture.getDOMSnapshot(this.executionId),
+        BrowserStateCapture.getActiveTab(this.executionId),
+        BrowserStateCapture.getSessionState(this.executionId),
+        BrowserStateCapture.takeScreenshot(this.executionId)
       ]);
       
       const browserState = {
@@ -1581,13 +1580,13 @@ export class ExecutionEngine {
   /**
    * Get LLM conversations for memory capture
    */
-  private async getLLMConversations(executionId: string): Promise<any[]> {
+  private async getLLMConversations(): Promise<any[]> {
     try {
-      console.log(`🤖 [ExecutionEngine] Getting LLM conversations for ${executionId}`);
+      console.log(`🤖 [ExecutionEngine] Getting LLM conversations for ${this.executionId}`);
       
       const { stagehandMemoryHooks } = await import('@/lib/memory/StagehandMemoryHooks');
       
-      const conversations = stagehandMemoryHooks.getLLMConversations(executionId);
+      const conversations = stagehandMemoryHooks.getLLMConversations(this.executionId);
       
       console.log(`✅ [ExecutionEngine] LLM conversations retrieved: ${conversations.length} conversations`);
       return conversations;
@@ -1600,13 +1599,13 @@ export class ExecutionEngine {
   /**
    * Get screenshots for memory capture
    */
-  private async getScreenshots(executionId: string): Promise<string[]> {
+  private async getScreenshots(): Promise<string[]> {
     try {
-      console.log(`📷 [ExecutionEngine] Getting screenshots for ${executionId}`);
+      console.log(`📷 [ExecutionEngine] Getting screenshots for ${this.executionId}`);
       
       const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
       
-      const screenshot = await BrowserStateCapture.takeScreenshot(executionId);
+      const screenshot = await BrowserStateCapture.takeScreenshot(this.executionId);
       
       const screenshots = screenshot ? [screenshot] : [];
       
@@ -1621,10 +1620,10 @@ export class ExecutionEngine {
   /**
    * Get current URL from browser
    */
-  private async getCurrentUrl(executionId: string): Promise<string | undefined> {
+  private async getCurrentUrl(): Promise<string | undefined> {
     try {
       const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
-      return await BrowserStateCapture.getCurrentUrl(executionId);
+      return await BrowserStateCapture.getCurrentUrl(this.executionId);
     } catch (error) {
       console.warn('Could not get current URL:', error);
       return undefined;
@@ -1634,10 +1633,10 @@ export class ExecutionEngine {
   /**
    * Get DOM snapshot for memory capture
    */
-  private async getDOMSnapshot(executionId: string): Promise<string | undefined> {
+  private async getDOMSnapshot(): Promise<string | undefined> {
     try {
       const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
-      return await BrowserStateCapture.getDOMSnapshot(executionId);
+      return await BrowserStateCapture.getDOMSnapshot(this.executionId);
     } catch (error) {
       console.warn('Could not get DOM snapshot:', error);
       return undefined;
@@ -1647,10 +1646,10 @@ export class ExecutionEngine {
   /**
    * Get active browser tab info
    */
-  private async getActiveTab(executionId: string): Promise<string | undefined> {
+  private async getActiveTab(): Promise<string | undefined> {
     try {
       const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
-      return await BrowserStateCapture.getActiveTab(executionId);
+      return await BrowserStateCapture.getActiveTab(this.executionId);
     } catch (error) {
       console.warn('Could not get active tab:', error);
       return undefined;

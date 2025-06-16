@@ -50,7 +50,7 @@ export async function POST(
           body: JSON.stringify({
             nodeIds: [stepId],
             executionId: executionId,
-            workflowId: 'gmail-investor-crm-v2'
+            workflowId: body.workflowId || 'gmail-investor-crm-v2'
           })
         });
 

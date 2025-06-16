@@ -223,7 +223,7 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
       
       // Notify listeners (e.g., NodeMemoryPanel) that this node has executed
       eventBus.emit('nodeExecuted', { executionId, nodeId: stepId });
-
+      
     } catch (error) {
       console.error(`❌ [ExecutionPanel] Step execution failed:`, error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

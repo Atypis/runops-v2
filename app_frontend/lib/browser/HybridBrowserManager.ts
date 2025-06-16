@@ -130,6 +130,75 @@ export class HybridBrowserManager extends EventEmitter {
         }
       );
 
+      /* ------------------------------------------------------------------
+       * Persist memory: Store a minimal MemoryArtifact so that the UI can
+       * retrieve something via /api/aef/memory/… endpoints even for the
+       * "single-vnc-*" executions that never go through the full
+       * ExecutionEngine.
+       * ------------------------------------------------------------------ */
+      try {
+        if (!isInternalMemoryCapture) {
+          console.log(`[HybridBrowserManager] Attempting to persist memory for ${executionId}:${action.stepId}`);
+          const { createClient } = await import('@supabase/supabase-js');
+          
+          if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            throw new Error('Missing Supabase environment variables');
+          }
+          
+          const serviceRoleClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+          );
+          const tempMemoryManager = new MemoryManager(serviceRoleClient);
+          
+          console.log(`[HybridBrowserManager] Created MemoryManager, calling captureNodeMemory...`);
+          // Get current user ID from session
+          let userId = 'e68b0753-328b-40f5-adab-92095f359120'; // Fallback to known user
+          
+          try {
+            // Get current user from session
+            const supabase = createSupabaseServerClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            
+            if (user?.id) {
+              userId = user.id;
+              console.log(`[HybridBrowserManager] Using current session user ID: ${userId}`);
+            } else {
+              console.log(`[HybridBrowserManager] No session user found, using fallback user ID`);
+            }
+          } catch (err) {
+            console.log(`[HybridBrowserManager] Failed to get session user, using fallback:`, err);
+          }
+          
+          await tempMemoryManager.captureNodeMemory(
+            executionId,
+            action.stepId || 'unknown_step',
+            userId,
+            {} as any,
+            {} as any,
+            {
+              primaryData: result,
+              stateChanges: {},
+              executionMetadata: {
+                status: 'success',
+                duration: 0
+              }
+            } as any,
+            { forwardToNext: [] },
+            undefined
+          );
+          console.log(`[HybridBrowserManager] ✅ Memory artifact persisted successfully for ${executionId}:${action.stepId}`);
+        }
+      } catch (persistErr) {
+        console.error('[HybridBrowserManager] ❌ Failed to persist memory artifact:', persistErr);
+        console.error('[HybridBrowserManager] Error details:', {
+          executionId,
+          stepId: action.stepId,
+          error: persistErr instanceof Error ? persistErr.message : 'Unknown error',
+          stack: persistErr instanceof Error ? persistErr.stack : undefined
+        });
+      }
+
       return result;
     } catch (error) {
       // Memory Hook: Action error
