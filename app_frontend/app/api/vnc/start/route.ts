@@ -24,7 +24,7 @@ export async function POST() {
         ports: session.ports
       },
       message: `VNC session created: ${session.id}`,
-      executionId: 'single-vnc-session' // Fixed execution ID for simplicity
+      executionId: session.id
     });
     
   } catch (error) {

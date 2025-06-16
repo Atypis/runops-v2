@@ -116,19 +116,19 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
   // Calculate memory summary metrics
   const getMemorySummary = () => {
     if (!memoryArtifact) return null;
-
+    
     const { inputs, processing, outputs } = memoryArtifact;
     
     return {
-      status: outputs.executionMetadata.status,
-      duration: outputs.executionMetadata.duration,
-      domSize: inputs.environment.domSnapshot ? Math.round(inputs.environment.domSnapshot.length / 1024) : 0,
-      llmMessages: processing.llmInteractions?.length || 0,
-      browserActions: processing.actions?.length || 0,
-      errorsCount: processing.errors?.length || 0,
-      hasScreenshots: processing.browserEvents?.some((e: any) => e.type === 'screenshot') || false,
-      dataExtracted: outputs.extractedData ? Object.keys(outputs.extractedData).length : 0,
-      nextContextSize: outputs.stateChanges ? Math.round(JSON.stringify(outputs.stateChanges).length / 1024) : 0
+      status: outputs?.executionMetadata?.status || 'unknown',
+      duration: outputs?.executionMetadata?.duration || 0,
+      domSize: inputs?.environment?.domSnapshot ? Math.round(inputs.environment.domSnapshot.length / 1024) : 0,
+      llmMessages: processing?.llmInteractions?.length || 0,
+      browserActions: processing?.actions?.length || 0,
+      errorsCount: processing?.errors?.length || 0,
+      hasScreenshots: processing?.browserEvents?.some((e: any) => e.type === 'screenshot') || false,
+      dataExtracted: outputs?.extractedData ? Object.keys(outputs.extractedData).length : 0,
+      nextContextSize: outputs?.stateChanges ? Math.round(JSON.stringify(outputs.stateChanges).length / 1024) : 0
     };
   };
 
@@ -280,7 +280,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
               domSize: summary.domSize,
               variableCount: Object.keys(memoryArtifact.inputs.nodeVariables || {}).length,
               credentialCount: Object.keys(memoryArtifact.inputs.credentials || {}).length,
-              url: memoryArtifact.inputs.environment.currentUrl
+              url: memoryArtifact.inputs?.environment?.currentUrl
             }}
             onViewDetails={() => handleViewDetails('inputs')}
           />

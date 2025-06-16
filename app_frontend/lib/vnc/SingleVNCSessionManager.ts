@@ -180,16 +180,29 @@ export class SingleVNCSessionManager {
       if (containerStatus === 'running') {
         console.log('[SingleVNCSessionManager] Found running container, recovering session...');
         
-        // Get container info to recreate the session object
-        const { stdout: containerInfo } = await execAsync(`docker inspect ${this.CONTAINER_NAME} --format '{{.Id}} {{.Created}}'`);
-        const [containerId, createdAt] = containerInfo.trim().split(' ');
+        // Get container info including environment variables to extract original session ID
+        const { stdout: containerInfo } = await execAsync(`docker inspect ${this.CONTAINER_NAME} --format '{{.Id}} {{.Created}} {{range .Config.Env}}{{.}} {{end}}'`);
+        const parts = containerInfo.trim().split(' ');
+        const containerId = parts[0];
+        const createdAt = parts[1];
         
-        // Recreate session object - PRESERVE ORIGINAL SESSION ID
-        // Extract original session ID from container name or use container creation time
-        const originalSessionId = `single-vnc-${Math.floor(new Date(createdAt).getTime())}`;
+        // Extract original session ID from environment variables
+        let originalSessionId = null;
+        for (const envVar of parts.slice(2)) {
+          if (envVar.startsWith('SESSION_ID=')) {
+            originalSessionId = envVar.replace('SESSION_ID=', '');
+            break;
+          }
+        }
+        
+        // Fallback to creation time if SESSION_ID not found (for older containers)
+        if (!originalSessionId) {
+          originalSessionId = `single-vnc-${Math.floor(new Date(createdAt).getTime())}`;
+          console.log('[SingleVNCSessionManager] ⚠️ Using fallback session ID based on creation time');
+        }
         
         this.currentSession = {
-          id: originalSessionId, // Preserve original session ID based on container creation time
+          id: originalSessionId, // Use the original session ID from container environment
           containerId: containerId.substring(0, 12), // Short container ID
           status: 'ready',
           createdAt: new Date(createdAt),
@@ -277,7 +290,7 @@ export class SingleVNCSessionManager {
       -e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}" \\
       -e OPENAI_API_KEY="${process.env.OPENAI_API_KEY}" \\
       -e SESSION_ID="${sessionId}" \\
-      -e EXECUTION_ID="single-vnc-session" \\
+      -e EXECUTION_ID="${sessionId}" \\
       ${this.IMAGE_NAME}`;
     
     const { stdout: containerId } = await execAsync(dockerCommand);

@@ -37,10 +37,19 @@ export async function GET(
     const memoryManager = new MemoryManager(serviceRoleClient);
 
     // Get memory artifacts for execution
-    const memoryArtifacts = await memoryManager.getExecutionMemoryFlow(executionId);
+    let memoryArtifacts = await memoryManager.getExecutionMemoryFlow(executionId);
 
-    // Return all artifacts for the execution. Execution IDs are scoped per user session,
-    // so additional filtering is not necessary and may cause mismatches.
+    // For single-vnc executions, don't filter by user ID since they're ephemeral
+    // and may not have proper user context during Docker execution
+    const isSingleVncExecution = executionId.startsWith('single-vnc-');
+    
+    if (!isSingleVncExecution) {
+      // For regular executions, filter by user ID for security
+      memoryArtifacts = memoryArtifacts.filter(artifact => artifact.userId === user.id);
+    } else {
+      console.log(`[Memory API] Single-VNC execution detected, bypassing user filtering for ${executionId}`);
+    }
+
     return NextResponse.json({
       success: true,
       executionId,

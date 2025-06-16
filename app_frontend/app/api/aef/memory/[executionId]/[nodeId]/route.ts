@@ -39,11 +39,23 @@ export async function GET(
     // Get memory artifact for specific node
     const memoryArtifacts = await memoryManager.getExecutionMemoryFlow(executionId);
     
-    // Since we already ensure the user owns the execution via auth & executionId uniqueness,
-    // match by nodeId only. This avoids edge cases where userId mismatch (e.g. service tokens).
-    const nodeMemoryArtifact = memoryArtifacts.find(
-      artifact => artifact.nodeId === nodeId
-    );
+    // For single-vnc executions, don't filter by user ID since they're ephemeral
+    // and may not have proper user context during Docker execution
+    const isSingleVncExecution = executionId.startsWith('single-vnc-');
+    
+    let nodeMemoryArtifact;
+    if (isSingleVncExecution) {
+      // For single-vnc executions, just match by nodeId (no user filtering)
+      nodeMemoryArtifact = memoryArtifacts.find(
+        artifact => artifact.nodeId === nodeId
+      );
+      console.log(`[Memory API] Single-VNC execution detected, bypassing user filtering for ${executionId}`);
+    } else {
+      // For regular executions, ensure user owns the execution
+      nodeMemoryArtifact = memoryArtifacts.find(
+        artifact => artifact.nodeId === nodeId && artifact.userId === user.id
+      );
+    }
 
     if (!nodeMemoryArtifact) {
       return NextResponse.json(

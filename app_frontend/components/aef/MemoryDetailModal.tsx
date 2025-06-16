@@ -142,7 +142,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
   const renderInputsTab = () => (
     <div className="space-y-4">
       {/* DOM Snapshot */}
-      {memoryArtifact.inputs.environment.domSnapshot && renderCollapsibleSection(
+      {memoryArtifact.inputs?.environment?.domSnapshot && renderCollapsibleSection(
         'dom-snapshot',
         'DOM Snapshot',
         <Globe className="w-5 h-5 text-blue-600" />,
@@ -208,7 +208,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
       )}
 
       {/* Environment State */}
-      {memoryArtifact.inputs.environment.currentUrl && renderCollapsibleSection(
+      {memoryArtifact.inputs?.environment?.currentUrl && renderCollapsibleSection(
         'environment',
         'Environment State',
         <Globe className="w-5 h-5 text-green-600" />,
@@ -219,7 +219,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
               {memoryArtifact.inputs.environment.currentUrl}
             </div>
           </div>
-          {memoryArtifact.inputs.environment.sessionState && (
+          {memoryArtifact.inputs?.environment?.sessionState && (
             <div>
               <span className="text-sm font-medium text-slate-700">Session State:</span>
               <pre className="mt-1 p-2 bg-white border border-slate-200 rounded text-xs overflow-auto max-h-48">
