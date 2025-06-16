@@ -90,9 +90,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Globe className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">DOM Snapshot</span>
+            <span className="text-gray-800 font-medium">DOM Snapshot</span>
           </div>
-          <span className="font-mono text-blue-700">{formatBytes(summary.domSize)}</span>
+          <span className="font-mono text-blue-800 font-semibold">{formatBytes(summary.domSize)}</span>
         </div>
       )}
       
@@ -100,9 +100,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Variable className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">Variables</span>
+            <span className="text-gray-800 font-medium">Variables</span>
           </div>
-          <span className="font-mono text-blue-700">{summary.variableCount}</span>
+          <span className="font-mono text-blue-800 font-semibold">{summary.variableCount}</span>
         </div>
       )}
       
@@ -110,9 +110,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Key className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">Credentials</span>
+            <span className="text-gray-800 font-medium">Credentials</span>
           </div>
-          <span className="font-mono text-blue-700">{summary.credentialCount}</span>
+          <span className="font-mono text-blue-800 font-semibold">{summary.credentialCount}</span>
         </div>
       )}
       
@@ -120,9 +120,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="text-xs">
           <div className="flex items-center gap-1 mb-1">
             <Globe className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">Current URL</span>
+            <span className="text-gray-800 font-medium">Current URL</span>
           </div>
-          <div className="font-mono text-blue-700 truncate text-xs bg-blue-100 p-1 rounded">
+          <div className="font-mono text-blue-800 truncate text-xs bg-blue-100 p-1 rounded font-medium">
             {summary.url}
           </div>
         </div>
@@ -136,9 +136,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Zap className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">LLM Messages</span>
+            <span className="text-gray-800 font-medium">LLM Messages</span>
           </div>
-          <span className="font-mono text-orange-700">{summary.llmMessages}</span>
+          <span className="font-mono text-orange-800 font-semibold">{summary.llmMessages}</span>
         </div>
       )}
       
@@ -146,9 +146,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <MousePointer className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">Browser Actions</span>
+            <span className="text-gray-800 font-medium">Browser Actions</span>
           </div>
-          <span className="font-mono text-orange-700">{summary.browserActions}</span>
+          <span className="font-mono text-orange-800 font-semibold">{summary.browserActions}</span>
         </div>
       )}
       
@@ -156,9 +156,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <AlertCircle className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">Errors</span>
+            <span className="text-gray-800 font-medium">Errors</span>
           </div>
-          <span className={`font-mono ${summary.errorsCount > 0 ? 'text-red-600' : 'text-orange-700'}`}>
+          <span className={`font-mono font-semibold ${summary.errorsCount > 0 ? 'text-red-700' : 'text-orange-800'}`}>
             {summary.errorsCount}
           </span>
         </div>
@@ -168,9 +168,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Clock className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">Duration</span>
+            <span className="text-gray-800 font-medium">Duration</span>
           </div>
-          <span className="font-mono text-orange-700">{formatDuration(summary.duration)}</span>
+          <span className="font-mono text-orange-800 font-semibold">{formatDuration(summary.duration)}</span>
         </div>
       )}
     </div>
@@ -186,10 +186,10 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
             ) : (
               <AlertCircle className="w-3 h-3 text-red-600" />
             )}
-            <span className="text-gray-600">Status</span>
+            <span className="text-gray-800 font-medium">Status</span>
           </div>
-          <span className={`font-mono capitalize ${
-            summary.status === 'success' ? 'text-green-700' : 'text-red-700'
+          <span className={`font-mono capitalize font-semibold ${
+            summary.status === 'success' ? 'text-green-800' : 'text-red-800'
           }`}>
             {summary.status}
           </span>
@@ -200,19 +200,19 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Database className="w-3 h-3 text-green-600" />
-            <span className="text-gray-600">Data Extracted</span>
+            <span className="text-gray-800 font-medium">Data Fields</span>
           </div>
-          <span className="font-mono text-green-700">{summary.dataExtracted} fields</span>
+          <span className="font-mono text-green-800 font-semibold">{summary.dataExtracted}</span>
         </div>
       )}
       
-      {summary.nextContextSize && summary.nextContextSize > 0 && (
+      {summary.nextContextSize !== undefined && (
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <ArrowRight className="w-3 h-3 text-green-600" />
-            <span className="text-gray-600">Next Context</span>
+            <span className="text-gray-800 font-medium">Next Context</span>
           </div>
-          <span className="font-mono text-green-700">{formatBytes(summary.nextContextSize)}</span>
+          <span className="font-mono text-green-800 font-semibold">{formatBytes(summary.nextContextSize)}</span>
         </div>
       )}
       
@@ -220,9 +220,9 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Camera className="w-3 h-3 text-green-600" />
-            <span className="text-gray-600">Screenshots</span>
+            <span className="text-gray-800 font-medium">Screenshots</span>
           </div>
-          <span className="font-mono text-green-700">Available</span>
+          <span className="font-mono text-green-800 font-semibold">✓</span>
         </div>
       )}
     </div>
@@ -238,35 +238,29 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
   };
 
   return (
-    <div className={`border rounded-lg p-3 ${getPhaseColor(phase)}`}>
+    <div className={`p-3 rounded-lg border ${getPhaseColor(phase)}`}>
       {/* Phase Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {getPhaseIcon(phase)}
-          <span className="font-bold text-xs text-gray-700">{getPhaseTitle(phase)}</span>
+          <span className="text-xs font-bold text-gray-900 tracking-wide">
+            {getPhaseTitle(phase)}
+          </span>
         </div>
         <Button
           onClick={onViewDetails}
           variant="ghost"
           size="sm"
-          className="h-5 w-5 p-0 text-gray-500 hover:text-gray-700"
+          className="h-5 px-2 text-xs text-gray-700 hover:text-gray-900 hover:bg-white/50"
         >
           <Eye className="w-3 h-3" />
         </Button>
       </div>
 
       {/* Phase Content */}
-      {renderContent()}
-
-      {/* View Details Button */}
-      <Button
-        onClick={onViewDetails}
-        variant="outline"
-        size="sm"
-        className="w-full mt-3 h-6 text-xs"
-      >
-        View Details
-      </Button>
+      <div className="min-h-[80px]">
+        {renderContent()}
+      </div>
     </div>
   );
 };

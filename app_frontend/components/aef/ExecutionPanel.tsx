@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import NodeSelector from './NodeSelector';
 import NodeMemoryPanel from './NodeMemoryPanel';
+import { ExecutionMemoryProvider } from './ExecutionMemoryProvider';
 
 interface ExecutionPanelProps {
   aefDocument: AEFDocument;
@@ -467,311 +468,313 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
             <div className="text-xs text-gray-600">workflow.aef is empty</div>
           </div>
         ) : (
-          <div className="divide-y divide-gray-700">
-            {workflowSteps.map((step, index) => {
-              const isExpanded = expandedSteps.has(step.id);
-              const isCurrentStep = currentStep === step.id;
-              const actions = getStepActions(step.id);
-              const isCompoundTask = step.type === 'compound_task';
-              const childSteps = isCompoundTask ? workflowSteps.filter(s => s.parentId === step.id) : [];
-              
-              // Get credential status for this step
-              const stepCredentialStatus = nodeStatuses.get(step.id);
-              const stepRequiredCredentials = extractNodeCredentialRequirements(step);
-              
-              // Debug logging
-              if (step.id === 'gmail_login_flow' || step.id === 'enter_email' || step.id === 'open_airtable') {
-                console.log(`[DEBUG] Step ${step.id}:`, {
-                  step,
-                  stepRequiredCredentials,
-                  stepCredentialStatus,
-                  credentialsRequired: step.credentialsRequired,
-                  actions: step.actions
-                });
-              }
+          <ExecutionMemoryProvider executionId={executionId}>
+            <div className="divide-y divide-gray-700/50">
+              {workflowSteps.map((step, index) => {
+                const isExpanded = expandedSteps.has(step.id);
+                const isCurrentStep = currentStep === step.id;
+                const actions = getStepActions(step.id);
+                const isCompoundTask = step.type === 'compound_task';
+                const childSteps = isCompoundTask ? workflowSteps.filter(s => s.parentId === step.id) : [];
+                
+                // Get credential status for this step
+                const stepCredentialStatus = nodeStatuses.get(step.id);
+                const stepRequiredCredentials = extractNodeCredentialRequirements(step);
+                
+                // Debug logging
+                if (step.id === 'gmail_login_flow' || step.id === 'enter_email' || step.id === 'open_airtable') {
+                  console.log(`[DEBUG] Step ${step.id}:`, {
+                    step,
+                    stepRequiredCredentials,
+                    stepCredentialStatus,
+                    credentialsRequired: step.credentialsRequired,
+                    actions: step.actions
+                  });
+                }
 
-              return (
-                <div key={step.id} className={`p-2 ${isCurrentStep ? 'bg-gray-800 border-l-2 border-cyan-400' : ''}`}>
-                  {/* Function Declaration Style Header */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center flex-1 min-w-0">
-                      <button
-                        onClick={() => toggleStepExpansion(step.id)}
-                        className="mr-2 p-0.5 hover:bg-gray-700 rounded text-gray-400"
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-3 h-3" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3" />
-                        )}
-                      </button>
-                      
-                      <div className="flex items-center mr-2">
-                        <span className={`w-6 h-6 border rounded flex items-center justify-center text-xs font-bold ${
-                          isCompoundTask 
-                            ? 'bg-purple-800 border-purple-600 text-purple-200' 
-                            : 'bg-gray-700 border-gray-600 text-cyan-400'
-                        }`}>
-                          {isCompoundTask ? '📦' : (index + 1).toString()}
-                        </span>
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-purple-400 font-bold text-xs">
-                            {isCompoundTask ? 'compound' : 'function'}
+                return (
+                  <div key={step.id} className={`p-2 ${isCurrentStep ? 'bg-gray-800 border-l-2 border-cyan-400' : ''}`}>
+                    {/* Function Declaration Style Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center flex-1 min-w-0">
+                        <button
+                          onClick={() => toggleStepExpansion(step.id)}
+                          className="mr-2 p-0.5 hover:bg-gray-700 rounded text-gray-400"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-3 h-3" />
+                          ) : (
+                            <ChevronRight className="w-3 h-3" />
+                          )}
+                        </button>
+                        
+                        <div className="flex items-center mr-2">
+                          <span className={`w-6 h-6 border rounded flex items-center justify-center text-xs font-bold ${
+                            isCompoundTask 
+                              ? 'bg-purple-800 border-purple-600 text-purple-200' 
+                              : 'bg-gray-700 border-gray-600 text-cyan-400'
+                          }`}>
+                            {isCompoundTask ? '📦' : (index + 1).toString()}
                           </span>
-                          <span className="text-yellow-400 font-bold text-sm">{step.id}</span>
-                          <span className="text-gray-400 text-xs">()</span>
-                          {isCompoundTask && (
-                            <span className="text-purple-300 text-xs">
-                              [{childSteps.length}]
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-purple-400 font-bold text-xs">
+                              {isCompoundTask ? 'compound' : 'function'}
                             </span>
-                          )}
-                          <span className="text-gray-500 text-xs">{"{}"}</span>
-                          
-                          {/* Credential Indicator */}
-                          {stepRequiredCredentials.length > 0 && (
-                            <div className="ml-2">
-                              <CredentialIndicator
-                                status={stepCredentialStatus?.status || 'missing'}
-                                requiredCount={stepRequiredCredentials.length}
-                                configuredCount={stepCredentialStatus?.configuredCredentials.length || 0}
-                              />
-                            </div>
-                          )}
-                          
-                          {/* Temporary Test Indicator - Show for specific steps */}
-                          {(step.id === 'gmail_login_flow' || step.id === 'enter_email' || step.id === 'open_airtable') && (
-                            <div className="ml-2">
-                              <span className="px-2 py-1 bg-red-500 text-white text-xs rounded">🔒 TEST</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          <span className="text-gray-500">//</span> {step.label}
-                        </div>
-                        {step.intent && (
-                          <div className="text-xs text-gray-500 mt-0.5 truncate">
-                            <span className="text-gray-600">/**</span> {step.intent} <span className="text-gray-600">*/</span>
+                            <span className="text-yellow-400 font-bold text-sm">{step.id}</span>
+                            <span className="text-gray-400 text-xs">()</span>
+                            {isCompoundTask && (
+                              <span className="text-purple-300 text-xs">
+                                [{childSteps.length}]
+                              </span>
+                            )}
+                            <span className="text-gray-500 text-xs">{"{}"}</span>
+                            
+                            {/* Credential Indicator */}
+                            {stepRequiredCredentials.length > 0 && (
+                              <div className="ml-2">
+                                <CredentialIndicator
+                                  status={stepCredentialStatus?.status || 'missing'}
+                                  requiredCount={stepRequiredCredentials.length}
+                                  configuredCount={stepCredentialStatus?.configuredCredentials.length || 0}
+                                />
+                              </div>
+                            )}
+                            
+                            {/* Temporary Test Indicator - Show for specific steps */}
+                            {(step.id === 'gmail_login_flow' || step.id === 'enter_email' || step.id === 'open_airtable') && (
+                              <div className="ml-2">
+                                <span className="px-2 py-1 bg-red-500 text-white text-xs rounded">🔒 TEST</span>
+                              </div>
+                            )}
                           </div>
-                        )}
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            <span className="text-gray-500">//</span> {step.label}
+                          </div>
+                          {step.intent && (
+                            <div className="text-xs text-gray-500 mt-0.5 truncate">
+                              <span className="text-gray-600">/**</span> {step.intent} <span className="text-gray-600">*/</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-1">
-                      {isCompoundTask && (
+                      
+                      <div className="flex items-center gap-1">
+                        {isCompoundTask && (
+                          <Button
+                            onClick={() => handleRunCompoundTask(step.id)}
+                            variant="outline"
+                            size="sm"
+                            disabled={isRunning}
+                            className="bg-purple-600 hover:bg-purple-700 border-purple-500 text-white font-mono text-xs h-6 px-2"
+                          >
+                            <Zap className="w-3 h-3 mr-1" />
+                            ALL
+                          </Button>
+                        )}
                         <Button
-                          onClick={() => handleRunCompoundTask(step.id)}
+                          onClick={() => handleRunStep(step.id)}
                           variant="outline"
                           size="sm"
                           disabled={isRunning}
-                          className="bg-purple-600 hover:bg-purple-700 border-purple-500 text-white font-mono text-xs h-6 px-2"
+                          className={`font-mono text-xs h-6 px-2 ${
+                            isCompoundTask 
+                              ? 'bg-gray-600 hover:bg-gray-700 border-gray-500 text-gray-300' 
+                              : 'bg-green-600 hover:bg-green-700 border-green-500 text-white'
+                          }`}
                         >
                           <Zap className="w-3 h-3 mr-1" />
-                          ALL
+                          {isCompoundTask ? 'STEP' : 'RUN'}
                         </Button>
-                      )}
-                      <Button
-                        onClick={() => handleRunStep(step.id)}
-                        variant="outline"
-                        size="sm"
-                        disabled={isRunning}
-                        className={`font-mono text-xs h-6 px-2 ${
-                          isCompoundTask 
-                            ? 'bg-gray-600 hover:bg-gray-700 border-gray-500 text-gray-300' 
-                            : 'bg-green-600 hover:bg-green-700 border-green-500 text-white'
-                        }`}
-                      >
-                        <Zap className="w-3 h-3 mr-1" />
-                        {isCompoundTask ? 'STEP' : 'RUN'}
-                      </Button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Expanded Code Block */}
-                  {isExpanded && (
-                    <div className="mt-2 ml-8 space-y-2">
-                      {/* Context as Comment Block */}
-                      {step.context && (
-                        <div className="p-2 bg-gray-800 rounded border border-gray-600">
-                          <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                            <Bug className="w-3 h-3" />
-                            CONTEXT
+                    {/* Expanded Code Block */}
+                    {isExpanded && (
+                      <div className="mt-2 ml-8 space-y-2">
+                        {/* Context as Comment Block */}
+                        {step.context && (
+                          <div className="p-2 bg-gray-800 rounded border border-gray-600">
+                            <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                              <Bug className="w-3 h-3" />
+                              CONTEXT
+                            </div>
+                            <div className="text-xs text-gray-300 leading-relaxed">
+                              <span className="text-gray-600">/*</span>
+                              <div className="ml-2 text-gray-400 italic">{step.context}</div>
+                              <span className="text-gray-600">*/</span>
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-300 leading-relaxed">
-                            <span className="text-gray-600">/*</span>
-                            <div className="ml-2 text-gray-400 italic">{step.context}</div>
-                            <span className="text-gray-600">*/</span>
-                          </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* Compound Task Children */}
-                      {isCompoundTask && childSteps.length > 0 && (
-                        <div className="border border-purple-600/50 rounded bg-purple-900/10">
-                          <div className="px-2 py-1 bg-purple-800/20 border-b border-purple-600/50 flex items-center gap-1">
-                            <Code className="w-3 h-3 text-purple-400" />
-                            <span className="text-xs font-bold text-purple-400">
-                              CHILD_STEPS ({childSteps.length})
-                            </span>
-                          </div>
-                          <div className="divide-y divide-purple-600/30">
-                            {childSteps.map((childStep, childIndex) => (
-                              <div key={childStep.id} className="p-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center space-x-2 font-mono">
-                                    <span className="w-4 h-4 bg-purple-700 rounded text-xs flex items-center justify-center text-purple-200">
-                                      {childIndex + 1}
-                                    </span>
-                                    <span className="text-yellow-400 text-xs">{childStep.id}</span>
-                                    <span className="text-gray-400 text-xs">()</span>
-                                    <ArrowRight className="w-3 h-3 text-gray-500" />
-                                    <span className="text-gray-300 text-xs">{childStep.label}</span>
+                        {/* Compound Task Children */}
+                        {isCompoundTask && childSteps.length > 0 && (
+                          <div className="border border-purple-600/50 rounded bg-purple-900/10">
+                            <div className="px-2 py-1 bg-purple-800/20 border-b border-purple-600/50 flex items-center gap-1">
+                              <Code className="w-3 h-3 text-purple-400" />
+                              <span className="text-xs font-bold text-purple-400">
+                                CHILD_STEPS ({childSteps.length})
+                              </span>
+                            </div>
+                            <div className="divide-y divide-purple-600/30">
+                              {childSteps.map((childStep, childIndex) => (
+                                <div key={childStep.id} className="p-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2 font-mono">
+                                      <span className="w-4 h-4 bg-purple-700 rounded text-xs flex items-center justify-center text-purple-200">
+                                        {childIndex + 1}
+                                      </span>
+                                      <span className="text-yellow-400 text-xs">{childStep.id}</span>
+                                      <span className="text-gray-400 text-xs">()</span>
+                                      <ArrowRight className="w-3 h-3 text-gray-500" />
+                                      <span className="text-gray-300 text-xs">{childStep.label}</span>
+                                    </div>
+                                    <Button 
+                                      onClick={() => handleRunStep(childStep.id)}
+                                      variant="ghost" 
+                                      size="sm"
+                                      className="text-green-400 hover:bg-gray-700 text-xs h-5 px-1"
+                                      disabled={isRunning}
+                                    >
+                                      <Play className="w-3 h-3 mr-0.5" />
+                                      RUN
+                                    </Button>
                                   </div>
-                                  <Button 
-                                    onClick={() => handleRunStep(childStep.id)}
-                                    variant="ghost" 
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Stagehand Actions as Code (for atomic tasks) */}
+                        {!isCompoundTask && actions.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs text-cyan-400 font-bold flex items-center gap-1">
+                              <Code className="w-3 h-3" />
+                              STAGEHAND_COMMANDS
+                            </div>
+                            
+                            {actions.map((action, actionIndex) => (
+                              <div key={actionIndex} className="bg-gray-800 rounded border border-gray-600 overflow-hidden">
+                                {/* Action Header */}
+                                <div className={`px-2 py-1 border-b border-gray-600 flex items-center justify-between ${getActionColor(action.type)}`}>
+                                  <div className="flex items-center gap-1">
+                                    {getActionIcon(action.type)}
+                                    <span className="font-bold text-xs">{action.type.toUpperCase()}</span>
+                                  </div>
+                                  <Button
+                                    onClick={() => copyToClipboard(JSON.stringify(action, null, 2))}
+                                    variant="ghost"
                                     size="sm"
-                                    className="text-green-400 hover:bg-gray-700 text-xs h-5 px-1"
-                                    disabled={isRunning}
+                                    className="h-4 w-4 p-0 text-current hover:bg-black/10"
                                   >
-                                    <Play className="w-3 h-3 mr-0.5" />
-                                    RUN
+                                    <Copy className="w-3 h-3" />
                                   </Button>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Stagehand Actions as Code (for atomic tasks) */}
-                      {!isCompoundTask && actions.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-xs text-cyan-400 font-bold flex items-center gap-1">
-                            <Code className="w-3 h-3" />
-                            STAGEHAND_COMMANDS
-                          </div>
-                          
-                          {actions.map((action, actionIndex) => (
-                            <div key={actionIndex} className="bg-gray-800 rounded border border-gray-600 overflow-hidden">
-                              {/* Action Header */}
-                              <div className={`px-2 py-1 border-b border-gray-600 flex items-center justify-between ${getActionColor(action.type)}`}>
-                                <div className="flex items-center gap-1">
-                                  {getActionIcon(action.type)}
-                                  <span className="font-bold text-xs">{action.type.toUpperCase()}</span>
-                                </div>
-                                <Button
-                                  onClick={() => copyToClipboard(JSON.stringify(action, null, 2))}
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-4 w-4 p-0 text-current hover:bg-black/10"
-                                >
-                                  <Copy className="w-3 h-3" />
-                                </Button>
-                              </div>
-                              
-                              {/* Action Details */}
-                              <div className="p-2 font-mono text-xs">
-                                <div className="space-y-1">
-                                  <div>
-                                    <span className="text-gray-500">instruction:</span>
-                                    <div className="ml-2 text-gray-300 italic break-words">
-                                      "{action.instruction}"
-                                    </div>
-                                  </div>
-                                  
-                                  {action.target && (
+                                
+                                {/* Action Details */}
+                                <div className="p-2 font-mono text-xs">
+                                  <div className="space-y-1">
                                     <div>
-                                      <span className="text-gray-500">target:</span>
-                                      <div className="ml-2 space-y-1">
-                                        {action.target.url && (
-                                          <div className="flex items-center gap-1">
-                                            <Globe className="w-3 h-3 text-blue-400" />
-                                            <span className="text-blue-400">url:</span>
-                                            <span className="text-green-400 break-all">"{action.target.url}"</span>
-                                          </div>
-                                        )}
-                                        {action.target.selector && (
-                                          <div className="flex items-center gap-1">
-                                            <Target className="w-3 h-3 text-purple-400" />
-                                            <span className="text-purple-400">selector:</span>
-                                            <span className="text-yellow-400 break-all">"{action.target.selector}"</span>
-                                          </div>
-                                        )}
+                                      <span className="text-gray-500">instruction:</span>
+                                      <div className="ml-2 text-gray-300 italic break-words">
+                                        "{action.instruction}"
                                       </div>
                                     </div>
-                                  )}
+                                    
+                                    {action.target && (
+                                      <div>
+                                        <span className="text-gray-500">target:</span>
+                                        <div className="ml-2 space-y-1">
+                                          {action.target.url && (
+                                            <div className="flex items-center gap-1">
+                                              <Globe className="w-3 h-3 text-blue-400" />
+                                              <span className="text-blue-400">url:</span>
+                                              <span className="text-green-400 break-all">"{action.target.url}"</span>
+                                            </div>
+                                          )}
+                                          {action.target.selector && (
+                                            <div className="flex items-center gap-1">
+                                              <Target className="w-3 h-3 text-purple-400" />
+                                              <span className="text-purple-400">selector:</span>
+                                              <span className="text-yellow-400 break-all">"{action.target.selector}"</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Checkpoint Configuration */}
-                      <div className="p-2 bg-yellow-900/20 rounded border border-yellow-600/50">
-                        <div className="text-xs text-yellow-400 font-bold mb-1 flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          CHECKPOINT_CONFIG
-                        </div>
-                        <div className="font-mono text-xs space-y-0.5">
-                          <div><span className="text-gray-500">type:</span> <span className="text-cyan-400">BEFORE_EXECUTION</span></div>
-                          <div><span className="text-gray-500">required:</span> <span className="text-green-400">true</span></div>
-                          <div><span className="text-gray-500">timeout:</span> <span className="text-yellow-400">300s</span></div>
-                          <div><span className="text-gray-500">method:</span> <span className="text-purple-400">BROWSER_AUTOMATION</span></div>
-                        </div>
-                      </div>
-
-                      {/* Sub-steps as Nested Functions (legacy support) */}
-                      {step.childNodes && step.childNodes.length > 0 && (
-                        <div className="border border-gray-600 rounded bg-gray-800">
-                          <div className="px-2 py-1 bg-gray-700 border-b border-gray-600 flex items-center gap-1">
-                            <Code className="w-3 h-3 text-cyan-400" />
-                            <span className="text-xs font-bold text-cyan-400">
-                              NESTED_FUNCTIONS ({step.childNodes.length})
-                            </span>
-                          </div>
-                          <div className="divide-y divide-gray-600">
-                            {step.childNodes.map((subStep, subIndex) => (
-                              <div key={subStep.id} className="p-2 flex items-center justify-between">
-                                <div className="flex items-center space-x-2 font-mono">
-                                  <span className="w-4 h-4 bg-gray-600 rounded text-xs flex items-center justify-center text-cyan-400">
-                                    {subIndex + 1}
-                                  </span>
-                                  <span className="text-yellow-400 text-xs">{subStep.id}</span>
-                                  <span className="text-gray-400 text-xs">()</span>
-                                  <ArrowRight className="w-3 h-3 text-gray-500" />
-                                  <span className="text-gray-300 text-xs">{subStep.label}</span>
-                                </div>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  className="text-green-400 hover:bg-gray-700 text-xs h-4 px-1"
-                                >
-                                  <Play className="w-3 h-3" />
-                                </Button>
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        )}
 
-                  {/* Node Memory Debug Panel */}
-                  <NodeMemoryPanel
-                    nodeId={step.id}
-                    nodeName={step.label}
-                    executionId={executionId}
-                    isExpanded={expandedLogs.has(step.id)}
-                    onToggleExpanded={() => toggleLogExpansion(step.id)}
-                  />
-                </div>
-              );
-            })}
-          </div>
+                        {/* Checkpoint Configuration */}
+                        <div className="p-2 bg-yellow-900/20 rounded border border-yellow-600/50">
+                          <div className="text-xs text-yellow-400 font-bold mb-1 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            CHECKPOINT_CONFIG
+                          </div>
+                          <div className="font-mono text-xs space-y-0.5">
+                            <div><span className="text-gray-500">type:</span> <span className="text-cyan-400">BEFORE_EXECUTION</span></div>
+                            <div><span className="text-gray-500">required:</span> <span className="text-green-400">true</span></div>
+                            <div><span className="text-gray-500">timeout:</span> <span className="text-yellow-400">300s</span></div>
+                            <div><span className="text-gray-500">method:</span> <span className="text-purple-400">BROWSER_AUTOMATION</span></div>
+                          </div>
+                        </div>
+
+                        {/* Sub-steps as Nested Functions (legacy support) */}
+                        {step.childNodes && step.childNodes.length > 0 && (
+                          <div className="border border-gray-600 rounded bg-gray-800">
+                            <div className="px-2 py-1 bg-gray-700 border-b border-gray-600 flex items-center gap-1">
+                              <Code className="w-3 h-3 text-cyan-400" />
+                              <span className="text-xs font-bold text-cyan-400">
+                                NESTED_FUNCTIONS ({step.childNodes.length})
+                              </span>
+                            </div>
+                            <div className="divide-y divide-gray-600">
+                              {step.childNodes.map((subStep, subIndex) => (
+                                <div key={subStep.id} className="p-2 flex items-center justify-between">
+                                  <div className="flex items-center space-x-2 font-mono">
+                                    <span className="w-4 h-4 bg-gray-600 rounded text-xs flex items-center justify-center text-cyan-400">
+                                      {subIndex + 1}
+                                    </span>
+                                    <span className="text-yellow-400 text-xs">{subStep.id}</span>
+                                    <span className="text-gray-400 text-xs">()</span>
+                                    <ArrowRight className="w-3 h-3 text-gray-500" />
+                                    <span className="text-gray-300 text-xs">{subStep.label}</span>
+                                  </div>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm"
+                                    className="text-green-400 hover:bg-gray-700 text-xs h-4 px-1"
+                                  >
+                                    <Play className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Node Memory Debug Panel */}
+                    <NodeMemoryPanel
+                      nodeId={step.id}
+                      nodeName={step.label}
+                      executionId={executionId}
+                      isExpanded={expandedLogs.has(step.id)}
+                      onToggleExpanded={() => toggleLogExpansion(step.id)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </ExecutionMemoryProvider>
         )}
       </div>
     </div>

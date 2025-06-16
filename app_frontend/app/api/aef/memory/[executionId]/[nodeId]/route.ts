@@ -7,9 +7,14 @@ export async function GET(
   { params }: { params: { executionId: string; nodeId: string } }
 ) {
   try {
-    const { executionId, nodeId } = params;
+    // Decode URL parameters in case they contain special characters
+    const executionId = decodeURIComponent(params.executionId);
+    const nodeId = decodeURIComponent(params.nodeId);
+    
+    console.log(`🔍 [Memory API] Fetching memory for execution: "${executionId}", node: "${nodeId}"`);
     
     if (!executionId || !nodeId) {
+      console.log(`❌ [Memory API] Missing parameters - executionId: "${executionId}", nodeId: "${nodeId}"`);
       return NextResponse.json(
         { error: 'Execution ID and Node ID are required' },
         { status: 400 }
@@ -21,6 +26,7 @@ export async function GET(
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
+      console.log(`❌ [Memory API] Auth error:`, authError);
       return NextResponse.json(
         { error: 'Unauthorized - Please log in' },
         { status: 401 }
@@ -37,7 +43,9 @@ export async function GET(
     const memoryManager = new MemoryManager(serviceRoleClient);
 
     // Get memory artifact for specific node
+    console.log(`🔍 [Memory API] Looking up memory artifacts for execution: "${executionId}"`);
     const memoryArtifacts = await memoryManager.getExecutionMemoryFlow(executionId);
+    console.log(`🔍 [Memory API] Found ${memoryArtifacts.length} memory artifacts for execution`);
     
     // Since we already ensure the user owns the execution via auth & executionId uniqueness,
     // match by nodeId only. This avoids edge cases where userId mismatch (e.g. service tokens).
@@ -46,12 +54,13 @@ export async function GET(
     );
 
     if (!nodeMemoryArtifact) {
-      return NextResponse.json(
-        { error: 'Memory artifact not found for this node' },
-        { status: 404 }
-      );
+      // Expected scenario: node has not produced memory yet.
+      // 204 No Content indicates "still processing" instead of error.
+      console.log(`ℹ️  [Memory API] No memory yet for node "${nodeId}" (execution "${executionId}")`);
+      return new NextResponse(null, { status: 204 });
     }
 
+    console.log(`✅ [Memory API] Found memory artifact for node "${nodeId}"`);
     return NextResponse.json({
       success: true,
       executionId,
