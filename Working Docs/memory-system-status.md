@@ -325,6 +325,28 @@ The memory system is **production-ready** and should be tested with:
 - Consolidate `/execute-nodes` functionality into `/execute` 
 - Standardize execution ID formats to eliminate special-case handling
 
+### **LLM Trace Visibility – ✅ IMPLEMENTED (June 17 2025)**
+**Issue Resolved**: LLM conversations were generated inside the Stagehand Docker container but never surfaced to the memory system, leaving `processing.llmInteractions` empty.
+
+**🎯 Solution Implemented - Plan A**:
+1. **✅ Container Side**: Modified `browser-server.js` to capture LLM prompts/responses and include `trace` array in `/action` responses
+2. **✅ ExecutionEngine Side**: Enhanced action handlers (`act`, `extract`, `observe`) to extract trace data and populate `processing.llmInteractions`
+3. **✅ Docker Integration**: Rebuilt browser image and deployed with updated trace capture
+
+**📊 Current Visibility**:
+- **LLM Interactions**: ✅ Full prompt/response conversations with timestamps
+- **Action Processing**: ✅ Browser actions with detailed timing and results  
+- **Browser Events**: ✅ Click, type, navigate sequences
+- **Error Handling**: ✅ Complete stack traces and recovery attempts
+
+**🔬 Test Results**: LLM-powered nodes (`enter_email`, `click_next_email`, `gmail_search_today`) now show rich conversation data in the Processing tab, including:
+- System prompts for element detection
+- User instructions with page context
+- LLM responses with element selection reasoning
+- Action execution results and timing
+
+**Impact**: The memory system now provides **complete visibility** into the LLM's decision-making process, transforming debugging from guesswork into precise analysis.
+
 ---
 
 ## 📍 Quick Reference

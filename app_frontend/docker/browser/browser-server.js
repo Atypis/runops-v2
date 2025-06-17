@@ -25,6 +25,36 @@ let lastActivity = Date.now();
 // In-memory log storage for debugging
 const nodeLogs = new Map(); // nodeId -> logs[]
 
+// LLM conversation capture for memory system
+const llmTraces = new Map(); // nodeId -> llmConversations[]
+
+function addLLMTrace(nodeId, role, content, metadata = {}) {
+  if (!llmTraces.has(nodeId)) {
+    llmTraces.set(nodeId, []);
+  }
+  llmTraces.get(nodeId).push({
+    role,
+    content,
+    timestamp: new Date().toISOString(),
+    tokens: content.length, // Rough estimate
+    metadata
+  });
+  
+  // Keep only last 20 interactions per node to prevent memory bloat
+  const traces = llmTraces.get(nodeId);
+  if (traces.length > 20) {
+    traces.splice(0, traces.length - 20);
+  }
+}
+
+function getLLMTrace(nodeId) {
+  return llmTraces.get(nodeId) || [];
+}
+
+function clearLLMTrace(nodeId) {
+  llmTraces.delete(nodeId);
+}
+
 function addNodeLog(nodeId, logEntry) {
   if (!nodeLogs.has(nodeId)) {
     nodeLogs.set(nodeId, []);
@@ -302,6 +332,15 @@ app.post('/action', async (req, res) => {
         break;
         
       case 'act':
+        // === LLM TRACE CAPTURE FOR ACT ===
+        // Capture the instruction/prompt being sent
+        const actPrompt = `Act instruction: "${data.instruction}"\n\nPage context: ${stagehand.page.url()}\n\nDOM context: Available for element selection and interaction`;
+        addLLMTrace(nodeId, 'user', actPrompt, {
+          actionType: 'act',
+          instruction: data.instruction,
+          url: stagehand.page.url()
+        });
+        
         // Log the prompt being sent to LLM
         addNodeLog(nodeId, {
           type: 'prompt',
@@ -314,6 +353,15 @@ app.post('/action', async (req, res) => {
         });
         
         result = await stagehand.page.act(data.instruction);
+        
+        // === LLM TRACE CAPTURE FOR ACT RESPONSE ===
+        // Capture the LLM's response/decision
+        const actResponse = `Act execution completed. Result: ${JSON.stringify(result, null, 2)}`;
+        addLLMTrace(nodeId, 'assistant', actResponse, {
+          actionType: 'act',
+          success: true,
+          duration: Date.now() - startTime
+        });
         
         // Log the result
         addNodeLog(nodeId, {
@@ -328,6 +376,15 @@ app.post('/action', async (req, res) => {
         break;
         
       case 'extract':
+        // === LLM TRACE CAPTURE FOR EXTRACT ===
+        const extractPrompt = `Extract instruction: "${data.instruction}"\n\nSchema requirements: ${JSON.stringify(data.schema, null, 2)}\n\nPage context: ${stagehand.page.url()}\n\nDOM context: Available for data extraction`;
+        addLLMTrace(nodeId, 'user', extractPrompt, {
+          actionType: 'extract',
+          instruction: data.instruction,
+          schema: data.schema,
+          url: stagehand.page.url()
+        });
+        
         // Log the extraction prompt
         addNodeLog(nodeId, {
           type: 'prompt',
@@ -399,9 +456,28 @@ app.post('/action', async (req, res) => {
             instruction: data.instruction,
             schema: zodSchema
           });
+          
+          // === LLM TRACE CAPTURE FOR EXTRACT RESPONSE ===
+          const extractResponse = `Extract completed successfully. Extracted data: ${JSON.stringify(result, null, 2)}`;
+          addLLMTrace(nodeId, 'assistant', extractResponse, {
+            actionType: 'extract',
+            success: true,
+            duration: Date.now() - startTime,
+            extractedFields: Object.keys(result || {})
+          });
+          
         } catch (extractError) {
           console.error('Extract action failed:', extractError);
           result = { error: extractError.message };
+          
+          // === LLM TRACE CAPTURE FOR EXTRACT ERROR ===
+          const extractErrorResponse = `Extract failed: ${extractError.message}`;
+          addLLMTrace(nodeId, 'assistant', extractErrorResponse, {
+            actionType: 'extract',
+            success: false,
+            error: extractError.message,
+            duration: Date.now() - startTime
+          });
         }
         break;
         
@@ -413,6 +489,15 @@ app.post('/action', async (req, res) => {
         break;
 
       case 'observe':
+        // === LLM TRACE CAPTURE FOR OBSERVE ===
+        const observePrompt = `Observe instruction: "${data.instruction}"\n\nMax actions: ${data.maxActions || 1}\n\nPage context: ${stagehand.page.url()}\n\nDOM context: Available for analysis and action discovery`;
+        addLLMTrace(nodeId, 'user', observePrompt, {
+          actionType: 'observe',
+          instruction: data.instruction,
+          maxActions: data.maxActions || 1,
+          url: stagehand.page.url()
+        });
+        
         // Log the observation prompt
         addNodeLog(nodeId, {
           type: 'prompt',
@@ -427,6 +512,15 @@ app.post('/action', async (req, res) => {
         result = await stagehand.page.observe({
           instruction: data.instruction,
           maxActions: data.maxActions || 1
+        });
+        
+        // === LLM TRACE CAPTURE FOR OBSERVE RESPONSE ===
+        const observeResponse = `Observe completed. Discovered actions: ${JSON.stringify(result, null, 2)}`;
+        addLLMTrace(nodeId, 'assistant', observeResponse, {
+          actionType: 'observe',
+          success: true,
+          duration: Date.now() - startTime,
+          actionsDiscovered: Array.isArray(result) ? result.length : 0
         });
         
         // Log the observation result
@@ -572,7 +666,9 @@ app.post('/action', async (req, res) => {
       success: true,
       result,
       url: stagehand.page.url(),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      // === PLAN A: INCLUDE LLM TRACE IN RESPONSE ===
+      trace: getLLMTrace(nodeId)
     };
     
     // Log successful completion

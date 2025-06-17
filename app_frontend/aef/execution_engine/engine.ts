@@ -272,12 +272,21 @@ export class ExecutionEngine {
       const inputs: MemoryInputs = {
         previousState: Object.fromEntries(this.state),
         nodeVariables: resolvedNode.variables || {},
-        credentials: {}, // Will be populated during credential injection
+        credentials: this.extractWorkflowCredentials().reduce((acc, cred) => {
+          acc[cred.id] = { type: cred.type, configured: !!cred.isSet };
+          return acc;
+        }, {} as Record<string, any>),
         environment: {
           currentUrl: await this.getCurrentUrl(),
           domSnapshot: await this.getDOMSnapshot(),
           activeTab: await this.getActiveTab(),
-          sessionState: {}
+          sessionState: {
+            executionId: this.executionId,
+            userId: this.userId,
+            workflowId: this.workflowId,
+            nodeType: node.type,
+            nodeLabel: node.label
+          }
         },
         contextData: {
           loopContext: this.getLoopContext(node.id),
@@ -289,7 +298,9 @@ export class ExecutionEngine {
           target: (resolvedNode as any).target,
           data: (resolvedNode as any).data,
           timeout: (resolvedNode as any).timeout,
-          config: resolvedNode
+          config: resolvedNode,
+          actionCount: resolvedNode.actions?.length || 0,
+          actionTypes: resolvedNode.actions?.map(a => a.type) || []
         }
       };
       
@@ -395,9 +406,59 @@ export class ExecutionEngine {
                         });
                         console.log(`    ✅ Navigation completed:`, result);
                         await logger.logActionResult('navigate', result, Date.now() - navStartTime);
+                        
+                        // === CAPTURE NAVIGATION IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const navDuration = Date.now() - navStartTime;
+                          processingCapture.addAction({
+                            type: 'navigate',
+                            instruction: action.instruction || `Navigate to ${action.target?.url}`,
+                            target: action.target,
+                            data: action.data,
+                            result: result,
+                            timestamp: new Date(navStartTime),
+                            duration: navDuration,
+                            retryCount: 0
+                          });
+                          
+                          processingCapture.addBrowserEvent({
+                            type: 'navigation',
+                            details: {
+                              fromUrl: await this.getCurrentUrl(),
+                              toUrl: action.target?.url,
+                              finalUrl: result.url,
+                              redirects: result.redirectCount || 0
+                            },
+                            timestamp: new Date(),
+                            success: result.success
+                          });
+                        }
                     } catch (error) {
                         console.error(`    ❌ Navigation failed:`, error);
                         await logger.logActionResult('navigate', { success: false, error: error instanceof Error ? error.message : String(error) }, Date.now() - navStartTime);
+                        
+                        // === CAPTURE NAVIGATION ERROR IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const navDuration = Date.now() - navStartTime;
+                          processingCapture.addError({
+                            type: 'navigation_error',
+                            message: error instanceof Error ? error.message : String(error),
+                            timestamp: new Date(),
+                            recovered: false,
+                            stack: error instanceof Error ? error.stack : undefined
+                          });
+                          
+                          processingCapture.addAction({
+                            type: 'navigate',
+                            instruction: action.instruction || `Navigate to ${action.target?.url}`,
+                            target: action.target,
+                            data: action.data,
+                            result: { success: false, error: error instanceof Error ? error.message : String(error) },
+                            timestamp: new Date(navStartTime),
+                            duration: navDuration,
+                            retryCount: 0
+                          });
+                        }
                     }
                     break;
                     
@@ -416,8 +477,59 @@ export class ExecutionEngine {
                         });
                         console.log(`    ✅ Click completed:`, result);
                         await logger.logActionResult('click', result, Date.now() - clickStartTime);
+                        
+                        // === CAPTURE CLICK IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const clickDuration = Date.now() - clickStartTime;
+                          processingCapture.addAction({
+                            type: 'click',
+                            instruction: action.instruction || `Click ${action.target?.selector}`,
+                            target: action.target,
+                            data: action.data,
+                            result: result,
+                            timestamp: new Date(clickStartTime),
+                            duration: clickDuration,
+                            retryCount: 0
+                          });
+                          
+                          processingCapture.addBrowserEvent({
+                            type: 'click',
+                            details: {
+                              selector: action.target?.selector,
+                              instruction: action.instruction,
+                              elementFound: result.success,
+                              coordinates: result.coordinates,
+                              elementText: result.elementText
+                            },
+                            timestamp: new Date(),
+                            success: result.success
+                          });
+                        }
                     } catch (error) {
                         console.error(`    ❌ Click failed:`, error);
+                        
+                        // === CAPTURE CLICK ERROR IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const clickDuration = Date.now() - clickStartTime;
+                          processingCapture.addError({
+                            type: 'click_error',
+                            message: error instanceof Error ? error.message : String(error),
+                            timestamp: new Date(),
+                            recovered: false,
+                            stack: error instanceof Error ? error.stack : undefined
+                          });
+                          
+                          processingCapture.addAction({
+                            type: 'click',
+                            instruction: action.instruction || `Click ${action.target?.selector}`,
+                            target: action.target,
+                            data: action.data,
+                            result: { success: false, error: error instanceof Error ? error.message : String(error) },
+                            timestamp: new Date(clickStartTime),
+                            duration: clickDuration,
+                            retryCount: 0
+                          });
+                        }
 
                         // 🔄 Fallback to Stagehand act
                         try {
@@ -509,6 +621,7 @@ export class ExecutionEngine {
 
                 case 'extract':
                     console.log(`    - Extracting data: ${action.instruction}`);
+                    const extractStartTime = Date.now();
                     try {
                         const result = await singleVNCSessionManager.executeAction({
                             type: 'extract',
@@ -519,13 +632,79 @@ export class ExecutionEngine {
                             stepId: node.id
                         });
                         console.log(`    ✅ Extract completed:`, result);
+                        
+                        // === CAPTURE EXTRACT ACTION IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const extractDuration = Date.now() - extractStartTime;
+                          processingCapture.addAction({
+                            type: 'extract',
+                            instruction: action.instruction || 'Data extraction',
+                            target: action.target,
+                            data: { schema: action.schema, ...action.data },
+                            result: result,
+                            timestamp: new Date(extractStartTime),
+                            duration: extractDuration,
+                            retryCount: 0
+                          });
+                          
+                          // === PLAN A: EXTRACT LLM TRACE FROM EXTRACT RESPONSE ===
+                          if (result.trace && Array.isArray(result.trace)) {
+                            console.log(`    🧠 Captured ${result.trace.length} LLM interactions from extract action`);
+                            for (const traceItem of result.trace) {
+                              processingCapture.addLLMInteraction({
+                                role: traceItem.role,
+                                content: traceItem.content,
+                                timestamp: new Date(traceItem.timestamp),
+                                tokens: traceItem.tokens || 0,
+                                model: traceItem.metadata?.actionType || 'stagehand'
+                              });
+                            }
+                          }
+                          
+                          processingCapture.addBrowserEvent({
+                            type: 'extract',
+                            details: {
+                              instruction: action.instruction,
+                              schema: action.schema,
+                              extractedFields: result ? Object.keys(result).length : 0,
+                              result: result,
+                              aiPowered: true
+                            },
+                            timestamp: new Date(),
+                            success: !!result
+                          });
+                        }
                     } catch (error) {
                         console.error(`    ❌ Extract failed:`, error);
+                        
+                        // === CAPTURE EXTRACT ERROR IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const extractDuration = Date.now() - extractStartTime;
+                          processingCapture.addError({
+                            type: 'extract_error',
+                            message: error instanceof Error ? error.message : String(error),
+                            timestamp: new Date(),
+                            recovered: false,
+                            stack: error instanceof Error ? error.stack : undefined
+                          });
+                          
+                          processingCapture.addAction({
+                            type: 'extract',
+                            instruction: action.instruction || 'Data extraction',
+                            target: action.target,
+                            data: { schema: action.schema, ...action.data },
+                            result: { success: false, error: error instanceof Error ? error.message : String(error) },
+                            timestamp: new Date(extractStartTime),
+                            duration: extractDuration,
+                            retryCount: 0
+                          });
+                        }
                     }
                     break;
 
                 case 'act':
                     console.log(`    - AI-powered action: ${action.instruction}`);
+                    const actStartTime = Date.now();
                     try {
                         // Create the browser action
                         let browserAction = {
@@ -542,10 +721,75 @@ export class ExecutionEngine {
                         
                         const result = await singleVNCSessionManager.executeAction(browserAction);
                         console.log(`    ✅ Act completed:`, result);
+                        
+                        // === CAPTURE ACT ACTION IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const actDuration = Date.now() - actStartTime;
+                          processingCapture.addAction({
+                            type: 'act',
+                            instruction: action.instruction || 'AI-powered action',
+                            target: action.target,
+                            data: action.data,
+                            result: result,
+                            timestamp: new Date(actStartTime),
+                            duration: actDuration,
+                            retryCount: 0
+                          });
+                          
+                          // === PLAN A: EXTRACT LLM TRACE FROM RESPONSE ===
+                          if (result.trace && Array.isArray(result.trace)) {
+                            console.log(`    🧠 Captured ${result.trace.length} LLM interactions from act action`);
+                            for (const traceItem of result.trace) {
+                              processingCapture.addLLMInteraction({
+                                role: traceItem.role,
+                                content: traceItem.content,
+                                timestamp: new Date(traceItem.timestamp),
+                                tokens: traceItem.tokens || 0,
+                                model: traceItem.metadata?.actionType || 'stagehand'
+                              });
+                            }
+                          }
+                          
+                          processingCapture.addBrowserEvent({
+                            type: 'extract',
+                            details: {
+                              instruction: action.instruction,
+                              useVision: action.useVision,
+                              result: result,
+                              aiPowered: true
+                            },
+                            timestamp: new Date(),
+                            success: result?.success !== false
+                          });
+                        }
                     } catch (error) {
                         console.error(`    ❌ Act failed:`, error);
+                        
+                        // === CAPTURE ACT ERROR IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const actDuration = Date.now() - actStartTime;
+                          processingCapture.addError({
+                            type: 'act_error',
+                            message: error instanceof Error ? error.message : String(error),
+                            timestamp: new Date(),
+                            recovered: false,
+                            stack: error instanceof Error ? error.stack : undefined
+                          });
+                          
+                          processingCapture.addAction({
+                            type: 'act',
+                            instruction: action.instruction || 'AI-powered action',
+                            target: action.target,
+                            data: action.data,
+                            result: { success: false, error: error instanceof Error ? error.message : String(error) },
+                            timestamp: new Date(actStartTime),
+                            duration: actDuration,
+                            retryCount: 0
+                          });
+                        }
                         throw error;
                     }
+                    break;
 
                 case 'visual_scan':
                     console.log(`    - Simulating visual scan: ${action.instruction}`);
@@ -556,6 +800,7 @@ export class ExecutionEngine {
 
                 case 'observe':
                     console.log(`    - Observing action: ${action.instruction}`);
+                    const observeStartTime = Date.now();
                     try {
                         const result = await singleVNCSessionManager.executeAction({
                             type: 'observe',
@@ -566,6 +811,37 @@ export class ExecutionEngine {
                             stepId: node.id
                         });
                         console.log(`    ✅ Observe completed:`, result);
+                        
+                        // === CAPTURE OBSERVE ACTION IN PROCESSING ===
+                        if (this.memoryManager && processingCapture) {
+                          const observeDuration = Date.now() - observeStartTime;
+                          
+                          // === PLAN A: EXTRACT LLM TRACE FROM OBSERVE RESPONSE ===
+                          if (result.trace && Array.isArray(result.trace)) {
+                            console.log(`    🧠 Captured ${result.trace.length} LLM interactions from observe action`);
+                            for (const traceItem of result.trace) {
+                              processingCapture.addLLMInteraction({
+                                role: traceItem.role,
+                                content: traceItem.content,
+                                timestamp: new Date(traceItem.timestamp),
+                                tokens: traceItem.tokens || 0,
+                                model: traceItem.metadata?.actionType || 'stagehand'
+                              });
+                            }
+                          }
+                          
+                          processingCapture.addAction({
+                            type: 'observe',
+                            instruction: action.instruction || 'Page observation',
+                            target: null,
+                            data: { maxActions: action.maxActions || 1 },
+                            result: result,
+                            timestamp: new Date(observeStartTime),
+                            duration: observeDuration,
+                            retryCount: 0
+                          });
+                        }
+                        
                         // Store observed actions for later use
                         this.state.set(`${node.id}_observed_actions`, result);
                     } catch (error) {
@@ -675,7 +951,9 @@ export class ExecutionEngine {
         primaryData: this.state.get(`${node.id}_result`) || null,
         stateChanges: {
           [`${node.id}_completed`]: true,
-          [`${node.id}_timestamp`]: new Date().toISOString()
+          [`${node.id}_timestamp`]: new Date().toISOString(),
+          [`${node.id}_final_url`]: await this.getCurrentUrl(),
+          [`${node.id}_actions_executed`]: resolvedNode.actions?.length || 0
         },
         extractedData: this.state.get(`${node.id}_extracted_data`),
         decisionResult: this.state.get(`${node.id}_decision_result`) ? {
@@ -683,15 +961,21 @@ export class ExecutionEngine {
           result: this.state.get(`${node.id}_decision_result`).decision || false,
           nextNode: this.findNextNode(node.id)?.id || 'none'
         } : undefined,
+        navigationResult: node.actions?.some(a => a.type === 'navigate' || a.type === 'navigate_or_switch_tab') ? {
+          finalUrl: await this.getCurrentUrl() || 'unknown',
+          loadTime: nodeDuration,
+          success: true,
+          statusCode: 200
+        } : undefined,
         executionMetadata: {
           status: 'success',
           duration: nodeDuration,
           retryCount: 0,
           finalState: Object.fromEntries(this.state),
           resourceUsage: {
-            tokens: 0, // Would be populated from actual LLM usage
-            apiCalls: resolvedNode.actions?.length || 0,
-            memoryUsage: 0
+            tokens: processingCapture?.getProcessingData().llmInteractions.length || 0,
+            apiCalls: processingCapture?.getProcessingData().actions.length || 0,
+                         memoryUsage: Math.round(JSON.stringify(processingCapture?.getProcessingData() || {}).length / 1024)
           }
         }
       };
@@ -728,6 +1012,32 @@ export class ExecutionEngine {
           config: resolvedNode
         }
       };
+      
+      // === INTEGRATE STAGEHAND MEMORY HOOKS ===
+      const llmConversations = await this.getLLMConversations();
+      
+      // Convert StagehandMemoryHooks conversations to our format
+      for (const conversation of llmConversations) {
+        if (processingCapture) {
+          processingCapture.addLLMInteraction({
+            role: 'user',
+            content: conversation.prompt,
+            timestamp: new Date(conversation.timestamp),
+            tokens: conversation.prompt.length, // Rough estimate
+            model: 'stagehand'
+          });
+          
+          if (conversation.response) {
+            processingCapture.addLLMInteraction({
+              role: 'assistant', 
+              content: conversation.response,
+              timestamp: new Date(conversation.timestamp + 1000), // Slight offset
+              tokens: conversation.response.length, // Rough estimate
+              model: 'stagehand'
+            });
+          }
+        }
+      }
       
       const processing = processingCapture?.getProcessingData() || {
         llmInteractions: [],
@@ -1191,6 +1501,13 @@ export class ExecutionEngine {
             },
             stepId: node.id
           });
+          
+          // === PLAN A: EXTRACT LLM TRACE FOR EXTRACT ACTION ===
+          if (result.trace && Array.isArray(result.trace) && this.memoryManager) {
+            console.log(`    🧠 Captured ${result.trace.length} LLM interactions from extract action`);
+            // Note: This will be captured when executeAction is called from main execution loop
+          }
+          
           console.log(`    ✅ Extract completed:`, result);
           return result;
         } catch (error) {

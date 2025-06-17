@@ -16,7 +16,7 @@ fi
 
 # Build the image
 echo "📦 Building Docker image 'aef-browser:latest'..."
-docker build -t aef-browser:latest -f docker/browser/Dockerfile .
+docker build -t aef-browser:latest -f docker/browser/Dockerfile docker/browser/
 
 # Verify the image was built
 if docker image inspect aef-browser:latest >/dev/null 2>&1; then

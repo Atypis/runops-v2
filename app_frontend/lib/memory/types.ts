@@ -45,6 +45,8 @@ export interface MemoryInputs {
     data?: any;                    // Action data payload
     timeout?: number;              // Action timeout
     config?: any;                  // Action configuration
+    actionCount?: number;          // Number of actions in this node
+    actionTypes?: string[];        // Types of actions to be executed
   };
 }
 
