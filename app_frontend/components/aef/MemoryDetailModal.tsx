@@ -97,8 +97,8 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
       size="sm"
       className={`flex items-center gap-2 ${
         selectedPhase === phase 
-          ? 'bg-slate-700 text-white' 
-          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+          ? 'bg-slate-800 text-white' 
+          : 'bg-white text-slate-900 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
       }`}
     >
       {icon}
@@ -124,10 +124,10 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
         >
           <div className="flex items-center gap-3">
             {icon}
-            <span className="font-medium text-slate-800">{title}</span>
-            {badge && <Badge variant="outline" className="text-xs">{badge}</Badge>}
+            <span className="font-medium text-slate-900">{title}</span>
+            {badge && <Badge variant="outline" className="text-xs text-slate-900 font-semibold">{badge}</Badge>}
           </div>
-          {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-700" /> : <ChevronRight className="w-4 h-4 text-slate-700" />}
         </Button>
         
         {isExpanded && (
@@ -148,7 +148,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
         <Globe className="w-5 h-5 text-blue-600" />,
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-600">
+            <div className="text-sm text-slate-800">
               Size: {Math.round(memoryArtifact.inputs.environment.domSnapshot.length / 1024)}KB
             </div>
             <div className="flex gap-2">
@@ -156,7 +156,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                 onClick={() => copyToClipboard(memoryArtifact.inputs.environment.domSnapshot!)}
                 variant="outline"
                 size="sm"
-                className="text-xs h-6 px-2 text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+                className="text-xs h-6 px-2 text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
               >
                 <Copy className="w-3 h-3 mr-1" />
                 Copy
@@ -165,14 +165,14 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                 onClick={() => downloadData(memoryArtifact.inputs.environment.domSnapshot, `dom-${memoryArtifact.nodeId}.html`)}
                 variant="outline"
                 size="sm"
-                className="text-xs h-6 px-2 text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+                className="text-xs h-6 px-2 text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
               >
                 <Download className="w-3 h-3 mr-1" />
                 Download
               </Button>
             </div>
           </div>
-          <pre className="bg-white border border-slate-200 rounded p-3 text-xs overflow-auto max-h-96 font-mono">
+          <pre className="bg-white border border-slate-200 rounded p-3 text-xs overflow-auto max-h-96 font-mono text-slate-800">
             {truncateText(memoryArtifact.inputs.environment.domSnapshot)}
           </pre>
         </div>,
@@ -193,12 +193,12 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                   onClick={() => copyToClipboard(JSON.stringify(value, null, 2))}
                   variant="ghost"
                   size="sm"
-                  className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+                  className="h-5 w-5 p-0 text-slate-800 hover:text-slate-900 hover:bg-slate-100"
                 >
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <pre className="text-xs text-slate-600 overflow-auto max-h-24">
+              <pre className="text-xs text-slate-800 overflow-auto max-h-24">
                 {JSON.stringify(value, null, 2)}
               </pre>
             </div>
@@ -214,15 +214,15 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
         <Globe className="w-5 h-5 text-green-600" />,
         <div className="space-y-3">
           <div>
-            <span className="text-sm font-medium text-slate-700">Current URL:</span>
-            <div className="mt-1 p-2 bg-white border border-slate-200 rounded font-mono text-sm break-all">
+            <span className="text-sm font-medium text-slate-800">Current URL:</span>
+            <div className="mt-1 p-2 bg-white border border-slate-200 rounded font-mono text-sm break-all text-slate-800">
               {memoryArtifact.inputs.environment.currentUrl}
             </div>
           </div>
           {memoryArtifact.inputs?.environment?.sessionState && (
             <div>
-              <span className="text-sm font-medium text-slate-700">Session State:</span>
-              <pre className="mt-1 p-2 bg-white border border-slate-200 rounded text-xs overflow-auto max-h-48">
+              <span className="text-sm font-medium text-slate-800">Session State:</span>
+              <pre className="mt-1 p-2 bg-white border border-slate-200 rounded text-xs overflow-auto max-h-48 text-slate-800">
                 {JSON.stringify(memoryArtifact.inputs.environment.sessionState, null, 2)}
               </pre>
             </div>
@@ -250,14 +250,14 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
             }`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">
+                  <Badge variant="outline" className="text-xs text-slate-900 font-semibold">
                     {interaction.role}
                   </Badge>
-                  <span className="text-xs text-slate-600">
+                  <span className="text-xs text-slate-800">
                     {formatTimestamp(interaction.timestamp)}
                   </span>
                   {interaction.tokens && (
-                    <Badge variant="outline" className="text-xs">
+                    <Badge variant="outline" className="text-xs text-slate-900 font-semibold">
                       {interaction.tokens} tokens
                     </Badge>
                   )}
@@ -266,12 +266,12 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                   onClick={() => copyToClipboard(interaction.content)}
                   variant="ghost"
                   size="sm"
-                  className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+                  className="h-5 w-5 p-0 text-slate-800 hover:text-slate-900 hover:bg-slate-100"
                 >
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <div className="text-sm whitespace-pre-wrap font-mono bg-white p-2 rounded border">
+              <div className="text-sm whitespace-pre-wrap font-mono bg-white p-2 rounded border text-slate-800">
                 {truncateText(interaction.content, 1000)}
               </div>
             </div>
@@ -290,14 +290,14 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
             <div key={index} className="bg-white border border-slate-200 rounded p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs font-mono">
+                  <Badge variant="outline" className="text-xs font-mono text-slate-900 font-semibold">
                     {action.type}
                   </Badge>
-                  <span className="text-xs text-slate-600">
+                  <span className="text-xs text-slate-800">
                     {formatTimestamp(action.timestamp)}
                   </span>
                   {action.duration && (
-                    <Badge variant="outline" className="text-xs">
+                    <Badge variant="outline" className="text-xs text-slate-900 font-semibold">
                       {action.duration}ms
                     </Badge>
                   )}
@@ -306,18 +306,18 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                   onClick={() => copyToClipboard(JSON.stringify(action, null, 2))}
                   variant="ghost"
                   size="sm"
-                  className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+                  className="h-5 w-5 p-0 text-slate-800 hover:text-slate-900 hover:bg-slate-100"
                 >
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <div className="text-sm text-slate-700 mb-2 italic">
+              <div className="text-sm text-slate-800 mb-2 italic">
                 "{action.instruction}"
               </div>
               {action.target && (
-                <div className="text-xs text-slate-600">
+                <div className="text-xs text-slate-800">
                   <span className="font-medium">Target:</span>
-                  <pre className="mt-1 p-1 bg-slate-50 rounded font-mono">
+                  <pre className="mt-1 p-1 bg-slate-50 rounded font-mono text-slate-800">
                     {JSON.stringify(action.target, null, 2)}
                   </pre>
                 </div>
@@ -341,7 +341,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                   <Badge variant="destructive" className="text-xs">
                     {error.type}
                   </Badge>
-                  <span className="text-xs text-slate-600">
+                  <span className="text-xs text-slate-800">
                     {formatTimestamp(error.timestamp)}
                   </span>
                   {error.recovered && (
@@ -354,7 +354,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                   onClick={() => copyToClipboard(JSON.stringify(error, null, 2))}
                   variant="ghost"
                   size="sm"
-                  className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+                  className="h-5 w-5 p-0 text-slate-800 hover:text-slate-900 hover:bg-slate-100"
                 >
                   <Copy className="w-3 h-3" />
                 </Button>
@@ -385,7 +385,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <span className="text-sm font-medium text-slate-700">Status:</span>
+              <span className="text-sm font-medium text-slate-800">Status:</span>
               <div className={`mt-1 px-2 py-1 rounded text-sm font-mono ${
                 memoryArtifact.outputs.executionMetadata.status === 'success' 
                   ? 'bg-green-100 text-green-800' 
@@ -395,8 +395,8 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
               </div>
             </div>
             <div>
-              <span className="text-sm font-medium text-slate-700">Duration:</span>
-              <div className="mt-1 px-2 py-1 bg-slate-100 rounded text-sm font-mono">
+              <span className="text-sm font-medium text-slate-800">Duration:</span>
+              <div className="mt-1 px-2 py-1 bg-slate-100 rounded text-sm font-mono text-slate-800">
                 {memoryArtifact.outputs.executionMetadata.duration}ms
               </div>
             </div>
@@ -404,8 +404,8 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
           
           {memoryArtifact.outputs.executionMetadata.resourceUsage && (
             <div>
-              <span className="text-sm font-medium text-slate-700">Resource Usage:</span>
-              <pre className="mt-1 p-2 bg-white border border-slate-200 rounded text-xs">
+              <span className="text-sm font-medium text-slate-800">Resource Usage:</span>
+              <pre className="mt-1 p-2 bg-white border border-slate-200 rounded text-xs text-slate-800">
                 {JSON.stringify(memoryArtifact.outputs.executionMetadata.resourceUsage, null, 2)}
               </pre>
             </div>
@@ -427,12 +427,12 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
                   onClick={() => copyToClipboard(JSON.stringify(value, null, 2))}
                   variant="ghost"
                   size="sm"
-                  className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+                  className="h-5 w-5 p-0 text-slate-800 hover:text-slate-900 hover:bg-slate-100"
                 >
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <pre className="text-xs text-slate-600 overflow-auto max-h-32">
+              <pre className="text-xs text-slate-800 overflow-auto max-h-32">
                 {JSON.stringify(value, null, 2)}
               </pre>
             </div>
@@ -447,7 +447,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
         'State Changes',
         <ArrowRight className="w-5 h-5 text-purple-600" />,
         <div className="space-y-3">
-          <pre className="bg-white border border-slate-200 rounded p-3 text-xs overflow-auto max-h-64">
+          <pre className="bg-white border border-slate-200 rounded p-3 text-xs overflow-auto max-h-64 text-slate-800">
             {JSON.stringify(memoryArtifact.outputs.stateChanges, null, 2)}
           </pre>
         </div>
@@ -472,8 +472,8 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
           <div className="flex items-center gap-3">
             <Brain className="w-6 h-6 text-slate-600" />
             <div>
-              <h2 className="text-xl font-semibold text-slate-800">Memory Inspector</h2>
-              <p className="text-sm text-slate-600">{nodeName} • Node ID: {memoryArtifact.nodeId}</p>
+              <h2 className="text-xl font-semibold text-slate-900">Memory Inspector</h2>
+              <p className="text-sm text-slate-800">{nodeName} • Node ID: {memoryArtifact.nodeId}</p>
             </div>
           </div>
           
@@ -490,7 +490,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
               />
             </div>
             
-            <Button onClick={onClose} variant="ghost" size="sm" className="text-slate-700 hover:text-slate-900 hover:bg-slate-100">
+            <Button onClick={onClose} variant="ghost" size="sm" className="text-slate-800 hover:text-slate-900 hover:bg-slate-100">
               <X className="w-5 h-5" />
             </Button>
           </div>
@@ -507,7 +507,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
               onClick={() => downloadData(memoryArtifact, `memory-${memoryArtifact.nodeId}.json`)}
               variant="outline"
               size="sm"
-              className="text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+              className="text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
             >
               <Download className="w-4 h-4 mr-2" />
               Download All

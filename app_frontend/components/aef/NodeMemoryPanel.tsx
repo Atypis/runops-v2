@@ -159,7 +159,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
   const renderCollapsed = () => {
     if (!summary) {
       return (
-        <div className="flex items-center gap-2 text-xs text-gray-500 font-mono">
+        <div className="flex items-center gap-2 text-xs text-gray-800 font-mono">
           <Brain className="w-3 h-3" />
           <span>Memory</span>
           {(isLoading || isWaitingForMemory) && (
@@ -168,7 +168,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
           {isWaitingForMemory && (
             <span className="text-blue-600 animate-pulse">waiting for memory...</span>
           )}
-          {!executionId && <span className="text-gray-400">(no execution)</span>}
+          {!executionId && <span className="text-gray-700">(no execution)</span>}
         </div>
       );
     }
@@ -176,13 +176,13 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
     return (
       <div className="flex items-center gap-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-mono hover:bg-slate-100 transition-colors cursor-pointer">
         <div className="flex items-center gap-1">
-          <Brain className="w-3 h-3 text-slate-600" />
-          <span className="text-slate-700 font-medium">Memory</span>
+          <Brain className="w-3 h-3 text-slate-700" />
+          <span className="text-slate-800 font-medium">Memory</span>
         </div>
         
         <div className="flex items-center gap-2">
           {getStatusIcon(summary.status)}
-          <span className="text-slate-600">[{summary.duration ? formatDuration(summary.duration) : 'pending'}]</span>
+          <span className="text-slate-800">[{summary.duration ? formatDuration(summary.duration) : 'pending'}]</span>
         </div>
 
         {summary.domSize > 0 && (
@@ -224,18 +224,18 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
   const renderSummary = () => {
     if (!memoryArtifact || !summary) {
       return (
-        <div className="text-center text-gray-500 py-8">
+        <div className="text-center text-gray-800 py-8">
           <Brain className="w-8 h-8 mx-auto mb-2 opacity-50" />
           {isWaitingForMemory ? (
             <>
               <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-2" />
               <p className="text-sm text-blue-600">Waiting for memory data...</p>
-              <p className="text-xs text-gray-400">Memory will appear when this node completes execution</p>
+              <p className="text-xs text-gray-700">Memory will appear when this node completes execution</p>
             </>
           ) : (
             <>
               <p className="text-sm">No memory data available</p>
-              <p className="text-xs text-gray-400">Memory will appear when this node executes</p>
+              <p className="text-xs text-gray-700">Memory will appear when this node executes</p>
             </>
           )}
         </div>
@@ -248,15 +248,15 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
         <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-md">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Brain className="w-4 h-4 text-slate-600" />
-              <span className="font-medium text-slate-800">Memory Trace</span>
+              <Brain className="w-4 h-4 text-slate-700" />
+              <span className="font-medium text-slate-900">Memory Trace</span>
             </div>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs text-slate-900 font-semibold">
               {formatDuration(summary.duration)}
             </Badge>
             <div className="flex items-center gap-1">
               {getStatusIcon(summary.status)}
-              <span className="text-xs text-slate-600 capitalize">{summary.status}</span>
+              <span className="text-xs text-slate-800 capitalize">{summary.status}</span>
             </div>
           </div>
           
@@ -264,7 +264,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
             onClick={() => handleViewDetails()}
             variant="outline"
             size="sm"
-            className="text-xs h-6 px-2 text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+            className="text-xs h-6 px-2 text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
           >
             <Eye className="w-3 h-3 mr-1" />
             Full Details
@@ -343,7 +343,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
         variant="ghost"
         size="sm"
         onClick={handleToggleExpanded}
-        className="flex items-center gap-2 text-xs text-slate-600 hover:text-slate-800 p-1 h-auto mb-2"
+        className="flex items-center gap-2 text-xs text-slate-800 hover:text-slate-900 p-1 h-auto mb-2"
       >
         {displayState === 'summary' ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {displayState === 'collapsed' ? renderCollapsed() : (

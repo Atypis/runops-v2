@@ -306,61 +306,72 @@ export class ExecutionEngine {
       processingCapture = new ProcessingCapture();
     }
     
-    // Handle new bulletproof node types
-    switch (resolvedNode.type) {
-      case 'decision':
-        return await this.executeDecisionNode(resolvedNode);
-      case 'assert':
-        return await this.executeAssertNode(resolvedNode);
-      case 'error_handler':
-        return await this.executeErrorHandlerNode(resolvedNode);
-      case 'data_transform':
-        return await this.executeDataTransformNode(resolvedNode);
-      case 'generator':
-        return await this.executeGeneratorNode(resolvedNode);
-      case 'explore':
-        return await this.executeExploreNode(resolvedNode);
-      case 'filter_list':
-        return await this.executeFilterListNode(resolvedNode);
-      case 'list_iterator':
-        return await this.executeListIteratorNode(resolvedNode);
-    }
-    
-    // Handle legacy node types
-    if (resolvedNode.type === 'iterative_loop') {
-        console.log(`  🔄 Loop node detected: ${resolvedNode.label}`);
-        // For MVP, we'll just log that we're entering the loop
-        // In a full implementation, this would set up loop state
-        return;
-    }
-    
-    if (resolvedNode.type === 'compound_task') {
-        console.log(`  📦 Compound task detected: ${resolvedNode.label}`);
-        console.log(`  👶 Children: ${resolvedNode.children?.join(', ')}`);
-        
-        // Check if this compound task should execute all children
-        if (resolvedNode.canExecuteAsGroup && resolvedNode.children) {
-            console.log(`  🎬 Executing all children sequentially for compound task`);
-            
-            for (const childId of resolvedNode.children) {
-                const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
-                if (childNode) {
-                    console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
-                    await this.executeNode(childNode);
-                    
-                    // Add delay between child executions
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                } else {
-                    console.warn(`    ⚠️ Child node ${childId} not found`);
-                }
-            }
-            
-            console.log(`  ✅ Compound task completed: ${resolvedNode.label}`);
-            return;
-        } else {
-            console.log(`  ℹ️ Compound task defined but not executing children (canExecuteAsGroup: ${resolvedNode.canExecuteAsGroup})`);
-            return;
-        }
+    // === NODE EXECUTION (NO EARLY RETURNS) ===
+    try {
+      // Handle new bulletproof node types
+      switch (resolvedNode.type) {
+        case 'decision':
+          await this.executeDecisionNode(resolvedNode);
+          break;
+        case 'assert':
+          await this.executeAssertNode(resolvedNode);
+          break;
+        case 'error_handler':
+          await this.executeErrorHandlerNode(resolvedNode);
+          break;
+        case 'data_transform':
+          await this.executeDataTransformNode(resolvedNode);
+          break;
+        case 'generator':
+          await this.executeGeneratorNode(resolvedNode);
+          break;
+        case 'explore':
+          await this.executeExploreNode(resolvedNode);
+          break;
+        case 'filter_list':
+          await this.executeFilterListNode(resolvedNode);
+          break;
+        case 'list_iterator':
+          await this.executeListIteratorNode(resolvedNode);
+          break;
+        case 'iterative_loop':
+          console.log(`  🔄 Loop node detected: ${resolvedNode.label}`);
+          // For MVP, we'll just log that we're entering the loop
+          // In a full implementation, this would set up loop state
+          break;
+        case 'compound_task':
+          console.log(`  📦 Compound task detected: ${resolvedNode.label}`);
+          console.log(`  👶 Children: ${resolvedNode.children?.join(', ')}`);
+          
+          // Check if this compound task should execute all children
+          if (resolvedNode.canExecuteAsGroup && resolvedNode.children) {
+              console.log(`  🎬 Executing all children sequentially for compound task`);
+              
+              for (const childId of resolvedNode.children) {
+                  const childNode = this.sop.execution.workflow.nodes.find(n => n.id === childId);
+                  if (childNode) {
+                      console.log(`    ▶️ Executing child: ${childNode.label} (${childId})`);
+                      await this.executeNode(childNode);
+                      
+                      // Add delay between child executions
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                  } else {
+                      console.warn(`    ⚠️ Child node ${childId} not found`);
+                  }
+              }
+              
+              console.log(`  ✅ Compound task completed: ${resolvedNode.label}`);
+          } else {
+              console.log(`  ℹ️ Compound task defined but not executing children (canExecuteAsGroup: ${resolvedNode.canExecuteAsGroup})`);
+          }
+          break;
+        default:
+          // Execute actions for atomic tasks - this is where most nodes will go
+          break;
+      }
+    } catch (error) {
+      console.error(`  ❌ Node execution failed:`, error);
+      // Continue to memory capture even on error
     }
     
     // Execute actions for atomic tasks

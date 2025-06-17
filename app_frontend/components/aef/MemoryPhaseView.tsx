@@ -90,7 +90,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Globe className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">DOM Snapshot</span>
+            <span className="text-gray-900 font-semibold">DOM Snapshot</span>
           </div>
           <span className="font-mono text-blue-700">{formatBytes(summary.domSize)}</span>
         </div>
@@ -100,7 +100,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Variable className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">Variables</span>
+            <span className="text-gray-900 font-semibold">Variables</span>
           </div>
           <span className="font-mono text-blue-700">{summary.variableCount}</span>
         </div>
@@ -110,7 +110,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Key className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">Credentials</span>
+            <span className="text-gray-900 font-semibold">Credentials</span>
           </div>
           <span className="font-mono text-blue-700">{summary.credentialCount}</span>
         </div>
@@ -120,7 +120,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="text-xs">
           <div className="flex items-center gap-1 mb-1">
             <Globe className="w-3 h-3 text-blue-600" />
-            <span className="text-gray-600">Current URL</span>
+            <span className="text-gray-900 font-semibold">Current URL</span>
           </div>
           <div className="font-mono text-blue-700 truncate text-xs bg-blue-100 p-1 rounded">
             {summary.url}
@@ -136,7 +136,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Zap className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">LLM Messages</span>
+            <span className="text-gray-900 font-semibold">LLM Messages</span>
           </div>
           <span className="font-mono text-orange-700">{summary.llmMessages}</span>
         </div>
@@ -146,7 +146,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <MousePointer className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">Browser Actions</span>
+            <span className="text-gray-900 font-semibold">Browser Actions</span>
           </div>
           <span className="font-mono text-orange-700">{summary.browserActions}</span>
         </div>
@@ -156,7 +156,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <AlertCircle className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">Errors</span>
+            <span className="text-gray-900 font-semibold">Errors</span>
           </div>
           <span className={`font-mono ${summary.errorsCount > 0 ? 'text-red-600' : 'text-orange-700'}`}>
             {summary.errorsCount}
@@ -168,7 +168,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Clock className="w-3 h-3 text-orange-600" />
-            <span className="text-gray-600">Duration</span>
+            <span className="text-gray-900 font-semibold">Duration</span>
           </div>
           <span className="font-mono text-orange-700">{formatDuration(summary.duration)}</span>
         </div>
@@ -186,7 +186,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
             ) : (
               <AlertCircle className="w-3 h-3 text-red-600" />
             )}
-            <span className="text-gray-600">Status</span>
+            <span className="text-gray-900 font-semibold">Status</span>
           </div>
           <span className={`font-mono capitalize ${
             summary.status === 'success' ? 'text-green-700' : 'text-red-700'
@@ -200,7 +200,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Database className="w-3 h-3 text-green-600" />
-            <span className="text-gray-600">Data Extracted</span>
+            <span className="text-gray-900 font-semibold">Data Extracted</span>
           </div>
           <span className="font-mono text-green-700">{summary.dataExtracted} fields</span>
         </div>
@@ -210,7 +210,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <ArrowRight className="w-3 h-3 text-green-600" />
-            <span className="text-gray-600">Next Context</span>
+            <span className="text-gray-900 font-semibold">Next Context</span>
           </div>
           <span className="font-mono text-green-700">{formatBytes(summary.nextContextSize)}</span>
         </div>
@@ -220,7 +220,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1">
             <Camera className="w-3 h-3 text-green-600" />
-            <span className="text-gray-600">Screenshots</span>
+            <span className="text-gray-900 font-semibold">Screenshots</span>
           </div>
           <span className="font-mono text-green-700">Available</span>
         </div>
@@ -243,13 +243,13 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {getPhaseIcon(phase)}
-          <span className="font-bold text-xs text-gray-700">{getPhaseTitle(phase)}</span>
+          <span className="font-bold text-xs text-gray-900">{getPhaseTitle(phase)}</span>
         </div>
         <Button
           onClick={onViewDetails}
           variant="ghost"
           size="sm"
-          className="h-5 w-5 p-0 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+          className="h-5 w-5 p-0 text-slate-800 hover:text-slate-900 hover:bg-slate-100"
         >
           <Eye className="w-3 h-3" />
         </Button>
@@ -263,7 +263,7 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
         onClick={onViewDetails}
         variant="outline"
         size="sm"
-        className="w-full mt-3 h-6 text-xs text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+        className="w-full mt-3 h-6 text-xs text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
       >
         View Details
       </Button>

@@ -170,20 +170,60 @@ export class HybridBrowserManager extends EventEmitter {
             console.log(`[HybridBrowserManager] Failed to get session user, using fallback:`, err);
           }
           
+          // Build comprehensive memory data from captured browser states
+          const inputs = {
+            previousState: {},
+            nodeVariables: {},
+            credentials: {},
+            environment: {
+              currentUrl: browserStateBefore?.currentUrl || browserStateAfter?.currentUrl,
+              domSnapshot: browserStateBefore?.domSnapshot,
+              sessionState: browserStateBefore?.sessionState
+            },
+            contextData: {
+              loopContext: undefined,
+              parentContext: {}
+            },
+            actionInputs: {
+              instruction: action.instruction,
+              data: action.data,
+              config: action
+            }
+          };
+          
+          const processing = {
+            llmInteractions: [],
+            actions: [{
+              type: action.type,
+              instruction: action.instruction || '',
+              stepId: action.stepId || 'unknown_step',
+              timestamp: new Date()
+            }],
+            browserEvents: [], // Will be populated from stagehand hooks later
+            errors: []
+          };
+          
+          const outputs = {
+            primaryData: result,
+            stateChanges: {
+              [`${action.stepId}_completed`]: true,
+              [`${action.stepId}_timestamp`]: new Date().toISOString()
+            },
+            extractedData: result?.extractedData || {},
+            browserState: browserStateAfter || {},
+            executionMetadata: {
+              status: 'success' as const,
+              duration: 0
+            }
+          };
+
           await tempMemoryManager.captureNodeMemory(
             executionId,
             action.stepId || 'unknown_step',
             userId,
-            {} as any,
-            {} as any,
-            {
-              primaryData: result,
-              stateChanges: {},
-              executionMetadata: {
-                status: 'success',
-                duration: 0
-              }
-            } as any,
+            inputs,
+            processing,
+            outputs,
             { forwardToNext: [] },
             undefined
           );
