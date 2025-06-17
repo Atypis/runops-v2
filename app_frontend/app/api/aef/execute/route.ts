@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
     const engine = new ExecutionEngine(aefDocument, user.id, aefDocumentId);
     
     // Start the engine but don't wait for it to finish
-    engine.start(executionId).catch((err: Error) => {
+    engine.start().catch((err: Error) => {
       console.error(`Execution engine failed for ${executionId}:`, err);
       // Here you might want to update the job status to 'failed' in the database
     });

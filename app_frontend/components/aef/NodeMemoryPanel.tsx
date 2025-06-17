@@ -280,6 +280,7 @@ const NodeMemoryPanel: React.FC<NodeMemoryPanelProps> = ({
               domSize: summary.domSize,
               variableCount: Object.keys(memoryArtifact.inputs.nodeVariables || {}).length,
               credentialCount: Object.keys(memoryArtifact.inputs.credentials || {}).length,
+              hasAccessibilityTree: !!memoryArtifact.inputs?.environment?.accessibilityTree,
               url: memoryArtifact.inputs?.environment?.currentUrl
             }}
             onViewDetails={() => handleViewDetails('inputs')}

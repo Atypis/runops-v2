@@ -54,6 +54,8 @@ export async function POST(
       );
       engine.setSupabaseClient(serviceRoleClient);
       
+      // Configure memory verbosity (default: false for performance)
+
       console.log(`⚡ [AEF API] Executing single node ${stepId} with ExecutionEngine`);
       
       // Execute the specific node using ExecutionEngine

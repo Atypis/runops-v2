@@ -25,6 +25,7 @@ interface MemoryPhaseViewProps {
     domSize?: number;
     variableCount?: number;
     credentialCount?: number;
+    hasAccessibilityTree?: boolean;
     url?: string;
     // Processing summary
     llmMessages?: number;
@@ -113,6 +114,16 @@ const MemoryPhaseView: React.FC<MemoryPhaseViewProps> = ({
             <span className="text-gray-900 font-semibold">Credentials</span>
           </div>
           <span className="font-mono text-blue-700">{summary.credentialCount}</span>
+        </div>
+      )}
+      
+      {summary.hasAccessibilityTree && (
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-1">
+            <Eye className="w-3 h-3 text-indigo-600" />
+            <span className="text-gray-900 font-semibold">LLM View</span>
+          </div>
+          <span className="font-mono text-indigo-700">Available</span>
         </div>
       )}
       

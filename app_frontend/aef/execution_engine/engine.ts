@@ -48,6 +48,7 @@ export class ExecutionEngine {
   private loopStates: Map<string, { index: number; length: number; queueKey: string }> = new Map(); // Loop state tracking
   private memoryManager?: MemoryManager; // Universal Memory Manager for complete memory visibility
 
+
   constructor(sop: WorkflowDocument, userId: string, executionId: string, workflowId?: string) {
     this.sop = sop;
     this.state = new Map<string, any>();
@@ -94,6 +95,8 @@ export class ExecutionEngine {
     this.memoryManager = memoryManager;
     console.log('🧠 Memory Manager enabled - complete execution visibility activated');
   }
+
+
 
   /**
    * Get or create a logger for a specific node
@@ -280,6 +283,7 @@ export class ExecutionEngine {
           currentUrl: await this.getCurrentUrl(),
           domSnapshot: await this.getDOMSnapshot(),
           activeTab: await this.getActiveTab(),
+          accessibilityTree: await this.getAccessibilityTree(),
           sessionState: {
             executionId: this.executionId,
             userId: this.userId,
@@ -647,7 +651,7 @@ export class ExecutionEngine {
                             retryCount: 0
                           });
                           
-                          // === PLAN A: EXTRACT LLM TRACE FROM EXTRACT RESPONSE ===
+                          // === EXTRACT LLM TRACE FROM STAGEHAND RESPONSE (NO EXTRA CALLS) ===
                           if (result.trace && Array.isArray(result.trace)) {
                             console.log(`    🧠 Captured ${result.trace.length} LLM interactions from extract action`);
                             for (const traceItem of result.trace) {
@@ -736,7 +740,7 @@ export class ExecutionEngine {
                             retryCount: 0
                           });
                           
-                          // === PLAN A: EXTRACT LLM TRACE FROM RESPONSE ===
+                          // === EXTRACT LLM TRACE FROM STAGEHAND RESPONSE (NO EXTRA CALLS) ===
                           if (result.trace && Array.isArray(result.trace)) {
                             console.log(`    🧠 Captured ${result.trace.length} LLM interactions from act action`);
                             for (const traceItem of result.trace) {
@@ -816,7 +820,7 @@ export class ExecutionEngine {
                         if (this.memoryManager && processingCapture) {
                           const observeDuration = Date.now() - observeStartTime;
                           
-                          // === PLAN A: EXTRACT LLM TRACE FROM OBSERVE RESPONSE ===
+                          // === EXTRACT LLM TRACE FROM STAGEHAND RESPONSE (NO EXTRA CALLS) ===
                           if (result.trace && Array.isArray(result.trace)) {
                             console.log(`    🧠 Captured ${result.trace.length} LLM interactions from observe action`);
                             for (const traceItem of result.trace) {
@@ -997,6 +1001,7 @@ export class ExecutionEngine {
           currentUrl: await this.getCurrentUrl(),
           domSnapshot: await this.getDOMSnapshot(),
           activeTab: await this.getActiveTab(),
+          accessibilityTree: await this.getAccessibilityTree(),
           sessionState: {}
         },
         contextData: {
@@ -1880,12 +1885,13 @@ export class ExecutionEngine {
       
       const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
       
-      const [currentUrl, domSnapshot, activeTab, sessionState, screenshot] = await Promise.all([
+      const [currentUrl, domSnapshot, activeTab, sessionState, screenshot, accessibilityTree] = await Promise.all([
         BrowserStateCapture.getCurrentUrl(this.executionId),
         BrowserStateCapture.getDOMSnapshot(this.executionId),
         BrowserStateCapture.getActiveTab(this.executionId),
         BrowserStateCapture.getSessionState(this.executionId),
-        BrowserStateCapture.takeScreenshot(this.executionId)
+        BrowserStateCapture.takeScreenshot(this.executionId),
+        BrowserStateCapture.getAccessibilityTree(this.executionId)
       ]);
       
       const browserState = {
@@ -1894,6 +1900,7 @@ export class ExecutionEngine {
         activeTab,
         sessionState,
         screenshot,
+        accessibilityTree,
         timestamp: Date.now()
       };
       
@@ -1999,6 +2006,19 @@ export class ExecutionEngine {
       };
     }
     return undefined;
+  }
+
+  /**
+   * Get accessibility tree for memory capture
+   */
+  private async getAccessibilityTree(): Promise<string | undefined> {
+    try {
+      const { BrowserStateCapture } = await import('@/lib/memory/BrowserStateCapture');
+      return await BrowserStateCapture.getAccessibilityTree(this.executionId);
+    } catch (error) {
+      console.warn('Could not get accessibility tree:', error);
+      return undefined;
+    }
   }
 }
 

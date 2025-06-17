@@ -28,6 +28,7 @@ export interface MemoryInputs {
     currentUrl?: string;
     domSnapshot?: string;           // Raw DOM snapshot (no compression initially)
     activeTab?: string;
+    accessibilityTree?: any;        // Accessibility tree that LLM sees (for debugging)
     sessionState?: Record<string, any>;
   };
   

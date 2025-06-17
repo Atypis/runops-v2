@@ -30,6 +30,7 @@ CREATE TABLE memory_artifacts (
       "currentUrl": null,
       "domSnapshot": null,
       "activeTab": null,
+      "accessibilityTree": null,
       "sessionState": {}
     },
     "contextData": {

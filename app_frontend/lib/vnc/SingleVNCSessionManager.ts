@@ -143,8 +143,13 @@ export class SingleVNCSessionManager {
    * Execute action in current session
    */
   async executeAction(action: any): Promise<any> {
+    // Ensure we have an active (or recovered) session before executing the action
     if (!this.currentSession) {
-      throw new Error('No active VNC session');
+      // Attempt auto-recovery (handles Next.js hot-reload module duplication)
+      const recovered = await this.isSessionReady();
+      if (!recovered || !this.currentSession) {
+        throw new Error('No active VNC session');
+      }
     }
     
     if (!(await this.isSessionReady())) {
