@@ -35,52 +35,39 @@ export async function POST(
     console.log(`🎯 [AEF API] Request body:`, body);
     const { stepId, action, browserAction } = body;
 
-    // 🔄 UNIFIED EXECUTION: Proxy single-node execution to the unified endpoint
+    // Use ExecutionEngine for single-node execution with rich memory capture
     if (action === 'execute' && stepId && !browserAction) {
-      console.log(`🔄 [AEF API] Proxying single-node execution to unified endpoint`);
+      console.log(`🚀 [AEF API] Using ExecutionEngine for single node: ${stepId}`);
       
-      try {
-        // Call the unified execute-nodes endpoint
-        const unifiedResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/aef/execute-nodes`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cookie': request.headers.get('cookie') || ''
-          },
-          body: JSON.stringify({
-            nodeIds: [stepId],
-            executionId: executionId,
-            workflowId: body.workflowId || 'gmail-investor-crm-v2'
-          })
-        });
-
-        if (!unifiedResponse.ok) {
-          const errorData = await unifiedResponse.json();
-          console.error(`❌ [AEF API] Unified endpoint failed:`, errorData);
-          throw new Error(errorData.error || 'Unified execution failed');
-        }
-
-        const unifiedResult = await unifiedResponse.json();
-        console.log(`✅ [AEF API] Unified execution completed:`, unifiedResult);
-
-        // Transform the response to match the expected format
-        const nodeResult = unifiedResult.results?.[stepId];
-        if (nodeResult) {
-          return NextResponse.json({
-            success: nodeResult.success,
-            message: nodeResult.message,
-            executionId: executionId,
-            nodeId: stepId,
-            nextNodeId: nodeResult.nextNodeId
-          });
-        } else {
-          return NextResponse.json(unifiedResult);
-        }
-      } catch (proxyError) {
-        console.error(`❌ [AEF API] Proxy to unified endpoint failed:`, proxyError);
-        // Fall back to the original implementation
-        console.log(`🔄 [AEF API] Falling back to original implementation`);
-      }
+      // Load the workflow
+      const workflowId = body.workflowId || 'gmail-investor-crm-v2';
+      const workflow = await ServerWorkflowLoader.loadWorkflow(workflowId);
+      
+      // Create ExecutionEngine instance
+      const engine = new ExecutionEngine(workflow as any, user.id, executionId, workflowId);
+      
+      // Set supabase client for credential access
+      const { createClient } = await import('@supabase/supabase-js');
+      const serviceRoleClient = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      engine.setSupabaseClient(serviceRoleClient);
+      
+      console.log(`⚡ [AEF API] Executing single node ${stepId} with ExecutionEngine`);
+      
+      // Execute the specific node using ExecutionEngine
+      const result = await engine.executeNodeById(stepId);
+      
+      console.log(`✅ [AEF API] ExecutionEngine result:`, result);
+      
+      return NextResponse.json({
+        success: result.success,
+        message: result.message,
+        executionId: executionId,
+        nodeId: stepId,
+        nextNodeId: result.nextNodeId
+      });
     }
 
     if (!executionId || !stepId) {
