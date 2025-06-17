@@ -1,3 +1,9 @@
+> **⚠️ DEPRECATED**  
+> This file has been superseded by `Working Docs/memory-architecture.md`, which is the single authoritative reference for the AEF Memory Architecture.  
+> Please update bookmarks and pull requests accordingly.
+
+---
+
 # AEF Memory System - Current Status & Architecture
 
 **Version**: Production 1.0  
