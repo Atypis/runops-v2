@@ -45,3 +45,4 @@ sop_orchestrator/screenshots/*/timeline_export_*.json
 # Temporary files
 *.tmp
 *.temp
+app_frontend/tsconfig.tsbuildinfo
