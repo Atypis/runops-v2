@@ -41,6 +41,7 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
 }) => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['dom-snapshot', 'llm-conversations']));
   const [searchTerm, setSearchTerm] = useState('');
+  const [expandedAccessibilityTree, setExpandedAccessibilityTree] = useState(false);
 
   const toggleSection = (sectionId: string) => {
     const newExpanded = new Set(expandedSections);
@@ -177,6 +178,78 @@ const MemoryDetailModal: React.FC<MemoryDetailModalProps> = ({
           </pre>
         </div>,
         `${Math.round(memoryArtifact.inputs.environment.domSnapshot.length / 1024)}KB`
+      )}
+
+      {/* Accessibility Tree */}
+      {memoryArtifact.inputs?.environment?.accessibilityTree && renderCollapsibleSection(
+        'accessibility-tree',
+        'Accessibility Tree (LLM View)',
+        <Eye className="w-5 h-5 text-indigo-600" />,
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-slate-800">
+              What the LLM sees when interacting with this page
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => copyToClipboard(typeof memoryArtifact.inputs.environment.accessibilityTree === 'string' 
+                  ? memoryArtifact.inputs.environment.accessibilityTree 
+                  : JSON.stringify(memoryArtifact.inputs.environment.accessibilityTree, null, 2))}
+                variant="outline"
+                size="sm"
+                className="text-xs h-6 px-2 text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+              >
+                <Copy className="w-3 h-3 mr-1" />
+                Copy
+              </Button>
+              <Button
+                onClick={() => downloadData(memoryArtifact.inputs.environment.accessibilityTree, `accessibility-tree-${memoryArtifact.nodeId}.txt`)}
+                variant="outline"
+                size="sm"
+                className="text-xs h-6 px-2 text-slate-800 border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+              >
+                <Download className="w-3 h-3 mr-1" />
+                Download
+              </Button>
+            </div>
+          </div>
+          <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-xs text-indigo-800">
+            <strong>💡 What is this?</strong> This is the exact accessibility tree that the LLM sees when making decisions about page interactions. 
+            It shows interactive elements, their roles, and text content in a structured format.
+          </div>
+          <div className="space-y-2">
+            <pre className="bg-white border border-slate-200 rounded p-3 text-xs overflow-auto max-h-96 font-mono text-slate-800">
+              {typeof memoryArtifact.inputs.environment.accessibilityTree === 'string' 
+                ? (expandedAccessibilityTree 
+                    ? memoryArtifact.inputs.environment.accessibilityTree
+                    : truncateText(memoryArtifact.inputs.environment.accessibilityTree)
+                  )
+                : JSON.stringify(memoryArtifact.inputs.environment.accessibilityTree, null, 2)}
+            </pre>
+            {typeof memoryArtifact.inputs.environment.accessibilityTree === 'string' && 
+             memoryArtifact.inputs.environment.accessibilityTree.length > 500 && (
+              <Button
+                onClick={() => setExpandedAccessibilityTree(!expandedAccessibilityTree)}
+                variant="outline"
+                size="sm"
+                className="text-xs h-6 px-2 text-indigo-700 border-indigo-300 hover:bg-indigo-50 hover:border-indigo-400"
+              >
+                {expandedAccessibilityTree ? (
+                  <>
+                    <ChevronDown className="w-3 h-3 mr-1" />
+                    Show Less
+                  </>
+                ) : (
+                  <>
+                    <ChevronRight className="w-3 h-3 mr-1" />
+                    Show Full Tree ({Math.round((memoryArtifact.inputs.environment.accessibilityTree.length - 500) / 100) / 10}KB more)
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>,
+        'LLM POV'
       )}
 
       {/* Variables */}

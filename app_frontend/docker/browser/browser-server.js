@@ -18,6 +18,217 @@ const os = require('os');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+// ============================================================================
+// ACCESSIBILITY TREE FUNCTIONS (copied from Stagehand v2.3.0 for LLM parity)
+// ============================================================================
+
+/**
+ * Clean text by removing extra whitespace and newlines
+ */
+function cleanText(input) {
+  return input.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Format accessibility tree into simplified string format (exact LLM view)
+ */
+function formatSimplifiedTree(node, level = 0) {
+  const indent = "  ".repeat(level);
+  const cleanName = node.name ? cleanText(node.name) : "";
+  let result = `${indent}[${node.nodeId}] ${node.role}${
+    cleanName ? `: ${cleanName}` : ""
+  }\n`;
+
+  if (node.children?.length) {
+    result += node.children
+      .map((child) => formatSimplifiedTree(child, level + 1))
+      .join("");
+  }
+  return result;
+}
+
+/**
+ * Remove redundant static text children
+ */
+function removeRedundantStaticTextChildren(parent, children) {
+  if (!children || children.length <= 1) return children;
+  
+  return children.filter((child, index) => {
+    if (child.role !== 'StaticText') return true;
+    
+    // Keep if it's the only static text
+    const otherStaticTexts = children.filter(c => c.role === 'StaticText');
+    if (otherStaticTexts.length === 1) return true;
+    
+    // Remove if it's redundant with parent name
+    if (parent.name && child.name && parent.name.includes(child.name)) {
+      return false;
+    }
+    
+    return true;
+  });
+}
+
+/**
+ * Clean structural nodes (generic/none roles)
+ */
+async function cleanStructuralNodes(node, tagNameMap) {
+  // Filter out nodes with negative IDs
+  if (node.nodeId && parseInt(node.nodeId) < 0) {
+    return null;
+  }
+
+  // Base case: if no children, remove generic/none nodes
+  if (!node.children || node.children.length === 0) {
+    return node.role === "generic" || node.role === "none" ? null : node;
+  }
+
+  // Recursively clean children
+  const cleanedChildrenPromises = node.children.map((child) =>
+    cleanStructuralNodes(child, tagNameMap)
+  );
+  const resolvedChildren = await Promise.all(cleanedChildrenPromises);
+  let cleanedChildren = resolvedChildren.filter(child => child !== null);
+
+  // Handle structural nodes
+  if (node.role === "generic" || node.role === "none") {
+    if (cleanedChildren.length === 1) {
+      return cleanedChildren[0]; // Collapse single-child structural node
+    } else if (cleanedChildren.length === 0) {
+      return null; // Remove empty structural node
+    }
+    // Update role with DOM tag name if available
+    if (node.backendDOMNodeId !== undefined) {
+      const tagName = tagNameMap[node.backendDOMNodeId];
+      if (tagName) node.role = tagName;
+    }
+  }
+
+  // Remove redundant static text children
+  cleanedChildren = removeRedundantStaticTextChildren(node, cleanedChildren);
+
+  if (cleanedChildren.length === 0) {
+    return node.role === "generic" || node.role === "none" ? null : { ...node, children: [] };
+  }
+
+  return cleanedChildren.length > 0 ? { ...node, children: cleanedChildren } : node;
+}
+
+/**
+ * Build hierarchical tree from flat accessibility nodes
+ */
+async function buildHierarchicalTree(nodes, tagNameMap) {
+  const nodeMap = new Map();
+
+  // First pass: Create meaningful nodes
+  nodes.forEach((node) => {
+    const nodeIdValue = parseInt(node.nodeId, 10);
+    if (nodeIdValue < 0) return;
+
+    const hasChildren = node.childIds && node.childIds.length > 0;
+    const hasValidName = node.name && node.name.trim() !== "";
+    const isInteractive = node.role !== "none" && 
+                         node.role !== "generic" && 
+                         node.role !== "InlineTextBox";
+
+    if (!hasValidName && !hasChildren && !isInteractive) return;
+
+    const cleanNode = {
+      role: node.role,
+      nodeId: node.nodeId,
+      ...(hasValidName && { name: node.name }),
+      ...(node.description && { description: node.description }),
+      ...(node.value && { value: node.value }),
+      ...(node.backendDOMNodeId !== undefined && { backendDOMNodeId: node.backendDOMNodeId }),
+      children: [],
+      parentId: node.parentId,
+      childIds: node.childIds || []
+    };
+
+    nodeMap.set(node.nodeId, cleanNode);
+  });
+
+  // Second pass: Build parent-child relationships
+  for (const [nodeId, node] of nodeMap) {
+    if (node.childIds) {
+      for (const childId of node.childIds) {
+        const child = nodeMap.get(childId);
+        if (child) {
+          node.children.push(child);
+        }
+      }
+    }
+  }
+
+  // Get root nodes and clean them
+  const rootNodes = nodes
+    .filter((node) => !node.parentId && nodeMap.has(node.nodeId))
+    .map((node) => nodeMap.get(node.nodeId))
+    .filter(Boolean);
+
+  const cleanedTreePromises = rootNodes.map((node) =>
+    cleanStructuralNodes(node, tagNameMap)
+  );
+  const finalTree = (await Promise.all(cleanedTreePromises)).filter(Boolean);
+
+  // Generate simplified string representation
+  const simplifiedFormat = finalTree
+    .map((node) => formatSimplifiedTree(node))
+    .join("\n");
+
+  return {
+    tree: finalTree,
+    simplified: simplifiedFormat,
+    iframes: [],
+    idToUrl: {},
+    xpathMap: {}
+  };
+}
+
+/**
+ * Get accessibility tree using standard Playwright page (compatible with Stagehand)
+ */
+async function getAccessibilityTreeLocal(page) {
+  try {
+    // Get CDP session and enable accessibility
+    const cdpSession = await page.context().newCDPSession(page);
+    await cdpSession.send("Accessibility.enable");
+
+    try {
+      // Get full accessibility tree
+      const { nodes: fullNodes } = await cdpSession.send("Accessibility.getFullAXTree");
+
+      // Transform nodes to our format
+      const transformedNodes = fullNodes.map((node) => ({
+        role: node.role?.value || "",
+        name: node.name?.value,
+        description: node.description?.value,
+        value: node.value?.value,
+        nodeId: node.nodeId,
+        backendDOMNodeId: node.backendDOMNodeId,
+        parentId: node.parentId,
+        childIds: node.childIds || [],
+        properties: node.properties,
+      }));
+
+      // Build hierarchical tree (simplified - no tag name mapping for now)
+      const hierarchicalTree = await buildHierarchicalTree(transformedNodes, {});
+
+      return hierarchicalTree;
+    } finally {
+      await cdpSession.send("Accessibility.disable");
+      await cdpSession.detach();
+    }
+  } catch (error) {
+    console.error('Error in getAccessibilityTreeLocal:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// END ACCESSIBILITY TREE FUNCTIONS
+// ============================================================================
+
 let stagehand = null;
 let isInitialized = false;
 let lastActivity = Date.now();
@@ -486,6 +697,22 @@ app.post('/action', async (req, res) => {
           fullPage: false 
         });
         result = screenshot.toString('base64');
+        break;
+
+      case 'dom_snapshot':
+        // Return the full HTML content of the current page (no LLM usage)
+        result = await stagehand.page.content();
+        break;
+
+      case 'accessibility_tree':
+        // Return the simplified accessibility tree (exact string LLM sees)
+        try {
+          const treeResult = await getAccessibilityTreeLocal(stagehand.page);
+          result = treeResult.simplified || "";
+        } catch (error) {
+          console.error('Failed to get accessibility tree:', error);
+          result = `Error getting accessibility tree: ${error.message}`;
+        }
         break;
 
       case 'observe':
