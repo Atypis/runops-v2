@@ -29,9 +29,10 @@ import {
   Target,
   ArrowRight
 } from 'lucide-react';
-import NodeSelector from './NodeSelector';
 import NodeMemoryPanel from './NodeMemoryPanel';
 import eventBus from '@/lib/utils/eventBus';
+import { useNodeSelection } from '@/hooks/use-node-selection';
+import { SelectionToolbar } from './SelectionToolbar';
 
 interface ExecutionPanelProps {
   aefDocument: AEFDocument;
@@ -51,10 +52,13 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
-  const [showNodeSelector, setShowNodeSelector] = useState(false);
   const [nodeExecutionResults, setNodeExecutionResults] = useState<Map<string, { success: boolean; message: string; nextNodeId?: string }>>(new Map());
   const [isExecutingNodes, setIsExecutingNodes] = useState(false);
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+  const [failedNodeId, setFailedNodeId] = useState<string | null>(null);
+  
+  // Node selection hook
+  const nodeSelection = useNodeSelection();
 
   // Use mock execution state when available
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>(ExecutionStatus.IDLE);
@@ -301,7 +305,14 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
     navigator.clipboard.writeText(text);
   };
 
-  const handleExecuteSelectedNodes = async (nodeIds: string[]): Promise<void> => {
+  const handleExecuteSelectedNodes = async (): Promise<void> => {
+    const nodeIds = nodeSelection.getSelectedArray();
+    
+    if (nodeIds.length === 0) {
+      alert('❌ Error: No nodes selected for execution.');
+      return;
+    }
+
     if (!executionId) {
       alert('❌ Error: Cannot execute nodes without an active execution session. Please start an execution first.');
       return;
@@ -309,6 +320,7 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
 
     setIsExecutingNodes(true);
     setNodeExecutionResults(new Map());
+    setFailedNodeId(null);
 
     try {
       console.log(`🎯 [ExecutionPanel] Executing ${nodeIds.length} selected nodes:`, nodeIds);
@@ -338,6 +350,20 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
       });
       
       setNodeExecutionResults(resultsMap);
+      
+      // Emit nodeExecuted events for each successfully executed node
+      // This triggers memory panel highlighting and fetching
+      Object.entries(result.results).forEach(([nodeId, nodeResult]: [string, any]) => {
+        if (nodeResult.success) {
+          console.log(`📡 [ExecutionPanel] Emitting nodeExecuted event for ${nodeId}`);
+          eventBus.emit('nodeExecuted', { executionId, nodeId });
+        }
+      });
+      
+      // Set failed node if execution was not successful
+      if (!result.success && result.summary?.failedNodeId) {
+        setFailedNodeId(result.summary.failedNodeId);
+      }
 
     } catch (error) {
       console.error('❌ [ExecutionPanel] Failed to execute selected nodes:', error);
@@ -404,13 +430,13 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           )}
           
           <Button 
-            onClick={() => setShowNodeSelector(!showNodeSelector)}
+            onClick={nodeSelection.toggleSelectionMode}
             variant="outline" 
             size="sm"
-            className={`border-gray-600 text-gray-300 hover:bg-gray-700 font-mono ${showNodeSelector ? 'bg-gray-700' : ''}`}
+            className={`border-gray-600 text-gray-300 hover:bg-gray-700 font-mono ${nodeSelection.selectionMode ? 'bg-gray-700' : ''}`}
           >
             <Target className="w-4 h-4 mr-1" />
-            Select
+            {nodeSelection.selectionMode ? 'Exit' : 'Select'}
           </Button>
           
           <Button 
@@ -453,18 +479,9 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
         )}
       </div>
 
-      {/* Node Selector or Code-style Steps List */}
+      {/* Code-style Steps List */}
       <div className="flex-1 overflow-y-auto">
-        {showNodeSelector ? (
-          <div className="h-full bg-white">
-            <NodeSelector
-              aefDocument={aefDocument}
-              onExecuteSelectedNodes={handleExecuteSelectedNodes}
-              isExecuting={isExecutingNodes}
-              executionResults={nodeExecutionResults}
-            />
-          </div>
-        ) : workflowSteps.length === 0 ? (
+        {workflowSteps.length === 0 ? (
           <div className="p-4 text-center text-gray-500 font-mono">
             <Terminal className="w-8 h-8 mx-auto mb-2 text-gray-600" />
             <div>No workflow steps found</div>
@@ -494,29 +511,54 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                 });
               }
 
+              const isSelected = nodeSelection.isSelected(step.id);
+              const executionResult = nodeExecutionResults.get(step.id);
+              const hasExecutionError = executionResult && !executionResult.success;
+              const isFailedNode = failedNodeId === step.id;
+
               return (
-                <div key={step.id} className={`p-2 ${isCurrentStep ? 'bg-gray-800 border-l-2 border-cyan-400' : ''}`}>
+                <div key={step.id} className={`p-2 ${isCurrentStep ? 'bg-gray-800 border-l-2 border-cyan-400' : ''} ${isFailedNode ? 'bg-red-900/20 border border-red-500/50' : ''} ${isSelected ? 'bg-blue-900/20 border border-blue-500/50' : ''}`}>
                   {/* Function Declaration Style Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center flex-1 min-w-0">
+                      {/* Selection Checkbox */}
+                      {nodeSelection.selectionMode && (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => nodeSelection.toggleNode(step.id)}
+                          className="mr-2 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                        />
+                      )}
+                      
                       <button
-                        onClick={() => toggleStepExpansion(step.id)}
+                        onClick={() => nodeSelection.selectionMode ? nodeSelection.toggleNode(step.id) : toggleStepExpansion(step.id)}
                         className="mr-2 p-0.5 hover:bg-gray-700 rounded text-gray-400"
                       >
-                        {isExpanded ? (
-                          <ChevronDown className="w-3 h-3" />
+                        {nodeSelection.selectionMode ? (
+                          isSelected ? <ChevronDown className="w-3 h-3 text-blue-400" /> : <ChevronRight className="w-3 h-3" />
                         ) : (
-                          <ChevronRight className="w-3 h-3" />
+                          isExpanded ? (
+                            <ChevronDown className="w-3 h-3" />
+                          ) : (
+                            <ChevronRight className="w-3 h-3" />
+                          )
                         )}
                       </button>
                       
                       <div className="flex items-center mr-2">
                         <span className={`w-6 h-6 border rounded flex items-center justify-center text-xs font-bold ${
-                          isCompoundTask 
+                          isFailedNode 
+                            ? 'bg-red-800 border-red-600 text-red-200'
+                            : hasExecutionError
+                            ? 'bg-red-700 border-red-500 text-red-200'
+                            : executionResult?.success
+                            ? 'bg-green-700 border-green-500 text-green-200'
+                            : isCompoundTask 
                             ? 'bg-purple-800 border-purple-600 text-purple-200' 
                             : 'bg-gray-700 border-gray-600 text-cyan-400'
                         }`}>
-                          {isCompoundTask ? '📦' : (index + 1).toString()}
+                          {isFailedNode ? '❌' : executionResult?.success ? '✅' : hasExecutionError ? '⚠️' : isCompoundTask ? '📦' : (index + 1).toString()}
                         </span>
                       </div>
                       
@@ -778,6 +820,18 @@ const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           </div>
         )}
       </div>
+      
+      {/* Selection Toolbar */}
+      {nodeSelection.selectionMode && (
+        <SelectionToolbar
+          selectedCount={nodeSelection.selectedCount}
+          isExecuting={isExecutingNodes}
+          onRunSelected={handleExecuteSelectedNodes}
+          onClearSelection={nodeSelection.clearSelection}
+          onExitSelection={nodeSelection.exitSelection}
+          failedNodeId={failedNodeId}
+        />
+      )}
     </div>
   );
 };

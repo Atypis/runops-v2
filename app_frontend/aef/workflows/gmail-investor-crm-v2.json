@@ -291,7 +291,7 @@
           "actions": [
             {
               "type": "extract",
-              "instruction": "Extract all visible email threads from the Gmail search results list. For each email thread, get the thread ID, subject line, sender name/email, preview snippet, and date. Return as an object with an 'emails' array.",
+              "instruction": "Extract all visible email threads from the Gmail search results list. For each email thread, get the thread ID, subject line, sender name/email, preview snippet, and date. Return a JSON object exactly in the form { \"emails\": [ ... ] } where the value of \"emails\" is an ARRAY (not an object) of email objects.",
               "schema": {
                 "emails": [
                   {
