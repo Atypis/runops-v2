@@ -291,17 +291,21 @@
           "actions": [
             {
               "type": "extract",
-              "instruction": "Extract all visible email threads from the Gmail search results list. For each email thread, get the thread ID, subject line, sender name/email, preview snippet, and date. Return a JSON object exactly in the form { \"emails\": [ ... ] } where the value of \"emails\" is an ARRAY (not an object) of email objects.",
+              "instruction": "Extract all visible email threads from the Gmail search results. For each email, extract: threadId (if visible, otherwise empty string), subject, sender, snippet, and date. Return as a clean JSON array of email objects.",
               "schema": {
-                "emails": [
-                  {
-                    "threadId": "string",
-                    "subject": "string",
-                    "sender": "string",
-                    "snippet": "string",
-                    "date": "string"
+                "emails": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "threadId": {"type": "string"},
+                      "subject": {"type": "string"},
+                      "sender": {"type": "string"},
+                      "snippet": {"type": "string"},
+                      "date": {"type": "string"}
+                    }
                   }
-                ]
+                }
               },
               "timeout": 30000
             }

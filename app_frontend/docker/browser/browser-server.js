@@ -398,8 +398,8 @@ app.post('/init', async (req, res) => {
     
     // Configuration using available Chromium
     const config = {
-      // Use OpenAI O3 model for Stagehand browser automation
-      modelName: 'o3',
+      // Use OpenAI O4-mini model for Stagehand browser automation
+      modelName: 'o4-mini',
       modelClientOptions: {
         apiKey: process.env.OPENAI_API_KEY,
       },
@@ -648,21 +648,54 @@ app.post('/action', async (req, res) => {
               }
             } else if (typeof value === 'object' && value !== null) {
               if (value.type === 'array') {
-                // Handle array types
+                // Handle array types with proper JSON Schema structure
                 if (value.items && typeof value.items === 'object') {
-                  const itemSchema = createZodSchema(value.items);
-                  zodProps[key] = z.array(itemSchema);
+                  if (value.items.type === 'object' && value.items.properties) {
+                    // Handle array of objects with properties
+                    const itemProps = {};
+                    for (const [propKey, propValue] of Object.entries(value.items.properties)) {
+                      if (propValue.type === 'string') {
+                        itemProps[propKey] = z.string();
+                      } else if (propValue.type === 'number') {
+                        itemProps[propKey] = z.number();
+                      } else if (propValue.type === 'boolean') {
+                        itemProps[propKey] = z.boolean();
+                      } else {
+                        itemProps[propKey] = z.string(); // fallback
+                      }
+                    }
+                    zodProps[key] = z.array(z.object(itemProps));
+                  } else {
+                    // Handle simple array items
+                    const itemSchema = createZodSchema(value.items);
+                    zodProps[key] = z.array(itemSchema);
+                  }
                 } else {
                   zodProps[key] = z.array(z.string()); // fallback
                 }
-              } else if (value.type === 'string' && value.optional) {
-                // Handle optional strings
-                zodProps[key] = z.string().optional();
-              } else if (value.type === 'number' && value.optional) {
-                // Handle optional numbers
-                zodProps[key] = z.number().optional();
+              } else if (value.type === 'string') {
+                zodProps[key] = value.optional ? z.string().optional() : z.string();
+              } else if (value.type === 'number') {
+                zodProps[key] = value.optional ? z.number().optional() : z.number();
+              } else if (value.type === 'boolean') {
+                zodProps[key] = value.optional ? z.boolean().optional() : z.boolean();
+              } else if (value.type === 'object' && value.properties) {
+                // Handle nested objects with properties
+                const nestedProps = {};
+                for (const [propKey, propValue] of Object.entries(value.properties)) {
+                  if (propValue.type === 'string') {
+                    nestedProps[propKey] = z.string();
+                  } else if (propValue.type === 'number') {
+                    nestedProps[propKey] = z.number();
+                  } else if (propValue.type === 'boolean') {
+                    nestedProps[propKey] = z.boolean();
+                  } else {
+                    nestedProps[propKey] = z.string(); // fallback
+                  }
+                }
+                zodProps[key] = z.object(nestedProps);
               } else {
-                // Handle nested objects
+                // Handle nested objects (legacy format)
                 const nestedSchema = createZodSchema(value);
                 zodProps[key] = nestedSchema;
               }

@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "id": "gmail-investor-crm-debug",
+    "title": "Gmail Investor CRM DEBUG - No Schema Version",
+    "version": "2.0.1",
+    "goal": "DEBUG: Test email extraction without strict schemas",
+    "purpose": "Debug version to isolate schema conversion issues",
+    "owner": ["aef-dev-team"],
+    "created": "2025-01-15T00:00:00Z",
+    "updated": "2025-01-15T00:00:00Z",
+    "aiGenerated": false,
+    "tags": ["debug", "gmail", "extraction", "schema-test"]
+  },
+  "execution": {
+    "environment": {
+      "required_tabs": [
+        { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox" }
+      ]
+    },
+    "workflow": {
+      "nodes": [
+        {
+          "id": "navigate_to_gmail_debug",
+          "type": "atomic_task",
+          "label": "Navigate to Gmail Search (Debug)",
+          "intent": "Navigate directly to Gmail search for June 2nd emails",
+          "context": "Direct navigation to Gmail search results",
+          "actions": [
+            {
+              "type": "navigate",
+              "instruction": "Navigate to Gmail search page",
+              "target": { "url": "https://mail.google.com/mail/u/0/#search/after%3A2025%2F06%2F01+before%3A2025%2F06%2F03" },
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "extract_emails_no_schema",
+          "type": "atomic_task", 
+          "label": "Extract Emails WITHOUT Schema",
+          "intent": "Extract email list using natural language only - no schema enforcement",
+          "context": "Test extraction without Zod schema to isolate schema conversion issues",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Please look at the Gmail search results on this page and tell me: How many email threads do you see? List the first 5 email subjects and senders you can see. Use this exact format: 'I can see X email threads total. First 5: 1) Subject: [subject] From: [sender], 2) Subject: [subject] From: [sender], etc.'",
+              "timeout": 30000
+            }
+          ]
+        },
+        {
+          "id": "extract_emails_simple_schema",
+          "type": "atomic_task", 
+          "label": "Extract Emails WITH Simple Schema",
+          "intent": "Extract emails using corrected schema format",
+          "context": "Test extraction with proper JSON Schema format",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Extract all visible email threads from the Gmail search results. Count them carefully and return ALL visible threads. For each email thread, extract the subject, sender, snippet, and date.",
+              "schema": {
+                "totalCount": {"type": "number"},
+                "emails": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "subject": {"type": "string"},
+                      "sender": {"type": "string"},
+                      "snippet": {"type": "string"},
+                      "date": {"type": "string"}
+                    }
+                  }
+                }
+              },
+              "timeout": 30000
+            }
+          ]
+        }
+      ],
+      "flow": [
+        { "from": "navigate_to_gmail_debug", "to": "extract_emails_no_schema" },
+        { "from": "extract_emails_no_schema", "to": "extract_emails_simple_schema" }
+      ]
+    }
+  },
+  "config": {
+    "executionTimeout": 300,
+    "retryAttempts": 1,
+    "hybridMode": true,
+    "pauseOnErrors": true
+  }
+} 

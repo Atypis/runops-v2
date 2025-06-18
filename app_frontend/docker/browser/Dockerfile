@@ -68,9 +68,12 @@ RUN useradd -m -s /bin/bash aefuser \
 USER aefuser
 WORKDIR /home/aefuser
 
-# Install Playwright
+# Copy the local stagehand package
+COPY --chown=aefuser:aefuser browserbasehq-stagehand-2.3.0.tgz /home/aefuser/
+
+# Install Playwright and local stagehand
 RUN npm init -y \
-    && npm install playwright @browserbasehq/stagehand anthropic
+    && npm install playwright ./browserbasehq-stagehand-2.3.0.tgz anthropic
 
 # Install Playwright Chromium
 RUN npx playwright install chromium

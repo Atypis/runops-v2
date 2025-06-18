@@ -347,9 +347,6 @@ export class ExecutionEngine {
           await this.executeFilterListNode(resolvedNode);
           break;
         case 'list_iterator':
-          await this.executeListIteratorNode(resolvedNode);
-          break;
-        case 'iterative_loop':
           console.log(`  🔄 Loop node detected: ${resolvedNode.label}`);
           // For MVP, we'll just log that we're entering the loop
           // In a full implementation, this would set up loop state
@@ -637,6 +634,43 @@ export class ExecutionEngine {
                         });
                         console.log(`    ✅ Extract completed:`, result);
                         
+                        // === FIX: PARSE EXTRACTED DATA FROM LLM RESPONSE ===
+                        let extractedData = result;
+                        
+                        // If result has trace with LLM interactions, parse the assistant response
+                        if (result.trace && Array.isArray(result.trace)) {
+                            const extractResponse = result.trace.find((item: any) => 
+                                item.role === 'assistant' && 
+                                item.metadata?.actionType === 'extract'
+                            );
+                            
+                            if (extractResponse && extractResponse.content) {
+                                try {
+                                    // Try to parse JSON from the LLM response
+                                    const contentMatch = extractResponse.content.match(/\{[\s\S]*\}/);
+                                    if (contentMatch) {
+                                        const parsedData = JSON.parse(contentMatch[0]);
+                                        extractedData = parsedData;
+                                        console.log(`    🎯 Parsed extracted data from LLM:`, parsedData);
+                                    }
+                                } catch (parseError) {
+                                    console.warn(`    ⚠️ Could not parse LLM response as JSON:`, parseError);
+                                    // Fall back to original result
+                                }
+                            }
+                        }
+                        
+                        // === STORE EXTRACTED DATA IN STATE FOR INTER-NODE COMMUNICATION ===
+                        this.state.set(`${node.id}_extracted_data`, extractedData);
+                        this.state.set(`${node.id}_result`, extractedData);
+                        
+                        // Also store the result directly under the node ID for convenience
+                        this.state.set(node.id, extractedData);
+                        
+                        console.log(`    💾 Stored extracted data in state:`, extractedData);
+                        console.log(`    🗂️ Current state keys after storage:`, Array.from(this.state.keys()));
+                        console.log(`    🔍 State content for ${node.id}:`, this.state.get(node.id));
+                        
                         // === CAPTURE EXTRACT ACTION IN PROCESSING ===
                         if (this.memoryManager && processingCapture) {
                           const extractDuration = Date.now() - extractStartTime;
@@ -645,7 +679,7 @@ export class ExecutionEngine {
                             instruction: action.instruction || 'Data extraction',
                             target: action.target,
                             data: { schema: action.schema, ...action.data },
-                            result: result,
+                            result: extractedData, // Use parsed data
                             timestamp: new Date(extractStartTime),
                             duration: extractDuration,
                             retryCount: 0
@@ -660,7 +694,7 @@ export class ExecutionEngine {
                                 content: traceItem.content,
                                 timestamp: new Date(traceItem.timestamp),
                                 tokens: traceItem.tokens || 0,
-                                model: traceItem.metadata?.actionType || 'stagehand'
+                                model: traceItem.metadata?.actionType || 'extract'
                               });
                             }
                           }
@@ -670,12 +704,12 @@ export class ExecutionEngine {
                             details: {
                               instruction: action.instruction,
                               schema: action.schema,
-                              extractedFields: result ? Object.keys(result).length : 0,
-                              result: result,
+                              extractedFields: extractedData ? Object.keys(extractedData).length : 0,
+                              result: extractedData,
                               aiPowered: true
                             },
                             timestamp: new Date(),
-                            success: !!result
+                            success: !!extractedData
                           });
                         }
                     } catch (error) {
@@ -1298,6 +1332,8 @@ export class ExecutionEngine {
    */
   private async executeFilterListNode(node: WorkflowNode): Promise<void> {
     console.log(`  🗂️  Filter-list node: ${node.label}`);
+    console.log(`  🗂️ State keys at filter start:`, Array.from(this.state.keys()));
+    console.log(`  🗂️ State size:`, this.state.size);
 
     const inputKey: string = node.inputKey || (node as any).listConfig?.inputKey || `${node.id}_input`;
     const outputKey: string = node.outputKey || (node as any).listConfig?.outputKey || `${node.id}_filtered`;
@@ -1305,14 +1341,46 @@ export class ExecutionEngine {
     const promptTemplate: string = node.promptTemplate || (node as any).listConfig?.promptTemplate ||
       'You will receive JSON array of items. Return a JSON array of booleans of equal length where true means keep.';
 
-    // Retrieve source items – try direct, then .items field
-    let sourceData: any = this.state.get(inputKey);
+    // === ENHANCED: HANDLE DOT NOTATION IN INPUT KEY ===
+    let sourceData: any = null;
+    
+    if (inputKey.includes('.')) {
+      // Handle dot notation like "extract_email_candidates.emails"
+      const [baseKey, ...propertyPath] = inputKey.split('.');
+      const baseData = this.state.get(baseKey);
+      
+      if (baseData) {
+        sourceData = baseData;
+        // Navigate through the property path
+        for (const prop of propertyPath) {
+          if (sourceData && typeof sourceData === 'object' && prop in sourceData) {
+            sourceData = sourceData[prop];
+          } else {
+            sourceData = null;
+            break;
+          }
+        }
+      }
+      
+      console.log(`  🔍 Resolved dot notation "${inputKey}":`, {
+        baseKey,
+        propertyPath,
+        baseData: !!baseData,
+        sourceData: Array.isArray(sourceData) ? `Array[${sourceData.length}]` : typeof sourceData
+      });
+    } else {
+      // Simple key lookup
+      sourceData = this.state.get(inputKey);
+    }
+    
+    // Try .items field if sourceData is an object with items array
     if (sourceData && Array.isArray(sourceData.items)) {
       sourceData = sourceData.items;
     }
 
     if (!Array.isArray(sourceData)) {
-      console.warn(`  ⚠️  Filter-list node ${node.id}: No array found at state[${inputKey}]. Skipping.`);
+      console.warn(`  ⚠️  Filter-list node ${node.id}: No array found at state[${inputKey}]. Available state keys:`, Array.from(this.state.keys()));
+      console.warn(`  📊  Input key resolved to:`, typeof sourceData, sourceData);
       return;
     }
 
