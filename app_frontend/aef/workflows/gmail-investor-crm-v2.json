@@ -284,27 +284,24 @@
         },
         {
           "id": "extract_email_candidates",
-          "type": "atomic_task",
+          "type": "atomic_task", 
           "label": "Extract Email Candidates",
           "intent": "Extract list of email thread IDs and metadata for processing",
-          "context": "Get structured list of emails to process, handling pagination",
+          "context": "Use Stagehand extract to get structured list of emails from Gmail search results",
           "actions": [
             {
-              "type": "extract_list",
-              "instruction": "Extract all email threads from Gmail search results with automatic pagination",
-              "listConfig": {
-                "scrollStrategy": "auto",
-                "maxItems": 100,
-                "deduplication": true,
-                "itemSelector": ".zA",
-                "nextPageSelector": ".T-I-J3.J-J5-Ji"
-              },
-              "fields": {
-                "threadId": "@data-thread-id",
-                "subject": "[data-tooltip] .bog",
-                "sender": ".yW span[email]",
-                "snippet": ".y2",
-                "date": ".xY span"
+              "type": "extract",
+              "instruction": "Extract all visible email threads from the Gmail search results list. For each email thread, get the thread ID, subject line, sender name/email, preview snippet, and date. Return as an object with an 'emails' array.",
+              "schema": {
+                "emails": [
+                  {
+                    "threadId": "string",
+                    "subject": "string",
+                    "sender": "string",
+                    "snippet": "string",
+                    "date": "string"
+                  }
+                ]
               },
               "timeout": 30000
             }
@@ -317,7 +314,7 @@
           "intent": "Filter email candidates to only investor-related emails",
           "context": "Apply investor detection logic to filter relevant emails",
           "listConfig": {
-            "inputKey": "extract_email_candidates_extracted_data",
+            "inputKey": "extract_email_candidates.emails",
             "outputKey": "investorQueue",
             "batchSize": 25,
             "promptTemplate": "You will receive an array of email metadata objects. Return a JSON boolean array of equal length where true means the email is investor-related."
