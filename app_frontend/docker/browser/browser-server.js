@@ -239,6 +239,9 @@ const nodeLogs = new Map(); // nodeId -> logs[]
 // LLM conversation capture for memory system
 const llmTraces = new Map(); // nodeId -> llmConversations[]
 
+// Store current LLM model name for visibility across routes
+let currentModelName = null;
+
 function addLLMTrace(nodeId, role, content, metadata = {}) {
   if (!llmTraces.has(nodeId)) {
     llmTraces.set(nodeId, []);
@@ -284,12 +287,19 @@ function addNodeLog(nodeId, logEntry) {
 
 // Health endpoint
 app.get('/health', (req, res) => {
-  res.json({
+  const healthInfo = {
     status: 'healthy',
+    timestamp: new Date().toISOString(),
+    browser: {
     initialized: isInitialized,
-    lastActivity: new Date(lastActivity).toISOString(),
+      model: currentModelName || 'not_configured',
+      apiKey: process.env.OPENAI_API_KEY ? 'configured' : 'missing'
+    },
     uptime: process.uptime()
-  });
+  };
+  
+  console.log(`[Browser Server] Health check - Model: ${healthInfo.browser.model}, API Key: ${healthInfo.browser.apiKey}`);
+  res.json(healthInfo);
 });
 
 // Wait for X server to be ready
@@ -372,9 +382,9 @@ app.post('/init', async (req, res) => {
     // Wait for X server to be ready
     await waitForXServer();
     
-    // Check if API key is available
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY environment variable not set');
+    // Check if OpenAI API key is available
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable not set');
     }
     
     // Find the correct browser executable
@@ -388,9 +398,10 @@ app.post('/init', async (req, res) => {
     
     // Configuration using available Chromium
     const config = {
-      modelName: 'claude-3-5-sonnet-20241022',
+      // Use OpenAI O3 model for Stagehand browser automation
+      modelName: 'o3',
       modelClientOptions: {
-        apiKey: process.env.ANTHROPIC_API_KEY,
+        apiKey: process.env.OPENAI_API_KEY,
       },
       env: 'LOCAL',
       headless: false,
@@ -430,6 +441,10 @@ app.post('/init', async (req, res) => {
         }
       }
     };
+    
+    // Persist model name for later logging
+    currentModelName = config.modelName;
+    console.log(`[Browser Server] 🧠 LLM model configured: ${currentModelName}`);
     
     // Create new Stagehand instance
     console.log('[Browser Server] Creating Stagehand instance...');
@@ -482,7 +497,7 @@ app.post('/action', async (req, res) => {
     const nodeId = data.nodeId || data.stepId || 'unknown';
     lastActivity = Date.now();
     
-    console.log(`[Browser Server] Executing action: ${type} for node: ${nodeId}`);
+    console.log(`[Browser Server] Executing action: ${type} for node: ${nodeId} (Model: ${currentModelName})`);
     
     // Log the action start
     addNodeLog(nodeId, {

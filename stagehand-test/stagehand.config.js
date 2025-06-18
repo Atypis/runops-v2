@@ -12,7 +12,8 @@ if (process.env.GOOGLE_API_KEY && !process.env.GEMINI_API_KEY) {
 
 // Model configuration based on environment variable
 function getModelConfig() {
-  const provider = process.env.LLM_PROVIDER || 'google'; // Default to Google since you have the key
+  // Prefer OpenAI if key is available; otherwise fall back to provided LLM_PROVIDER or Google
+  const provider = process.env.LLM_PROVIDER || (process.env.OPENAI_API_KEY ? 'openai' : 'google');
   
   switch (provider.toLowerCase()) {
     case 'anthropic':
