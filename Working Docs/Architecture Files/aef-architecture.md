@@ -55,7 +55,7 @@ Key points:
 app_frontend/
   aef/
     workflows/               # ➊ ✅ JSON files & schema
-      gmail-investor-crm.json
+      gmail-investor-crm-v2.json
       schemas/workflow-schema.json
     execution_engine/engine.ts   # ➋ core runner
   lib/
@@ -215,6 +215,19 @@ curl -X POST http://localhost:3000/api/aef/execute \
 | **4.1** | current; unified `/execute-nodes`; memory refactor |
 | **4.2** | `/api/aef/action/:id` emits deprecation warning |
 | **4.3** | legacy route removed; only `/execute-nodes` remains |
+
+---
+
+## 14. Current Development Focus – Gmail Investor CRM Workflow
+
+The engineering effort in **June 2025** is laser-focused on turning the workflow file `gmail-investor-crm-v2.json` into a **fully green, end-to-end run**. This document – located under `app_frontend/aef/workflows/` – is treated as the canonical acceptance test for the entire stack.
+
+Key points:
+• **Single source of truth for stability** – every change to `ExecutionEngine`, browser orchestration, credential pipeline or the React frontend must make this workflow *more* reliable. A regression here blocks merges.
+• **Bullet-proofing iterations** – current workstreams tackle hybrid vision fallbacks, 2-factor authentication branches, idempotency via the *AEF-Processed* Gmail label, and Airtable CRUD edge-cases.
+• **Roadmap after green runs** – once `gmail-investor-crm-v2` achieves >90 % success in CI the focus will shift to **dynamic workflow generation**: enabling teams (or an LLM agent) to author new JSON workflows on the fly, using the Gmail investor flow as the reference pattern.
+
+In short: *make the Gmail investor CRM flow rock-solid first, then generalise the system.*
 
 ---
 

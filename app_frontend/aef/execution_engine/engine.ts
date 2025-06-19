@@ -346,6 +346,9 @@ export class ExecutionEngine {
         case 'filter_list':
           await this.executeFilterListNode(resolvedNode);
           break;
+        case 'llm_call':
+          await this.executeLLMCallNode(resolvedNode);
+          break;
         case 'list_iterator':
           console.log(`  🔄 Loop node detected: ${resolvedNode.label}`);
           // For MVP, we'll just log that we're entering the loop
@@ -647,7 +650,7 @@ export class ExecutionEngine {
                             if (extractResponse && extractResponse.content) {
                                 try {
                                     // Try to parse JSON from the LLM response
-                                    const contentMatch = extractResponse.content.match(/\{[\s\S]*\}/);
+                                    const contentMatch = extractResponse.content.match(/\{[\s\S]*?\]/);
                                     if (contentMatch) {
                                         const parsedData = JSON.parse(contentMatch[0]);
                                         extractedData = parsedData;
@@ -1415,36 +1418,128 @@ export class ExecutionEngine {
           stepId: node.id
         });
 
-        // Stagehand is expected to return a boolean array either in payload or directly
+        console.log(`  🔍 Raw filter result for batch ${Math.floor(processed / batchSize)}:`, JSON.stringify(result, null, 2));
+
+        // ENHANCED: Much more robust response parsing for filter lists
         let boolArray: boolean[] | null = null;
-        if (Array.isArray(result)) {
-          boolArray = result as boolean[];
-        } else if (Array.isArray(result?.payload)) {
-          boolArray = result.payload as boolean[];
-        } else if (typeof result?.payload === 'string') {
-          try {
-            const parsed = JSON.parse(result.payload);
-            if (Array.isArray(parsed)) boolArray = parsed as boolean[];
-          } catch (_) {/* ignore parse error */}
+        
+        // Try multiple extraction strategies
+        const extractionStrategies = [
+          // Strategy 1: Direct array result
+          () => Array.isArray(result) ? result : null,
+          
+          // Strategy 2: Result in payload field
+          () => Array.isArray(result?.payload) ? result.payload : null,
+          
+          // Strategy 3: String payload that needs JSON parsing
+          () => {
+            if (typeof result?.payload === 'string') {
+              try {
+                const parsed = JSON.parse(result.payload);
+                return Array.isArray(parsed) ? parsed : null;
+              } catch (_) { return null; }
+            }
+            return null;
+          },
+          
+          // Strategy 4: String result that needs JSON parsing
+          () => {
+            if (typeof result === 'string') {
+              try {
+                const parsed = JSON.parse(result);
+                return Array.isArray(parsed) ? parsed : null;
+              } catch (_) { return null; }
+            }
+            return null;
+          },
+          
+          // Strategy 5: Look for array in nested result structure
+          () => {
+            if (result?.result && Array.isArray(result.result)) {
+              return result.result;
+            }
+            return null;
+          },
+          
+          // Strategy 6: Extract from LLM response content
+          () => {
+            const content = result?.content || result?.response || result?.message;
+            if (typeof content === 'string') {
+              try {
+                // Look for JSON array pattern in the string
+                const arrayMatch = content.match(/\[[\s\S]*?\]/);
+                if (arrayMatch) {
+                  const parsed = JSON.parse(arrayMatch[0]);
+                  return Array.isArray(parsed) ? parsed : null;
+                }
+              } catch (_) { return null; }
+            }
+            return null;
+          }
+        ];
+        
+        // Try each strategy until one works
+        for (let i = 0; i < extractionStrategies.length; i++) {
+          const strategy = extractionStrategies[i];
+          const extracted = strategy();
+          if (extracted && Array.isArray(extracted)) {
+            console.log(`  ✅ Filter result extracted using strategy ${i + 1}`);
+            boolArray = extracted;
+            break;
+          }
         }
 
-        if (!boolArray || boolArray.length !== batch.length) {
-          throw new Error(`Length mismatch: expected ${batch.length}, got ${boolArray ? boolArray.length : 'null'}`);
+        if (!boolArray) {
+          console.error(`  ❌ No valid boolean array found in result. Raw result:`, result);
+          throw new Error(`No boolean array found in LLM response. Expected format: [true, false, true, ...]`);
         }
 
-        // Validate boolean values
-        const validBooleans = boolArray.every(val => typeof val === 'boolean');
-        if (!validBooleans) {
-          throw new Error(`Invalid response: expected boolean array, got mixed types`);
+        if (boolArray.length !== batch.length) {
+          console.error(`  ❌ Length mismatch: expected ${batch.length}, got ${boolArray.length}`);
+          console.error(`  📊 Batch content:`, batch.map((item, idx) => `${idx}: ${item.subject || item.name || 'Unknown'}`));
+          console.error(`  📊 Bool array:`, boolArray);
+          throw new Error(`Length mismatch: expected ${batch.length}, got ${boolArray.length}`);
+        }
+
+        // Validate and coerce boolean values
+        const coercedBoolArray: boolean[] = [];
+        let hasInvalidValues = false;
+        
+        for (let i = 0; i < boolArray.length; i++) {
+          const val = boolArray[i];
+          if (typeof val === 'boolean') {
+            coercedBoolArray.push(val);
+          } else if (val === 'true' || val === 1 || val === '1') {
+            coercedBoolArray.push(true);
+            hasInvalidValues = true;
+          } else if (val === 'false' || val === 0 || val === '0' || val === null || val === undefined) {
+            coercedBoolArray.push(false);
+            hasInvalidValues = true;
+          } else {
+            console.error(`  ❌ Invalid boolean value at index ${i}:`, val);
+            throw new Error(`Invalid response: expected boolean at index ${i}, got ${typeof val}: ${val}`);
+          }
+        }
+        
+        if (hasInvalidValues) {
+          console.warn(`  ⚠️ Had to coerce some non-boolean values in filter response`);
         }
 
         // Keep items where boolArray[i] == true
-        boolArray.forEach((keep, idx) => {
-          if (keep) kept.push(batch[idx]);
+        coercedBoolArray.forEach((keep, idx) => {
+          if (keep) {
+            console.log(`  ✅ Keeping item ${idx}: ${batch[idx].subject || batch[idx].name || 'Unknown'}`);
+            kept.push(batch[idx]);
+          } else {
+            console.log(`  ❌ Filtering out item ${idx}: ${batch[idx].subject || batch[idx].name || 'Unknown'}`);
+          }
         });
+
+        console.log(`  📊 Batch ${Math.floor(processed / batchSize)} results: kept ${coercedBoolArray.filter(x => x).length}/${batch.length} items`);
 
       } catch (error) {
         console.error(`  ❌ Filter-list batch ${processed}-${processed + batch.length} failed:`, error);
+        console.error(`  📊 Failed batch content:`, batch.map((item, idx) => `${idx}: ${item.subject || item.name || 'Unknown'}`));
         console.warn(`  ⚠️ Skipping failed batch and continuing with next batch`);
         // Don't retry - just skip this batch and continue
       }
@@ -1454,6 +1549,199 @@ export class ExecutionEngine {
 
     this.state.set(outputKey, kept);
     console.log(`  ✅ Filter-list complete. Kept ${kept.length} / ${total} items. Stored at state[${outputKey}].`);
+  }
+
+  /**
+   * Execute an llm_call node: calls an LLM directly with a prompt template and stores the result
+   */
+  private async executeLLMCallNode(node: WorkflowNode): Promise<void> {
+    console.log(`  🤖 LLM-call node: ${node.label}`);
+    
+    const {
+      inputKey,
+      outputKey,
+      promptTemplate,
+      model = 'gpt-4o-mini',
+      outputSchema,
+      settings = {}
+    } = node;
+
+    if (!promptTemplate) {
+      throw new Error(`LLM-call node ${node.id} missing promptTemplate`);
+    }
+
+    if (!outputKey) {
+      throw new Error(`LLM-call node ${node.id} missing outputKey`);
+    }
+
+    try {
+      // 1. Resolve input data
+      let inputData: any = {};
+      if (inputKey) {
+        // Handle dot notation like "extract_email_candidates.emails"
+        if (inputKey.includes('.')) {
+          const [baseKey, ...propertyPath] = inputKey.split('.');
+          const baseData = this.state.get(baseKey);
+          
+          if (baseData) {
+            inputData = baseData;
+            // Navigate through the property path
+            for (const prop of propertyPath) {
+              if (inputData && typeof inputData === 'object' && prop in inputData) {
+                inputData = inputData[prop];
+              } else {
+                inputData = null;
+                break;
+              }
+            }
+          }
+          
+          console.log(`  🔍 Resolved dot notation "${inputKey}":`, {
+            baseKey,
+            propertyPath,
+            baseData: !!baseData,
+            sourceData: Array.isArray(inputData) ? `Array[${inputData.length}]` : typeof inputData
+          });
+        } else {
+          // Simple key lookup
+          inputData = this.state.get(inputKey);
+        }
+        
+        console.log(`  📥 Input resolved from '${inputKey}':`, typeof inputData);
+      } else {
+        // Use entire state if no inputKey specified
+        inputData = Object.fromEntries(this.state);
+        console.log(`  📥 Using entire state as input (${Object.keys(inputData).length} keys)`);
+      }
+
+      // 2. Render prompt template
+      let prompt = promptTemplate;
+      if (typeof inputData === 'object' && inputData !== null) {
+        // Simple template replacement for {{input}} and {{key.subkey}}
+        prompt = prompt.replace(/\{\{input\}\}/g, JSON.stringify(inputData, null, 2));
+        
+        // Replace nested properties like {{input.emails}}
+        prompt = prompt.replace(/\{\{([^}]+)\}\}/g, (match: string, key: string) => {
+          try {
+            const keys = key.split('.');
+            let value = inputData;
+            for (const k of keys) {
+              value = value?.[k];
+            }
+            return typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value || '');
+          } catch {
+            return match; // Keep original if resolution fails
+          }
+        });
+      } else {
+        prompt = prompt.replace(/\{\{input\}\}/g, String(inputData));
+      }
+
+      console.log(`  📝 Rendered prompt (${prompt.length} chars)`);
+
+      // 3. Call OpenAI API directly
+      const startTime = Date.now();
+      
+      // Read API key from environment
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        throw new Error('OPENAI_API_KEY not found in environment');
+      }
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+          temperature: settings.temperature || 0.1,
+          max_tokens: settings.max_tokens || settings.maxTokens || 1000,
+          ...settings
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+      }
+
+      const apiResult = await response.json();
+      const content = apiResult.choices?.[0]?.message?.content;
+      
+      if (!content) {
+        throw new Error('No content returned from OpenAI API');
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`  🚀 LLM response received (${duration}ms, ${apiResult.usage?.total_tokens || '?'} tokens)`);
+
+      // 4. Parse response and validate
+      let parsedResult: any = content;
+      
+      // Clean up common LLM response formats
+      let cleanContent = content.trim();
+      
+      // Remove markdown code blocks
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      
+      // Try to parse as JSON if it looks like JSON
+      if (cleanContent.startsWith('{') || cleanContent.startsWith('[')) {
+        try {
+          parsedResult = JSON.parse(cleanContent);
+          console.log(`  📄 LLM raw content (sanitised):`, cleanContent.length > 5000 ? cleanContent.slice(0, 5000) + '…' : cleanContent);
+          console.log(`  📊 Parsed result:`, Array.isArray(parsedResult) || typeof parsedResult === 'object'
+            ? JSON.stringify(parsedResult).slice(0, 5000)
+            : parsedResult);
+          console.log(`  📊 Parsed JSON response:`, typeof parsedResult);
+        } catch (parseError) {
+          console.log(`  📝 Response is raw text (JSON parse failed):`, parseError instanceof Error ? parseError.message : 'Unknown error');
+          // Keep original content if parsing fails
+          parsedResult = content;
+        }
+      } else {
+        console.log(`  📝 Response is raw text`);
+      }
+
+      // Validate against schema if provided
+      if (outputSchema) {
+        try {
+          // Simple validation for basic types
+          if (outputSchema.type === 'boolean' && typeof parsedResult !== 'boolean') {
+            throw new Error(`Expected boolean, got ${typeof parsedResult}`);
+          }
+          if (outputSchema.type === 'string' && typeof parsedResult !== 'string') {
+            throw new Error(`Expected string, got ${typeof parsedResult}`);
+          }
+          if (outputSchema.type === 'array' && !Array.isArray(parsedResult)) {
+            throw new Error(`Expected array, got ${typeof parsedResult}`);
+          }
+          console.log(`  ✅ Output schema validation passed`);
+        } catch (validationError) {
+          console.error(`  ❌ Output schema validation failed:`, validationError);
+          throw validationError;
+        }
+      }
+
+      // 5. Store result in state
+      this.state.set(outputKey, parsedResult);
+      console.log(`  💾 Result stored in state['${outputKey}']`);
+      
+      // Log for debugging
+      console.log(`  ✅ LLM-call complete. Model: ${model}, Duration: ${duration}ms, Tokens: ${apiResult.usage?.total_tokens || '?'}`);
+
+    } catch (error) {
+      console.error(`  ❌ LLM-call failed:`, error);
+      throw error;
+    }
   }
 
   /**

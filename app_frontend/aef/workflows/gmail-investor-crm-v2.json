@@ -313,17 +313,26 @@
         },
         {
           "id": "filter_investor_emails",
-          "type": "filter_list",
+          "type": "llm_call",
           "label": "Filter Investor Emails",
           "intent": "Filter email candidates to only investor-related emails",
           "context": "Apply investor detection logic to filter relevant emails",
-          "listConfig": {
-            "inputKey": "extract_email_candidates.emails",
-            "outputKey": "investorQueue",
-            "batchSize": 25,
-            "promptTemplate": "You will receive an array of email metadata objects. Return a JSON boolean array of equal length where true means the email is investor-related."
+          "inputKey": "extract_email_candidates.emails",
+          "outputKey": "investorQueueMask",
+          "outputSchema": { "type": "array", "items": { "type": "boolean" } },
+          "model": "gpt-4o-mini",
+          "promptTemplate": "You are an email classification system. I will provide you with an array of email objects. Each email has properties like 'subject', 'sender', and 'snippet'.\n\nYour task: Return a JSON boolean array of EXACTLY the same length as the input array. Each boolean indicates whether that email is investor-related.\n\nAn email is investor-related if it contains content about:\n- Investment, funding, capital, or venture activities\n- Business partnerships or collaboration opportunities\n- Due diligence, meetings, or discussions with financial stakeholders\n- Investment firms, VCs, funds, or financial institutions\n\nEXAMPLE:\nInput: [{\"subject\":\"Weekly Newsletter\",\"sender\":\"Company Updates\"},{\"subject\":\"Series A Discussion\",\"sender\":\"Venture Capital LLC\"}]\nOutput: [false, true]\n\nIMPORTANT:\n1. Return ONLY a JSON array of booleans\n2. Array length must EXACTLY match input length\n3. No explanations, just the array\n4. Format: [true, false, true, false]\n\nInput emails:\n{{input}}",
+          "settings": {
+            "temperature": 1
           },
           "actions": []
+        },
+        {
+          "id": "apply_filter_results",
+          "type": "data_transform",
+          "label": "Apply Filter Results",
+          "intent": "Filter the email array based on LLM boolean mask and output only investor emails",
+          "transformFunction": "function(data) { const emails = data.extract_email_candidates?.emails || []; const mask = data.investorQueueMask || []; if (!Array.isArray(emails) || !Array.isArray(mask) || emails.length !== mask.length) { return { filteredEmails: emails }; } return { filteredEmails: emails.filter((e, i) => mask[i] === true) }; }"
         },
         {
           "id": "email_processing_loop",
@@ -346,7 +355,7 @@
             "clear_memory"
           ],
           "iteratorConfig": {
-            "listVariable": "investorQueue",
+            "listVariable": "apply_filter_results_transformed_data.filteredEmails",
             "itemVariable": "currentItem",
             "indexVariable": "emailIndex",
             "continueOnError": true,
@@ -427,7 +436,7 @@
           "intent": "Clean and normalize extracted investor data",
           "context": "Apply data cleaning rules and generate deduplication hash",
           "parentId": "email_processing_loop",
-          "transformFunction": "data => ({ ...data, phone: data.phone?.replace(/[^0-9]/g, ''), email: data.email?.toLowerCase(), hash: btoa(data.name + data.email).slice(0, 16) })",
+          "transformFunction": "data => { const extracted = data.extract_investor_info || {}; return { ...data, normalized_investor: { name: extracted.name, company: extracted.company, email: extracted.email?.toLowerCase(), phone: extracted.phone?.replace(/[^0-9]/g, ''), investment_focus: extracted.investment_focus, hash: btoa((extracted.name || '') + (extracted.email || '')).slice(0, 16) } }; }",
           "actions": []
         },
         {
@@ -469,7 +478,7 @@
               "instruction": "Search for existing investor record by name or email",
               "data": {
                 "searchFields": ["name", "email"],
-                "searchValue": "{{extracted_investor_name}}"
+                "searchValue": "{{normalized_investor.name}}"
               },
               "timeout": 10000
             }
@@ -629,25 +638,25 @@
           "actions": [
             {
               "type": "act",
-              "instruction": "Fill in Investor Name field with {{normalized_name}}",
+              "instruction": "Fill in Investor Name field with {{normalized_investor.name}}",
               "useVision": "fallback",
               "timeout": 5000
             },
             {
               "type": "act",
-              "instruction": "Fill in Email field with {{normalized_email}}",
+              "instruction": "Fill in Email field with {{normalized_investor.email}}",
               "useVision": "fallback",
               "timeout": 5000
             },
             {
               "type": "act",
-              "instruction": "Fill in Company field with {{normalized_company}}",
+              "instruction": "Fill in Company field with {{normalized_investor.company}}",
               "useVision": "fallback",
               "timeout": 5000
             },
             {
               "type": "act",
-              "instruction": "Fill in Phone field with {{normalized_phone}}",
+              "instruction": "Fill in Phone field with {{normalized_investor.phone}}",
               "useVision": "fallback",
               "timeout": 5000
             }
@@ -765,7 +774,8 @@
         { "from": "click_next_password", "to": "verify_login_success" },
         { "from": "gmail_search_today", "to": "extract_email_candidates" },
         { "from": "extract_email_candidates", "to": "filter_investor_emails" },
-        { "from": "filter_investor_emails", "to": "email_processing_loop" },
+        { "from": "filter_investor_emails", "to": "apply_filter_results" },
+        { "from": "apply_filter_results", "to": "email_processing_loop" },
         { "from": "email_processing_loop", "to": "assert_email_unprocessed" },
         { "from": "assert_email_unprocessed", "to": "select_email" },
         { "from": "select_email", "to": "extract_investor_info" },

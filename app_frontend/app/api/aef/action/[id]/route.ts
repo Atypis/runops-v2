@@ -8,6 +8,9 @@ import { ServerWorkflowLoader } from '@/lib/workflow/ServerWorkflowLoader';
 import { WorkflowLoadError, WorkflowValidationError } from '@/lib/workflow/WorkflowLoader';
 import { HybridActionMapper } from '@/lib/workflow/HybridActionMapper';
 
+// Add global cache at top of module
+const engineCache: Map<string, ExecutionEngine> = new Map();
+
 /**
  * POST /api/aef/action/[id]
  * Executes an individual step within an AEF workflow
@@ -43,8 +46,16 @@ export async function POST(
       const workflowId = body.workflowId || 'gmail-investor-crm-v2';
       const workflow = await ServerWorkflowLoader.loadWorkflow(workflowId);
       
-      // Create ExecutionEngine instance
-      const engine = new ExecutionEngine(workflow as any, user.id, executionId, workflowId);
+      // Create or reuse ExecutionEngine instance
+      let engine = engineCache.get(executionId);
+
+      if (!engine) {
+        engine = new ExecutionEngine(workflow as any, user.id, executionId, workflowId);
+        engineCache.set(executionId, engine);
+        console.log(`🧠 [AEF API] Created new ExecutionEngine and cached for ${executionId}`);
+      } else {
+        console.log(`🔄 [AEF API] Reusing cached ExecutionEngine for ${executionId}`);
+      }
       
       // Set supabase client for credential access
       const { createClient } = await import('@supabase/supabase-js');

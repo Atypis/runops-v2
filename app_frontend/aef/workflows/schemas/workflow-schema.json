@@ -155,7 +155,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["atomic_task", "compound_task", "list_iterator", "decision", "assert", "error_handler", "data_transform", "filter_list", "generator", "explore"],
+          "enum": ["atomic_task", "compound_task", "list_iterator", "decision", "assert", "error_handler", "data_transform", "filter_list", "llm_call", "generator", "explore"],
           "description": "Type of workflow node"
         },
         "label": {
