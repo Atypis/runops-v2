@@ -1,8 +1,8 @@
 # AEF Primitives Catalogue
 *The Builder's Manual for Agentic Execution Framework*
 
-Version: 1.0.0  
-Last Updated: January 2025
+Version: 1.1.0  
+Last Updated: January 2025 - Added multi-tab support
 
 ---
 
@@ -78,6 +78,14 @@ Variables use template syntax and dot notation:
 "Hello {{name}}"               // String interpolation
 ```
 
+### Tab Management
+Workflows can operate across multiple browser tabs:
+- Each tab maintains full AI capabilities (click, type, extract)
+- Use `openNewTab` to create new tabs with optional names
+- Use `switchTab` to move between tabs
+- Original tab is always named "main"
+- All browser actions and queries operate on the current active tab
+
 ### Error Handling
 All primitives can throw errors. Use `handle` primitive for recovery:
 - Network failures
@@ -96,16 +104,16 @@ Performs side-effectful browser operations.
 ```javascript
 {
   "type": "browser_action",
-  "method": "goto" | "click" | "type",
-  "target": string,  // URL or element description
-  "data": any        // Optional data (for type method)
+  "method": "goto" | "click" | "type" | "openNewTab" | "switchTab",
+  "target": string,  // URL, element description, or tab name
+  "data": any        // Optional data (for type method or tab options)
 }
 ```
 
 #### Methods
 
 ##### goto
-Navigate to a URL.
+Navigate to a URL in the current tab.
 ```javascript
 {
   "type": "browser_action",
@@ -146,6 +154,34 @@ Type text into an input field.
 - **Data**: Text to type (supports variables)
 - **Returns**: `{ success: true, typed: "text" }`
 - **Common errors**: Input not found, not editable
+
+##### openNewTab
+Open a URL in a new browser tab with full AI capabilities.
+```javascript
+{
+  "type": "browser_action",
+  "method": "openNewTab",
+  "target": "https://airtable.com",
+  "data": { "name": "airtable" }  // Optional tab name
+}
+```
+- **Target**: URL to open in new tab
+- **Data.name**: Optional name for the tab (for later reference)
+- **Returns**: `{ success: true, tabName: "airtable", url: "final-url" }`
+- **Note**: New tab automatically becomes active and has full AI capabilities
+
+##### switchTab
+Switch between browser tabs.
+```javascript
+{
+  "type": "browser_action",
+  "method": "switchTab",
+  "target": "airtable"  // Tab name or "main" for original tab
+}
+```
+- **Target**: Tab name to switch to ("main" for original tab)
+- **Returns**: `{ success: true, currentTab: "airtable" }`
+- **Common errors**: Tab not found
 
 #### Advanced Examples
 ```javascript
@@ -646,6 +682,78 @@ Merge objects into state.
     "input": "state.lastError",
     "output": "state.recoveryPlan"
   }
+}
+```
+
+### Multi-Tab Pattern
+```javascript
+{
+  "type": "sequence",
+  "name": "Setup Gmail and Airtable",
+  "nodes": [
+    // Login to Gmail in main tab
+    { "type": "browser_action", "method": "goto", "target": "https://mail.google.com" },
+    { "type": "browser_action", "method": "type", "target": "email field", "data": "{{email}}" },
+    { "type": "browser_action", "method": "click", "target": "Next button" },
+    
+    // Open Airtable in new tab
+    { 
+      "type": "browser_action", 
+      "method": "openNewTab", 
+      "target": "https://airtable.com/app/table",
+      "data": { "name": "airtable" }
+    },
+    
+    // Check if Airtable needs login
+    { 
+      "type": "browser_query", 
+      "method": "extract",
+      "instruction": "Check if login is required",
+      "schema": { "needsLogin": "boolean" }
+    },
+    
+    // Login to Airtable if needed
+    {
+      "type": "route",
+      "value": "state.needsLogin",
+      "paths": {
+        "true": {
+          "type": "browser_action",
+          "method": "click",
+          "target": "Continue with Google button"
+        },
+        "false": { "type": "memory", "operation": "set", "data": { "airtableReady": true } }
+      }
+    },
+    
+    // Switch back to Gmail
+    { "type": "browser_action", "method": "switchTab", "target": "main" },
+    
+    // Process emails and switch to Airtable as needed
+    {
+      "type": "iterate",
+      "over": "state.emails",
+      "as": "email",
+      "body": {
+        "type": "sequence",
+        "nodes": [
+          // Process in Gmail
+          { "type": "browser_action", "method": "click", "target": "email {{email.subject}}" },
+          { "type": "browser_query", "method": "extract", "instruction": "Extract email content" },
+          
+          // Switch to Airtable
+          { "type": "browser_action", "method": "switchTab", "target": "airtable" },
+          
+          // Create record
+          { "type": "browser_action", "method": "click", "target": "Add record button" },
+          { "type": "browser_action", "method": "type", "target": "Name field", "data": "{{email.sender}}" },
+          
+          // Back to Gmail
+          { "type": "browser_action", "method": "switchTab", "target": "main" }
+        ]
+      }
+    }
+  ]
 }
 ```
 

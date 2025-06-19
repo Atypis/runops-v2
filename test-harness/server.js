@@ -6,6 +6,7 @@ import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { z } from 'zod';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,6 +23,8 @@ let stagehand = null;
 let page = null;
 let openai = null;
 let workflowState = {};
+let pages = {}; // Track StageHand pages by name
+let currentPage = null; // Current active page
 
 // Initialize connection
 async function initialize() {
@@ -43,6 +46,8 @@ async function initialize() {
     
     // Get the page from StageHand
     page = stagehand.page;
+    currentPage = page;
+    pages['main'] = page;
     
     // Also initialize OpenAI for cognition primitive
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -95,18 +100,47 @@ async function executeNode(node, state = {}) {
 async function executeBrowserAction({ method, target, data }) {
   switch (method) {
     case 'goto':
-      await page.goto(target);
-      await page.waitForLoadState('networkidle');
-      return { success: true, url: page.url() };
+      await currentPage.goto(target);
+      await currentPage.waitForLoadState('networkidle');
+      return { success: true, url: currentPage.url() };
     
     case 'click':
-      await page.act(`click on ${target}`);
+      // Use StageHand's AI-powered click on any page
+      await currentPage.act(`click on ${target}`);
       return { success: true, action: 'clicked' };
     
     case 'type':
       const text = resolveVariable(data) || data;
-      await page.act(`type "${text}" into ${target}`);
+      // Use StageHand's AI-powered type on any page
+      await currentPage.act(`type "${text}" into ${target}`);
       return { success: true, typed: text };
+    
+    case 'openNewTab':
+      // Create new page using StageHand's context - it will have AI capabilities!
+      const newPage = await stagehand.context.newPage();
+      
+      // Store the new page with a name
+      const tabName = data?.name || `tab_${Date.now()}`;
+      pages[tabName] = newPage;
+      currentPage = newPage; // This becomes the active page
+      
+      // Navigate if URL provided
+      if (target) {
+        await newPage.goto(target);
+        await newPage.waitForLoadState('networkidle');
+      }
+      
+      return { success: true, tabName, url: newPage.url() };
+    
+    case 'switchTab':
+      const targetTab = target || 'main';
+      if (!pages[targetTab]) {
+        throw new Error(`Tab '${targetTab}' not found`);
+      }
+      currentPage = pages[targetTab];
+      // Bring the tab to front for visibility
+      await currentPage.bringToFront();
+      return { success: true, currentTab: targetTab };
     
     default:
       throw new Error(`Unknown browser action: ${method}`);
@@ -116,21 +150,44 @@ async function executeBrowserAction({ method, target, data }) {
 async function executeBrowserQuery({ method, instruction, schema }) {
   switch (method) {
     case 'extract':
-      const result = await page.extract({ instruction, schema });
-      // Store the result in state - check what was extracted
-      if (result.emails) {
-        workflowState.emails = result.emails;
-      } else if (result.accountChooser !== undefined) {
-        workflowState.accountChooser = result.accountChooser;
-      } else if (result.hasRecords !== undefined) {
-        workflowState.hasRecords = result.hasRecords;
+      // Convert schema to Zod if it's provided
+      let zodSchema = null;
+      
+      if (schema) {
+        if (typeof schema === 'string') {
+          // If schema is a string like "z.object({...})", evaluate it
+          try {
+            zodSchema = eval(schema);
+          } catch (e) {
+            console.error('Failed to parse Zod schema string:', e);
+            // Fall back to converting JSON schema to Zod
+            zodSchema = convertJsonSchemaToZod(schema);
+          }
+        } else if (typeof schema === 'object') {
+          // Convert JSON schema to Zod schema
+          zodSchema = convertJsonSchemaToZod(schema);
+        }
+      }
+      
+      // Use StageHand's AI extraction on the current page - works on ALL pages!
+      const result = await currentPage.extract({ 
+        instruction, 
+        schema: zodSchema 
+      });
+      
+      // Store the result in state - automatically store all extracted properties
+      if (result && typeof result === 'object') {
+        Object.entries(result).forEach(([key, value]) => {
+          workflowState[key] = value;
+        });
       }
       // Also store the full result
       workflowState.lastExtract = result;
       return result;
     
     case 'observe':
-      const observations = await page.observe({ instruction });
+      // Use StageHand's AI observation on the current page
+      const observations = await currentPage.observe({ instruction });
       workflowState.lastObserve = observations;
       return observations;
     
@@ -140,10 +197,17 @@ async function executeBrowserQuery({ method, instruction, schema }) {
 }
 
 function executeTransform({ input, function: fn, output }) {
-  const inputData = resolveVariable(input);
+  // Handle both single input and array of inputs
+  let inputData;
+  if (Array.isArray(input)) {
+    inputData = input.map(i => resolveVariable(i));
+  } else {
+    inputData = resolveVariable(input);
+  }
+  
   // Safe evaluation for demo - use proper sandboxing in production!
   const transformFn = eval(`(${fn})`);
-  const result = transformFn(inputData);
+  const result = Array.isArray(inputData) ? transformFn(...inputData) : transformFn(inputData);
   
   if (output) {
     setStateValue(output, result);
@@ -177,7 +241,9 @@ function executeMemory({ operation, data }) {
   switch (operation) {
     case 'set':
       Object.entries(data).forEach(([key, value]) => {
-        workflowState[key] = value;
+        // Resolve value if it's a state reference
+        const resolvedValue = resolveVariable(value);
+        workflowState[key] = resolvedValue;
       });
       return { updated: Object.keys(data) };
     
@@ -263,6 +329,52 @@ async function executeHandle({ try: tryNode, catch: catchNode, finally: finallyN
 }
 
 // Helper functions
+function convertJsonSchemaToZod(jsonSchema) {
+  // Helper to convert a single JSON schema type to Zod
+  const convertType = (schema) => {
+    if (!schema || typeof schema !== 'object') {
+      return z.any();
+    }
+    
+    switch (schema.type) {
+      case 'string':
+        return z.string();
+      case 'number':
+        return z.number();
+      case 'boolean':
+        return z.boolean();
+      case 'array':
+        if (schema.items) {
+          return z.array(convertType(schema.items));
+        }
+        return z.array(z.any());
+      case 'object':
+        if (schema.properties) {
+          const shape = {};
+          for (const [key, value] of Object.entries(schema.properties)) {
+            shape[key] = convertType(value);
+          }
+          return z.object(shape);
+        }
+        return z.object({});
+      default:
+        return z.any();
+    }
+  };
+  
+  // Start conversion from the root
+  if (typeof jsonSchema === 'object' && !jsonSchema.type) {
+    // If the root doesn't have a type, assume it's the properties directly
+    const shape = {};
+    for (const [key, value] of Object.entries(jsonSchema)) {
+      shape[key] = convertType(value);
+    }
+    return z.object(shape);
+  }
+  
+  return convertType(jsonSchema);
+}
+
 function resolveVariable(value) {
   if (typeof value !== 'string') return value;
   
@@ -293,8 +405,8 @@ function setStateValue(path, value) {
 
 // API Routes
 app.get('/status', async (req, res) => {
-  const connected = !!page;
-  const currentUrl = connected ? page.url() : null;
+  const connected = !!stagehand;
+  const currentUrl = connected && stagehand.page ? stagehand.page.url() : null;
   res.json({ connected, currentUrl });
 });
 

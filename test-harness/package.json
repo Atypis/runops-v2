@@ -17,6 +17,7 @@
     "openai": "latest",
     "dotenv": "latest",
     "express": "latest",
-    "cors": "latest"
+    "cors": "latest",
+    "zod": "latest"
   }
 }
