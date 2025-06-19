@@ -1,0 +1,22 @@
+{
+  "name": "aef-test-harness",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Rapid iteration test environment for AEF",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test:node": "node --watch test-node.js",
+    "test:primitive": "node --watch test-primitive.js",
+    "test:workflow": "node --watch test-workflow.js",
+    "test:problem": "node --watch test-workflow.js --problem"
+  },
+  "dependencies": {
+    "@browserbasehq/stagehand": "latest",
+    "playwright": "latest",
+    "openai": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "cors": "latest"
+  }
+}
