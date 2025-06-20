@@ -1,8 +1,8 @@
 # AEF Primitives Catalogue
 *The Builder's Manual for Agentic Execution Framework*
 
-Version: 1.1.0  
-Last Updated: January 2025 - Added multi-tab support
+Version: 1.2.0  
+Last Updated: January 2025 - Added wait primitive, updated implementation status
 
 ---
 
@@ -19,6 +19,7 @@ Last Updated: January 2025 - Added multi-tab support
    - [iterate](#iterate)
    - [route](#route)
    - [handle](#handle)
+   - [wait](#wait)
 5. [State Primitives](#state-primitives)
    - [memory](#memory)
 6. [Composition Patterns](#composition-patterns)
@@ -29,7 +30,7 @@ Last Updated: January 2025 - Added multi-tab support
 
 ## Introduction
 
-This catalogue is the definitive guide for building workflows with AEF's 9 canonical primitives. Think of these primitives as LEGO blocks - simple, orthogonal pieces that combine to create complex automations.
+This catalogue is the definitive guide for building workflows with AEF's 10 canonical primitives. Think of these primitives as LEGO blocks - simple, orthogonal pieces that combine to create complex automations.
 
 ### Design Philosophy
 - **Orthogonal**: Each primitive does ONE thing well
@@ -48,6 +49,7 @@ This catalogue is the definitive guide for building workflows with AEF's 9 canon
 | Control | `iterate` | Loops | Depends |
 | Control | `route` | Branching | Depends |
 | Control | `handle` | Error handling | Depends |
+| Control | `wait` | Pause execution | No |
 | State | `memory` | State management | Yes |
 
 ---
@@ -63,11 +65,13 @@ Every workflow has a shared state object accessible by all primitives:
   "lastExtract": {...},     // Last extraction result
   
   // Your workflow state
-  "emails": [...],          // Custom data
+  "emails": [...],          // Custom data (auto-stored from extractions)
   "currentEmail": {...},    // Iteration variables
   "processedCount": 0       // Counters
 }
 ```
+
+**Note**: When using `browser_query` with extract method, all properties defined in the schema are automatically stored in state with their respective keys (e.g., extracting `emails` will create `state.emails`).
 
 ### Variable Resolution
 Variables use template syntax and dot notation:
@@ -137,7 +141,7 @@ Click an element using AI to find it.
 ```
 - **Target**: Natural language description of element
 - **AI-powered**: Uses vision + DOM analysis
-- **Returns**: `{ success: true, action: "clicked" }`
+- **Returns**: `{ success: true, element: "description" }`
 - **Common errors**: Element not found, multiple matches
 
 ##### type
@@ -152,7 +156,7 @@ Type text into an input field.
 ```
 - **Target**: Natural language description of input
 - **Data**: Text to type (supports variables)
-- **Returns**: `{ success: true, typed: "text" }`
+- **Returns**: `{ success: true, text: "typed text" }`
 - **Common errors**: Input not found, not editable
 
 ##### openNewTab
@@ -242,8 +246,9 @@ Extract structured data using AI.
 ```
 - **Instruction**: What to extract in natural language
 - **Schema**: JSON schema defining expected structure
-- **Auto-stores**: Results in state (e.g., `state.emails`)
+- **Auto-stores**: Results in state (e.g., `state.emails`), plus all properties are stored individually
 - **Returns**: Extracted data matching schema
+- **Note**: All extracted properties are automatically stored in state with their schema keys
 
 ##### observe
 Get possible actions on current page.
@@ -256,7 +261,7 @@ Get possible actions on current page.
 ```
 - **Returns**: Array of possible actions
 - **Use case**: Exploration, debugging
-- **⚠️ Status**: Not fully implemented
+- **Status**: Fully functional via StageHand
 
 #### Schema Best Practices
 ```javascript
@@ -330,6 +335,7 @@ Pure data transformation without side effects.
 - Can access multiple inputs as parameters
 - Should handle edge cases (null, undefined)
 - Keep complex logic readable
+- **⚠️ Security Note**: Current implementation uses eval() - production systems should use sandboxed execution
 
 ---
 
@@ -387,6 +393,7 @@ AI-powered reasoning and content generation.
 - Use schema for structured outputs
 - Consider token limits for large inputs
 - Handle non-deterministic results
+- **Note**: Implementation includes automatic JSON cleaning for malformed AI responses
 
 ---
 
@@ -475,7 +482,7 @@ Loop over collections with scoped variables.
 
 #### Scoping
 - `currentEmail` available in body and nested nodes
-- `emailIndex` tracks position (0-based)
+- `emailIndex` tracks position (0-based) - Note: In implementation, index is auto-named as `${as}Index`
 - Parent state still accessible
 - Changes to state persist across iterations
 
@@ -572,7 +579,42 @@ Error boundary with recovery options.
 }
 ```
 
-#### ⚠️ Status: Planned for implementation
+#### Status: Fully implemented
+
+---
+
+### wait
+Pause execution for a specified duration.
+
+#### Signature
+```javascript
+{
+  "type": "wait",
+  "duration": number,     // Milliseconds to wait
+  "reason": string        // Optional description for logging
+}
+```
+
+#### Example
+```javascript
+{
+  "type": "wait",
+  "duration": 2000,
+  "reason": "Waiting for page to stabilize"
+}
+```
+
+#### Use Cases
+- Wait for dynamic content to load
+- Pause between API calls to avoid rate limits
+- Give time for animations to complete
+- Debug timing issues in workflows
+
+#### Behavior
+- Blocks execution for specified milliseconds
+- Does not consume CPU during wait
+- Reason is logged for debugging purposes
+- Returns after duration expires
 
 ---
 
@@ -585,7 +627,7 @@ Explicit state management operations.
 ```javascript
 {
   "type": "memory",
-  "operation": "set" | "get" | "clear" | "merge",
+  "operation": "set" | "get" | "clear" | "merge",  // Note: merge not implemented
   "scope": "local" | "iteration" | "global",   // Optional
   "data": object | array                       // Depends on operation
 }
@@ -642,7 +684,7 @@ Merge objects into state.
 }
 ```
 
-#### ⚠️ Note: Scope management not yet implemented
+#### ⚠️ Note: Scope management and merge operation not yet implemented
 
 ---
 
@@ -937,16 +979,17 @@ Save and restore workflow state.
 }
 ```
 
-### wait
-Pause execution with conditions.
+### conditional wait
+Extend the current wait primitive with conditions.
 ```javascript
 {
   "type": "wait",
-  "until": "element-visible" | "time" | "condition",
+  "until": "element-visible" | "condition",
   "target": "Success message",
   "timeout": 5000
 }
 ```
+Note: The basic `wait` primitive with duration is already implemented.
 
 ---
 

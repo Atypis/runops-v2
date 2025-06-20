@@ -80,6 +80,9 @@ async function executeNode(node, state = {}) {
     case 'memory':
       return executeMemory(node);
     
+    case 'wait':
+      return await executeWait(node);
+    
     case 'sequence':
       return await executeSequence(node);
     
@@ -98,19 +101,40 @@ async function executeNode(node, state = {}) {
 }
 
 async function executeBrowserAction({ method, target, data }) {
+  console.log(`🌐 Browser action: ${method} on ${target || 'current page'}`);
+  
+  // Log current state for debugging
+  if (currentPage) {
+    console.log(`   Current tab URL: ${currentPage.url()}`);
+  }
+  
   switch (method) {
     case 'goto':
-      await currentPage.goto(target);
-      await currentPage.waitForLoadState('networkidle');
+      console.log(`   Navigating to: ${target}`);
+      try {
+        await currentPage.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        // Try networkidle but don't fail if it times out
+        try {
+          await currentPage.waitForLoadState('networkidle', { timeout: 10000 });
+        } catch (e) {
+          console.log('   Note: networkidle timeout, but page loaded');
+        }
+      } catch (error) {
+        console.error(`   ❌ Navigation failed: ${error.message}`);
+        throw error;
+      }
+      console.log(`   ✓ Navigation complete: ${currentPage.url()}`);
       return { success: true, url: currentPage.url() };
     
     case 'click':
+      console.log(`   Click target: "${target}"`);
       // Use StageHand's AI-powered click on any page
       await currentPage.act(`click on ${target}`);
       return { success: true, action: 'clicked' };
     
     case 'type':
       const text = resolveVariable(data) || data;
+      console.log(`   Type data: "${data}" resolved to: "${text}"`);
       // Use StageHand's AI-powered type on any page
       await currentPage.act(`type "${text}" into ${target}`);
       return { success: true, typed: text };
@@ -123,6 +147,7 @@ async function executeBrowserAction({ method, target, data }) {
       const tabName = data?.name || `tab_${Date.now()}`;
       pages[tabName] = newPage;
       currentPage = newPage; // This becomes the active page
+      console.log(`   ✓ New tab opened: ${tabName}`);
       
       // Navigate if URL provided
       if (target) {
@@ -135,12 +160,14 @@ async function executeBrowserAction({ method, target, data }) {
     case 'switchTab':
       const targetTab = target || 'main';
       if (!pages[targetTab]) {
+        console.error(`   ❌ Available tabs: ${Object.keys(pages).join(', ')}`);
         throw new Error(`Tab '${targetTab}' not found`);
       }
       currentPage = pages[targetTab];
       // Bring the tab to front for visibility
       await currentPage.bringToFront();
-      return { success: true, currentTab: targetTab };
+      console.log(`   ✓ Switched to tab: ${targetTab} (${currentPage.url()})`);
+      return { success: true, currentTab: targetTab, url: currentPage.url() };
     
     default:
       throw new Error(`Unknown browser action: ${method}`);
@@ -206,8 +233,16 @@ function executeTransform({ input, function: fn, output }) {
   }
   
   // Safe evaluation for demo - use proper sandboxing in production!
-  const transformFn = eval(`(${fn})`);
-  const result = Array.isArray(inputData) ? transformFn(...inputData) : transformFn(inputData);
+  let result;
+  try {
+    const transformFn = eval(`(${fn})`);
+    result = Array.isArray(inputData) ? transformFn(...inputData) : transformFn(inputData);
+  } catch (error) {
+    console.error('Transform execution error:', error);
+    console.error('Input data:', inputData);
+    console.error('Function:', fn);
+    throw new Error(`Transform failed: ${error.message}`);
+  }
   
   if (output) {
     setStateValue(output, result);
@@ -216,19 +251,59 @@ function executeTransform({ input, function: fn, output }) {
   return result;
 }
 
-async function executeCognition({ prompt, input, output, model = 'gpt-4o-mini' }) {
+async function executeCognition({ prompt, input, output, model = 'gpt-4o-mini', schema }) {
   const inputData = resolveVariable(input);
+  
+  // Enhanced system prompt to ensure clean JSON output
+  const systemPrompt = `You are a data processing assistant. You MUST return ONLY valid JSON without any markdown formatting, code blocks, or explanations. 
+Do not wrap the response in \`\`\`json\`\`\` tags.
+Do not include any text before or after the JSON.
+The response must be parseable by JSON.parse().
+
+Examples of correct responses:
+{"summary": "Investor interested in Series A, requesting runway details."}
+{"stage": "In Diligence"}
+[true, false, true, false]
+{"investorName": "John Smith", "company": "Accel Partners"}`;
   
   const response = await openai.chat.completions.create({
     model,
     messages: [
-      { role: 'system', content: 'You are a data processing assistant. Return only JSON.' },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: `${prompt}\n\nInput: ${JSON.stringify(inputData)}` }
     ],
-    temperature: 1
+    temperature: 0.3  // Lower temperature for more consistent JSON output
   });
   
-  const result = JSON.parse(response.choices[0].message.content);
+  let content = response.choices[0].message.content;
+  console.log('Raw cognition response:', content);
+  
+  // Clean up common formatting issues
+  // Remove markdown code blocks if present
+  content = content.replace(/^```json\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  content = content.replace(/^```\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  // Remove any leading/trailing whitespace and newlines
+  content = content.trim();
+  
+  // Try to parse the cleaned content
+  let result;
+  try {
+    result = JSON.parse(content);
+  } catch (parseError) {
+    console.error('Failed to parse cognition response:', content);
+    // Try to extract JSON from the response if it's embedded in text
+    const jsonMatch = content.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        result = JSON.parse(jsonMatch[0]);
+        console.log('Successfully extracted JSON from response');
+      } catch (e) {
+        throw new Error(`Invalid JSON response from cognition: ${parseError.message}`);
+      }
+    } else {
+      throw new Error(`Invalid JSON response from cognition: ${parseError.message}`);
+    }
+  }
   
   if (output) {
     setStateValue(output, result);
@@ -257,6 +332,12 @@ function executeMemory({ operation, data }) {
     default:
       throw new Error(`Unknown memory operation: ${operation}`);
   }
+}
+
+async function executeWait({ duration = 1000, reason }) {
+  console.log(`⏳ Waiting ${duration}ms${reason ? `: ${reason}` : ''}`);
+  await new Promise(resolve => setTimeout(resolve, duration));
+  return { waited: duration };
 }
 
 // Control flow primitives
@@ -378,10 +459,15 @@ function convertJsonSchemaToZod(jsonSchema) {
 function resolveVariable(value) {
   if (typeof value !== 'string') return value;
   
-  // Handle template variables like {{currentEmail.subject}}
+  // Handle template variables like {{currentEmail.subject}} or {{state.currentEmail.subject}}
   if (value.includes('{{') && value.includes('}}')) {
     return value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
-      return getNestedValue(workflowState, path.trim());
+      const trimmedPath = path.trim();
+      // If path starts with state., remove it
+      const cleanPath = trimmedPath.startsWith('state.') ? trimmedPath.replace('state.', '') : trimmedPath;
+      const result = getNestedValue(workflowState, cleanPath);
+      console.log(`   Resolved {{${trimmedPath}}} to:`, result);
+      return result !== undefined ? result : '';
     });
   }
   
