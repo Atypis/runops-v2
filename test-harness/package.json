@@ -5,11 +5,16 @@
   "description": "Rapid iteration test environment for AEF",
   "scripts": {
     "start": "node server.js",
+    "start:unified": "node workflows/interfaces/frontend-adapter.js",
+    "start:v2": "node workflows/interfaces/frontend-adapter-v2.js",
     "dev": "node --watch server.js",
     "test:node": "node --watch test-node.js",
     "test:primitive": "node --watch test-primitive.js",
     "test:workflow": "node --watch test-workflow.js",
-    "test:problem": "node --watch test-workflow.js --problem"
+    "test:problem": "node --watch test-workflow.js --problem",
+    "workflow": "node workflows/interfaces/cli.js",
+    "workflow:list": "node workflows/interfaces/cli.js list",
+    "workflow:server": "node workflows/interfaces/server.js"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "latest",
@@ -18,6 +23,7 @@
     "dotenv": "latest",
     "express": "latest",
     "cors": "latest",
-    "zod": "latest"
+    "zod": "latest",
+    "commander": "latest"
   }
 }
