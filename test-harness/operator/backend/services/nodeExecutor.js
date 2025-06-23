@@ -53,6 +53,9 @@ export class NodeExecutor {
         case 'memory':
           result = await this.executeMemory(node.params, workflowId);
           break;
+        case 'context':
+          result = await this.executeContext(node.params, workflowId);
+          break;
         default:
           throw new Error(`Unsupported node type: ${node.type}`);
       }
@@ -92,6 +95,7 @@ export class NodeExecutor {
   async executeBrowserAction(config) {
     const stagehand = await this.getStagehand();
     const page = stagehand.page;
+    const context = page.context();
 
     switch (config.action) {
       case 'navigate':
@@ -108,15 +112,77 @@ export class NodeExecutor {
         
       case 'type':
         if (config.selector.startsWith('text=')) {
-          await stagehand.act({ action: `type "${config.value}" into ${config.selector.slice(5)}` });
+          await stagehand.act({ action: `type "${config.text || config.value}" into ${config.selector.slice(5)}` });
         } else {
-          await page.type(config.selector, config.value);
+          await page.type(config.selector, config.text || config.value);
         }
-        return { typed: config.value };
+        return { typed: config.text || config.value };
         
       case 'wait':
         await page.waitForTimeout(config.duration || 1000);
         return { waited: config.duration || 1000 };
+        
+      case 'openNewTab':
+        const newPage = await context.newPage();
+        if (config.url) {
+          await newPage.goto(config.url);
+        }
+        // Store the page reference if a name is provided
+        if (config.name) {
+          this.pages = this.pages || {};
+          this.pages[config.name] = newPage;
+        }
+        return { openedTab: config.name || 'unnamed', url: config.url };
+        
+      case 'switchTab':
+        if (this.pages && this.pages[config.tabName]) {
+          await this.pages[config.tabName].bringToFront();
+          return { switchedTo: config.tabName };
+        }
+        throw new Error(`Tab with name "${config.tabName}" not found`);
+        
+      case 'back':
+        await page.goBack();
+        return { action: 'navigated back' };
+        
+      case 'forward':
+        await page.goForward();
+        return { action: 'navigated forward' };
+        
+      case 'refresh':
+        await page.reload();
+        return { action: 'page refreshed' };
+        
+      case 'screenshot':
+        const screenshotOptions = { 
+          path: config.path,
+          fullPage: config.fullPage !== false  // Default to true
+        };
+        if (config.selector) {
+          const element = await page.$(config.selector);
+          if (element) {
+            await element.screenshot(screenshotOptions);
+          }
+        } else {
+          await page.screenshot(screenshotOptions);
+        }
+        return { screenshot: config.path || 'taken' };
+        
+      case 'listTabs':
+        const pages = context.pages();
+        return { 
+          tabs: pages.map((p, i) => ({
+            index: i,
+            url: p.url(),
+            title: p.title()
+          }))
+        };
+        
+      case 'getCurrentTab':
+        return {
+          url: page.url(),
+          title: await page.title()
+        };
         
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
@@ -125,43 +191,22 @@ export class NodeExecutor {
 
   async executeBrowserQuery(config) {
     const stagehand = await this.getStagehand();
-    const page = stagehand.page;
 
-    if (config.selector.startsWith('text=')) {
-      // Use StageHand's extract for natural language queries
+    if (config.method === 'extract') {
+      // Use StageHand's extract for structured data extraction
       const result = await stagehand.extract({
-        instruction: config.query,
-        schema: {
-          type: 'object',
-          properties: {
-            data: {
-              type: config.multiple ? 'array' : 'string',
-              description: config.query
-            }
-          }
-        }
+        instruction: config.instruction,
+        schema: config.schema || undefined
       });
-      return result.data;
+      return result;
+    } else if (config.method === 'observe') {
+      // Use StageHand's observe to find interactive elements
+      const result = await stagehand.observe({
+        instruction: config.instruction
+      });
+      return result;
     } else {
-      // Use direct selector query
-      if (config.multiple) {
-        const elements = await page.$$(config.selector);
-        const results = [];
-        for (const element of elements) {
-          const value = config.attribute === 'text' 
-            ? await element.innerText()
-            : await element.getAttribute(config.attribute);
-          results.push(value);
-        }
-        return results;
-      } else {
-        const element = await page.$(config.selector);
-        if (!element) return null;
-        
-        return config.attribute === 'text'
-          ? await element.innerText()
-          : await element.getAttribute(config.attribute);
-      }
+      throw new Error(`Unknown browser_query method: ${config.method}`);
     }
   }
 
@@ -224,6 +269,11 @@ export class NodeExecutor {
       default:
         throw new Error(`Unknown memory operation: ${config.operation}`);
     }
+  }
+
+  async executeContext(config, workflowId) {
+    // Context is the new name for memory, same functionality
+    return this.executeMemory(config, workflowId);
   }
 
   async logExecution(nodeId, workflowId, level, message, details = null) {

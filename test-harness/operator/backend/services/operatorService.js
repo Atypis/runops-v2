@@ -21,10 +21,10 @@ export class OperatorService {
         workflowContext = await this.getWorkflowContext(workflowId);
       }
 
-      // Build messages array
+      // Build messages array, filtering out any null content
       const messages = [
         { role: 'system', content: OPERATOR_SYSTEM_PROMPT },
-        ...conversationHistory,
+        ...conversationHistory.filter(msg => msg.content !== null && msg.content !== undefined),
         { role: 'user', content: message }
       ];
 
@@ -54,7 +54,7 @@ export class OperatorService {
         const toolResults = await this.processToolCalls(responseMessage.tool_calls, workflowId);
         
         return {
-          message: responseMessage.content,
+          message: responseMessage.content || '',  // Default to empty string if null
           toolCalls: toolResults,
           workflowId
         };
@@ -168,7 +168,7 @@ export class OperatorService {
         if (!config.action) throw new Error('browser_action requires "action" field');
         break;
       case 'browser_query':
-        if (!config.query || !config.selector) throw new Error('browser_query requires "query" and "selector" fields');
+        if (!config.method || !config.instruction) throw new Error('browser_query requires "method" and "instruction" fields');
         break;
       case 'memory':
         if (!config.operation || !config.key) throw new Error('memory requires "operation" and "key" fields');

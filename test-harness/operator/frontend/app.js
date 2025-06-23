@@ -87,6 +87,272 @@ function App() {
     }
   };
 
+  // NodeCard Component - Handles display of nodes including complex route and iterate nodes
+  const NodeCard = ({ node, executeNode, depth = 0 }) => {
+    const [expanded, setExpanded] = React.useState(false);
+    const [iterationData, setIterationData] = React.useState(null);
+    const isRoute = node.type === 'route';
+    const isIterate = node.type === 'iterate';
+    const hasNestedNodes = isRoute && node.params?.paths;
+    const hasIterateBody = isIterate && node.params?.body;
+    
+    // Load iteration data when expanded
+    React.useEffect(() => {
+      if (isIterate && expanded && !iterationData && node.result?.results) {
+        // If node has been executed, show the actual iteration results
+        setIterationData(node.result.results);
+      }
+    }, [isIterate, expanded, node.result]);
+    
+    // Helper to render a nested node or array of nodes
+    const renderNestedNode = (nodeOrArray, branchName, index) => {
+      if (Array.isArray(nodeOrArray)) {
+        return (
+          <div className="ml-4 mt-2 border-l-2 border-gray-300 pl-4">
+            <div className="text-xs font-semibold text-gray-600 mb-2">
+              {nodeOrArray.length} steps in branch
+            </div>
+            {nodeOrArray.map((nestedNode, idx) => (
+              <div key={idx} className="mb-2">
+                <MiniNodeCard 
+                  node={nestedNode} 
+                  index={idx} 
+                  branchPath={`${branchName}[${idx}]`}
+                  parentNodeId={node.id}
+                />
+              </div>
+            ))}
+          </div>
+        );
+      } else if (nodeOrArray && typeof nodeOrArray === 'object') {
+        return (
+          <div className="ml-4 mt-2 border-l-2 border-gray-300 pl-4">
+            <MiniNodeCard 
+              node={nodeOrArray} 
+              index={index} 
+              branchPath={branchName}
+              parentNodeId={node.id}
+            />
+          </div>
+        );
+      }
+      return null;
+    };
+
+    return (
+      <div className="border rounded-lg p-3 hover:shadow-md transition-shadow" style={{marginLeft: depth * 20}}>
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex-1">
+            <div className="font-medium text-sm flex items-center">
+              <span className="text-gray-500 mr-2">#{node.position}</span>
+              <span className="text-blue-600">{node.type}</span>
+              {(hasNestedNodes || hasIterateBody) && (
+                <button
+                  onClick={() => setExpanded(!expanded)}
+                  className="ml-2 text-gray-500 hover:text-gray-700"
+                >
+                  {expanded ? '▼' : '▶'}
+                </button>
+              )}
+            </div>
+            <div className="text-xs text-gray-600 mt-1">{node.description}</div>
+            
+            {/* Special display for route nodes */}
+            {isRoute && node.params?.value && (
+              <div className="text-xs text-gray-500 mt-1">
+                <span className="font-mono bg-gray-100 px-1 rounded">{node.params.value}</span>
+                {' → '}
+                {Object.keys(node.params.paths || {}).join(' | ')}
+              </div>
+            )}
+            
+            {/* Special display for iterate nodes */}
+            {isIterate && node.params?.over && (
+              <div className="text-xs text-gray-500 mt-1">
+                <span className="font-mono bg-gray-100 px-1 rounded">{node.params.over}</span>
+                {' as '}
+                <span className="font-mono bg-gray-100 px-1 rounded">{node.params.variable}</span>
+                {node.result && (
+                  <span className="ml-2 text-gray-600">
+                    ({node.result.processed || 0}/{node.result.total || '?'} processed)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center space-x-2">
+            {node.status === 'success' && (
+              <span className="text-green-500 text-xs">✓</span>
+            )}
+            {node.status === 'failed' && (
+              <span className="text-red-500 text-xs">✗</span>
+            )}
+            <button
+              onClick={() => executeNode(node.id)}
+              className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+            >
+              Run
+            </button>
+          </div>
+        </div>
+        
+        {/* Expandable section for route branches */}
+        {expanded && hasNestedNodes && (
+          <div className="mt-3 bg-gray-50 rounded p-3">
+            <div className="text-xs font-semibold text-gray-700 mb-2">Route Branches:</div>
+            {Object.entries(node.params.paths).map(([branchName, branchContent]) => (
+              <div key={branchName} className="mb-3">
+                <div className="flex items-center text-xs font-medium text-gray-600 mb-1">
+                  <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                    {branchName}
+                  </span>
+                </div>
+                {renderNestedNode(branchContent, branchName, 0)}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* Expandable section for iterate nodes */}
+        {expanded && hasIterateBody && (
+          <div className="mt-3 bg-gray-50 rounded p-3">
+            <div className="text-xs font-semibold text-gray-700 mb-2">
+              Iteration Body:
+              {node.params.limit && (
+                <span className="ml-2 text-gray-500">
+                  (limit: {node.params.limit})
+                </span>
+              )}
+            </div>
+            
+            {/* Show the body template */}
+            <div className="mb-3">
+              <div className="text-xs text-gray-600 mb-1">Template:</div>
+              {renderNestedNode(node.params.body, 'body', 0)}
+            </div>
+            
+            {/* Show iteration results if available */}
+            {iterationData && iterationData.length > 0 && (
+              <div className="mt-3 border-t pt-3">
+                <div className="text-xs font-semibold text-gray-700 mb-2">
+                  Iteration Results:
+                </div>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {iterationData.map((iterResult, idx) => (
+                    <IterationResult 
+                      key={idx}
+                      index={idx}
+                      result={iterResult}
+                      variable={node.params.variable}
+                      parentNodeId={node.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Show params for non-route/non-iterate nodes */}
+        {!isRoute && !isIterate && node.params && (
+          <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mt-2 font-mono">
+            {JSON.stringify(node.params, null, 2)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // MiniNodeCard Component - For nested nodes within routes
+  const MiniNodeCard = ({ node, index, branchPath, parentNodeId }) => {
+    const executeBranchNode = async () => {
+      try {
+        // Execute this specific node within the branch
+        const response = await fetch(`${API_BASE}/execute-branch-node`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parentNodeId,
+            branchPath,
+            nodeDefinition: node
+          })
+        });
+        
+        const result = await response.json();
+        console.log('Branch node execution result:', result);
+      } catch (error) {
+        console.error('Failed to execute branch node:', error);
+      }
+    };
+
+    return (
+      <div className="bg-white border rounded p-2 text-xs hover:shadow-sm transition-shadow">
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <div className="font-medium flex items-center">
+              <span className="text-gray-400 mr-2">→</span>
+              <span className="text-blue-600">{node.type}</span>
+              {node.config?.action && (
+                <span className="text-gray-500 ml-1">:{node.config.action}</span>
+              )}
+            </div>
+            {node.description && (
+              <div className="text-gray-600 mt-1">{node.description}</div>
+            )}
+          </div>
+          <button
+            onClick={executeBranchNode}
+            className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 ml-2"
+            title="Run this step"
+          >
+            ▶
+          </button>
+        </div>
+        {node.config && (
+          <div className="mt-1 text-gray-500 font-mono" style={{fontSize: '10px'}}>
+            {JSON.stringify(node.config, null, 2)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // IterationResult Component - Shows results from each iteration
+  const IterationResult = ({ index, result, variable, parentNodeId }) => {
+    const [expanded, setExpanded] = React.useState(false);
+    
+    return (
+      <div className="bg-white border rounded p-2">
+        <div 
+          className="flex justify-between items-center cursor-pointer"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="text-xs font-medium">
+            <span className="text-gray-500">Iteration {index}:</span>
+            <span className="ml-2 text-blue-600">{variable}[{index}]</span>
+            {result.error && <span className="ml-2 text-red-500">❌ Error</span>}
+            {!result.error && <span className="ml-2 text-green-500">✓</span>}
+          </div>
+          <span className="text-gray-400">{expanded ? '▼' : '▶'}</span>
+        </div>
+        
+        {expanded && (
+          <div className="mt-2 text-xs">
+            {result.error ? (
+              <div className="text-red-600 font-mono text-xs">
+                Error: {result.error}
+              </div>
+            ) : (
+              <div className="font-mono text-gray-600" style={{fontSize: '10px'}}>
+                {JSON.stringify(result, null, 2)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -364,34 +630,7 @@ function App() {
             ) : (
               <div className="space-y-3">
                 {workflowNodes.map((node, index) => (
-                  <div key={node.id} className="border rounded-lg p-3 hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <div className="font-medium text-sm flex items-center">
-                          <span className="text-gray-500 mr-2">#{node.position}</span>
-                          <span className="text-blue-600">{node.type}</span>
-                        </div>
-                        <div className="text-xs text-gray-600 mt-1">{node.description}</div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {node.status === 'success' && (
-                          <span className="text-green-500 text-xs">✓</span>
-                        )}
-                        {node.status === 'failed' && (
-                          <span className="text-red-500 text-xs">✗</span>
-                        )}
-                        <button
-                          onClick={() => executeNode(node.id)}
-                          className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
-                        >
-                          Run
-                        </button>
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mt-2 font-mono">
-                      {JSON.stringify(node.params, null, 2)}
-                    </div>
-                  </div>
+                  <NodeCard key={node.id} node={node} executeNode={executeNode} />
                 ))}
               </div>
             )}
