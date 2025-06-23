@@ -345,11 +345,11 @@ Before we cleanse, let's establish the principles that guide us:
 1. **generator** - This is just `extract` with a generation prompt. DELETE.
 2. **explore** - A confused `observe` wrapper. DELETE.
 3. **filter_list** - This is `cognition` with array processing. DELETE.
-4. **clear_memory** - Should be a memory operation, not a separate node. DELETE.
+4. **clear_memory** - Should be a context operation, not a separate node. DELETE.
 5. **assert** - This is just `browser_query` + `route`. DELETE.
 6. **decision** - Subsumed by the more general `route` primitive. DELETE.
 7. **error_handler** - Subsumed by `handle` primitive. DELETE.
-8. **compound_task** - Just use `sequence`. DELETE.
+8. **compound_task** - Redundant, workflows are sequential by default. DELETE.
 
 ### RENAME/GENERALIZE (Too Specific)
 
@@ -411,29 +411,24 @@ Here are the ONLY primitives you need:
    ```
    *Idempotency: No (non-deterministic) | Side effects: No*
 
-#### Control Layer (4 primitives)
+#### Control Layer (3 primitives)
 
-1. **sequence** - Execute nodes in order
-   ```javascript
-   {
-     type: "sequence",
-     nodes: ["node1", "node2", "node3"]
-   }
-   ```
-
-2. **iterate** - Loop over collections with scope
+1. **iterate** - Loop over collections with scope
    ```javascript
    {
      type: "iterate",
      over: "state.items",
-     as: "currentItem",
+     variable: "currentItem",
      index: "currentIndex",
-     body: "processItemNode"
+     body: node or [nodes],
+     continueOnError: true,
+     limit: 10
    }
    ```
 
 3. **route** - Multi-way branching (handles all conditionals)
    ```javascript
+   // Simple value routing
    {
      type: "route",
      value: "state.emailType",
@@ -443,8 +438,22 @@ Here are the ONLY primitives you need:
        "default": "unknownFlow"
      }
    }
+   
+   // Condition-based routing
+   {
+     type: "route",
+     conditions: [
+       {
+         path: "state.priority",
+         operator: "greater",
+         value: 5,
+         branch: "urgentFlow"
+       }
+     ],
+     default: "normalFlow"
+   }
    ```
-   *Note: For binary decisions, just use two paths*
+   *Supports both exact value matching and complex conditions*
 
 4. **handle** - Error boundaries with recovery
    ```javascript
@@ -458,18 +467,16 @@ Here are the ONLY primitives you need:
 
 #### State Layer (1 primitive)
 
-1. **memory** - Explicit state management
+1. **context** - Explicit control over execution context
    ```javascript
    {
-     type: "memory",
+     type: "context",
      operation: "set|get|clear|merge",
-     scope: "local|iteration|global",
-     data: {
-       "processedCount": "state.count",
-       "errors": "state.errorList"
-     }
+     key: "variableName",
+     value: "data to store"
    }
    ```
+   *Note: Context is auto-populated by other nodes, use this for explicit control*
 
 ### EVERYTHING IS COMPOSITION
 
@@ -477,21 +484,23 @@ With these 9 primitives, you can build anything:
 
 **Login Flow:**
 ```javascript
-sequence([
+// Workflows are arrays - they execute sequentially by default
+[
   {type: "browser_action", method: "goto", target: "https://gmail.com"},
   {type: "browser_action", method: "type", target: "#email", data: "user@example.com"},
   {type: "browser_action", method: "click", target: "#next"},
   {type: "handle", try: "passwordEntry", catch: "handle2FA"}
-])
+]
 ```
 
 **Email Classification:**
 ```javascript
-sequence([
+// Sequential steps to classify emails
+[
   {type: "browser_query", method: "extract", instruction: "Get all email subjects"},
   {type: "cognition", prompt: "Which are investor emails?", input: "state.emails"},
   {type: "transform", function: "filter by classification", output: "state.investorEmails"}
-])
+]
 ```
 
 **Process Email List:**
@@ -499,11 +508,11 @@ sequence([
 iterate({
   over: "state.emails",
   as: "email",
-  body: sequence([
+  body: [
     {type: "browser_action", method: "click", target: "email"},
     {type: "browser_query", method: "extract", instruction: "Get email content"},
     {type: "route", value: "state.emailType", paths: {...}}
-  ])
+  ]
 })
 ```
 
@@ -544,6 +553,74 @@ Your current system has 29 concepts because you've been adding a new node type f
 
 ---
 
+## Next-Generation Primitive Taxonomy
+
+Below is the definitive, plain-English reference of every primitive in the Agentic Execution Framework, grouped by the seven high-level categories.  Each bullet states **what the primitive does** and **when you would typically use it**.
+
+### Category Cheatsheet
+
+• **Cognition – "Think"** Reason over information with the help of an LLM.  No side-effects.  
+• **Observation & Extraction – "Read the World"** Look at the UI; gather structured facts.  
+• **Action – "Change the World"** Click, type, navigate, or call an external API.  
+• **Transform – "Pure Data Work"** Manipulate data in memory, pure & deterministic.  
+• **Control-Flow – "Orchestrate"** Sequencing, branching, looping, waiting, error handling.  
+• **State / Memory – "Remember"** Persist and retrieve workflow state.  
+(• **Meta / System – "Observe the Observers"** Logging, metrics, notifications.)
+
+---
+
+### Category Details & Usage Notes
+
+#### 1. Cognition – "Think"
+Primitives in this layer should never alter the outside world.  They can *read* from context and write new insights back to context.
+
+* **cognition** – The Swiss-army knife for AI reasoning.  Feed it input via a state path, a prompt, and (optionally) an output schema.  Useful for: decision-making, classification, summarisation, drafting replies, generating SQL, etc.
+
+#### 2. Observation – "Read the World"
+These nodes observe the browser without causing side-effects.
+
+* **browser_query.extract** – Provide a natural-language instruction and a zod (?) schema; receives structured data.  Auto-stores results in state.
+* **browser_query.observe** – Returns an object describing clickable/typable elements.  Handy for dynamic pages when selectors are unknown.
+
+#### 3. Action – "Change the World"
+All side-effectful operations live here.  They mutate the browser, an API, or external systems.
+
+* **browser_action.goto / click / type / openNewTab / switchTab** – The standard Playwright-backed commands with AI selector help.  `goto` waits for network idle; `click` retries with AI hints; `type` supports credential vault.
+
+#### 4. Transform – "Pure Data Work"
+
+* **transform** – Runs user-provided JS over any input(s) from state and writes to a target path.  Guaranteed pure; ideal for filtering arrays, normalising strings, merging objects.
+
+#### 5. Control-Flow – "Orchestrate"
+
+* **Arrays** – Workflows are arrays that execute sequentially by default.
+* **iterate** – `for-each` with local scope isolation; supports `index` variable.
+* **route** – Multi-way or binary branching; supports "default".
+* **handle** – Try/catch/finally.  Encourage small try bodies; avoid nesting.
+* **browser_action.wait** – Fixed millisecond pause (part of browser actions for simplicity).
+
+#### 6. Context / State – "Execution Context"
+
+* **context.set / get / clear / merge** – Explicit control over workflow context.  Remember that many nodes auto-populate context (browser_query, iterate, etc.)
+* **checkpoint** – Save context snapshot identified by `id`; restore later for retries or long sessions.
+
+#### 7. Meta / System – "Observe the Observers" (Future work)
+
+* **log** – Emits `{ level, message, data, timestamp }` to the central logger.
+* **metric** – Records named counters, gauges, or histograms (e.g., `emailsProcessed +=1`).
+* **notify** – Sends human-facing alerts; keep rare to avoid noise.
+
+### Design Rules Recap
+1. Every primitive belongs to exactly one category.
+2. Only Action primitives create external side-effects.
+3. Only Cognition primitives may call LLMs.
+4. Observation primitives never mutate state outside their return value.
+5. Control-Flow primitives orchestrate; they do not contain business logic.
+6. Transform stays pure; no randomness or I/O.
+7. Context is for workflow execution state, not for persisting to external databases.
+
+---
+
 ## Conclusion
 
 The AEF has a solid foundation with 11 node types covering basic workflow automation needs. However, there's significant room for improvement in:
@@ -560,3 +637,38 @@ The path forward should focus on:
 - Creating a library of composable sub-workflows
 
 This will transform AEF from a specific-purpose tool into a general-purpose workflow automation framework.
+
+### Essential Primitive Stack
+
+The primitives below form the **irreducible core** that every workflow **must** understand.  If you remove anything here, you can no longer express at least one common pattern we already run in production.
+
+**Cognition** – `cognition`
+
+**Observation & Extraction** – `browser_query.extract`, `browser_query.observe`
+
+**Action** – `browser_action.goto`, `browser_action.click`, `browser_action.type`, `browser_action.wait`, `browser_action.openNewTab`, `browser_action.switchTab`
+
+**Transform** – `transform`
+
+**Control-Flow** – `route`, `iterate`  _(and `handle` for robust error recovery)_  
+_(Note: `wait` is part of `browser_action` for simplicity)_
+
+**Context / State** – `context.set`, `context.get`, `context.clear`, `context.merge`
+
+> These alone let you: think, read a page, act on it, loop, branch, recover from errors, wait for the world to settle, and store intermediate data.
+
+---
+
+### Optional / Extended Primitive Stack
+
+Use these when you need extra ergonomics, observability, or advanced patterns – but you can implement all business logic without them.
+
+*Control-Flow* – `parallel`  *(future)* – run branches concurrently.
+
+*Context / State* – `checkpoint` – snapshot/restore long-running flows.
+
+*Meta / System* – `log`, `metric`, `notify` – structured logging, performance counters, human alerts.
+
+> Skip these if you are building a proof-of-concept or need the absolute minimal runtime surface.  Add them back as your workflows grow in complexity or operational maturity.
+
+---
