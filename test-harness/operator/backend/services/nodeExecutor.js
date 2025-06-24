@@ -59,6 +59,20 @@ export class NodeExecutor {
     
     console.log(`[EXECUTE] Node type: ${node.type}`);
     console.log(`[EXECUTE] Node params:`, JSON.stringify(node.params, null, 2));
+    
+    // Debug: Check what's already in workflow_memory for this position
+    if (node.position) {
+      const { data: existingMemory } = await supabase
+        .from('workflow_memory')
+        .select('key, value')
+        .eq('workflow_id', workflowId)
+        .eq('key', `node${node.position}`)
+        .single();
+      
+      if (existingMemory) {
+        console.log(`[EXECUTE] WARNING: Found existing memory for node${node.position}:`, existingMemory.value);
+      }
+    }
 
     // Log execution start
     await this.logExecution(nodeId, workflowId, 'info', 'Node execution started');
@@ -625,65 +639,67 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     
     // Execute the selected branch
     if (selectedBranch) {
-      console.log(`[ROUTE] Executing branch with ${Array.isArray(selectedBranch) ? selectedBranch.length : 1} nodes`);
-      
-      // If it's an array of nodes, execute them in sequence
+      // Check if this is the new format (array of positions) or old format (array of node objects)
       if (Array.isArray(selectedBranch)) {
-        const results = [];
+        if (selectedBranch.length > 0 && typeof selectedBranch[0] === 'number') {
+          // New format: array of node positions
+          console.log(`[ROUTE] Executing branch with ${selectedBranch.length} node positions: ${selectedBranch.join(', ')}`);
+          const results = [];
+          
+          for (const nodePosition of selectedBranch) {
+            // Fetch the node by position
+            const { data: node } = await supabase
+              .from('nodes')
+              .select('*')
+              .eq('workflow_id', workflowId)
+              .eq('position', nodePosition)
+              .single();
+              
+            if (node) {
+              console.log(`[ROUTE] Executing node at position ${nodePosition}: ${node.type} - ${node.description}`);
+              const result = await this.execute(node.id, workflowId);
+              results.push(result);
+            } else {
+              console.log(`[ROUTE] Warning: Could not find node at position ${nodePosition}`);
+            }
+          }
+          return { path: selectedPath, results };
+        } else {
+          // Old format: array of node objects (for backward compatibility)
+          console.log(`[ROUTE] Executing branch with ${selectedBranch.length} inline nodes`);
+          const results = [];
+          
+          for (let i = 0; i < selectedBranch.length; i++) {
+            const node = selectedBranch[i];
+            console.log(`[ROUTE] Executing nested node: ${node.type} - ${node.description}`);
+            const result = await this.executeNodeConfig(node, workflowId);
+            results.push(result);
+          }
+          return { path: selectedPath, results };
+        }
+      } else if (typeof selectedBranch === 'number') {
+        // New format: single node position
+        console.log(`[ROUTE] Executing single node at position ${selectedBranch}`);
         
-        // Get the next available position for nested nodes
-        const { data: maxPositionNode } = await supabase
-          .from('workflow_memory')
-          .select('key')
+        // Fetch the node by position
+        const { data: node } = await supabase
+          .from('nodes')
+          .select('*')
           .eq('workflow_id', workflowId)
-          .like('key', 'node%')
-          .order('key', { ascending: false })
-          .limit(1)
+          .eq('position', selectedBranch)
           .single();
-        
-        let nextPosition = 1;
-        if (maxPositionNode && maxPositionNode.key) {
-          const match = maxPositionNode.key.match(/node(\d+)/);
-          if (match) {
-            nextPosition = parseInt(match[1]) + 1;
-          }
+          
+        if (node) {
+          console.log(`[ROUTE] Executing node at position ${selectedBranch}: ${node.type} - ${node.description}`);
+          const result = await this.execute(node.id, workflowId);
+          return { path: selectedPath, result };
+        } else {
+          console.log(`[ROUTE] Warning: Could not find node at position ${selectedBranch}`);
+          return { path: selectedPath, result: null };
         }
-        
-        for (let i = 0; i < selectedBranch.length; i++) {
-          const node = selectedBranch[i];
-          // Assign position if not already set
-          if (!node.position) {
-            node.position = nextPosition + i;
-          }
-          console.log(`[ROUTE] Executing nested node: ${node.type} - ${node.description} (position: ${node.position})`);
-          const result = await this.executeNodeConfig(node, workflowId);
-          results.push(result);
-        }
-        return { path: selectedPath, results };
-      } else {
-        // Single node
-        // Get next position for single node
-        const { data: maxPositionNode } = await supabase
-          .from('workflow_memory')
-          .select('key')
-          .eq('workflow_id', workflowId)
-          .like('key', 'node%')
-          .order('key', { ascending: false })
-          .limit(1)
-          .single();
-        
-        let nextPosition = 1;
-        if (maxPositionNode && maxPositionNode.key) {
-          const match = maxPositionNode.key.match(/node(\d+)/);
-          if (match) {
-            nextPosition = parseInt(match[1]) + 1;
-          }
-        }
-        
-        if (!selectedBranch.position) {
-          selectedBranch.position = nextPosition;
-        }
-        console.log(`[ROUTE] Executing nested node: ${selectedBranch.type} (position: ${selectedBranch.position})`);
+      } else if (selectedBranch && typeof selectedBranch === 'object') {
+        // Old format: single node object
+        console.log(`[ROUTE] Executing nested node: ${selectedBranch.type}`);
         const result = await this.executeNodeConfig(selectedBranch, workflowId);
         return { path: selectedPath, result };
       }
@@ -770,7 +786,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         
         // First try to get from workflow memory (faster)
         // This will work for position-based references (node1, node2, etc.)
-        const { data: memoryData } = await supabase
+        const { data: memoryData, error: memError } = await supabase
           .from('workflow_memory')
           .select('value')
           .eq('workflow_id', workflowId)
@@ -934,60 +950,64 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         
         // Execute body (single node or array of nodes)
         let result;
+        
+        // Check if this is the new format (array of positions) or old format (array of node objects)
         if (Array.isArray(config.body)) {
-          result = [];
+          if (config.body.length > 0 && typeof config.body[0] === 'number') {
+            // New format: array of node positions
+            result = [];
+            console.log(`[ITERATE] Executing body with ${config.body.length} node positions: ${config.body.join(', ')}`);
+            
+            for (const nodePosition of config.body) {
+              // Fetch the node by position
+              const { data: node } = await supabase
+                .from('nodes')
+                .select('*')
+                .eq('workflow_id', workflowId)
+                .eq('position', nodePosition)
+                .single();
+                
+              if (node) {
+                console.log(`[ITERATE] Executing node at position ${nodePosition}: ${node.type} - ${node.description}`);
+                const nodeResult = await this.execute(node.id, workflowId);
+                result.push(nodeResult);
+              } else {
+                console.log(`[ITERATE] Warning: Could not find node at position ${nodePosition}`);
+              }
+            }
+          } else {
+            // Old format: array of node objects
+            result = [];
+            console.log(`[ITERATE] Executing body with ${config.body.length} inline nodes`);
+            
+            for (let j = 0; j < config.body.length; j++) {
+              const node = config.body[j];
+              console.log(`[ITERATE] Executing nested node: ${node.type}`);
+              const nodeResult = await this.executeNodeConfig(node, workflowId);
+              result.push(nodeResult);
+            }
+          }
+        } else if (typeof config.body === 'number') {
+          // New format: single node position
+          console.log(`[ITERATE] Executing single node at position ${config.body}`);
           
-          // Get the next available position for nested nodes
-          const { data: maxPositionNode } = await supabase
-            .from('workflow_memory')
-            .select('key')
+          // Fetch the node by position
+          const { data: node } = await supabase
+            .from('nodes')
+            .select('*')
             .eq('workflow_id', workflowId)
-            .like('key', 'node%')
-            .order('key', { ascending: false })
-            .limit(1)
+            .eq('position', config.body)
             .single();
-          
-          let nextPosition = 1;
-          if (maxPositionNode && maxPositionNode.key) {
-            const match = maxPositionNode.key.match(/node(\d+)/);
-            if (match) {
-              nextPosition = parseInt(match[1]) + 1;
-            }
+            
+          if (node) {
+            result = await this.execute(node.id, workflowId);
+          } else {
+            console.log(`[ITERATE] Warning: Could not find node at position ${config.body}`);
+            result = null;
           }
-          
-          for (let j = 0; j < config.body.length; j++) {
-            const node = config.body[j];
-            // Assign position if not already set
-            if (!node.position) {
-              node.position = nextPosition + j;
-            }
-            console.log(`[ITERATE] Executing nested node: ${node.type} (position: ${node.position})`);
-            const nodeResult = await this.executeNodeConfig(node, workflowId);
-            result.push(nodeResult);
-          }
-        } else {
-          // Single node - get next position
-          const { data: maxPositionNode } = await supabase
-            .from('workflow_memory')
-            .select('key')
-            .eq('workflow_id', workflowId)
-            .like('key', 'node%')
-            .order('key', { ascending: false })
-            .limit(1)
-            .single();
-          
-          let nextPosition = 1;
-          if (maxPositionNode && maxPositionNode.key) {
-            const match = maxPositionNode.key.match(/node(\d+)/);
-            if (match) {
-              nextPosition = parseInt(match[1]) + 1;
-            }
-          }
-          
-          if (!config.body.position) {
-            config.body.position = nextPosition;
-          }
-          console.log(`[ITERATE] Executing nested node: ${config.body.type} (position: ${config.body.position})`);
+        } else if (config.body && typeof config.body === 'object') {
+          // Old format: single node object
+          console.log(`[ITERATE] Executing nested node: ${config.body.type}`);
           result = await this.executeNodeConfig(config.body, workflowId);
         }
         

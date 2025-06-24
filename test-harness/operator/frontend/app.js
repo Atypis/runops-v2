@@ -11,6 +11,7 @@ function App() {
   const [executionLogs, setExecutionLogs] = useState([]);
   const [workflowNodes, setWorkflowNodes] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [mockMode, setMockMode] = useState(false);
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -30,7 +31,18 @@ function App() {
   // Load workflows on mount
   useEffect(() => {
     loadWorkflows();
+    // Load mock operator response if in mock mode
+    if (mockMode) {
+      loadMockOperatorResponse();
+    }
   }, []);
+
+  // Reload mock response when mock mode changes
+  useEffect(() => {
+    if (mockMode) {
+      loadMockOperatorResponse();
+    }
+  }, [mockMode]);
 
   // Load nodes when workflow changes
   useEffect(() => {
@@ -60,10 +72,125 @@ function App() {
         throw new Error('Failed to load workflow');
       }
       const data = await response.json();
-      setWorkflowNodes(data.nodes || []);
+      // Filter to only show top-level nodes (those without parent_position)
+      const topLevelNodes = (data.nodes || []).filter(node => 
+        !node.params?._parent_position
+      );
+      setWorkflowNodes(topLevelNodes);
     } catch (error) {
       console.error('Failed to load workflow nodes:', error);
       setWorkflowNodes([]);
+    }
+  };
+
+  const loadMockOperatorResponse = async () => {
+    try {
+      // Fetch the mock response JSON directly
+      const response = await fetch('/mock-operator/response.json');
+      if (!response.ok) {
+        throw new Error('Failed to load mock response');
+      }
+      const mockData = await response.json();
+      
+      // Extract nodes from the mock response
+      if (mockData.toolCalls && mockData.toolCalls.length > 0) {
+        const toolCall = mockData.toolCalls[0];
+        if (toolCall.toolName === 'create_workflow_sequence' && toolCall.result?.nodes) {
+          // Convert mock nodes to display format with positions
+          // Note: We use index + 1 for position to match 1-based positioning in operator
+          const mockNodes = toolCall.result.nodes.map((node, index) => ({
+            ...node,
+            id: `mock_${index + 1}`,
+            position: index + 1,
+            status: 'pending',
+            params: node.config
+          }));
+          setWorkflowNodes(mockNodes);
+          
+          // Also show the message
+          if (mockData.message) {
+            setMessages([{
+              role: 'assistant',
+              content: mockData.message,
+              toolCalls: mockData.toolCalls
+            }]);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load mock operator response:', error);
+    }
+  };
+
+  const uploadMockNodesToSupabase = async () => {
+    try {
+      // Create workflow if none exists
+      let workflowId = currentWorkflow?.id;
+      if (!workflowId) {
+        const workflow = await createNewWorkflow();
+        workflowId = workflow?.id;
+      }
+
+      if (!workflowId) {
+        throw new Error('Failed to create workflow');
+      }
+
+      // Filter only mock nodes
+      const mockNodes = workflowNodes.filter(n => n.id && typeof n.id === 'string' && n.id.startsWith('mock_'));
+      
+      console.log('Uploading mock nodes:', mockNodes);
+      
+      const response = await fetch(`${API_BASE}/upload-mock-nodes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId,
+          nodes: mockNodes.map(node => ({
+            type: node.type,
+            config: node.params || node.config,
+            position: node.position,
+            description: node.description
+          }))
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Upload failed:', errorText);
+        throw new Error(`Failed to upload nodes: ${errorText}`);
+      }
+
+      const result = await response.json();
+      
+      // Replace mock nodes with real nodes from database
+      console.log('Current workflowNodes:', workflowNodes);
+      console.log('Created nodes from backend:', result.nodes);
+      
+      // Filter to only show top-level nodes
+      const topLevelNodes = result.nodes.filter(node => 
+        !node.params?._parent_position
+      );
+      
+      console.log('Top-level nodes:', topLevelNodes);
+      setWorkflowNodes(topLevelNodes);
+      
+      // Log success
+      const log = {
+        timestamp: new Date().toISOString(),
+        type: 'success',
+        message: `Uploaded ${result.nodes.length} nodes to Supabase`,
+        details: result
+      };
+      setExecutionLogs(prev => [...prev, log]);
+    } catch (error) {
+      console.error('Failed to upload mock nodes:', error);
+      const errorLog = {
+        timestamp: new Date().toISOString(),
+        type: 'error',
+        message: `Failed to upload mock nodes: ${error.message}`,
+        details: { error: error.message }
+      };
+      setExecutionLogs(prev => [...prev, errorLog]);
     }
   };
 
@@ -105,7 +232,7 @@ function App() {
     }, [isIterate, expanded, node.result]);
     
     // Helper to render a nested node or array of nodes
-    const renderNestedNode = (nodeOrArray, branchName, index) => {
+    const renderNestedNode = (nodeOrArray, branchName, index, depth = 0) => {
       if (Array.isArray(nodeOrArray)) {
         return (
           <div className="ml-4 mt-2 border-l-2 border-gray-300 pl-4">
@@ -114,12 +241,21 @@ function App() {
             </div>
             {nodeOrArray.map((nestedNode, idx) => (
               <div key={idx} className="mb-2">
-                <MiniNodeCard 
-                  node={nestedNode} 
-                  index={idx} 
-                  branchPath={`${branchName}[${idx}]`}
-                  parentNodeId={node.id}
-                />
+                {nestedNode.type === 'route' ? (
+                  <NestedRouteCard 
+                    node={nestedNode} 
+                    depth={depth + 1}
+                    branchPath={`${branchName}[${idx}]`}
+                    parentNodeId={node.id}
+                  />
+                ) : (
+                  <MiniNodeCard 
+                    node={nestedNode} 
+                    index={idx} 
+                    branchPath={`${branchName}[${idx}]`}
+                    parentNodeId={node.id}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -127,12 +263,21 @@ function App() {
       } else if (nodeOrArray && typeof nodeOrArray === 'object') {
         return (
           <div className="ml-4 mt-2 border-l-2 border-gray-300 pl-4">
-            <MiniNodeCard 
-              node={nodeOrArray} 
-              index={index} 
-              branchPath={branchName}
-              parentNodeId={node.id}
-            />
+            {nodeOrArray.type === 'route' ? (
+              <NestedRouteCard 
+                node={nodeOrArray} 
+                depth={depth + 1}
+                branchPath={branchName}
+                parentNodeId={node.id}
+              />
+            ) : (
+              <MiniNodeCard 
+                node={nodeOrArray} 
+                index={index} 
+                branchPath={branchName}
+                parentNodeId={node.id}
+              />
+            )}
           </div>
         );
       }
@@ -207,7 +352,14 @@ function App() {
                     {branchName}
                   </span>
                 </div>
-                {renderNestedNode(branchContent, branchName, 0)}
+                {/* Check if it's the new format (array of positions) or old format (node objects) */}
+                {Array.isArray(branchContent) && branchContent.length > 0 && typeof branchContent[0] === 'number' ? (
+                  <div className="ml-4 text-xs text-gray-600">
+                    References nodes: {branchContent.join(', ')}
+                  </div>
+                ) : (
+                  renderNestedNode(branchContent, branchName, 0)
+                )}
               </div>
             ))}
           </div>
@@ -261,6 +413,86 @@ function App() {
         )}
       </div>
     );
+  };
+
+  // NestedRouteCard Component - For route nodes within routes
+  const NestedRouteCard = ({ node, depth, branchPath, parentNodeId }) => {
+    const [expanded, setExpanded] = React.useState(false);
+    
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs">
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <div className="font-medium flex items-center">
+              <span className="text-gray-400 mr-2">→</span>
+              <span className="text-blue-600">route</span>
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="ml-2 text-gray-500 hover:text-gray-700"
+              >
+                {expanded ? '▼' : '▶'}
+              </button>
+            </div>
+            <div className="text-gray-600 mt-1">{node.description}</div>
+            {node.config?.value && (
+              <div className="text-gray-500 mt-1">
+                <span className="font-mono bg-gray-100 px-1 rounded">{node.config.value}</span>
+                {' → '}
+                {Object.keys(node.config.paths || {}).join(' | ')}
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {expanded && node.config?.paths && (
+          <div className="mt-2 bg-white rounded p-2">
+            <div className="text-xs font-semibold text-gray-700 mb-1">Branches:</div>
+            {Object.entries(node.config.paths).map(([branchName, branchContent]) => (
+              <div key={branchName} className="mb-2">
+                <div className="flex items-center text-xs font-medium text-gray-600 mb-1">
+                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                    {branchName}
+                  </span>
+                </div>
+                <div className="ml-2">
+                  {renderNestedBranch(branchContent, branchName, depth + 1)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Helper function for NestedRouteCard
+  const renderNestedBranch = (branchContent, branchName, depth) => {
+    if (Array.isArray(branchContent)) {
+      return (
+        <div className="space-y-1">
+          {branchContent.map((node, idx) => (
+            <div key={idx}>
+              {node.type === 'route' ? (
+                <NestedRouteCard 
+                  node={node} 
+                  depth={depth}
+                  branchPath={`${branchName}[${idx}]`}
+                  parentNodeId={null}
+                />
+              ) : (
+                <MiniNodeCard 
+                  node={node} 
+                  index={idx} 
+                  branchPath={`${branchName}[${idx}]`}
+                  parentNodeId={null}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
   };
 
   // MiniNodeCard Component - For nested nodes within routes
@@ -375,7 +607,8 @@ function App() {
         body: JSON.stringify({
           message: input,
           workflowId,
-          conversationHistory: messages
+          conversationHistory: messages,
+          mockMode
         })
       });
 
@@ -426,7 +659,7 @@ function App() {
     }
   };
 
-  const executeNode = async (nodeId) => {
+  const executeNode = async (nodeId, nodeConfig = null) => {
     try {
       const log = {
         timestamp: new Date().toISOString(),
@@ -436,16 +669,38 @@ function App() {
       };
       setExecutionLogs(prev => [...prev, log]);
 
+      // For mock nodes, we need to pass the node configuration
+      const isMockNode = nodeId && typeof nodeId === 'string' && nodeId.startsWith('mock_');
+      let nodeToExecute = nodeConfig;
+      
+      if (isMockNode && !nodeConfig) {
+        // Find the node configuration from workflowNodes
+        const node = workflowNodes.find(n => n.id === nodeId);
+        if (node) {
+          nodeToExecute = {
+            type: node.type,
+            config: node.params || node.config,
+            position: node.position
+          };
+        }
+      }
+
       const response = await fetch(`${API_BASE}/execute-node`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nodeId,
-          workflowId: currentWorkflow?.id
+          workflowId: currentWorkflow?.id,
+          nodeConfig: isMockNode ? nodeToExecute : undefined
         })
       });
 
       const result = await response.json();
+      
+      // Update workflow ID if a new one was created for mock execution
+      if (result.workflowId && !currentWorkflow) {
+        setCurrentWorkflow({ id: result.workflowId, name: 'Mock Execution' });
+      }
       
       const resultLog = {
         timestamp: new Date().toISOString(),
@@ -513,8 +768,22 @@ function App() {
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Top Bar */}
       <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-800">Operator</h1>
+        <h1 className="text-xl font-bold text-gray-800">
+          Operator
+          {mockMode && <span className="ml-2 text-sm font-normal text-purple-600">(Mock Mode)</span>}
+        </h1>
         <div className="flex items-center space-x-4">
+          <button
+            onClick={() => setMockMode(!mockMode)}
+            className={`px-3 py-1 text-sm rounded transition-colors ${
+              mockMode 
+                ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            title={mockMode ? 'Using Claude Code as operator' : 'Using OpenAI operator'}
+          >
+            {mockMode ? '🤖 Mock Mode' : '✨ Real Operator'}
+          </button>
           <select
             value={currentWorkflow?.id || ''}
             onChange={(e) => {
@@ -546,9 +815,15 @@ function App() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-white">
+          {mockMode && (
+            <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
+              <div className="font-semibold mb-1">🤖 Mock Mode Active</div>
+              <div>Claude Code is acting as the operator. Responses are read from mock-operator/response.json</div>
+            </div>
+          )}
           {messages.length === 0 && (
             <div className="text-center text-gray-500 mt-20">
-              <p className="text-lg mb-2">Hi! I'm the Operator.</p>
+              <p className="text-lg mb-2">Hi! I'm the {mockMode ? 'Mock ' : ''}Operator.</p>
               <p>Tell me what workflow you'd like to build, and I'll guide you through it step by step.</p>
               <p className="text-sm mt-4">Example: "I want to copy emails from Gmail to Airtable"</p>
             </div>
@@ -615,10 +890,28 @@ function App() {
         {/* Nodes Panel */}
         <div className="w-96 bg-white border-l flex flex-col">
           <div className="p-4 border-b bg-gray-50">
-            <h3 className="font-semibold text-lg">Workflow Nodes</h3>
-            <p className="text-sm text-gray-600 mt-1">
-              {currentWorkflow ? `${workflowNodes.length} nodes` : 'No workflow selected'}
-            </p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="font-semibold text-lg">
+                  {mockMode ? 'Mock Workflow' : 'Workflow Nodes'}
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  {mockMode 
+                    ? `${workflowNodes.length} nodes from response.json`
+                    : currentWorkflow ? `${workflowNodes.length} nodes` : 'No workflow selected'
+                  }
+                </p>
+              </div>
+              {mockMode && (
+                <button
+                  onClick={loadMockOperatorResponse}
+                  className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                  title="Reload mock response"
+                >
+                  🔄 Refresh
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto p-4">
@@ -628,11 +921,26 @@ function App() {
                 <p className="text-xs mt-2">Start chatting to create nodes</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {workflowNodes.map((node, index) => (
-                  <NodeCard key={node.id} node={node} executeNode={executeNode} />
-                ))}
-              </div>
+              <>
+                {mockMode && workflowNodes.some(n => n.id && typeof n.id === 'string' && n.id.startsWith('mock_')) && (
+                  <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="text-sm text-purple-700 mb-2">
+                      These nodes are loaded from mock-operator/response.json
+                    </div>
+                    <button
+                      onClick={uploadMockNodesToSupabase}
+                      className="w-full px-4 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors"
+                    >
+                      📤 Upload to Supabase
+                    </button>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {workflowNodes.map((node, index) => (
+                    <NodeCard key={node.id} node={node} executeNode={executeNode} />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

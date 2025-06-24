@@ -25,6 +25,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Serve mock-operator files FIRST (before frontend)
+app.use('/mock-operator', express.static(join(__dirname, '../mock-operator')));
+
 // Serve static files from frontend directory
 app.use(express.static(join(__dirname, '../frontend')));
 

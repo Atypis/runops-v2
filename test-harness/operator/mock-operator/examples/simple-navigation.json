@@ -1,0 +1,17 @@
+{
+  "message": "I'll navigate to that website for you.",
+  "toolCalls": [
+    {
+      "toolCallId": "mock_nav_1",
+      "toolName": "create_node",
+      "result": {
+        "type": "browser_action",
+        "config": {
+          "action": "navigate",
+          "url": "https://example.com"
+        },
+        "description": "Navigate to website"
+      }
+    }
+  ]
+}

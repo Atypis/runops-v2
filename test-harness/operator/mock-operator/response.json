@@ -1,0 +1,248 @@
+{
+  "message": "I'll build a complete workflow to check Gmail for investor emails and update your Airtable CRM. Let me create the login flow for both Gmail and Airtable with proper routing to handle whether you're already logged in.",
+  "toolCalls": [
+    {
+      "toolCallId": "mock_workflow_1",
+      "toolName": "create_workflow_sequence",
+      "result": {
+        "nodes": [
+          {
+            "type": "context",
+            "config": {
+              "operation": "set",
+              "key": "gmail_creds",
+              "value": {
+                "email": "michaelburner595@gmail.com",
+                "password": "dCdWqhgPzJev6Jz"
+              }
+            },
+            "description": "Store Gmail credentials securely"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "navigate",
+              "url": "https://mail.google.com"
+            },
+            "description": "Navigate to Gmail"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 2000
+            },
+            "description": "Wait for Gmail to load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Check if Gmail inbox is visible (user is already logged in) by looking for compose button or inbox messages",
+              "schema": {
+                "inboxVisible": "boolean"
+              }
+            },
+            "description": "Check if already logged into Gmail"
+          },
+          {
+            "type": "route",
+            "config": {
+              "value": "node4.inboxVisible",
+              "paths": {
+                "false": [
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "type",
+                      "selector": ["input[type='email']", "input[name='identifier']", "#identifierId"],
+                      "text": "{{gmail_creds.email}}"
+                    },
+                    "description": "Enter email address"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["#identifierNext", "button:contains('Next')", "[data-idom-class='nCP5yc AjY5Oe DuMIQc LQeN7 qIypjc TrZEUc lw1w4b']"]
+                    },
+                    "description": "Click Next after email"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 2000
+                    },
+                    "description": "Wait for password page"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "type",
+                      "selector": ["input[type='password']", "input[name='password']", "#password input", "input[name='Passwd']"],
+                      "text": "{{gmail_creds.password}}"
+                    },
+                    "description": "Enter password"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["#passwordNext", "button:contains('Next')", "[data-idom-class='nCP5yc AjY5Oe DuMIQc LQeN7 qIypjc TrZEUc lw1w4b']"]
+                    },
+                    "description": "Click Next after password"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 3000
+                    },
+                    "description": "Wait for login to complete"
+                  }
+                ],
+                "true": []
+              }
+            },
+            "description": "Route based on Gmail login status"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Verify Gmail inbox is now visible and loaded",
+              "schema": {
+                "loginSuccess": "boolean"
+              }
+            },
+            "description": "Verify Gmail login success"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "openNewTab",
+              "url": "https://airtable.com/appTnT68Rt8yHIGV3",
+              "name": "airtable"
+            },
+            "description": "Open Airtable in new tab"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 3000
+            },
+            "description": "Wait for Airtable to load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Check if Airtable is showing a login screen with 'Continue with Google' button or if user is already logged in",
+              "schema": {
+                "needsLogin": "boolean"
+              }
+            },
+            "description": "Check Airtable login status"
+          },
+          {
+            "type": "route",
+            "config": {
+              "value": "node9.needsLogin",
+              "paths": {
+                "true": [
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["button:contains('Continue with Google')", "text=Continue with Google", "act:click the Continue with Google button"]
+                    },
+                    "description": "Click Continue with Google"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 2000
+                    },
+                    "description": "Wait for Google account chooser"
+                  },
+                  {
+                    "type": "browser_query",
+                    "config": {
+                      "method": "extract",
+                      "instruction": "Check if Google account chooser is shown with the michaelburner595@gmail.com account",
+                      "schema": {
+                        "accountChooserVisible": "boolean"
+                      }
+                    },
+                    "description": "Check for account chooser"
+                  },
+                  {
+                    "type": "route",
+                    "config": {
+                      "value": "node12.accountChooserVisible",
+                      "paths": {
+                        "true": [
+                          {
+                            "type": "browser_action",
+                            "config": {
+                              "action": "click",
+                              "selector": ["div:contains('michaelburner595@gmail.com')", "[data-identifier='michaelburner595@gmail.com']", "act:click on the michaelburner595@gmail.com account"]
+                            },
+                            "description": "Select Gmail account"
+                          }
+                        ],
+                        "false": []
+                      }
+                    },
+                    "description": "Handle account selection if needed"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 4000
+                    },
+                    "description": "Wait for Airtable to load after login"
+                  }
+                ],
+                "false": []
+              }
+            },
+            "description": "Route based on Airtable login status"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Verify that Airtable Investor Relationship Management table is now visible",
+              "schema": {
+                "airtableReady": "boolean"
+              }
+            },
+            "description": "Verify Airtable is ready"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "switchTab",
+              "tabName": "main"
+            },
+            "description": "Switch back to Gmail tab"
+          },
+          {
+            "type": "context",
+            "config": {
+              "operation": "set",
+              "key": "workflow_ready",
+              "value": true
+            },
+            "description": "Mark workflow as ready to process emails"
+          }
+        ]
+      }
+    }
+  ]
+}

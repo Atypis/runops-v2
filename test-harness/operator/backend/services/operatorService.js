@@ -4,6 +4,12 @@ import { OPERATOR_SYSTEM_PROMPT } from '../prompts/operatorPrompt.js';
 import { createToolDefinitions } from '../tools/toolDefinitions.js';
 import { NodeExecutor } from './nodeExecutor.js';
 import { supabase } from '../config/supabase.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class OperatorService {
   constructor() {
@@ -11,11 +17,60 @@ export class OperatorService {
       apiKey: process.env.OPENAI_API_KEY
     });
     this.nodeExecutor = new NodeExecutor();
+    this.supabase = supabase;
   }
 
-  async processMessage({ message, workflowId, conversationHistory = [] }) {
+  async processMessage({ message, workflowId, conversationHistory = [], mockMode = false }) {
     try {
-      // Get current workflow state if workflowId provided
+      // Check for mock mode
+      if (mockMode || process.env.MOCK_OPERATOR_MODE === 'true') {
+        console.log('\n[MOCK OPERATOR] Received message:', message);
+        console.log('[MOCK OPERATOR] Workflow ID:', workflowId);
+        console.log('[MOCK OPERATOR] Reading response from mock-operator/response.json\n');
+        
+        try {
+          const mockResponsePath = path.join(__dirname, '../../mock-operator/response.json');
+          const mockResponseData = await fs.readFile(mockResponsePath, 'utf-8');
+          const mockResponse = JSON.parse(mockResponseData);
+          
+          // If there are tool calls in the mock response, process them
+          if (mockResponse.toolCalls) {
+            const processedToolCalls = await this.processToolCalls(
+              mockResponse.toolCalls.map(tc => ({
+                id: tc.toolCallId || `mock_${Date.now()}`,
+                function: {
+                  name: tc.toolName,
+                  arguments: JSON.stringify(tc.result || {})
+                }
+              })),
+              workflowId
+            );
+            
+            return {
+              message: mockResponse.message || 'Mock operator response',
+              toolCalls: processedToolCalls,
+              workflowId,
+              mockMode: true
+            };
+          }
+          
+          return {
+            message: mockResponse.message || 'Mock operator response',
+            workflowId,
+            mockMode: true
+          };
+        } catch (error) {
+          console.error('[MOCK OPERATOR] Error reading mock response:', error);
+          return {
+            message: 'Mock operator error: Please check mock-operator/response.json',
+            workflowId,
+            mockMode: true,
+            error: error.message
+          };
+        }
+      }
+
+      // Normal operation - Get current workflow state if workflowId provided
       let workflowContext = null;
       if (workflowId) {
         workflowContext = await this.getWorkflowContext(workflowId);
@@ -141,13 +196,95 @@ export class OperatorService {
   }
 
   async createWorkflowSequence({ nodes }, workflowId) {
-    const createdNodes = [];
-    
     console.log('Creating workflow sequence with nodes:', JSON.stringify(nodes, null, 2));
     
-    for (const nodeData of nodes) {
+    // Flatten the node structure to include nested nodes
+    const flattenedNodes = [];
+    let currentPosition = 1;
+    
+    // Get the current max position in this workflow
+    const { data: maxPositionNode } = await supabase
+      .from('nodes')
+      .select('position')
+      .eq('workflow_id', workflowId)
+      .order('position', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (maxPositionNode?.position) {
+      currentPosition = maxPositionNode.position + 1;
+    }
+    
+    // Helper function to extract and flatten nested nodes
+    const extractNestedNodes = async (node, parentPosition) => {
+      // Create a copy of the node to avoid modifying the original
+      const nodeToCreate = { ...node };
+      nodeToCreate.position = currentPosition++;
+      nodeToCreate.parent_position = parentPosition; // Track parent for UI filtering
+      
+      // If it's a route, extract nodes from paths
+      if (node.type === 'route' && node.config?.paths) {
+        const updatedPaths = {};
+        
+        for (const [pathName, pathNodes] of Object.entries(node.config.paths)) {
+          const pathNodePositions = [];
+          
+          if (Array.isArray(pathNodes)) {
+            for (const nestedNode of pathNodes) {
+              const nestedPosition = currentPosition;
+              pathNodePositions.push(nestedPosition);
+              await extractNestedNodes(nestedNode, nodeToCreate.position);
+            }
+          }
+          
+          // Store the positions of nodes in this path for the route to reference
+          updatedPaths[pathName] = pathNodePositions;
+        }
+        
+        // Update the node config to reference positions instead of inline nodes
+        nodeToCreate.config = { ...nodeToCreate.config, paths: updatedPaths };
+      }
+      
+      // If it's an iterate, extract nodes from body
+      if (node.type === 'iterate' && node.config?.body) {
+        if (Array.isArray(node.config.body)) {
+          const bodyNodePositions = [];
+          for (const nestedNode of node.config.body) {
+            const nestedPosition = currentPosition;
+            bodyNodePositions.push(nestedPosition);
+            await extractNestedNodes(nestedNode, nodeToCreate.position);
+          }
+          // Update iterate to reference positions
+          nodeToCreate.config = { ...nodeToCreate.config, body: bodyNodePositions };
+        } else if (node.config.body && typeof node.config.body === 'object') {
+          const nestedPosition = currentPosition;
+          await extractNestedNodes(node.config.body, nodeToCreate.position);
+          nodeToCreate.config = { ...nodeToCreate.config, body: nestedPosition };
+        }
+      }
+      
+      flattenedNodes.push(nodeToCreate);
+    };
+    
+    // Process all top-level nodes
+    for (const node of nodes) {
+      await extractNestedNodes(node, null);
+    }
+    
+    console.log(`Flattened ${nodes.length} nodes into ${flattenedNodes.length} nodes`);
+    
+    const createdNodes = [];
+    
+    // Create each flattened node in the database
+    for (const nodeData of flattenedNodes) {
       try {
-        const node = await this.createNode(nodeData, workflowId);
+        const node = await this.createNode({
+          type: nodeData.type,
+          config: nodeData.config,
+          position: nodeData.position,
+          description: nodeData.description,
+          parent_position: nodeData.parent_position
+        }, workflowId);
         createdNodes.push(node);
       } catch (error) {
         console.error('Failed to create node:', nodeData, error);
@@ -161,7 +298,7 @@ export class OperatorService {
     };
   }
 
-  async createNode({ type, config, position, description }, workflowId) {
+  async createNode({ type, config, position, description, parent_position }, workflowId) {
     // Validate config based on node type
     if (!config || Object.keys(config).length === 0) {
       console.error(`Empty config provided for ${type} node`);
@@ -181,27 +318,39 @@ export class OperatorService {
         break;
     }
     
-    // Get the max position for this workflow
-    const { data: maxPositionNode } = await supabase
-      .from('nodes')
-      .select('position')
-      .eq('workflow_id', workflowId)
-      .order('position', { ascending: false })
-      .limit(1)
-      .single();
+    // If position is provided, use it; otherwise get the next available position
+    let nodePosition = position;
     
-    const nextPosition = (maxPositionNode?.position || 0) + 1;
+    if (!nodePosition) {
+      // Get the max position for this workflow
+      const { data: maxPositionNode } = await supabase
+        .from('nodes')
+        .select('position')
+        .eq('workflow_id', workflowId)
+        .order('position', { ascending: false })
+        .limit(1)
+        .single();
+      
+      nodePosition = (maxPositionNode?.position || 0) + 1;
+    }
+    
+    const nodeData = {
+      workflow_id: workflowId,
+      position: nodePosition,
+      type,
+      params: config || {},  // Ensure params is never null
+      description: description || `${type} node`,
+      status: 'pending'
+    };
+    
+    // Add parent_position to params if provided (since we don't have a DB column for it)
+    if (parent_position !== undefined && parent_position !== null) {
+      nodeData.params._parent_position = parent_position;
+    }
     
     const { data: node, error } = await supabase
       .from('nodes')
-      .insert({
-        workflow_id: workflowId,
-        position: nextPosition,
-        type,
-        params: config || {},  // Ensure params is never null
-        description: description || `${type} node`,
-        status: 'pending'
-      })
+      .insert(nodeData)
       .select()
       .single();
       
