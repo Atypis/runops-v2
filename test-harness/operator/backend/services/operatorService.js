@@ -40,7 +40,7 @@ export class OperatorService {
 
       // Call OpenAI with tool functions
       const completion = await this.openai.chat.completions.create({
-        model: 'o3', // OpenAI o3 reasoning model
+        model: 'o4-mini-2025-04-16', // OpenAI o4-mini model
         messages,
         tools: createToolDefinitions(),
         tool_choice: 'auto',
@@ -90,8 +90,14 @@ export class OperatorService {
           case 'update_node':
             result = await this.updateNode(args);
             break;
+          case 'update_nodes':
+            result = await this.updateNodes(args);
+            break;
           case 'delete_node':
             result = await this.deleteNode(args);
+            break;
+          case 'delete_nodes':
+            result = await this.deleteNodes(args);
             break;
           case 'connect_nodes':
             result = await this.connectNodes(args);
@@ -204,14 +210,54 @@ export class OperatorService {
   }
 
   async updateNode({ nodeId, updates }) {
+    console.log(`[UPDATE_NODE] Called with:`, JSON.stringify({ nodeId, updates }, null, 2));
+    
+    // Validate inputs
+    if (!nodeId) {
+      throw new Error('nodeId is required for update_node');
+    }
+    
+    if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+      console.error('[UPDATE_NODE] Invalid updates object:', updates);
+      throw new Error('updates must be a non-empty object');
+    }
+    
+    // Map 'config' to 'params' to match database schema
+    const mappedUpdates = { ...updates };
+    if ('config' in mappedUpdates) {
+      mappedUpdates.params = mappedUpdates.config;
+      delete mappedUpdates.config;
+      console.log('[UPDATE_NODE] Mapped "config" to "params" for database compatibility');
+    }
+    
+    // Validate that only valid fields are being updated
+    const validFields = ['type', 'params', 'description', 'status', 'result', 'position'];
+    const updateFields = Object.keys(mappedUpdates);
+    const invalidFields = updateFields.filter(field => !validFields.includes(field));
+    
+    if (invalidFields.length > 0) {
+      console.error('[UPDATE_NODE] Invalid fields detected:', invalidFields);
+      console.log('[UPDATE_NODE] Valid fields are:', validFields);
+      throw new Error(`Invalid update fields: ${invalidFields.join(', ')}. Valid fields are: ${validFields.join(', ')}`);
+    }
+    
+    // Log what we're trying to update
+    console.log('[UPDATE_NODE] Attempting to update node:', nodeId);
+    console.log('[UPDATE_NODE] Mapped update payload:', JSON.stringify(mappedUpdates, null, 2));
+    
     const { data: node, error } = await supabase
       .from('nodes')
-      .update(updates)
+      .update(mappedUpdates)
       .eq('id', nodeId)
       .select()
       .single();
       
-    if (error) throw error;
+    if (error) {
+      console.error('[UPDATE_NODE] Supabase error:', error);
+      throw error;
+    }
+    
+    console.log('[UPDATE_NODE] Successfully updated node:', JSON.stringify(node, null, 2));
     return node;
   }
 
@@ -223,6 +269,55 @@ export class OperatorService {
       
     if (error) throw error;
     return { success: true };
+  }
+
+  async deleteNodes({ nodeIds }) {
+    // Delete multiple nodes in a single operation
+    const { error } = await supabase
+      .from('nodes')
+      .delete()
+      .in('id', nodeIds);
+      
+    if (error) throw error;
+    return { success: true, deletedCount: nodeIds.length };
+  }
+
+  async updateNodes({ updates }) {
+    console.log(`[UPDATE_NODES] Called with:`, JSON.stringify({ updates }, null, 2));
+    
+    // Validate inputs
+    if (!updates || !Array.isArray(updates) || updates.length === 0) {
+      throw new Error('updates must be a non-empty array of {nodeId, updates} objects');
+    }
+    
+    const results = [];
+    const errors = [];
+    
+    // Process each update
+    for (const update of updates) {
+      if (!update.nodeId) {
+        errors.push({ error: 'Missing nodeId in update object', update });
+        continue;
+      }
+      
+      try {
+        const result = await this.updateNode({
+          nodeId: update.nodeId,
+          updates: update.updates
+        });
+        results.push({ nodeId: update.nodeId, success: true, node: result });
+      } catch (error) {
+        console.error(`[UPDATE_NODES] Failed to update node ${update.nodeId}:`, error);
+        errors.push({ nodeId: update.nodeId, error: error.message });
+      }
+    }
+    
+    return {
+      success: errors.length === 0,
+      updated: results.length,
+      results,
+      errors: errors.length > 0 ? errors : undefined
+    };
   }
 
   async connectNodes({ sourceNodeId, targetNodeId }) {

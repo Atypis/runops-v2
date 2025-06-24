@@ -12,3 +12,22 @@ if (!supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Test the connection
+console.log('[SUPABASE] Initializing Supabase client...');
+console.log('[SUPABASE] URL:', supabaseUrl);
+console.log('[SUPABASE] Key:', supabaseAnonKey ? 'Present' : 'Missing');
+
+// Optional: Test connection by attempting to fetch workflows
+supabase
+  .from('workflows')
+  .select('count', { count: 'exact', head: true })
+  .then(({ count, error }) => {
+    if (error) {
+      console.error('[SUPABASE] Connection test failed:', error);
+      console.error('[SUPABASE] Error code:', error.code);
+      console.error('[SUPABASE] Error message:', error.message);
+    } else {
+      console.log('[SUPABASE] Connection successful! Workflows count:', count);
+    }
+  });

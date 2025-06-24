@@ -1,0 +1,478 @@
+{
+  "5b1915a175410c08955040e84fe246a0c75772251a9708520a1c06f04bc79fc0": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750768387586,
+    "requestId": "l4qomlg8u5l"
+  },
+  "b650d26b15761dee7156a93516fa97d253fe6c54f577f665bca5a5d861441bf5": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750768388137,
+    "requestId": "l4qomlg8u5l"
+  },
+  "4aaad3909d4e1277a35a58d80e398788a65dc6abd67d6699d55eb473d491a43f": {
+    "data": {
+      "progress": "The extracted content indicates that the Gmail email sign-in field is present, as the 'loginRequired' key is set to true.",
+      "completed": true
+    },
+    "timestamp": 1750768390867,
+    "requestId": "l4qomlg8u5l"
+  },
+  "2daedd158aae9a2ca9824e7ca2ee277b9f34586a8adebeaef71dff1fc4e6b67e": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750768841775,
+    "requestId": "gt1egjuv804"
+  },
+  "93bf65667bd37b51914979188f71340256360e4b7eb3be0efb63d4a465776d15": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750768843161,
+    "requestId": "gt1egjuv804"
+  },
+  "97db9b3a274b73f9955eeea4d46b9b685695468a90e990470fee40bca481af8b": {
+    "data": {
+      "progress": "The extracted content indicates that the Gmail login email input is present, as 'needsLogin' is true.",
+      "completed": true
+    },
+    "timestamp": 1750768844192,
+    "requestId": "gt1egjuv804"
+  },
+  "b4f1282f2c6ee790b552af8f5d023416786dd62795adf943ced1bc4445aa045d": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750769465976,
+    "requestId": "uxx9s94u81"
+  },
+  "beab48d1a9c2cce50e382e382911a61f21b991d174216524a1dc6709541e8279": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750769466754,
+    "requestId": "uxx9s94u81"
+  },
+  "a7cff89b00fe989772efb7babd41e65ed241f2d064bd986e183bc6c8b91a1eeb": {
+    "data": {
+      "progress": "The extracted content indicates that the Gmail login email input is present and visible, as 'needsLogin' is set to true.",
+      "completed": true
+    },
+    "timestamp": 1750769468203,
+    "requestId": "uxx9s94u81"
+  },
+  "5be63842012c4df9348b3fe9a45e2585129ee04800bd9840054bd5ce5e659214": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750770891081,
+    "requestId": "vuu85yknexh"
+  },
+  "e07e996bf96598e127c2024da2cc6cd65ca2fe85b95abd8c0ebbe89fb0eb8c7b": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750770866883,
+    "requestId": "4z92f76ssfs"
+  },
+  "7e59291f4b23a35fe286f0d217e906ebd233467ec2058e336abfd9b8b6bab354": {
+    "data": {
+      "progress": "The extracted content indicates that the 'needsLogin' condition is true, as an email or password input field is visible.",
+      "completed": true
+    },
+    "timestamp": 1750770892019,
+    "requestId": "vuu85yknexh"
+  },
+  "23a9208955b3a0a499e73804929aa02244667fccbda6cefd12299294073ab7ec": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750771504092,
+    "requestId": "o8t7xkyy779"
+  },
+  "e2eec15aa093597754dda1d7e5509397ea99b30158cf7df603fd54a917b1ffa2": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750771504750,
+    "requestId": "o8t7xkyy779"
+  },
+  "eefde86486d827f31d04f8f2102ef58c72466dc7772369cf5e8ceb794f74a58f": {
+    "data": {
+      "progress": "The extraction response indicates that the Gmail login form is present, as 'needsLogin' is set to true.",
+      "completed": true
+    },
+    "timestamp": 1750771506761,
+    "requestId": "o8t7xkyy779"
+  },
+  "d3b6f2d3d30c023887fb8af3f9a13aeeea8210dab0baf61a96a687a2bb719a4a": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750771794912,
+    "requestId": "et2dsp717ci"
+  },
+  "ee2ec9c4f42bd73dc46c4ed92be9102157f5247612cbe0822e3895fe65e0df4c": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750771795811,
+    "requestId": "et2dsp717ci"
+  },
+  "186c7a82d2e784bc69de192e068c856116fe79708916c15e47a1cf128f00aa8b": {
+    "data": {
+      "progress": "The extraction response indicates that the Gmail login form is visible, as 'needsLogin' is set to true.",
+      "completed": true
+    },
+    "timestamp": 1750771797109,
+    "requestId": "et2dsp717ci"
+  },
+  "3636c9447e7ec61e74ea2d84a77264620319287a5c51d2b652ff4579e97db079": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750772037032,
+    "requestId": "u5a4y6as6x"
+  },
+  "f01a08c41708df4a6895463d21616413ec9bb140da7690a0af66379a5f0497d9": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750772037807,
+    "requestId": "u5a4y6as6x"
+  },
+  "c0b5ad906713d78659e0790f4e7ac250bb20fe1f4de500fc4865b86e95b76918": {
+    "data": {
+      "progress": "The extraction response indicates that the Gmail sign-in form is displayed, as evidenced by the 'needsLogin' boolean being set to true.",
+      "completed": true
+    },
+    "timestamp": 1750772039447,
+    "requestId": "u5a4y6as6x"
+  },
+  "d2c4e0349ae8bd37c71abb9a8aeb10e698a1c4cb250ce2254c8f15f95d909a7b": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750772909273,
+    "requestId": "zkz60kw9p"
+  },
+  "7d97a97c01d47b71659702d9ee8b1abcd4c2bb40c660cdfd55ce34e7a46e273f": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750772910194,
+    "requestId": "zkz60kw9p"
+  },
+  "0c7f8d2448f538de085b4e95b27c8bc5839f359938cfffee7b1f01204c241ff8": {
+    "data": {
+      "progress": "The extraction response indicates that the Gmail login form is present, as evidenced by the 'loginRequired' field being set to true.",
+      "completed": true
+    },
+    "timestamp": 1750772911367,
+    "requestId": "zkz60kw9p"
+  },
+  "efc8981230c53fdde49da299f878034e735e0160fc93a279815e40e961aae698": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750773177491,
+    "requestId": "lr7yobq6bx"
+  },
+  "ab553ec8079ec94a7948cde788643470f57f4e281e28b7cec35e0a9f6eb5d82c": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750773178178,
+    "requestId": "lr7yobq6bx"
+  },
+  "2755bb2b56c0991316a780e09451f348c4a01e7319a8fe6501206d791bdbfeb5": {
+    "data": {
+      "progress": "The extracted content indicates that the 'needsLogin' condition is true, meaning an email or password input for Gmail login is visible.",
+      "completed": true
+    },
+    "timestamp": 1750773179041,
+    "requestId": "lr7yobq6bx"
+  },
+  "7bf67d6e6171de70329d07c13757ad8cb7a468ac4cebaabbd369b32ef83d5bee": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750774447769,
+    "requestId": "vjo2v4isw5a"
+  },
+  "d8f5f63435f24e94868061d5369ab0df8161b7d04796acaf9c6e9b9728a4cb96": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750774448387,
+    "requestId": "vjo2v4isw5a"
+  },
+  "12cb33f0f1803171707ff7155e23a3c328de33e3c2a10a441477ad65d4aa0b4b": {
+    "data": {
+      "progress": "The extracted content indicates that the Gmail login form is visible, as it returns 'loginRequired=true'.",
+      "completed": true
+    },
+    "timestamp": 1750774449218,
+    "requestId": "vjo2v4isw5a"
+  },
+  "36c84a8532c8112481c6ab94f489b0187bbf4f81b09924d6fbe0a8e79800a14a": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750774962848,
+    "requestId": "asj16pppnkw"
+  },
+  "72875ea124c44f661a03aca097743e34cd069321220f8e0eb105016608dc18e6": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750774963943,
+    "requestId": "asj16pppnkw"
+  },
+  "2d5b65641b0dca7d9d39f706fc7d7c9a2620fc9e3edfb11c72e31d452c2c743c": {
+    "data": {
+      "progress": "The extracted content indicates that the login screen is visible, as 'loginRequired' is set to true.",
+      "completed": true
+    },
+    "timestamp": 1750774965392,
+    "requestId": "asj16pppnkw"
+  },
+  "f20f8196a5c01b3d006518a9f8bf6a604c02389fee4587a369ec3e1d1fa32629": {
+    "data": {
+      "accountChooser": false
+    },
+    "timestamp": 1750774993572,
+    "requestId": "1jt122mx017"
+  },
+  "d300636ed8b51ec880fc6566a57b41ef93fe0cf5c4bde83619551f06247efb2e": {
+    "data": {
+      "accountChooser": false
+    },
+    "timestamp": 1750774994402,
+    "requestId": "1jt122mx017"
+  },
+  "8bf53a5b652194a89824a0f4604d526cebbe837929b376e07ee7689c8b43faba": {
+    "data": {
+      "progress": "The current extraction indicates that the Google account chooser is not visible, as 'accountChooser' is set to false.",
+      "completed": false
+    },
+    "timestamp": 1750774995203,
+    "requestId": "1jt122mx017"
+  },
+  "ebbdddc92319cb8d19c151343540b01f7a44b37313b843401440090dfa4a4804": {
+    "data": {
+      "accountChooser": false
+    },
+    "timestamp": 1750774997867
+  },
+  "cd76fdc637cd9e2c8d7b2eea7a1d2c1ccd031bc25fb03b023b0388bcfc1b4eb3": {
+    "data": {
+      "progress": "The extraction response indicates that the account chooser is not visible based on the current chunk.",
+      "completed": false
+    },
+    "timestamp": 1750774999508
+  },
+  "2a5ed3c067f18f4a3daec6cfacf5bca6d23a919a0d1c80fb4f20366b746fabfc": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750776590071,
+    "requestId": "bsjgg0l813q"
+  },
+  "5a31b567a29b570d4fec178f75b70a90d24408efc72f005c0030678ffa743328": {
+    "data": {
+      "needsLogin": true
+    },
+    "timestamp": 1750776590860,
+    "requestId": "bsjgg0l813q"
+  },
+  "08079665778d85c5d465f2401ec6859a2628c91f952df2fb6e33fa585a6aaf09": {
+    "data": {
+      "progress": "The extraction response indicates that the current page requires login, as evidenced by the 'needsLogin' field being set to true.",
+      "completed": true
+    },
+    "timestamp": 1750776592278,
+    "requestId": "bsjgg0l813q"
+  },
+  "02cd519bda6292d1bd2165f4c375f7e7d88d9d0454e29320827d27203dbb444a": {
+    "data": {
+      "needsLogin": false
+    },
+    "timestamp": 1750776738733,
+    "requestId": "4uad54jf45l"
+  },
+  "35d3efb9f3cfcf4f912697207342354994b0e69d3fdb52ddf54b5fcbcf27b957": {
+    "data": {
+      "needsLogin": false
+    },
+    "timestamp": 1750776739754,
+    "requestId": "4uad54jf45l"
+  },
+  "f088724dc96ffcbafc952865959a5abcbcc3e15fbb5bce9d8680bf0fcaf1cf0d": {
+    "data": {
+      "progress": "The extracted content indicates that the Airtable page does not require login, as 'needsLogin' is set to false.",
+      "completed": false
+    },
+    "timestamp": 1750776741999,
+    "requestId": "4uad54jf45l"
+  },
+  "0370f19afa8baded2ab68545ea59ef575df7de3d78cbecaf10d721ffe3193c84": {
+    "data": {
+      "needsLogin": false
+    },
+    "timestamp": 1750776745314
+  },
+  "e3e8d7ad7042e3612be0b6b50ccdbb92b47d73d047128d3237e057a27330263d": {
+    "data": {
+      "needsLogin": false
+    },
+    "timestamp": 1750776745870
+  },
+  "1e287ea76bbb9cdc71154c2cbb4945aa237fb55806783ba47612501c39b7326d": {
+    "data": {
+      "progress": "The extracted content indicates that the Airtable page does not require login, as 'needsLogin' is set to false.",
+      "completed": false
+    },
+    "timestamp": 1750776747134
+  },
+  "f6a3bbb3db6e0259e74f8e0fb1db833a360b73cbc95e49d7207ca2a94a304cc1": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750777919434,
+    "requestId": "p9v7lnxcktq"
+  },
+  "992e65ea9720282a1adf9152ce066e7e5f0333886aad5898a0f39c44d5468ff7": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750777920070,
+    "requestId": "p9v7lnxcktq"
+  },
+  "ec31fd45dbab54b242d7b4034b2832eaa53373427d691fe8a6ed9f3c06068f28": {
+    "data": {
+      "progress": "The extracted content indicates that a sign-in form or email/phone input field was detected, setting loginRequired to true.",
+      "completed": true
+    },
+    "timestamp": 1750777921833,
+    "requestId": "p9v7lnxcktq"
+  },
+  "5a7ca1c1608e1cf5dcc031f76ba6b60abb7876150d544b2c5d179fc086160a8e": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750778037938,
+    "requestId": "u4mp2mjfuz"
+  },
+  "cc4a6c1c1eb1279ef9b8ef22245e577a765eb306a491beee7ef94f2efb1c78b0": {
+    "data": {
+      "loginRequired": true
+    },
+    "timestamp": 1750778038493,
+    "requestId": "u4mp2mjfuz"
+  },
+  "91ebfb9b63754ace2edb847064edeeb6a8c3e47de4e1f12f0ecf809d2f589da1": {
+    "data": {
+      "progress": "The extracted content indicates that 'loginRequired' is set to true, suggesting that elements like 'Log in', 'Continue with Google', or email/password fields were detected.",
+      "completed": true
+    },
+    "timestamp": 1750778039593,
+    "requestId": "u4mp2mjfuz"
+  },
+  "3a846d4c7fc935febaef14f8043c94a372627c22b22d8cac28185461e0d297f3": {
+    "data": {
+      "chooseAccount": true
+    },
+    "timestamp": 1750778049680,
+    "requestId": "c21lwqyxby7"
+  },
+  "959741e66afef3ce171d6d5b8aefff4a79254968084ed07bcdc26785d5657127": {
+    "data": {
+      "chooseAccount": true
+    },
+    "timestamp": 1750778050130,
+    "requestId": "c21lwqyxby7"
+  },
+  "b6f341b8df5a64b67e75a6a8fbc65c87c02c13203e249dc5cdd3d2766cd6123b": {
+    "data": {
+      "progress": "The extraction response indicates that a list of Google accounts is present, as 'chooseAccount' is set to true.",
+      "completed": true
+    },
+    "timestamp": 1750778051237,
+    "requestId": "c21lwqyxby7"
+  },
+  "63d6dc7c3d0941650aee46ebf3edb8295a5340fc8fead39c726d9ea99eb90824": {
+    "data": {
+      "inboxVisible": false
+    },
+    "timestamp": 1750779292854,
+    "requestId": "y2lcprdjjd"
+  },
+  "37dbfd7b5a136950a61799d15d06e6a05b0bf492edad1c1cbfdc3fb9d9d53264": {
+    "data": {
+      "inboxVisible": false
+    },
+    "timestamp": 1750779293454,
+    "requestId": "y2lcprdjjd"
+  },
+  "62fe3f5fc8b7fee479e92d2cea34e304a6628805d86b2d25c98c67b5a679222a": {
+    "data": {
+      "progress": "The extraction indicates that the Gmail inbox is not visible as the 'Compose' button was not found.",
+      "completed": false
+    },
+    "timestamp": 1750779294898,
+    "requestId": "y2lcprdjjd"
+  },
+  "c0bfdf73e2ead1260afa0aa03e8822c754f29eb60b7d799f2c2dc76ea0b9730c": {
+    "data": {
+      "inboxVisible": false
+    },
+    "timestamp": 1750779297314
+  },
+  "1c07149a50f2c888dedebde10d6bdd75d9a9941f3ef2133c1566850215bfe7fc": {
+    "data": {
+      "progress": "The extraction response indicates that the Gmail inbox is not visible as the Compose button was not found.",
+      "completed": false
+    },
+    "timestamp": 1750779298765
+  },
+  "85cfa41715a5284be560f00b221942c2a0eecb05d6484ecaf402ee3e46a851d2": {
+    "data": {
+      "loginSuccess": false
+    },
+    "timestamp": 1750779311883,
+    "requestId": "4tcaqbt9u97"
+  },
+  "a512bbb94ba475c51ced2559ff2cdebd9cf14892448fea1c44fa5baa26671955": {
+    "data": {
+      "loginSuccess": false
+    },
+    "timestamp": 1750779312490,
+    "requestId": "4tcaqbt9u97"
+  },
+  "05289c861d25fcefb053651edab02226219a847d26d7cb8d5250c6036f32aeeb": {
+    "data": {
+      "progress": "The login attempt was unsuccessful, so the Gmail inbox is not visible yet.",
+      "completed": false
+    },
+    "timestamp": 1750779313652,
+    "requestId": "4tcaqbt9u97"
+  },
+  "80b14d6557750c4b69344eb8ca779c7dc8692f066285928400e44f21ad256e6a": {
+    "data": {
+      "loginSuccess": false
+    },
+    "timestamp": 1750779315803
+  },
+  "2d1da01baafa61b0dab12709d9d7a41eae542771eba6898b252854c08bb9aa89": {
+    "data": {
+      "progress": "The login attempt was unsuccessful, so the Gmail inbox is not visible yet.",
+      "completed": false
+    },
+    "timestamp": 1750779316634
+  }
+}

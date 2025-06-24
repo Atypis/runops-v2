@@ -8,6 +8,11 @@ import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
 
+// Set Gmail credentials for testing
+process.env.GMAIL_EMAIL = 'michaelburner595@gmail.com';
+process.env.GMAIL_PASSWORD = 'dCdWqhgPzJev6Jz';
+console.log('[SERVER] Gmail credentials set for testing');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 

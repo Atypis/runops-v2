@@ -63,7 +63,7 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'update_node',
-        description: 'Update an existing node configuration',
+        description: 'Update an existing node in the workflow',
         parameters: {
           type: 'object',
           properties: {
@@ -73,10 +73,41 @@ export function createToolDefinitions() {
             },
             updates: {
               type: 'object',
-              description: 'Fields to update'
+              description: 'Object containing fields to update. Valid fields: type, config (maps to params), description, status, result, position'
             }
           },
           required: ['nodeId', 'updates']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_nodes',
+        description: 'Update multiple nodes in the workflow in a single operation',
+        parameters: {
+          type: 'object',
+          properties: {
+            updates: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  nodeId: {
+                    type: 'string',
+                    description: 'ID of the node to update'
+                  },
+                  updates: {
+                    type: 'object',
+                    description: 'Object containing fields to update'
+                  }
+                },
+                required: ['nodeId', 'updates']
+              },
+              description: 'Array of update objects, each with nodeId and updates'
+            }
+          },
+          required: ['updates']
         }
       }
     },
@@ -94,6 +125,26 @@ export function createToolDefinitions() {
             }
           },
           required: ['nodeId']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'delete_nodes',
+        description: 'Delete multiple nodes from the workflow in a single operation',
+        parameters: {
+          type: 'object',
+          properties: {
+            nodeIds: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Array of node IDs to delete'
+            }
+          },
+          required: ['nodeIds']
         }
       }
     },

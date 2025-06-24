@@ -27,18 +27,34 @@ export class BrowserQueryPrimitive extends BasePrimitive {
   }
 
   async extract(instruction, schema) {
+    console.log('[DEBUG] extract called with instruction:', instruction);
+    console.log('[DEBUG] extract called with schema:', JSON.stringify(schema, null, 2));
+    
     // Convert simple JSON schema to Zod if provided
     let zodSchema = null;
     
     if (schema && typeof schema === 'object') {
+      console.log('[DEBUG] Converting schema to Zod...');
       zodSchema = this.convertJsonSchemaToZod(schema);
+      console.log('[DEBUG] Converted zodSchema:', zodSchema);
+    } else {
+      console.log('[DEBUG] No schema provided or schema is not an object');
     }
     
     // Use StageHand's AI extraction on the current page
-    const result = await this.currentPage.extract({ 
-      instruction, 
-      schema: zodSchema 
-    });
+    console.log('[DEBUG] Calling StageHand extract with zodSchema:', zodSchema);
+    let result;
+    try {
+      result = await this.currentPage.extract({ 
+        instruction, 
+        schema: zodSchema 
+      });
+      console.log('[DEBUG] StageHand extract returned:', result);
+    } catch (error) {
+      console.error('[DEBUG] StageHand extract error:', error);
+      console.error('[DEBUG] Error stack:', error.stack);
+      throw error;
+    }
     
     // Store the result in state - automatically store all extracted properties
     if (result && typeof result === 'object') {

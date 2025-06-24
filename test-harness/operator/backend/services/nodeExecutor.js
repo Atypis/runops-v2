@@ -1,5 +1,6 @@
 import { Stagehand } from '@browserbasehq/stagehand';
 import OpenAI from 'openai';
+import { z } from 'zod';
 import { supabase } from '../config/supabase.js';
 
 export class NodeExecutor {
@@ -10,12 +11,32 @@ export class NodeExecutor {
     this.stagehandInstance = null;
   }
 
+  // StageHand logging control:
+  // - Set STAGEHAND_VERBOSE=0 for minimal logging
+  // - Set STAGEHAND_VERBOSE=2 for debug logging (includes OpenAI logs)
+  // - Default filters out noisy OpenAI DOM snapshots
+
   async getStagehand() {
     if (!this.stagehandInstance) {
       this.stagehandInstance = new Stagehand({
         env: 'LOCAL',
         headless: false,
-        enableCaching: true
+        enableCaching: true,
+        verbose: process.env.STAGEHAND_VERBOSE ? parseInt(process.env.STAGEHAND_VERBOSE) : 1,
+        logger: (logLine) => {
+          // Filter out noisy stagehand:openai logs with DOM snapshots
+          if (logLine.category === 'stagehand:openai') {
+            // Only log errors from OpenAI
+            if (logLine.level === 0 || logLine.message.includes('error')) {
+              console.log(`[${logLine.category}] ${logLine.message.substring(0, 200)}...`);
+            }
+            return; // Skip normal OpenAI logs
+          }
+          
+          // Log everything else normally
+          const timestamp = new Date().toISOString();
+          console.log(`${timestamp}::[${logLine.category || 'stagehand'}] ${logLine.message}`);
+        }
       });
       await this.stagehandInstance.init();
     }
@@ -23,13 +44,21 @@ export class NodeExecutor {
   }
 
   async execute(nodeId, workflowId, options = {}) {
+    console.log(`\n[EXECUTE] Starting execution for node ${nodeId} in workflow ${workflowId}`);
+    
     const { data: node, error } = await supabase
       .from('nodes')
       .select('*')
       .eq('id', nodeId)
       .single();
       
-    if (error) throw error;
+    if (error) {
+      console.error(`[EXECUTE] Error fetching node:`, error);
+      throw error;
+    }
+    
+    console.log(`[EXECUTE] Node type: ${node.type}`);
+    console.log(`[EXECUTE] Node params:`, JSON.stringify(node.params, null, 2));
 
     // Log execution start
     await this.logExecution(nodeId, workflowId, 'info', 'Node execution started');
@@ -39,13 +68,14 @@ export class NodeExecutor {
       
       switch (node.type) {
         case 'browser_action':
-          result = await this.executeBrowserAction(node.params);
+          console.log(`[EXECUTE] Executing browser action...`);
+          result = await this.executeBrowserAction(node.params, workflowId);
           break;
         case 'browser_query':
           result = await this.executeBrowserQuery(node.params);
           break;
         case 'transform':
-          result = await this.executeTransform(node.params, options.inputData);
+          result = await this.executeTransform(node.params, workflowId);
           break;
         case 'cognition':
           result = await this.executeCognition(node.params, options.inputData);
@@ -54,7 +84,16 @@ export class NodeExecutor {
           result = await this.executeMemory(node.params, workflowId);
           break;
         case 'context':
+          console.log(`[EXECUTE] Executing context operation...`);
           result = await this.executeContext(node.params, workflowId);
+          break;
+        case 'route':
+          console.log(`[EXECUTE] Executing route...`);
+          result = await this.executeRoute(node.params, workflowId);
+          break;
+        case 'iterate':
+          console.log(`[EXECUTE] Executing iterate...`);
+          result = await this.executeIterate(node.params, workflowId);
           break;
         default:
           throw new Error(`Unsupported node type: ${node.type}`);
@@ -72,6 +111,24 @@ export class NodeExecutor {
           executed_at: new Date().toISOString()
         })
         .eq('id', nodeId);
+      
+      // Also store the result in workflow memory for easy access by subsequent nodes
+      // This allows referencing via state.node[position] or direct node[position]
+      if (result !== null && result !== undefined && node.position) {
+        try {
+          await supabase
+            .from('workflow_memory')
+            .upsert({
+              workflow_id: workflowId,
+              key: `node${node.position}`,
+              value: result
+            });
+          console.log(`[EXECUTE] Stored node position ${node.position} (id: ${nodeId}) result in workflow memory`);
+        } catch (memError) {
+          console.error(`[EXECUTE] Failed to store node result in memory:`, memError);
+          // Don't fail the execution if memory storage fails
+        }
+      }
       
       return { success: true, data: result };
     } catch (error) {
@@ -92,10 +149,20 @@ export class NodeExecutor {
     }
   }
 
-  async executeBrowserAction(config) {
+  async executeBrowserAction(config, workflowId) {
     const stagehand = await this.getStagehand();
     const page = stagehand.page;
     const context = page.context();
+    
+    // Helper to get the current active StagehandPage
+    const getActiveStagehandPage = async () => {
+      // If we have named tabs and one is marked as active, use it
+      if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+        return this.stagehandPages[this.activeTabName];
+      }
+      // Otherwise, use the main stagehand instance's page
+      return stagehand.page;
+    };
 
     switch (config.action) {
       case 'navigate':
@@ -103,40 +170,177 @@ export class NodeExecutor {
         return { navigated: config.url };
         
       case 'click':
-        if (config.selector.startsWith('text=')) {
-          await stagehand.act({ action: `click on ${config.selector.slice(5)}` });
-        } else {
-          await page.click(config.selector);
+        // Support multiple selector strategies with fallback
+        let clicked = false;
+        let lastError = null;
+        
+        // Handle array of selectors (try each until one works)
+        const selectors = Array.isArray(config.selector) ? config.selector : [config.selector];
+        
+        for (const selector of selectors) {
+          try {
+            if (selector.startsWith('text=')) {
+              console.log(`[CLICK] Trying text selector: ${selector}`);
+              const activePage = await getActiveStagehandPage();
+              await activePage.act({ action: `click on ${selector.slice(5)}` });
+              clicked = true;
+              break;
+            } else if (selector.startsWith('act:')) {
+              console.log(`[CLICK] Using natural language: ${selector.slice(4)}`);
+              const activePage = await getActiveStagehandPage();
+              await activePage.act({ action: selector.slice(4) });
+              clicked = true;
+              break;
+            } else {
+              console.log(`[CLICK] Trying CSS selector: ${selector}`);
+              const activePage = await getActiveStagehandPage();
+              await activePage.click(selector, { timeout: 5000 });
+              clicked = true;
+              break;
+            }
+          } catch (error) {
+            console.log(`[CLICK] Selector failed: ${selector}, error: ${error.message}`);
+            lastError = error;
+          }
         }
+        
+        if (!clicked && config.fallback) {
+          console.log(`[CLICK] All selectors failed, using fallback instruction: ${config.fallback}`);
+          const activePage = await getActiveStagehandPage();
+          await activePage.act({ action: config.fallback });
+          clicked = true;
+        }
+        
+        if (!clicked) {
+          throw lastError || new Error('Click failed - no selectors worked');
+        }
+        
         return { clicked: config.selector };
         
       case 'type':
-        if (config.selector.startsWith('text=')) {
-          await stagehand.act({ action: `type "${config.text || config.value}" into ${config.selector.slice(5)}` });
+        // Resolve variables in the text
+        console.log(`[TYPE ACTION] Original text: "${config.text || config.value}"`);
+        console.log(`[TYPE ACTION] Workflow ID: ${workflowId}`);
+        console.log(`[TYPE ACTION] Selector: ${config.selector}`);
+        
+        let textToType = config.text || config.value;
+        
+        // Check if it's a state reference (e.g., state.gmailCreds.email)
+        if (typeof textToType === 'string' && textToType.startsWith('state.')) {
+          const path = textToType.substring(6); // Remove 'state.' prefix
+          textToType = await this.getStateValue(path, workflowId);
+          console.log(`[TYPE ACTION] Resolved from state: "${textToType}"`);
         } else {
-          await page.type(config.selector, config.text || config.value);
+          // Try template resolution for backward compatibility
+          textToType = await this.resolveVariable(textToType, workflowId);
+          console.log(`[TYPE ACTION] Resolved text: "${textToType}"`);
         }
-        return { typed: config.text || config.value };
+        
+        if (!textToType || textToType === 'undefined') {
+          console.error(`[TYPE ACTION] No text to type!`);
+          console.error(`[TYPE ACTION] Original value: "${config.text || config.value}"`);
+          console.error(`[TYPE ACTION] This usually means the state variable doesn't exist.`);
+          throw new Error(`No text to type. Tried to access: "${config.text || config.value}" but got undefined`);
+        }
+        
+        // Support multiple selector strategies with fallback
+        let typed = false;
+        let lastTypeError = null;
+        
+        // Handle array of selectors (try each until one works)
+        const typeSelectors = Array.isArray(config.selector) ? config.selector : [config.selector];
+        
+        for (const selector of typeSelectors) {
+          try {
+            if (selector.startsWith('text=')) {
+              console.log(`[TYPE ACTION] Using text selector: ${selector}`);
+              const activePage = await getActiveStagehandPage();
+              await activePage.act({ action: `type "${textToType}" into ${selector.slice(5)}` });
+              typed = true;
+              break;
+            } else if (selector.startsWith('act:')) {
+              console.log(`[TYPE ACTION] Using natural language: ${selector.slice(4)}`);
+              const activePage = await getActiveStagehandPage();
+              await activePage.act({ action: `${selector.slice(4)} and type "${textToType}"` });
+              typed = true;
+              break;
+            } else {
+              console.log(`[TYPE ACTION] Using CSS selector: ${selector}`);
+              const activePage = await getActiveStagehandPage();
+              await activePage.type(selector, textToType, { timeout: 5000 });
+              typed = true;
+              break;
+            }
+          } catch (error) {
+            console.log(`[TYPE ACTION] Selector failed: ${selector}, error: ${error.message}`);
+            lastTypeError = error;
+          }
+        }
+        
+        if (!typed && config.fallback) {
+          console.log(`[TYPE ACTION] All selectors failed, using fallback: ${config.fallback}`);
+          const activePage = await getActiveStagehandPage();
+          await activePage.act({ action: `${config.fallback} and type "${textToType}"` });
+          typed = true;
+        }
+        
+        if (!typed) {
+          throw lastTypeError || new Error('Type failed - no selectors worked');
+        }
+        
+        console.log(`[TYPE ACTION] Successfully typed text`);
+        return { typed: textToType };
         
       case 'wait':
         await page.waitForTimeout(config.duration || 1000);
         return { waited: config.duration || 1000 };
         
       case 'openNewTab':
-        const newPage = await context.newPage();
+        // Get StageHand instance to access its context
+        const stagehandForNewTab = await this.getStagehand();
+        
+        // Create new page through StageHand's context
+        // This automatically wraps it in a StagehandPage with act/extract/observe methods
+        const newStagehandPage = await stagehandForNewTab.context.newPage();
+        
         if (config.url) {
-          await newPage.goto(config.url);
+          await newStagehandPage.goto(config.url);
         }
-        // Store the page reference if a name is provided
+        
+        // Store the StagehandPage reference if a name is provided
         if (config.name) {
-          this.pages = this.pages || {};
-          this.pages[config.name] = newPage;
+          this.stagehandPages = this.stagehandPages || {};
+          this.stagehandPages[config.name] = newStagehandPage;
+          // Mark this tab as active
+          this.activeTabName = config.name;
         }
-        return { openedTab: config.name || 'unnamed', url: config.url };
+        
+        // Make the new tab visually active
+        await newStagehandPage.bringToFront();
+        
+        console.log(`[OPEN NEW TAB] Created new tab: ${config.name || 'unnamed'}`);
+        console.log(`[OPEN NEW TAB] StageHand automatically wrapped it with act/extract/observe capabilities`);
+        console.log(`[OPEN NEW TAB] Tab is now active for subsequent operations`);
+        
+        return { openedTab: config.name || 'unnamed', url: config.url, active: true };
         
       case 'switchTab':
-        if (this.pages && this.pages[config.tabName]) {
-          await this.pages[config.tabName].bringToFront();
+        if (this.stagehandPages && this.stagehandPages[config.tabName]) {
+          const targetStagehandPage = this.stagehandPages[config.tabName];
+          
+          // Bring the underlying Playwright page to front
+          await targetStagehandPage.page.bringToFront();
+          
+          // Mark this tab as the active one
+          this.activeTabName = config.tabName;
+          
+          // Note: StageHand manages its active page internally
+          // The act/extract/observe methods should be called on the specific StagehandPage
+          // not on the main stagehand instance
+          
+          console.log(`[SWITCH TAB] Switched to tab: ${config.tabName}`);
+          console.log(`[SWITCH TAB] StagehandPage is active and ready for commands`);
+          
           return { switchedTo: config.tabName };
         }
         throw new Error(`Tab with name "${config.tabName}" not found`);
@@ -184,6 +388,14 @@ export class NodeExecutor {
           title: await page.title()
         };
         
+      case 'act':
+        // Use StageHand's natural language action capability
+        console.log(`[ACT] Executing natural language action: ${config.instruction}`);
+        const activePage = await getActiveStagehandPage();
+        const result = await activePage.act({ action: config.instruction });
+        console.log(`[ACT] Action completed`);
+        return { acted: config.instruction, result };
+        
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
     }
@@ -191,17 +403,34 @@ export class NodeExecutor {
 
   async executeBrowserQuery(config) {
     const stagehand = await this.getStagehand();
+    
+    // Helper to get the active StagehandPage
+    const getActiveStagehandPage = async () => {
+      if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+        return this.stagehandPages[this.activeTabName];
+      }
+      // Fallback to main stagehand page if no active tab
+      return stagehand.page;
+    };
 
     if (config.method === 'extract') {
-      // Use StageHand's extract for structured data extraction
-      const result = await stagehand.extract({
+      // Convert simple JSON schema to Zod if provided
+      let zodSchema = undefined;
+      if (config.schema && typeof config.schema === 'object') {
+        zodSchema = this.convertJsonSchemaToZod(config.schema);
+      }
+      
+      // Use the active StagehandPage's extract method
+      const activePage = await getActiveStagehandPage();
+      const result = await activePage.extract({
         instruction: config.instruction,
-        schema: config.schema || undefined
+        schema: zodSchema
       });
       return result;
     } else if (config.method === 'observe') {
-      // Use StageHand's observe to find interactive elements
-      const result = await stagehand.observe({
+      // Use the active StagehandPage's observe method
+      const activePage = await getActiveStagehandPage();
+      const result = await activePage.observe({
         instruction: config.instruction
       });
       return result;
@@ -246,24 +475,87 @@ export class NodeExecutor {
   }
 
   async executeMemory(config, workflowId) {
+    console.log(`[MEMORY] Operation: ${config.operation}, Key: ${config.key}`);
+    console.log(`[MEMORY] Value:`, JSON.stringify(config.value, null, 2));
+    
     switch (config.operation) {
       case 'set':
-        await supabase
+        // Resolve environment variables in the value
+        let resolvedValue = config.value;
+        if (typeof resolvedValue === 'object') {
+          resolvedValue = this.resolveEnvVarsInObject(resolvedValue);
+        } else if (typeof resolvedValue === 'string') {
+          resolvedValue = this.resolveEnvVar(resolvedValue);
+        }
+        
+        console.log(`[MEMORY] Resolved value:`, JSON.stringify(resolvedValue, null, 2));
+        
+        const { data: upsertData, error } = await supabase
           .from('workflow_memory')
           .upsert({
             workflow_id: workflowId,
             key: config.key,
-            value: config.value
-          });
+            value: resolvedValue
+          })
+          .select();
+        
+        if (error) {
+          console.error(`[MEMORY] Error setting value:`, JSON.stringify(error, null, 2));
+          console.error(`[MEMORY] Error type:`, error.constructor.name);
+          console.error(`[MEMORY] Error code:`, error.code);
+          console.error(`[MEMORY] Error message:`, error.message);
+          console.error(`[MEMORY] Error details:`, error.details);
+          console.error(`[MEMORY] Error hint:`, error.hint);
+          console.error(`[MEMORY] Full error object:`, error);
+          
+          // Check if it's a missing table error
+          if (error.code === '42P01' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+            console.error(`[MEMORY] Table 'workflow_memory' does not exist in the database!`);
+            console.error(`[MEMORY] Please create the table using the following SQL:`);
+            console.error(`
+CREATE TABLE workflow_memory (
+  id SERIAL PRIMARY KEY,
+  workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(workflow_id, key)
+);
+
+CREATE INDEX idx_workflow_memory_workflow_id ON workflow_memory(workflow_id);
+CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
+            `);
+          }
+          throw error;
+        }
+        
+        console.log(`[MEMORY] Successfully set ${config.key}, data:`, upsertData);
         return { set: config.key };
         
       case 'get':
-        const { data } = await supabase
+        const { data, error: getError } = await supabase
           .from('workflow_memory')
           .select('value')
           .eq('workflow_id', workflowId)
           .eq('key', config.key)
           .single();
+        
+        if (getError) {
+          console.error(`[MEMORY] Error getting value:`, JSON.stringify(getError, null, 2));
+          console.error(`[MEMORY] Get error code:`, getError.code);
+          console.error(`[MEMORY] Get error message:`, getError.message);
+          
+          // Check if it's a missing table error
+          if (getError.code === '42P01' || getError.message?.includes('relation') || getError.message?.includes('does not exist')) {
+            console.error(`[MEMORY] Table 'workflow_memory' does not exist!`);
+          }
+          
+          // Don't throw on get errors, just return null
+          return null;
+        }
+        
+        console.log(`[MEMORY] Retrieved value for key '${config.key}':`, data?.value);
         return data?.value || null;
         
       default:
@@ -274,6 +566,456 @@ export class NodeExecutor {
   async executeContext(config, workflowId) {
     // Context is the new name for memory, same functionality
     return this.executeMemory(config, workflowId);
+  }
+
+  async executeRoute(config, workflowId) {
+    console.log(`[ROUTE] Evaluating route with value path: ${config.value}`);
+    
+    // Get the value to check
+    let valueToCheck;
+    if (config.value && typeof config.value === 'string') {
+      // Try to resolve any path-like value
+      if (config.value.includes('.') || config.value.startsWith('node') || config.value.startsWith('state')) {
+        // Remove 'state.' prefix if present for consistency
+        const path = config.value.startsWith('state.') ? config.value.substring(6) : config.value;
+        valueToCheck = await this.getStateValue(path, workflowId);
+        console.log(`[ROUTE] Retrieved value: ${valueToCheck}`);
+      } else {
+        // Direct value
+        valueToCheck = config.value;
+      }
+    } else {
+      valueToCheck = config.value;
+    }
+    
+    // Determine which path to take
+    let selectedPath = null;
+    let selectedBranch = null;
+    
+    if (config.paths) {
+      // Simple value routing
+      const pathKey = String(valueToCheck);
+      if (config.paths[pathKey]) {
+        selectedPath = pathKey;
+        selectedBranch = config.paths[pathKey];
+        console.log(`[ROUTE] Taking path: ${pathKey}`);
+      } else if (config.paths.default) {
+        selectedPath = 'default';
+        selectedBranch = config.paths.default;
+        console.log(`[ROUTE] Taking default path`);
+      }
+    } else if (config.conditions) {
+      // Condition-based routing
+      for (const condition of config.conditions) {
+        const conditionMet = await this.evaluateCondition(condition, workflowId);
+        if (conditionMet) {
+          selectedPath = `condition_${config.conditions.indexOf(condition)}`;
+          selectedBranch = condition.branch;
+          console.log(`[ROUTE] Condition met: ${JSON.stringify(condition)}`);
+          break;
+        }
+      }
+      
+      if (!selectedBranch && config.default) {
+        selectedPath = 'default';
+        selectedBranch = config.default;
+        console.log(`[ROUTE] No conditions met, taking default path`);
+      }
+    }
+    
+    // Execute the selected branch
+    if (selectedBranch) {
+      console.log(`[ROUTE] Executing branch with ${Array.isArray(selectedBranch) ? selectedBranch.length : 1} nodes`);
+      
+      // If it's an array of nodes, execute them in sequence
+      if (Array.isArray(selectedBranch)) {
+        const results = [];
+        
+        // Get the next available position for nested nodes
+        const { data: maxPositionNode } = await supabase
+          .from('workflow_memory')
+          .select('key')
+          .eq('workflow_id', workflowId)
+          .like('key', 'node%')
+          .order('key', { ascending: false })
+          .limit(1)
+          .single();
+        
+        let nextPosition = 1;
+        if (maxPositionNode && maxPositionNode.key) {
+          const match = maxPositionNode.key.match(/node(\d+)/);
+          if (match) {
+            nextPosition = parseInt(match[1]) + 1;
+          }
+        }
+        
+        for (let i = 0; i < selectedBranch.length; i++) {
+          const node = selectedBranch[i];
+          // Assign position if not already set
+          if (!node.position) {
+            node.position = nextPosition + i;
+          }
+          console.log(`[ROUTE] Executing nested node: ${node.type} - ${node.description} (position: ${node.position})`);
+          const result = await this.executeNodeConfig(node, workflowId);
+          results.push(result);
+        }
+        return { path: selectedPath, results };
+      } else {
+        // Single node
+        // Get next position for single node
+        const { data: maxPositionNode } = await supabase
+          .from('workflow_memory')
+          .select('key')
+          .eq('workflow_id', workflowId)
+          .like('key', 'node%')
+          .order('key', { ascending: false })
+          .limit(1)
+          .single();
+        
+        let nextPosition = 1;
+        if (maxPositionNode && maxPositionNode.key) {
+          const match = maxPositionNode.key.match(/node(\d+)/);
+          if (match) {
+            nextPosition = parseInt(match[1]) + 1;
+          }
+        }
+        
+        if (!selectedBranch.position) {
+          selectedBranch.position = nextPosition;
+        }
+        console.log(`[ROUTE] Executing nested node: ${selectedBranch.type} (position: ${selectedBranch.position})`);
+        const result = await this.executeNodeConfig(selectedBranch, workflowId);
+        return { path: selectedPath, result };
+      }
+    }
+    
+    console.log(`[ROUTE] No matching path found`);
+    return { path: null, message: 'No matching path found' };
+  }
+  
+  async executeNodeConfig(nodeConfig, workflowId) {
+    // Execute a node configuration directly (used by route and iterate)
+    console.log(`[EXECUTE_CONFIG] Executing ${nodeConfig.type} node`);
+    
+    // Map the config to params based on node type
+    const params = nodeConfig.config || nodeConfig.params || {};
+    
+    let result;
+    switch (nodeConfig.type) {
+      case 'browser_action':
+        result = await this.executeBrowserAction(params, workflowId);
+        break;
+      case 'browser_query':
+        result = await this.executeBrowserQuery(params);
+        break;
+      case 'transform':
+        result = await this.executeTransform(params);
+        break;
+      case 'cognition':
+        result = await this.executeCognition(params);
+        break;
+      case 'context':
+        result = await this.executeContext(params, workflowId);
+        break;
+      case 'route':
+        result = await this.executeRoute(params, workflowId);
+        break;
+      case 'iterate':
+        result = await this.executeIterate(params, workflowId);
+        break;
+      default:
+        throw new Error(`Unsupported node type in route: ${nodeConfig.type}`);
+    }
+    
+    // Store nested node result in workflow memory if it has a position
+    if (result !== null && result !== undefined && nodeConfig.position) {
+      try {
+        await supabase
+          .from('workflow_memory')
+          .upsert({
+            workflow_id: workflowId,
+            key: `node${nodeConfig.position}`,
+            value: result
+          });
+        console.log(`[EXECUTE_CONFIG] Stored nested node position ${nodeConfig.position} result in workflow memory`);
+      } catch (memError) {
+        console.error(`[EXECUTE_CONFIG] Failed to store nested node result in memory:`, memError);
+        // Don't fail the execution if memory storage fails
+      }
+    }
+    
+    return result;
+  }
+  
+  async getStateValue(path, workflowId) {
+    // Get value from workflow memory or previous node results
+    console.log(`[STATE] Getting value for path: ${path}`);
+    
+    // Handle different path formats
+    let normalizedPath = path;
+    
+    // Convert "nodes.88.result" to "node88.result" for consistency
+    if (path.startsWith('nodes.')) {
+      normalizedPath = path.replace('nodes.', 'node');
+    }
+    
+    // Check if it's a node result reference (e.g., node82.loginRequired or node88.result.needsLogin)
+    if (normalizedPath.includes('.')) {
+      const parts = normalizedPath.split('.');
+      const nodeRef = parts[0];
+      
+      // Try to get from node results
+      if (nodeRef.startsWith('node')) {
+        const nodeIdentifier = nodeRef.replace('node', '');
+        
+        // First try to get from workflow memory (faster)
+        // This will work for position-based references (node1, node2, etc.)
+        const { data: memoryData } = await supabase
+          .from('workflow_memory')
+          .select('value')
+          .eq('workflow_id', workflowId)
+          .eq('key', `node${nodeIdentifier}`)
+          .single();
+          
+        if (memoryData && memoryData.value !== null) {
+          console.log(`[STATE] Found node ${nodeIdentifier} result in memory:`, memoryData.value);
+          
+          // Navigate to the nested property
+          let value = memoryData.value;
+          
+          // Skip "result" in the path if present (node88.result.needsLogin -> just needsLogin)
+          const propertyPath = parts.slice(1);
+          if (propertyPath[0] === 'result' && propertyPath.length > 1) {
+            propertyPath.shift();
+          }
+          
+          for (const prop of propertyPath) {
+            value = value?.[prop];
+          }
+          console.log(`[STATE] Resolved to value:`, value);
+          return value;
+        }
+        
+        // Fall back to direct node lookup if not in memory
+        // Try by position first (if it's a number), then by ID
+        let node;
+        if (!isNaN(nodeIdentifier)) {
+          // It's a number, so try position first
+          const { data: nodeByPosition } = await supabase
+            .from('nodes')
+            .select('result')
+            .eq('position', parseInt(nodeIdentifier))
+            .eq('workflow_id', workflowId)
+            .single();
+          node = nodeByPosition;
+        }
+        
+        if (!node) {
+          // Try by ID as fallback
+          const { data: nodeById } = await supabase
+            .from('nodes')
+            .select('result')
+            .eq('id', nodeIdentifier)
+            .eq('workflow_id', workflowId)
+            .single();
+          node = nodeById;
+        }
+          
+        if (node && node.result) {
+          console.log(`[STATE] Found node ${nodeIdentifier} result from database:`, node.result);
+          
+          // Navigate to the nested property
+          let value = node.result;
+          
+          // Skip "result" in the path if present (node88.result.needsLogin -> just needsLogin)
+          const propertyPath = parts.slice(1);
+          if (propertyPath[0] === 'result' && propertyPath.length > 1) {
+            propertyPath.shift();
+          }
+          
+          for (const prop of propertyPath) {
+            value = value?.[prop];
+          }
+          console.log(`[STATE] Resolved to value:`, value);
+          return value;
+        }
+      }
+    }
+    
+    // Try workflow memory
+    const { data } = await supabase
+      .from('workflow_memory')
+      .select('value')
+      .eq('workflow_id', workflowId)
+      .eq('key', path)
+      .single();
+      
+    console.log(`[STATE] Found in memory:`, data?.value);
+    
+    // If not found, log available keys for debugging
+    if (!data) {
+      const { data: allMemory } = await supabase
+        .from('workflow_memory')
+        .select('key')
+        .eq('workflow_id', workflowId);
+      
+      console.log(`[STATE] Variable '${path}' not found. Available variables:`, allMemory?.map(m => m.key) || []);
+    }
+    
+    return data?.value;
+  }
+  
+  async evaluateCondition(condition, workflowId) {
+    // Evaluate a single condition
+    const value = await this.getStateValue(condition.path, workflowId);
+    const expected = condition.value;
+    
+    switch (condition.operator) {
+      case 'equals':
+        return value === expected;
+      case 'notEquals':
+        return value !== expected;
+      case 'contains':
+        return String(value).includes(String(expected));
+      case 'exists':
+        return value !== null && value !== undefined && value !== '';
+      case 'greater':
+        return Number(value) > Number(expected);
+      case 'less':
+        return Number(value) < Number(expected);
+      case 'greaterOrEqual':
+        return Number(value) >= Number(expected);
+      case 'lessOrEqual':
+        return Number(value) <= Number(expected);
+      case 'matches':
+        return new RegExp(expected).test(String(value));
+      default:
+        console.warn(`[ROUTE] Unknown operator: ${condition.operator}`);
+        return false;
+    }
+  }
+  
+  async executeIterate(config, workflowId) {
+    console.log(`[ITERATE] Starting iteration over: ${config.over}`);
+    
+    // Get the collection to iterate over
+    const collection = await this.getStateValue(config.over.replace('state.', ''), workflowId);
+    if (!Array.isArray(collection)) {
+      console.warn(`[ITERATE] Value at ${config.over} is not an array:`, collection);
+      return { results: [], errors: [], processed: 0, total: 0 };
+    }
+    
+    console.log(`[ITERATE] Iterating over ${collection.length} items`);
+    
+    const results = [];
+    const errors = [];
+    const variable = config.variable || 'item';
+    const indexVariable = config.index || `${variable}Index`;
+    
+    // Process each item
+    for (let i = 0; i < collection.length; i++) {
+      if (config.limit && i >= config.limit) {
+        console.log(`[ITERATE] Reached limit of ${config.limit} items`);
+        break;
+      }
+      
+      const item = collection[i];
+      console.log(`[ITERATE] Processing item ${i + 1}/${collection.length}`);
+      
+      try {
+        // Set iteration variables in memory
+        await supabase
+          .from('workflow_memory')
+          .upsert([
+            { workflow_id: workflowId, key: variable, value: item },
+            { workflow_id: workflowId, key: indexVariable, value: i },
+            { workflow_id: workflowId, key: `${variable}Total`, value: collection.length }
+          ]);
+        
+        // Execute body (single node or array of nodes)
+        let result;
+        if (Array.isArray(config.body)) {
+          result = [];
+          
+          // Get the next available position for nested nodes
+          const { data: maxPositionNode } = await supabase
+            .from('workflow_memory')
+            .select('key')
+            .eq('workflow_id', workflowId)
+            .like('key', 'node%')
+            .order('key', { ascending: false })
+            .limit(1)
+            .single();
+          
+          let nextPosition = 1;
+          if (maxPositionNode && maxPositionNode.key) {
+            const match = maxPositionNode.key.match(/node(\d+)/);
+            if (match) {
+              nextPosition = parseInt(match[1]) + 1;
+            }
+          }
+          
+          for (let j = 0; j < config.body.length; j++) {
+            const node = config.body[j];
+            // Assign position if not already set
+            if (!node.position) {
+              node.position = nextPosition + j;
+            }
+            console.log(`[ITERATE] Executing nested node: ${node.type} (position: ${node.position})`);
+            const nodeResult = await this.executeNodeConfig(node, workflowId);
+            result.push(nodeResult);
+          }
+        } else {
+          // Single node - get next position
+          const { data: maxPositionNode } = await supabase
+            .from('workflow_memory')
+            .select('key')
+            .eq('workflow_id', workflowId)
+            .like('key', 'node%')
+            .order('key', { ascending: false })
+            .limit(1)
+            .single();
+          
+          let nextPosition = 1;
+          if (maxPositionNode && maxPositionNode.key) {
+            const match = maxPositionNode.key.match(/node(\d+)/);
+            if (match) {
+              nextPosition = parseInt(match[1]) + 1;
+            }
+          }
+          
+          if (!config.body.position) {
+            config.body.position = nextPosition;
+          }
+          console.log(`[ITERATE] Executing nested node: ${config.body.type} (position: ${config.body.position})`);
+          result = await this.executeNodeConfig(config.body, workflowId);
+        }
+        
+        results.push({ index: i, item, result });
+      } catch (error) {
+        console.error(`[ITERATE] Error processing item ${i}:`, error);
+        errors.push({ index: i, item, error: error.message });
+        
+        if (!config.continueOnError) {
+          console.log(`[ITERATE] Stopping due to error (continueOnError: false)`);
+          break;
+        }
+      }
+    }
+    
+    // Clean up iteration variables
+    await supabase
+      .from('workflow_memory')
+      .delete()
+      .eq('workflow_id', workflowId)
+      .in('key', [variable, indexVariable, `${variable}Total`]);
+    
+    return {
+      results,
+      errors,
+      processed: results.length,
+      total: collection.length
+    };
   }
 
   async logExecution(nodeId, workflowId, level, message, details = null) {
@@ -287,6 +1029,200 @@ export class NodeExecutor {
         details,
         timestamp: new Date().toISOString()
       });
+  }
+
+  /**
+   * Resolve variables in text using template syntax {{variable}}
+   */
+  async resolveVariable(text, workflowId) {
+    console.log(`[RESOLVE] Input text: "${text}", type: ${typeof text}`);
+    if (!text || typeof text !== 'string') return text;
+    
+    // Handle template syntax {{variable}} or {{nested.path}}
+    if (text.includes('{{') && text.includes('}}')) {
+      console.log(`[RESOLVE] Found template syntax, fetching context for workflow: ${workflowId}`);
+      
+      // Get workflow context (stored in workflow_memory table)
+      const { data: contextData, error } = await supabase
+        .from('workflow_memory')
+        .select('*')
+        .eq('workflow_id', workflowId);
+      
+      if (error) {
+        console.error(`[RESOLVE] Error fetching context:`, error);
+        return text;
+      }
+      
+      console.log(`[RESOLVE] Context data from DB:`, contextData);
+      
+      // Build context object from database rows
+      const context = {};
+      if (contextData) {
+        contextData.forEach(row => {
+          context[row.key] = row.value;
+        });
+      }
+      console.log(`[RESOLVE] Built context object:`, JSON.stringify(context, null, 2));
+      
+      // Replace all {{variable}} patterns
+      const result = text.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+        // Remove any spaces and resolve the path
+        let cleanPath = path.trim();
+        console.log(`[RESOLVE] Resolving path: "${cleanPath}"`);
+        
+        // Handle state. prefix - remove it since context already represents state
+        if (cleanPath.startsWith('state.')) {
+          cleanPath = cleanPath.substring(6);
+          console.log(`[RESOLVE] Stripped 'state.' prefix, new path: "${cleanPath}"`);
+        }
+        
+        const resolved = this.getNestedValue(context, cleanPath);
+        console.log(`[RESOLVE] Resolved value:`, resolved);
+        return resolved !== undefined ? resolved : match;
+      });
+      
+      console.log(`[RESOLVE] Final result: "${result}"`);
+      return result;
+    }
+    
+    console.log(`[RESOLVE] No template syntax found, returning original text`);
+    return text;
+  }
+  
+  /**
+   * Get nested value from object using dot notation
+   */
+  getNestedValue(obj, path) {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  }
+  
+  /**
+   * Resolve environment variable references in a string
+   */
+  resolveEnvVar(value) {
+    if (typeof value !== 'string') return value;
+    
+    // Replace ${ENV_VAR} or {{ENV_VAR}} patterns with actual environment variable values
+    // Support both formats for flexibility
+    let result = value;
+    
+    // First handle ${ENV_VAR} format
+    result = result.replace(/\$\{([^}]+)\}/g, (match, envVar) => {
+      const envValue = process.env[envVar];
+      console.log(`[ENV] Resolving ${envVar} = ${envValue ? '[REDACTED]' : 'undefined'}`);
+      return envValue !== undefined ? envValue : match;
+    });
+    
+    // Then handle {{ENV_VAR}} format (commonly used in templates)
+    result = result.replace(/\{\{([A-Z_]+)\}\}/g, (match, envVar) => {
+      const envValue = process.env[envVar];
+      console.log(`[ENV] Resolving {{${envVar}}} = ${envValue ? '[REDACTED]' : 'undefined'}`);
+      return envValue !== undefined ? envValue : match;
+    });
+    
+    return result;
+  }
+  
+  /**
+   * Recursively resolve environment variables in an object
+   */
+  resolveEnvVarsInObject(obj) {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    
+    const resolved = Array.isArray(obj) ? [] : {};
+    
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value === 'string') {
+        resolved[key] = this.resolveEnvVar(value);
+      } else if (typeof value === 'object' && value !== null) {
+        resolved[key] = this.resolveEnvVarsInObject(value);
+      } else {
+        resolved[key] = value;
+      }
+    }
+    
+    return resolved;
+  }
+
+  /**
+   * Convert JSON schema to Zod schema
+   * Supports both simple and nested formats
+   */
+  convertJsonSchemaToZod(jsonSchema) {
+    // Handle null/undefined
+    if (!jsonSchema) return undefined;
+    
+    // If it's a string type descriptor, convert to Zod type
+    if (typeof jsonSchema === 'string') {
+      switch (jsonSchema) {
+        case 'string': return z.string();
+        case 'number': return z.number();
+        case 'boolean': return z.boolean();
+        case 'array': return z.array(z.any());
+        default: return z.any();
+      }
+    }
+    
+    // Handle nested object with 'type' property
+    if (jsonSchema.type) {
+      switch (jsonSchema.type) {
+        case 'string': return z.string();
+        case 'number': return z.number();
+        case 'boolean': return z.boolean();
+        case 'array':
+          // Handle array with items schema
+          if (jsonSchema.items) {
+            const itemSchema = this.convertJsonSchemaToZod(jsonSchema.items);
+            return z.array(itemSchema || z.any());
+          }
+          return z.array(z.any());
+        case 'object':
+          // Handle object with properties
+          if (jsonSchema.properties) {
+            const shape = {};
+            for (const [key, propSchema] of Object.entries(jsonSchema.properties)) {
+              shape[key] = this.convertJsonSchemaToZod(propSchema) || z.any();
+            }
+            return z.object(shape);
+          }
+          return z.object({});
+        default:
+          return z.any();
+      }
+    }
+    
+    // Handle simple flat format ({"field": "type"})
+    if (typeof jsonSchema === 'object') {
+      const shape = {};
+      let isSimpleFormat = true;
+      
+      // Check if all values are type strings or nested schemas
+      for (const [key, value] of Object.entries(jsonSchema)) {
+        if (typeof value === 'string') {
+          // Simple type string
+          shape[key] = this.convertJsonSchemaToZod(value);
+        } else if (typeof value === 'object') {
+          // Could be nested schema
+          const converted = this.convertJsonSchemaToZod(value);
+          if (converted) {
+            shape[key] = converted;
+          } else {
+            isSimpleFormat = false;
+            break;
+          }
+        } else {
+          isSimpleFormat = false;
+          break;
+        }
+      }
+      
+      if (isSimpleFormat && Object.keys(shape).length > 0) {
+        return z.object(shape);
+      }
+    }
+    
+    // Return undefined if no valid schema format
+    return undefined;
   }
 
   async cleanup() {
