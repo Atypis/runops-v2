@@ -156,6 +156,206 @@ router.post('/execute-node', async (req, res, next) => {
   }
 });
 
+// Execute a specific iteration of an iterate node
+router.post('/execute-iteration', async (req, res, next) => {
+  try {
+    const { nodeId, workflowId, iterationIndex, iterationData } = req.body;
+    console.log('Execute iteration request:', { nodeId, workflowId, iterationIndex });
+    
+    if (!nodeId || !workflowId || iterationIndex === undefined) {
+      return res.status(400).json({ 
+        error: 'nodeId, workflowId, and iterationIndex are required' 
+      });
+    }
+    
+    const result = await operatorService.executeIteration(nodeId, workflowId, iterationIndex, iterationData);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Execute a single step within an iteration context
+router.post('/execute-iteration-step', async (req, res, next) => {
+  try {
+    const { nodeId, workflowId, iterationIndex, iterationData, variable, parentNodeId } = req.body;
+    console.log('Execute iteration step request:', { nodeId, iterationIndex, variable });
+    
+    if (!nodeId || !workflowId || iterationIndex === undefined || !variable || !parentNodeId) {
+      return res.status(400).json({ 
+        error: 'nodeId, workflowId, iterationIndex, variable, and parentNodeId are required' 
+      });
+    }
+    
+    // Get parent node position
+    const { data: parentNode } = await operatorService.supabase
+      .from('nodes')
+      .select('position')
+      .eq('id', parentNodeId)
+      .single();
+    
+    if (!parentNode) {
+      return res.status(404).json({ error: 'Parent node not found' });
+    }
+    
+    // Use the nodeExecutor to set up iteration context and execute the step
+    const executor = operatorService.nodeExecutor;
+    
+    // Push iteration context with parent node position
+    executor.pushIterationContext(parentNode.position, iterationIndex, variable, 1);
+    
+    try {
+      // Store the iteration variable in memory
+      const varKey = executor.getStorageKey(variable);
+      await operatorService.supabase
+        .from('workflow_memory')
+        .upsert({
+          workflow_id: workflowId,
+          key: varKey,
+          value: iterationData
+        });
+      
+      // Execute the node with iteration context
+      const result = await executor.execute(nodeId, workflowId, { previewOnly: false });
+      
+      res.json({
+        success: true,
+        result,
+        iterationIndex,
+        nodeId
+      });
+    } finally {
+      // Always pop the iteration context
+      executor.popIterationContext();
+    }
+  } catch (error) {
+    console.error('Failed to execute iteration step:', error);
+    next(error);
+  }
+});
+
+// Get iteration preview data for an iterate node
+router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
+  try {
+    const { nodeId } = req.params;
+    console.log(`[ITERATION PREVIEW] Fetching preview for node ${nodeId}`);
+    
+    // Fetch the node
+    const { data: node, error } = await operatorService.supabase
+      .from('nodes')
+      .select('*')
+      .eq('id', nodeId)
+      .single();
+      
+    if (error || !node) {
+      return res.status(404).json({ error: 'Node not found' });
+    }
+    
+    if (node.type !== 'iterate') {
+      return res.status(400).json({ error: 'Node is not an iterate type' });
+    }
+    
+    // Get the collection to iterate over
+    const executor = operatorService.nodeExecutor;
+    const collection = await executor.getStateValue(
+      node.params.over.replace('state.', ''), 
+      node.workflow_id
+    );
+    
+    if (!Array.isArray(collection)) {
+      return res.json({ 
+        items: [],
+        message: 'Collection not found or not an array'
+      });
+    }
+    
+    // Get body node information
+    let bodyNodes = [];
+    if (Array.isArray(node.params.body) && node.params.body.length > 0 && typeof node.params.body[0] === 'number') {
+      const { data: nodes } = await operatorService.supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', node.workflow_id)
+        .in('position', node.params.body)
+        .order('position');
+      
+      bodyNodes = nodes || [];
+    }
+    
+    // Create preview structure similar to executeIterate preview mode
+    const preview = {
+      iterationCount: collection.length,
+      items: collection.map((item, idx) => ({
+        index: idx,
+        data: item,
+        status: 'pending',
+        results: []
+      })),
+      variable: node.params.variable || 'item',
+      bodyNodePositions: node.params.body,
+      bodyNodes: bodyNodes,
+      status: 'preview',
+      processed: 0,
+      total: collection.length
+    };
+    
+    res.json(preview);
+  } catch (error) {
+    console.error('Failed to get iteration preview:', error);
+    next(error);
+  }
+});
+
+// Get recent node values for display
+router.get('/node-values/:workflowId', async (req, res, next) => {
+  try {
+    const { workflowId } = req.params;
+    
+    // Get node values from the node executor
+    const nodeValues = operatorService.nodeExecutor.getRecentNodeValues();
+    
+    // Also fetch from database for persistence
+    const { data: storedValues } = await operatorService.supabase
+      .from('workflow_memory')
+      .select('key, value')
+      .eq('workflow_id', workflowId)
+      .like('key', 'node%');
+    
+    // Merge stored values with recent values
+    const allValues = {};
+    
+    // Process stored values
+    if (storedValues) {
+      for (const item of storedValues) {
+        const match = item.key.match(/^node(\d+)(?:@iter:(.+))?$/);
+        if (match) {
+          const position = match[1];
+          const iterContext = match[2];
+          allValues[item.key] = {
+            position: parseInt(position),
+            value: operatorService.nodeExecutor.simplifyValue(item.value),
+            storageKey: item.key,
+            fromDb: true
+          };
+        }
+      }
+    }
+    
+    // Override with recent values (fresher)
+    for (const [nodeId, data] of Object.entries(nodeValues)) {
+      allValues[data.storageKey] = {
+        ...data,
+        nodeId,
+        fromDb: false
+      };
+    }
+    
+    res.json(allValues);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Workflow management endpoints
 router.get('/workflows', async (req, res, next) => {
   try {

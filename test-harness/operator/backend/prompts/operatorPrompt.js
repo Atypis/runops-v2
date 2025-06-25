@@ -66,6 +66,14 @@ REQUIRED: method and instruction fields
   "schema": {object} (optional - for extract method only, supports both simple and nested formats)
 }
 
+CRITICAL DATA EXTRACTION BEST PRACTICE:
+When using the extract method, ALWAYS include explicit instructions to prevent data hallucination:
+- Add to your instruction: "Only extract data that is actually visible on the page. Do not make up or generate example data."
+- If searching for specific data that might not exist, add: "If no matching data is found, return an empty array/null."
+- For email extraction: "Extract only the emails that are actually displayed. Return empty array if no emails are visible."
+
+This prevents the AI from generating fictional/example data when real data is not found.
+
 Schema formats supported:
 1. **Simple flat format**: {"fieldName": "type"}
    - Types: "string", "number", "boolean", "array"
@@ -97,12 +105,12 @@ Methods:
 - observe: Find interactive elements (buttons, links, inputs) on the page
 
 Examples:
-- Simple array: {"method": "extract", "instruction": "Get all email subjects", "schema": {"subjects": "array"}}
+- Simple array: {"method": "extract", "instruction": "Get all email subjects that are actually visible on the page. Return empty array if no emails are found.", "schema": {"subjects": "array"}}
 - Flat object: {"method": "extract", "instruction": "Get first email's details", "schema": {"sender": "string", "subject": "string"}}
 - Nested array of objects (RECOMMENDED for lists):
   {
     "method": "extract",
-    "instruction": "Extract all visible emails with sender, subject, snippet, and a CSS selector to click each one",
+    "instruction": "Extract all emails that are actually visible on the page with sender, subject, snippet, and a CSS selector to click each one. Only extract real data, do not generate examples. Return empty array if no emails are found.",
     "schema": {
       "emails": {
         "type": "array",
@@ -238,17 +246,22 @@ IMPORTANT: When creating nodes, ALWAYS provide the required config parameters. E
 
 ## Multi-Tab Workflows:
 Browser tab management follows these simple rules:
-1. **Opening tabs**: openNewTab automatically makes the new tab active
+1. **Initial tab**: The first browser tab is automatically named "main"
+   - You don't need to create it - it exists when the workflow starts
+   - Navigate to your first URL in this tab normally
+2. **Opening tabs**: openNewTab automatically makes the new tab active
    - {"action": "openNewTab", "url": "https://example.com", "name": "airtable"}
    - All subsequent actions operate on this new tab
-2. **Switching tabs**: Use switchTab to change the active tab
-   - {"action": "switchTab", "tabName": "airtable"}
-3. **Tab context**: ALL actions (click, type, extract, observe, act) operate on the currently active tab
-4. **Example OAuth flow**:
+3. **Switching tabs**: Use switchTab to change the active tab
+   - {"action": "switchTab", "tabName": "airtable"} // Switch to named tab
+   - {"action": "switchTab", "tabName": "main"} // Return to original tab
+4. **Tab context**: ALL actions (click, type, extract, observe, act) operate on the currently active tab
+5. **Example OAuth flow**:
    // Start in Gmail (main tab)
+   {"action": "navigate", "url": "https://gmail.com"} // Navigate in main tab
    {"action": "openNewTab", "url": "https://airtable.com", "name": "airtable"} // Active: airtable
    {"action": "click", "selector": "text=Continue with Google"} // Clicks in airtable
-   {"action": "switchTab", "tabName": "main"} // Active: Gmail
+   {"action": "switchTab", "tabName": "main"} // Active: main (Gmail)
    {"action": "type", "selector": "#email", "text": "user@gmail.com"} // Types in Gmail
 `;
 

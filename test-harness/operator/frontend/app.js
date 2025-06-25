@@ -12,8 +12,11 @@ function App() {
   const [workflowNodes, setWorkflowNodes] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
   const [mockMode, setMockMode] = useState(false);
+  const [nodeValues, setNodeValues] = useState({}); // Storage key -> value mapping
+  const [expandedNodes, setExpandedNodes] = useState(new Set()); // Track expanded iterate nodes
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
+  const nodesPanelRef = useRef(null); // Reference to the nodes panel scroll container
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -49,6 +52,35 @@ function App() {
     loadWorkflowNodes(currentWorkflow?.id);
   }, [currentWorkflow]);
 
+  // Load node values only when needed
+  const loadNodeValues = async () => {
+    if (!currentWorkflow?.id) return;
+    
+    try {
+      const response = await fetch(`${API_BASE}/node-values/${currentWorkflow.id}`);
+      if (response.ok) {
+        const values = await response.json();
+        setNodeValues(values);
+      }
+    } catch (error) {
+      console.error('Failed to load node values:', error);
+    }
+  };
+  
+  // Initial load of node values when workflow changes
+  useEffect(() => {
+    if (currentWorkflow?.id) {
+      loadNodeValues();
+    }
+  }, [currentWorkflow?.id]);
+  
+  // Preserve scroll position after state updates
+  React.useLayoutEffect(() => {
+    if (nodesPanelRef.current && nodesPanelRef.current._lastScrollTop !== undefined) {
+      nodesPanelRef.current.scrollTop = nodesPanelRef.current._lastScrollTop;
+    }
+  });
+
   const loadWorkflows = async () => {
     try {
       const response = await fetch(`${API_BASE}/workflows`);
@@ -72,6 +104,11 @@ function App() {
         throw new Error('Failed to load workflow');
       }
       const data = await response.json();
+      console.log('[DEBUG] Loaded workflow data:', data);
+      console.log('[DEBUG] All nodes:', data.nodes?.map(n => ({ id: n.id, position: n.position, type: n.type })));
+      console.log('[DEBUG] Node 28 (iterate):', data.nodes?.find(n => n.position === 28));
+      console.log('[DEBUG] Iterate nodes:', data.nodes?.filter(n => n.type === 'iterate'));
+      
       // Filter to only show top-level nodes (those without parent_position)
       const topLevelNodes = (data.nodes || []).filter(node => 
         !node.params?._parent_position
@@ -215,21 +252,73 @@ function App() {
   };
 
   // NodeCard Component - Handles display of nodes including complex route and iterate nodes
-  const NodeCard = ({ node, executeNode, depth = 0 }) => {
-    const [expanded, setExpanded] = React.useState(false);
+  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues }) => {
+    console.log(`[DEBUG] Rendering NodeCard for node ${node.position} (${node.type}):`, { 
+      id: node.id, 
+      result: node.result,
+      status: node.status 
+    });
+    const expanded = expandedNodes?.has(node.id) || false;
+    const setExpanded = (value) => {
+      if (value) {
+        setExpandedNodes(prev => new Set([...prev, node.id]));
+      } else {
+        setExpandedNodes(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(node.id);
+          return newSet;
+        });
+      }
+    };
     const [iterationData, setIterationData] = React.useState(null);
+    const [isLoadingPreview, setIsLoadingPreview] = React.useState(false);
     const isRoute = node.type === 'route';
     const isIterate = node.type === 'iterate';
     const hasNestedNodes = isRoute && node.params?.paths;
     const hasIterateBody = isIterate && node.params?.body;
     
-    // Load iteration data when expanded
-    React.useEffect(() => {
-      if (isIterate && expanded && !iterationData && node.result?.results) {
-        // If node has been executed, show the actual iteration results
-        setIterationData(node.result.results);
+    // Function to fetch iteration preview
+    const fetchIterationPreview = React.useCallback(async () => {
+      if (isLoadingPreview) return; // Prevent duplicate fetches
+      
+      setIsLoadingPreview(true);
+      try {
+        const response = await fetch(`${API_BASE}/nodes/${node.id}/iteration-preview`);
+        if (response.ok) {
+          const preview = await response.json();
+          console.log(`[ITERATE PREVIEW] Fetched preview for node ${node.id}:`, preview);
+          if (preview.items && preview.items.length > 0) {
+            setIterationData(preview.items);
+          }
+        } else {
+          console.error('Failed to fetch iteration preview:', await response.text());
+        }
+      } catch (error) {
+        console.error('Error fetching iteration preview:', error);
+      } finally {
+        setIsLoadingPreview(false);
       }
-    }, [isIterate, expanded, node.result]);
+    }, [node.id, isLoadingPreview]);
+    
+    // Load iteration data when expanded or node result changes
+    React.useEffect(() => {
+      if (isIterate && expanded) {
+        if (node.result?.items) {
+          // New preview format from executeIterate
+          console.log(`Loading iteration data for node ${node.id}: ${node.result.items.length} items`);
+          setIterationData(node.result.items);
+        } else if (node.result?.results) {
+          // Old format - actual execution results
+          console.log(`Loading iteration results for node ${node.id}: ${node.result.results.length} results`);
+          setIterationData(node.result.results);
+        } else if (!iterationData) {
+          // No result yet and no iteration data - fetch preview data from the new endpoint
+          console.log(`No iteration data found for node ${node.id}, fetching preview...`);
+          fetchIterationPreview();
+        }
+      }
+    }, [isIterate, expanded, node.result, iterationData, fetchIterationPreview]);
+    
     
     // Helper to render a nested node or array of nodes
     const renderNestedNode = (nodeOrArray, branchName, index, depth = 0) => {
@@ -293,7 +382,11 @@ function App() {
               <span className="text-blue-600">{node.type}</span>
               {(hasNestedNodes || hasIterateBody) && (
                 <button
-                  onClick={() => setExpanded(!expanded)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setExpanded(!expanded);
+                  }}
                   className="ml-2 text-gray-500 hover:text-gray-700"
                 >
                   {expanded ? '▼' : '▶'}
@@ -319,7 +412,11 @@ function App() {
                 <span className="font-mono bg-gray-100 px-1 rounded">{node.params.variable}</span>
                 {node.result && (
                   <span className="ml-2 text-gray-600">
-                    ({node.result.processed || 0}/{node.result.total || '?'} processed)
+                    {node.result.iterationCount ? (
+                      `(${node.result.iterationCount} items ready)`
+                    ) : (
+                      `(${node.result.processed || 0}/${node.result.total || '?'} processed)`
+                    )}
                   </span>
                 )}
               </div>
@@ -354,9 +451,11 @@ function App() {
                 </div>
                 {/* Check if it's the new format (array of positions) or old format (node objects) */}
                 {Array.isArray(branchContent) && branchContent.length > 0 && typeof branchContent[0] === 'number' ? (
-                  <div className="ml-4 text-xs text-gray-600">
-                    References nodes: {branchContent.join(', ')}
-                  </div>
+                  <NestedNodesList 
+                    nodePositions={branchContent} 
+                    workflowId={currentWorkflow?.id}
+                    nodeValues={nodeValues}
+                  />
                 ) : (
                   renderNestedNode(branchContent, branchName, 0)
                 )}
@@ -368,6 +467,7 @@ function App() {
         {/* Expandable section for iterate nodes */}
         {expanded && hasIterateBody && (
           <div className="mt-3 bg-gray-50 rounded p-3">
+            {console.log('[DEBUG] Iterate expanded section:', { expanded, hasIterateBody, node })}
             <div className="text-xs font-semibold text-gray-700 mb-2">
               Iteration Body:
               {node.params.limit && (
@@ -380,25 +480,61 @@ function App() {
             {/* Show the body template */}
             <div className="mb-3">
               <div className="text-xs text-gray-600 mb-1">Template:</div>
-              {renderNestedNode(node.params.body, 'body', 0)}
+              {/* Check if body contains position numbers or node objects */}
+              {Array.isArray(node.params.body) && node.params.body.length > 0 && typeof node.params.body[0] === 'number' ? (
+                <NestedNodesList 
+                  nodePositions={node.params.body} 
+                  workflowId={currentWorkflow?.id}
+                  nodeValues={nodeValues}
+                />
+              ) : (
+                renderNestedNode(node.params.body, 'body', 0)
+              )}
             </div>
             
             {/* Show iteration results if available */}
+            {console.log('[DEBUG] About to render iterations:', { 
+              iterationData, 
+              hasData: !!iterationData, 
+              length: iterationData?.length,
+              isArray: Array.isArray(iterationData)
+            })}
             {iterationData && iterationData.length > 0 && (
               <div className="mt-3 border-t pt-3">
                 <div className="text-xs font-semibold text-gray-700 mb-2">
-                  Iteration Results:
+                  Iteration Results: {iterationData.length} items
                 </div>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {iterationData.map((iterResult, idx) => (
-                    <IterationResult 
-                      key={idx}
-                      index={idx}
-                      result={iterResult}
-                      variable={node.params.variable}
-                      parentNodeId={node.id}
-                    />
-                  ))}
+                  {iterationData.map((iterResult, idx) => {
+                    // Get the iteration item data from the result
+                    const itemData = iterResult?.data || iterResult?.item || iterResult;
+                    console.log(`Rendering iteration ${idx}:`, iterResult);
+                    
+                    // Get body nodes
+                    let bodyNodes = [];
+                    if (Array.isArray(node.params.body)) {
+                      bodyNodes = node.params.body;
+                    } else if (node.params.body) {
+                      bodyNodes = [node.params.body];
+                    }
+                    
+                    return (
+                      <IterationResult 
+                        key={idx}
+                        index={idx}
+                        result={iterResult}
+                        variable={node.params.variable}
+                        parentNodeId={node.id}
+                        parentNodePosition={node.position}
+                        iterationData={itemData}
+                        bodyNodes={bodyNodes}
+                        currentWorkflow={currentWorkflow}
+                        loadWorkflowNodes={loadWorkflowNodes}
+                        nodeValues={nodeValues}
+                        loadNodeValues={loadNodeValues}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -411,6 +547,40 @@ function App() {
             {JSON.stringify(node.params, null, 2)}
           </div>
         )}
+        
+        {/* Show node value if available */}
+        {(() => {
+          // Find value for this node position
+          const nodeKey = `node${node.position}`;
+          const nodeValue = Object.values(nodeValues).find(v => 
+            v.storageKey === nodeKey || v.storageKey?.startsWith(`${nodeKey}@iter:`)
+          );
+          
+          if (nodeValue && nodeValue.value !== undefined) {
+            return (
+              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-blue-700">Result:</span>
+                  <span className="text-xs text-gray-500 font-mono">{nodeValue.storageKey}</span>
+                </div>
+                <div className="text-xs font-mono text-gray-700 mt-1">
+                  {typeof nodeValue.value === 'boolean' ? (
+                    <span className={`font-bold ${nodeValue.value ? 'text-green-600' : 'text-red-600'}`}>
+                      {nodeValue.value.toString()}
+                    </span>
+                  ) : typeof nodeValue.value === 'object' ? (
+                    <pre className="whitespace-pre-wrap break-words">
+                      {JSON.stringify(nodeValue.value, null, 2)}
+                    </pre>
+                  ) : (
+                    <span>{String(nodeValue.value)}</span>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
     );
   };
@@ -496,7 +666,7 @@ function App() {
   };
 
   // MiniNodeCard Component - For nested nodes within routes
-  const MiniNodeCard = ({ node, index, branchPath, parentNodeId }) => {
+  const MiniNodeCard = ({ node, index, branchPath, parentNodeId, nodeValues = {} }) => {
     const executeBranchNode = async () => {
       try {
         // Execute this specific node within the branch
@@ -545,13 +715,260 @@ function App() {
             {JSON.stringify(node.config, null, 2)}
           </div>
         )}
+        
+        {/* Show node value if available and has position */}
+        {node.position && (() => {
+          const nodeKey = `node${node.position}`;
+          const nodeValue = Object.values(nodeValues).find(v => 
+            v.storageKey === nodeKey || v.storageKey?.startsWith(`${nodeKey}@iter:`)
+          );
+          
+          if (nodeValue && nodeValue.value !== undefined) {
+            return (
+              <div className="mt-1 p-1 bg-blue-50 border border-blue-200 rounded">
+                <div className="text-xs font-mono text-gray-700">
+                  <span className="text-blue-600">→</span> {
+                    typeof nodeValue.value === 'boolean' ? (
+                      <span className={`font-bold ${nodeValue.value ? 'text-green-600' : 'text-red-600'}`}>
+                        {nodeValue.value.toString()}
+                      </span>
+                    ) : (
+                      <span>{String(nodeValue.value)}</span>
+                    )
+                  }
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+      </div>
+    );
+  };
+
+  // NestedNodesList Component - Fetches and displays nested nodes by position
+  const NestedNodesList = ({ nodePositions, workflowId, nodeValues }) => {
+    const [nestedNodes, setNestedNodes] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const fetchNestedNodes = async () => {
+        if (!workflowId) return;
+        
+        try {
+          // Fetch all nodes for this workflow
+          const response = await fetch(`${API_BASE}/workflows/${workflowId}`);
+          if (!response.ok) throw new Error('Failed to fetch nodes');
+          
+          const data = await response.json();
+          const allNodes = data.nodes || [];
+          
+          // Filter to get only the nodes at the specified positions
+          const nodes = nodePositions.map(pos => 
+            allNodes.find(n => n.position === pos)
+          ).filter(Boolean);
+          
+          setNestedNodes(nodes);
+        } catch (error) {
+          console.error('Failed to fetch nested nodes:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchNestedNodes();
+    }, [nodePositions, workflowId]);
+    
+    if (loading) {
+      return <div className="ml-4 text-xs text-gray-500">Loading nested nodes...</div>;
+    }
+    
+    return (
+      <div className="ml-4 mt-2 border-l-2 border-gray-300 pl-4">
+        <div className="text-xs font-semibold text-gray-600 mb-2">
+          {nestedNodes.length} steps in branch
+        </div>
+        {nestedNodes.map((node, idx) => (
+          <div key={node.id} className="mb-2">
+            <MiniNodeCard 
+              node={{
+                ...node,
+                config: node.params,
+                type: node.type,
+                description: node.description
+              }} 
+              index={idx} 
+              branchPath={`node${node.position}`}
+              parentNodeId={null}
+              nodeValues={nodeValues}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // IterationStepsList Component - Shows executable steps within an iteration
+  const IterationStepsList = ({ nodePositions, workflowId, iterationIndex, iterationData, variable, parentNodeId, parentNodePosition, nodeValues, loadNodeValues }) => {
+    const [nodes, setNodes] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const fetchNodes = async () => {
+        if (!workflowId || !nodePositions) return;
+        
+        try {
+          const response = await fetch(`${API_BASE}/workflows/${workflowId}`);
+          if (!response.ok) throw new Error('Failed to fetch nodes');
+          
+          const data = await response.json();
+          const allNodes = data.nodes || [];
+          
+          // Filter to get only the nodes at the specified positions
+          const stepNodes = nodePositions.map(pos => 
+            allNodes.find(n => n.position === pos)
+          ).filter(Boolean);
+          
+          setNodes(stepNodes);
+        } catch (error) {
+          console.error('Failed to fetch iteration step nodes:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchNodes();
+    }, [nodePositions, workflowId]);
+    
+    const executeStep = async (nodeId, stepIndex) => {
+      console.log(`Execute step ${stepIndex} for iteration ${iterationIndex}`, { nodeId, iterationData });
+      
+      try {
+        // Execute a single step within the iteration context
+        const response = await fetch(`${API_BASE}/execute-iteration-step`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nodeId,
+            workflowId,
+            iterationIndex,
+            iterationData,
+            variable,
+            parentNodeId
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to execute step: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log('Step execution result:', result);
+        
+        // Reload node values to show updated results
+        if (loadNodeValues) {
+          await loadNodeValues();
+        }
+      } catch (error) {
+        console.error('Failed to execute step:', error);
+        alert(`Failed to execute step: ${error.message}`);
+      }
+    };
+    
+    if (loading) {
+      return <div className="ml-4 text-xs text-gray-500">Loading steps...</div>;
+    }
+    
+    return (
+      <div className="ml-4 space-y-1">
+        {nodes.map((node, idx) => {
+          // Find any stored value for this node in this iteration context
+          const iterKey = `node${node.position}@iter:${parentNodePosition}:${iterationIndex}`;
+          const nodeValue = nodeValues[iterKey];
+          
+          return (
+            <div key={node.id} className="bg-gray-50 rounded p-2 border border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="text-xs">
+                    <span className="text-gray-500">Step {idx + 1}:</span>
+                    <span className="ml-1 text-blue-600 font-medium">{node.type}</span>
+                    {node.params?.action && (
+                      <span className="text-gray-500 ml-1">:{node.params.action}</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">{node.description}</div>
+                </div>
+                <button
+                  onClick={() => executeStep(node.id, idx)}
+                  className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 ml-2"
+                  title={`Execute ${node.description}`}
+                >
+                  ▶
+                </button>
+              </div>
+              
+              {/* Show node value if available */}
+              {nodeValue && nodeValue.value !== undefined && (
+                <div className="mt-1 p-1 bg-blue-50 border border-blue-200 rounded">
+                  <div className="text-xs font-mono text-gray-700">
+                    <span className="text-blue-600">→</span> {
+                      typeof nodeValue.value === 'boolean' ? (
+                        <span className={`font-bold ${nodeValue.value ? 'text-green-600' : 'text-red-600'}`}>
+                          {nodeValue.value.toString()}
+                        </span>
+                      ) : typeof nodeValue.value === 'object' ? (
+                        <span>{JSON.stringify(nodeValue.value)}</span>
+                      ) : (
+                        <span>{String(nodeValue.value)}</span>
+                      )
+                    }
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   };
 
   // IterationResult Component - Shows results from each iteration
-  const IterationResult = ({ index, result, variable, parentNodeId }) => {
+  const IterationResult = ({ index, result, variable, parentNodeId, parentNodePosition, iterationData, bodyNodes, currentWorkflow, loadWorkflowNodes, nodeValues, loadNodeValues }) => {
     const [expanded, setExpanded] = React.useState(false);
+    
+    const executeIterationStep = async (stepIndex) => {
+      // Execute the entire iteration with this specific data
+      console.log(`Execute iteration ${index} with data:`, iterationData);
+      
+      try {
+        const response = await fetch(`${API_BASE}/execute-iteration`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nodeId: parentNodeId,
+            workflowId: currentWorkflow?.id,
+            iterationIndex: index,
+            iterationData: iterationData
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to execute iteration: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log('Iteration execution result:', result);
+        
+        // Refresh the workflow nodes to show updated results
+        if (currentWorkflow?.id) {
+          loadWorkflowNodes(currentWorkflow.id);
+        }
+      } catch (error) {
+        console.error('Failed to execute iteration:', error);
+        alert(`Failed to execute iteration: ${error.message}`);
+      }
+    };
     
     return (
       <div className="bg-white border rounded p-2">
@@ -559,24 +976,101 @@ function App() {
           className="flex justify-between items-center cursor-pointer"
           onClick={() => setExpanded(!expanded)}
         >
-          <div className="text-xs font-medium">
-            <span className="text-gray-500">Iteration {index}:</span>
-            <span className="ml-2 text-blue-600">{variable}[{index}]</span>
-            {result.error && <span className="ml-2 text-red-500">❌ Error</span>}
-            {!result.error && <span className="ml-2 text-green-500">✓</span>}
+          <div className="flex-1">
+            <div className="text-xs font-medium">
+              <span className="text-gray-500">Iteration {index + 1}:</span>
+              <span className="ml-2 text-blue-600">{variable}[{index}]</span>
+              {iterationData && (
+                <span className="ml-2 text-gray-600 italic">
+                  {iterationData.subject || iterationData.senderName || JSON.stringify(iterationData).substring(0, 50)}...
+                </span>
+              )}
+              {result && result.error && <span className="ml-2 text-red-500">❌ Error</span>}
+              {result && !result.error && <span className="ml-2 text-green-500">✓</span>}
+            </div>
           </div>
-          <span className="text-gray-400">{expanded ? '▼' : '▶'}</span>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                executeIterationStep(0);
+              }}
+              className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+              title="Run this iteration"
+            >
+              Run
+            </button>
+            <span className="text-gray-400">{expanded ? '▼' : '▶'}</span>
+          </div>
         </div>
         
         {expanded && (
-          <div className="mt-2 text-xs">
-            {result.error ? (
-              <div className="text-red-600 font-mono text-xs">
-                Error: {result.error}
+          <div className="mt-2">
+            {/* Show iteration data */}
+            {iterationData && (
+              <div className="mb-3 p-2 bg-gray-50 rounded">
+                <div className="text-xs font-semibold text-gray-700 mb-1">Iteration Data:</div>
+                <div className="font-mono text-gray-600" style={{fontSize: '10px'}}>
+                  {JSON.stringify(iterationData, null, 2)}
+                </div>
               </div>
-            ) : (
-              <div className="font-mono text-gray-600" style={{fontSize: '10px'}}>
-                {JSON.stringify(result, null, 2)}
+            )}
+            
+            {/* Show body nodes for this iteration */}
+            {bodyNodes && bodyNodes.length > 0 && (
+              <div className="mb-2">
+                <div className="text-xs font-semibold text-gray-700 mb-1">Steps in this iteration:</div>
+                {/* Use NestedNodesList if we have position numbers */}
+                {typeof bodyNodes[0] === 'number' ? (
+                  <IterationStepsList 
+                    nodePositions={bodyNodes}
+                    workflowId={currentWorkflow?.id}
+                    iterationIndex={index}
+                    iterationData={iterationData}
+                    variable={variable}
+                    parentNodeId={parentNodeId}
+                    parentNodePosition={parentNodePosition}
+                    nodeValues={nodeValues}
+                    loadNodeValues={loadNodeValues}
+                  />
+                ) : (
+                  // Old format with inline nodes
+                  bodyNodes.map((node, stepIndex) => (
+                    <div key={stepIndex} className="ml-2 mb-1 flex items-center justify-between">
+                      <div className="text-xs">
+                        <span className="text-gray-500">Step {stepIndex + 1}:</span>
+                        <span className="ml-1 text-blue-600">{node.type}</span>
+                        <span className="ml-1 text-gray-600">{node.description}</span>
+                      </div>
+                      <span className="text-xs text-gray-400 font-mono">
+                        iter[{index}]
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+            
+            {/* Show results if available */}
+            {result && (
+              <div className="mt-3">
+                <div className="text-xs font-semibold text-gray-700 mb-1">
+                  Iteration Results:
+                  <span className="ml-2 text-gray-500 font-normal">
+                    (stored with keys like node31@iter:28:{index})
+                  </span>
+                </div>
+                <div className="text-xs">
+                  {result.error ? (
+                    <div className="text-red-600 font-mono text-xs">
+                      Error: {result.error}
+                    </div>
+                  ) : (
+                    <div className="font-mono text-gray-600 bg-gray-50 p-2 rounded" style={{fontSize: '10px'}}>
+                      {JSON.stringify(result, null, 2)}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -661,6 +1155,10 @@ function App() {
 
   const executeNode = async (nodeId, nodeConfig = null) => {
     try {
+      // Save scroll position before execution
+      const scrollPosition = nodesPanelRef.current?.scrollTop || 0;
+      console.log('Saved scroll position:', scrollPosition);
+      
       const log = {
         timestamp: new Date().toISOString(),
         type: 'info',
@@ -696,6 +1194,7 @@ function App() {
       });
 
       const result = await response.json();
+      console.log('[DEBUG] Node execution response:', result);
       
       // Update workflow ID if a new one was created for mock execution
       if (result.workflowId && !currentWorkflow) {
@@ -709,6 +1208,21 @@ function App() {
         details: result
       };
       setExecutionLogs(prev => [...prev, resultLog]);
+      
+      // Refresh workflow nodes and node values to show updated results
+      if (result.success && currentWorkflow?.id) {
+        console.log('Refreshing workflow nodes and values after execution...');
+        await loadWorkflowNodes(currentWorkflow.id);
+        await loadNodeValues(); // Reload node values to show execution results
+        
+        // Restore scroll position after data is loaded
+        setTimeout(() => {
+          if (nodesPanelRef.current) {
+            nodesPanelRef.current.scrollTop = scrollPosition;
+            console.log('Restored scroll position:', scrollPosition);
+          }
+        }, 100); // Small delay to ensure DOM updates are complete
+      }
     } catch (error) {
       console.error('Failed to execute node:', error);
       const errorLog = {
@@ -914,7 +1428,16 @@ function App() {
             </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4">
+          <div 
+            ref={nodesPanelRef} 
+            className="flex-1 overflow-y-auto p-4"
+            onScroll={(e) => {
+              // Store scroll position for recovery
+              if (nodesPanelRef.current) {
+                nodesPanelRef.current._lastScrollTop = e.target.scrollTop;
+              }
+            }}
+          >
             {workflowNodes.length === 0 ? (
               <div className="text-center text-gray-500 mt-8">
                 <p className="text-sm">No nodes yet</p>
@@ -937,7 +1460,7 @@ function App() {
                 )}
                 <div className="space-y-3">
                   {workflowNodes.map((node, index) => (
-                    <NodeCard key={node.id} node={node} executeNode={executeNode} />
+                    <NodeCard key={node.id} node={node} executeNode={executeNode} expandedNodes={expandedNodes} setExpandedNodes={setExpandedNodes} loadNodeValues={loadNodeValues} />
                   ))}
                 </div>
               </>

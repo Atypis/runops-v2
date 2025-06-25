@@ -149,7 +149,7 @@
           {
             "type": "route",
             "config": {
-              "value": "node9.needsLogin",
+              "value": "node15.needsLogin",
               "paths": {
                 "true": [
                   {
@@ -182,7 +182,7 @@
                   {
                     "type": "route",
                     "config": {
-                      "value": "node12.accountChooserVisible",
+                      "value": "node19.accountChooserVisible",
                       "paths": {
                         "true": [
                           {
@@ -233,13 +233,197 @@
             "description": "Switch back to Gmail tab"
           },
           {
+            "type": "browser_action",
+            "config": {
+              "action": "act",
+              "instruction": "Click on the search bar and type 'after:2025/06/02 before:2025/06/03' to filter emails from June 2nd, 2025, then press Enter"
+            },
+            "description": "Filter emails to show only June 2nd"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 2000
+            },
+            "description": "Wait for search results to load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Extract all emails shown (filtered for June 2nd). For each email, get the sender name, sender email, subject, snippet of content, and a CSS selector to click on it. IMPORTANT: Only extract emails that are actually visible on the page. Do not make up or generate example data. Return empty array if no emails are found.",
+              "schema": {
+                "emails": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "senderName": "string",
+                      "senderEmail": "string",
+                      "subject": "string",
+                      "snippet": "string",
+                      "date": "string",
+                      "selector": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Extract all emails from June 2nd"
+          },
+          {
+            "type": "iterate",
+            "config": {
+              "over": "node27.emails",
+              "variable": "email",
+              "body": [
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "click",
+                    "selector": "{{email.selector}}"
+                  },
+                  "description": "Click on email to open it"
+                },
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "wait",
+                    "duration": 2000
+                  },
+                  "description": "Wait for email to load"
+                },
+                {
+                  "type": "browser_query",
+                  "config": {
+                    "method": "extract",
+                    "instruction": "Extract the full email content including sender details, subject, body text, and determine if this is investor-related (from VCs, funds, or potential investors)",
+                    "schema": {
+                      "fullSenderName": "string",
+                      "senderEmail": "string",
+                      "subject": "string",
+                      "bodyText": "string",
+                      "isInvestorRelated": "boolean",
+                      "investorCompany": "string",
+                      "hasActionItems": "boolean",
+                      "nextSteps": "string"
+                    }
+                  },
+                  "description": "Extract full email details and classify"
+                },
+                {
+                  "type": "route",
+                  "config": {
+                    "value": "node31.isInvestorRelated",
+                    "paths": {
+                      "true": [
+                        {
+                          "type": "context",
+                          "config": {
+                            "operation": "set",
+                            "key": "currentInvestorEmail",
+                            "value": {
+                              "senderName": "{{node31.fullSenderName}}",
+                              "senderEmail": "{{node31.senderEmail}}",
+                              "company": "{{node31.investorCompany}}",
+                              "subject": "{{node31.subject}}",
+                              "content": "{{node31.bodyText}}",
+                              "hasActionItems": "{{node31.hasActionItems}}",
+                              "nextSteps": "{{node31.nextSteps}}",
+                              "date": "{{email.date}}"
+                            }
+                          },
+                          "description": "Store investor email data"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "switchTab",
+                            "tabName": "airtable"
+                          },
+                          "description": "Switch to Airtable tab"
+                        },
+                        {
+                          "type": "browser_query",
+                          "config": {
+                            "method": "extract",
+                            "instruction": "Check if investor {{currentInvestorEmail.company}} already exists in the table",
+                            "schema": {
+                              "investorExists": "boolean",
+                              "existingRecordSelector": "string"
+                            }
+                          },
+                          "description": "Check if investor exists in Airtable"
+                        },
+                        {
+                          "type": "cognition",
+                          "config": {
+                            "prompt": "Process the investor email and determine the appropriate CRM update",
+                            "input": "currentInvestorEmail",
+                            "output": "airtableUpdate",
+                            "schema": {
+                              "updateType": "string",
+                              "stage": "string",
+                              "notes": "string",
+                              "followUpNeeded": "boolean"
+                            }
+                          },
+                          "description": "Determine CRM update strategy"
+                        }
+                      ],
+                      "false": [
+                        {
+                          "type": "context",
+                          "config": {
+                            "operation": "set",
+                            "key": "skippedEmail",
+                            "value": "{{email.subject}}"
+                          },
+                          "description": "Log skipped non-investor email"
+                        }
+                      ]
+                    }
+                  },
+                  "description": "Route based on investor classification"
+                },
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "switchTab",
+                    "tabName": "main"
+                  },
+                  "description": "Switch back to Gmail for next email"
+                },
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "navigate",
+                    "url": "https://mail.google.com"
+                  },
+                  "description": "Navigate back to inbox"
+                },
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "wait",
+                    "duration": 2000
+                  },
+                  "description": "Wait for inbox to load"
+                }
+              ],
+              "continueOnError": true
+            },
+            "description": "Process each email from June 2nd"
+          },
+          {
             "type": "context",
             "config": {
               "operation": "set",
-              "key": "workflow_ready",
+              "key": "workflow_complete",
               "value": true
             },
-            "description": "Mark workflow as ready to process emails"
+            "description": "Mark workflow as complete"
           }
         ]
       }

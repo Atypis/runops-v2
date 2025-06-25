@@ -482,6 +482,10 @@ export class OperatorService {
     return await this.nodeExecutor.execute(nodeId, workflowId);
   }
 
+  async executeIteration(nodeId, workflowId, iterationIndex, iterationData) {
+    return await this.nodeExecutor.executeIteration(nodeId, workflowId, iterationIndex, iterationData);
+  }
+
   async executeWorkflow(workflowId) {
     // Get all nodes in the workflow
     const { data: nodes, error } = await supabase

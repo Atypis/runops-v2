@@ -9,12 +9,201 @@ export class NodeExecutor {
       apiKey: process.env.OPENAI_API_KEY
     });
     this.stagehandInstance = null;
+    // Track iteration context for nested loops
+    this.iterationContext = [];
+    // Store recent node values for frontend polling
+    this.recentNodeValues = new Map(); // nodeId -> { position, value, storageKey, timestamp }
   }
 
   // StageHand logging control:
   // - Set STAGEHAND_VERBOSE=0 for minimal logging
   // - Set STAGEHAND_VERBOSE=2 for debug logging (includes OpenAI logs)
   // - Default filters out noisy OpenAI DOM snapshots
+
+  // Helper methods for iteration context
+  pushIterationContext(iterateNodePos, index, variable, total) {
+    this.iterationContext.push({
+      iterateNodePos,
+      index,
+      variable,
+      total
+    });
+    console.log(`[ITERATION_CONTEXT] Pushed context: iterate node ${iterateNodePos}, index ${index}`);
+  }
+
+  popIterationContext() {
+    const context = this.iterationContext.pop();
+    console.log(`[ITERATION_CONTEXT] Popped context: iterate node ${context?.iterateNodePos}, index ${context?.index}`);
+    return context;
+  }
+
+  getCurrentIterationContext() {
+    return this.iterationContext[this.iterationContext.length - 1] || null;
+  }
+
+  // Build storage key with iteration context
+  getStorageKey(baseKey) {
+    if (this.iterationContext.length === 0) {
+      return baseKey;
+    }
+    
+    // Build iteration suffix: @iter:28:0:35:2
+    const iterSuffix = this.iterationContext
+      .map(ctx => `${ctx.iterateNodePos}:${ctx.index}`)
+      .join(':');
+    
+    return `${baseKey}@iter:${iterSuffix}`;
+  }
+
+  // Store node value update for frontend
+  sendNodeValueUpdate(nodeId, position, value, storageKey) {
+    const simplifiedValue = this.simplifyValue(value);
+    this.recentNodeValues.set(nodeId, {
+      position,
+      value: simplifiedValue,
+      storageKey,
+      timestamp: Date.now()
+    });
+    
+    // Clean up old values (older than 5 minutes)
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    for (const [id, data] of this.recentNodeValues.entries()) {
+      if (data.timestamp < fiveMinutesAgo) {
+        this.recentNodeValues.delete(id);
+      }
+    }
+  }
+
+  // Simplify complex values for display
+  simplifyValue(value) {
+    if (value === null || value === undefined) return value;
+    
+    // For boolean values
+    if (typeof value === 'boolean') return value;
+    
+    // For simple strings/numbers
+    if (typeof value === 'string' || typeof value === 'number') return value;
+    
+    // For objects, try to extract key fields
+    if (typeof value === 'object') {
+      // Arrays
+      if (Array.isArray(value)) {
+        return `Array[${value.length}]`;
+      }
+      
+      // Objects - try to show key fields
+      const keys = Object.keys(value);
+      if (keys.length <= 3) {
+        // Show small objects inline
+        return value;
+      } else {
+        // For larger objects, just show key count
+        return `Object{${keys.length} fields}`;
+      }
+    }
+    
+    return value;
+  }
+
+  // Get recent node values (for polling)
+  getRecentNodeValues() {
+    const values = {};
+    for (const [nodeId, data] of this.recentNodeValues.entries()) {
+      values[nodeId] = data;
+    }
+    return values;
+  }
+
+  // Resolve template variables in a value
+  async resolveTemplateVariables(value, workflowId) {
+    if (typeof value !== 'string') return value;
+    
+    // Pattern to match {{variable}} or {{node.property}}
+    const templatePattern = /\{\{([^}]+)\}\}/g;
+    
+    let resolved = value;
+    let match;
+    
+    while ((match = templatePattern.exec(value)) !== null) {
+      const expression = match[1].trim();
+      let replacementValue = '';
+      
+      try {
+        // Handle iteration context variables (e.g., email, email.selector)
+        const currentContext = this.getCurrentIterationContext();
+        if (currentContext && expression.startsWith(currentContext.variable)) {
+          const itemData = await this.getStateValue(currentContext.variable, workflowId);
+          
+          if (expression === currentContext.variable) {
+            // Just the variable name (e.g., {{email}})
+            replacementValue = itemData;
+          } else {
+            // Property access (e.g., {{email.selector}})
+            const propertyPath = expression.substring(currentContext.variable.length + 1);
+            replacementValue = this.getNestedProperty(itemData, propertyPath);
+          }
+        } else {
+          // Handle other references (e.g., {{node27.emails}})
+          replacementValue = await this.getStateValue(expression, workflowId);
+        }
+        
+        // Convert to string if needed
+        if (typeof replacementValue === 'object') {
+          replacementValue = JSON.stringify(replacementValue);
+        } else if (replacementValue === undefined || replacementValue === null) {
+          console.warn(`[TEMPLATE] Could not resolve variable: ${expression}`);
+          replacementValue = match[0]; // Keep original
+        } else {
+          replacementValue = String(replacementValue);
+        }
+        
+        resolved = resolved.replace(match[0], replacementValue);
+      } catch (error) {
+        console.error(`[TEMPLATE] Error resolving ${expression}:`, error);
+      }
+    }
+    
+    return resolved;
+  }
+
+  // Helper to get nested property from object
+  getNestedProperty(obj, path) {
+    const keys = path.split('.');
+    let result = obj;
+    
+    for (const key of keys) {
+      if (result && typeof result === 'object' && key in result) {
+        result = result[key];
+      } else {
+        return undefined;
+      }
+    }
+    
+    return result;
+  }
+
+  // Resolve all template variables in node params
+  async resolveNodeParams(params, workflowId) {
+    if (!params) return params;
+    
+    const resolved = {};
+    
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value === 'string') {
+        resolved[key] = await this.resolveTemplateVariables(value, workflowId);
+      } else if (Array.isArray(value)) {
+        resolved[key] = await Promise.all(
+          value.map(item => this.resolveTemplateVariables(item, workflowId))
+        );
+      } else if (typeof value === 'object' && value !== null) {
+        resolved[key] = await this.resolveNodeParams(value, workflowId);
+      } else {
+        resolved[key] = value;
+      }
+    }
+    
+    return resolved;
+  }
 
   async getStagehand() {
     if (!this.stagehandInstance) {
@@ -39,6 +228,15 @@ export class NodeExecutor {
         }
       });
       await this.stagehandInstance.init();
+      
+      // Initialize tab tracking and store the main page reference
+      if (!this.stagehandPages) {
+        this.stagehandPages = {};
+      }
+      // IMPORTANT: Store the initial page as 'main' because stagehandInstance.page changes when new tabs are created
+      this.mainPage = this.stagehandInstance.page;
+      this.activeTabName = 'main';
+      console.log(`[STAGEHAND INIT] StageHand initialized with main tab`);
     }
     return this.stagehandInstance;
   }
@@ -80,34 +278,42 @@ export class NodeExecutor {
     try {
       let result;
       
+      // Resolve template variables in params if we're in an iteration context
+      let resolvedParams = node.params;
+      if (this.iterationContext.length > 0) {
+        console.log(`[EXECUTE] Resolving template variables in iteration context`);
+        resolvedParams = await this.resolveNodeParams(node.params, workflowId);
+        console.log(`[EXECUTE] Resolved params:`, JSON.stringify(resolvedParams, null, 2));
+      }
+      
       switch (node.type) {
         case 'browser_action':
           console.log(`[EXECUTE] Executing browser action...`);
-          result = await this.executeBrowserAction(node.params, workflowId);
+          result = await this.executeBrowserAction(resolvedParams, workflowId);
           break;
         case 'browser_query':
-          result = await this.executeBrowserQuery(node.params);
+          result = await this.executeBrowserQuery(resolvedParams);
           break;
         case 'transform':
-          result = await this.executeTransform(node.params, workflowId);
+          result = await this.executeTransform(resolvedParams, workflowId);
           break;
         case 'cognition':
-          result = await this.executeCognition(node.params, options.inputData);
+          result = await this.executeCognition(resolvedParams, options.inputData);
           break;
         case 'memory':
-          result = await this.executeMemory(node.params, workflowId);
+          result = await this.executeMemory(resolvedParams, workflowId);
           break;
         case 'context':
           console.log(`[EXECUTE] Executing context operation...`);
-          result = await this.executeContext(node.params, workflowId);
+          result = await this.executeContext(resolvedParams, workflowId);
           break;
         case 'route':
           console.log(`[EXECUTE] Executing route...`);
-          result = await this.executeRoute(node.params, workflowId);
+          result = await this.executeRoute(resolvedParams, workflowId);
           break;
         case 'iterate':
           console.log(`[EXECUTE] Executing iterate...`);
-          result = await this.executeIterate(node.params, workflowId);
+          result = await this.executeIterate(resolvedParams, workflowId, node.position, options);
           break;
         default:
           throw new Error(`Unsupported node type: ${node.type}`);
@@ -116,28 +322,42 @@ export class NodeExecutor {
       // Log successful execution
       await this.logExecution(nodeId, workflowId, 'success', 'Node executed successfully', result);
       
-      // Update node status
-      await supabase
+      // Update node status AND result
+      const { data: updatedNode, error: updateError } = await supabase
         .from('nodes')
         .update({
           status: 'success',
           result,
           executed_at: new Date().toISOString()
         })
-        .eq('id', nodeId);
+        .eq('id', nodeId)
+        .select()
+        .single();
+      
+      if (updateError) {
+        console.error(`[EXECUTE] Failed to update node result:`, updateError);
+      } else {
+        console.log(`[EXECUTE] Successfully updated node ${nodeId} with result:`, updatedNode?.result);
+      }
       
       // Also store the result in workflow memory for easy access by subsequent nodes
       // This allows referencing via state.node[position] or direct node[position]
       if (result !== null && result !== undefined && node.position) {
         try {
+          // Use iteration-aware storage key
+          const storageKey = this.getStorageKey(`node${node.position}`);
+          
           await supabase
             .from('workflow_memory')
             .upsert({
               workflow_id: workflowId,
-              key: `node${node.position}`,
+              key: storageKey,
               value: result
             });
-          console.log(`[EXECUTE] Stored node position ${node.position} (id: ${nodeId}) result in workflow memory`);
+          console.log(`[EXECUTE] Stored node position ${node.position} (id: ${nodeId}) result in workflow memory with key: ${storageKey}`);
+          
+          // Send real-time update to frontend
+          this.sendNodeValueUpdate(nodeId, node.position, result, storageKey);
         } catch (memError) {
           console.error(`[EXECUTE] Failed to store node result in memory:`, memError);
           // Don't fail the execution if memory storage fails
@@ -164,23 +384,34 @@ export class NodeExecutor {
   }
 
   async executeBrowserAction(config, workflowId) {
+    console.log(`[BROWSER ACTION] Action: ${config.action}, Active tab: ${this.activeTabName}`);
+    console.log(`[BROWSER ACTION] Available tabs:`, this.stagehandPages ? Object.keys(this.stagehandPages) : 'none');
+    
     const stagehand = await this.getStagehand();
     const page = stagehand.page;
     const context = page.context();
     
     // Helper to get the current active StagehandPage
     const getActiveStagehandPage = async () => {
+      // Special handling for 'main' tab
+      if (this.activeTabName === 'main') {
+        console.log(`[BROWSER ACTION] Using main tab (stored main page reference)`);
+        return this.mainPage;
+      }
       // If we have named tabs and one is marked as active, use it
       if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+        console.log(`[BROWSER ACTION] Using active tab: ${this.activeTabName}`);
         return this.stagehandPages[this.activeTabName];
       }
-      // Otherwise, use the main stagehand instance's page
-      return stagehand.page;
+      // Otherwise, use the stored main page
+      console.log(`[BROWSER ACTION] Using default main page`);
+      return this.mainPage;
     };
 
     switch (config.action) {
       case 'navigate':
-        await page.goto(config.url);
+        const navigatePage = await getActiveStagehandPage();
+        await navigatePage.goto(config.url);
         return { navigated: config.url };
         
       case 'click':
@@ -208,9 +439,47 @@ export class NodeExecutor {
             } else {
               console.log(`[CLICK] Trying CSS selector: ${selector}`);
               const activePage = await getActiveStagehandPage();
-              await activePage.click(selector, { timeout: 5000 });
-              clicked = true;
-              break;
+              
+              // Escape CSS selector if it contains special characters
+              let escapedSelector = selector;
+              if (selector.includes(':') && !selector.includes('\\:')) {
+                // For ID selectors with colons, we need to escape them
+                if (selector.startsWith('#')) {
+                  const id = selector.slice(1);
+                  escapedSelector = `[id="${id}"]`; // Use attribute selector instead
+                  console.log(`[CLICK] Escaped selector: ${escapedSelector}`);
+                }
+              }
+              
+              try {
+                await activePage.click(escapedSelector, { timeout: 3000 });
+                clicked = true;
+                break;
+              } catch (cssError) {
+                // If CSS selector fails for Gmail thread, try using act as a fallback
+                if (selector.includes('thread-f:')) {
+                  console.log(`[CLICK] CSS selector failed for Gmail thread, trying act fallback`);
+                  
+                  // Try to get email data from the current iteration context
+                  if (this.iterationContext.length > 0) {
+                    const iterContext = this.iterationContext[this.iterationContext.length - 1];
+                    const emailData = await this.getStateValue(iterContext.variable, workflowId);
+                    
+                    if (emailData && emailData.subject) {
+                      console.log(`[CLICK] Using act to click on email with subject: "${emailData.subject}"`);
+                      await activePage.act({ action: `click on the email with subject "${emailData.subject}"` });
+                      clicked = true;
+                      break;
+                    } else if (emailData && emailData.senderName) {
+                      console.log(`[CLICK] Using act to click on email from: "${emailData.senderName}"`);
+                      await activePage.act({ action: `click on the email from "${emailData.senderName}"` });
+                      clicked = true;
+                      break;
+                    }
+                  }
+                }
+                throw cssError; // Re-throw if not a Gmail thread or fallback failed
+              }
             }
           } catch (error) {
             console.log(`[CLICK] Selector failed: ${selector}, error: ${error.message}`);
@@ -306,7 +575,8 @@ export class NodeExecutor {
         return { typed: textToType };
         
       case 'wait':
-        await page.waitForTimeout(config.duration || 1000);
+        const waitPage = await getActiveStagehandPage();
+        await waitPage.waitForTimeout(config.duration || 1000);
         return { waited: config.duration || 1000 };
         
       case 'openNewTab':
@@ -314,23 +584,26 @@ export class NodeExecutor {
         const stagehandForNewTab = await this.getStagehand();
         
         // Create new page through StageHand's context
-        // This automatically wraps it in a StagehandPage with act/extract/observe methods
-        const newStagehandPage = await stagehandForNewTab.context.newPage();
+        // This returns a Page object with act/extract/observe methods
+        const newPage = await stagehandForNewTab.context.newPage();
         
         if (config.url) {
-          await newStagehandPage.goto(config.url);
+          await newPage.goto(config.url);
         }
         
-        // Store the StagehandPage reference if a name is provided
+        // Store the Page reference if a name is provided
         if (config.name) {
-          this.stagehandPages = this.stagehandPages || {};
-          this.stagehandPages[config.name] = newStagehandPage;
+          if (!this.stagehandPages) {
+            this.stagehandPages = {};
+          }
+          this.stagehandPages[config.name] = newPage;
           // Mark this tab as active
           this.activeTabName = config.name;
         }
         
         // Make the new tab visually active
-        await newStagehandPage.bringToFront();
+        // newPage is already a Page object with bringToFront method
+        await newPage.bringToFront();
         
         console.log(`[OPEN NEW TAB] Created new tab: ${config.name || 'unnamed'}`);
         console.log(`[OPEN NEW TAB] StageHand automatically wrapped it with act/extract/observe capabilities`);
@@ -339,75 +612,106 @@ export class NodeExecutor {
         return { openedTab: config.name || 'unnamed', url: config.url, active: true };
         
       case 'switchTab':
-        if (this.stagehandPages && this.stagehandPages[config.tabName]) {
-          const targetStagehandPage = this.stagehandPages[config.tabName];
-          
-          // Bring the underlying Playwright page to front
-          await targetStagehandPage.page.bringToFront();
-          
-          // Mark this tab as the active one
-          this.activeTabName = config.tabName;
-          
-          // Note: StageHand manages its active page internally
-          // The act/extract/observe methods should be called on the specific StagehandPage
-          // not on the main stagehand instance
-          
-          console.log(`[SWITCH TAB] Switched to tab: ${config.tabName}`);
-          console.log(`[SWITCH TAB] StagehandPage is active and ready for commands`);
-          
-          return { switchedTo: config.tabName };
+        console.log(`[SWITCH TAB] Attempting to switch to tab: ${config.tabName}`);
+        console.log(`[SWITCH TAB] Created tabs:`, this.stagehandPages ? Object.keys(this.stagehandPages) : 'none');
+        
+        // Initialize stagehandPages if it doesn't exist
+        if (!this.stagehandPages) {
+          this.stagehandPages = {};
         }
-        throw new Error(`Tab with name "${config.tabName}" not found`);
+        
+        let targetPage;
+        
+        // Special handling for 'main' tab - use the stored main page reference
+        if (config.tabName === 'main') {
+          console.log(`[SWITCH TAB] Switching to main tab (stored main page reference)`);
+          targetPage = this.mainPage;
+        } else if (this.stagehandPages[config.tabName]) {
+          console.log(`[SWITCH TAB] Switching to named tab: ${config.tabName}`);
+          // stagehandPages now stores Page objects directly
+          targetPage = this.stagehandPages[config.tabName];
+        } else {
+          throw new Error(`Tab with name "${config.tabName}" not found. Available tabs: main, ${Object.keys(this.stagehandPages).join(', ')}`);
+        }
+        
+        // Bring the page to front
+        await targetPage.bringToFront();
+        
+        // Mark this tab as the active one
+        this.activeTabName = config.tabName;
+        
+        console.log(`[SWITCH TAB] Successfully switched to tab: ${config.tabName}`);
+        console.log(`[SWITCH TAB] StagehandPage is active and ready for commands`);
+        
+        return { switchedTo: config.tabName };
         
       case 'back':
-        await page.goBack();
+        const backPage = await getActiveStagehandPage();
+        await backPage.goBack();
         return { action: 'navigated back' };
         
       case 'forward':
-        await page.goForward();
+        const forwardPage = await getActiveStagehandPage();
+        await forwardPage.goForward();
         return { action: 'navigated forward' };
         
       case 'refresh':
-        await page.reload();
+        const refreshPage = await getActiveStagehandPage();
+        await refreshPage.reload();
         return { action: 'page refreshed' };
         
       case 'screenshot':
+        const screenshotPage = await getActiveStagehandPage();
         const screenshotOptions = { 
           path: config.path,
           fullPage: config.fullPage !== false  // Default to true
         };
         if (config.selector) {
-          const element = await page.$(config.selector);
+          const element = await screenshotPage.$(config.selector);
           if (element) {
             await element.screenshot(screenshotOptions);
           }
         } else {
-          await page.screenshot(screenshotOptions);
+          await screenshotPage.screenshot(screenshotOptions);
         }
         return { screenshot: config.path || 'taken' };
         
       case 'listTabs':
         const pages = context.pages();
-        return { 
-          tabs: pages.map((p, i) => ({
-            index: i,
-            url: p.url(),
-            title: p.title()
-          }))
-        };
+        const tabList = [];
+        // Add the main tab
+        tabList.push({
+          name: 'main',
+          url: this.mainPage.url(),
+          title: this.mainPage.title(),
+          active: this.activeTabName === 'main'
+        });
+        // Add named tabs
+        for (const [name, stagehandPage] of Object.entries(this.stagehandPages || {})) {
+          tabList.push({
+            name: name,
+            url: stagehandPage.url(),
+            title: stagehandPage.title(),
+            active: this.activeTabName === name
+          });
+        }
+        return { tabs: tabList };
         
       case 'getCurrentTab':
+        const currentPage = await getActiveStagehandPage();
         return {
-          url: page.url(),
-          title: await page.title()
+          url: currentPage.url(),
+          title: await currentPage.title()
         };
         
       case 'act':
         // Use StageHand's natural language action capability
         console.log(`[ACT] Executing natural language action: ${config.instruction}`);
         const activePage = await getActiveStagehandPage();
+        console.log(`[ACT] Current URL before action: ${activePage.url()}`);
         const result = await activePage.act({ action: config.instruction });
-        console.log(`[ACT] Action completed`);
+        console.log(`[ACT] Action completed, result:`, result);
+        console.log(`[ACT] Current URL after action: ${activePage.url()}`);
         return { acted: config.instruction, result };
         
       default:
@@ -416,15 +720,23 @@ export class NodeExecutor {
   }
 
   async executeBrowserQuery(config) {
+    console.log(`[BROWSER_QUERY] Executing ${config.method} with instruction: ${config.instruction}`);
+    console.log(`[BROWSER_QUERY] Schema:`, JSON.stringify(config.schema, null, 2));
+    
     const stagehand = await this.getStagehand();
     
     // Helper to get the active StagehandPage
     const getActiveStagehandPage = async () => {
+      // Special handling for 'main' tab
+      if (this.activeTabName === 'main') {
+        return this.mainPage;
+      }
+      // If we have named tabs and one is marked as active, use it
       if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
         return this.stagehandPages[this.activeTabName];
       }
-      // Fallback to main stagehand page if no active tab
-      return stagehand.page;
+      // Fallback to main page if no active tab
+      return this.mainPage;
     };
 
     if (config.method === 'extract') {
@@ -436,10 +748,30 @@ export class NodeExecutor {
       
       // Use the active StagehandPage's extract method
       const activePage = await getActiveStagehandPage();
+      console.log(`[BROWSER_QUERY] Current URL: ${activePage.url()}`);
+      
+      const enhancedInstruction = `${config.instruction}
+
+CRITICAL: You must ONLY extract data that is actually visible on the page. DO NOT hallucinate, make up, or generate example data. If no data matching the criteria is found, return an empty array or null values. Never create fictional data.`;
+      
       const result = await activePage.extract({
-        instruction: config.instruction,
+        instruction: enhancedInstruction,
         schema: zodSchema
       });
+      
+      console.log(`[BROWSER_QUERY] Extract result:`, JSON.stringify(result, null, 2));
+      
+      // If extracting emails, log more details
+      if (config.instruction && config.instruction.toLowerCase().includes('email')) {
+        console.log(`[BROWSER_QUERY] Email extraction detected`);
+        if (result && result.emails && Array.isArray(result.emails)) {
+          console.log(`[BROWSER_QUERY] Found ${result.emails.length} emails`);
+          result.emails.forEach((email, idx) => {
+            console.log(`[BROWSER_QUERY] Email ${idx + 1}: ${email.subject || 'No subject'} from ${email.senderEmail || 'Unknown'} on ${email.date || 'Unknown date'}`);
+          });
+        }
+      }
+      
       return result;
     } else if (config.method === 'observe') {
       // Use the active StagehandPage's observe method
@@ -786,15 +1118,21 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         
         // First try to get from workflow memory (faster)
         // This will work for position-based references (node1, node2, etc.)
+        // Use iteration-aware storage key
+        const storageKey = this.getStorageKey(`node${nodeIdentifier}`);
+        console.log(`[STATE] Looking for key: ${storageKey}`);
+        
         const { data: memoryData, error: memError } = await supabase
           .from('workflow_memory')
           .select('value')
           .eq('workflow_id', workflowId)
-          .eq('key', `node${nodeIdentifier}`)
+          .eq('key', storageKey)
           .single();
           
         if (memoryData && memoryData.value !== null) {
-          console.log(`[STATE] Found node ${nodeIdentifier} result in memory:`, memoryData.value);
+          // Log a summary instead of the full value to avoid spam
+          const valueType = Array.isArray(memoryData.value) ? `array[${memoryData.value.length}]` : typeof memoryData.value;
+          console.log(`[STATE] Found node ${nodeIdentifier} result in memory with key ${storageKey} (type: ${valueType})`);
           
           // Navigate to the nested property
           let value = memoryData.value;
@@ -808,7 +1146,10 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
           for (const prop of propertyPath) {
             value = value?.[prop];
           }
-          console.log(`[STATE] Resolved to value:`, value);
+          
+          // Log summary of resolved value too
+          const resolvedType = Array.isArray(value) ? `array[${value.length}]` : typeof value;
+          console.log(`[STATE] Resolved to value of type: ${resolvedType}`);
           return value;
         }
         
@@ -858,12 +1199,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       }
     }
     
-    // Try workflow memory
+    // Try workflow memory with iteration-aware key
+    const storageKey = this.getStorageKey(path);
     const { data } = await supabase
       .from('workflow_memory')
       .select('value')
       .eq('workflow_id', workflowId)
-      .eq('key', path)
+      .eq('key', storageKey)
       .single();
       
     console.log(`[STATE] Found in memory:`, data?.value);
@@ -911,7 +1253,86 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     }
   }
   
-  async executeIterate(config, workflowId) {
+  async executeIteration(nodeId, workflowId, iterationIndex, iterationData) {
+    console.log(`[EXECUTE_ITERATION] Executing single iteration ${iterationIndex} for node ${nodeId}`);
+    
+    // Get the iterate node
+    const { data: node, error } = await supabase
+      .from('nodes')
+      .select('*')
+      .eq('id', nodeId)
+      .single();
+      
+    if (error || !node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    
+    if (node.type !== 'iterate') {
+      throw new Error(`Node ${nodeId} is not an iterate node`);
+    }
+    
+    const config = node.params;
+    const variable = config.variable || 'item';
+    const indexVariable = config.index || `${variable}Index`;
+    
+    // Push iteration context for this single iteration
+    this.pushIterationContext(node.position, iterationIndex, variable, 1);
+    
+    try {
+      // Set iteration variables in memory (these use the current context)
+      const varKey = this.getStorageKey(variable);
+      const indexKey = this.getStorageKey(indexVariable);
+      const totalKey = this.getStorageKey(`${variable}Total`);
+      
+      await supabase
+        .from('workflow_memory')
+        .upsert([
+          { workflow_id: workflowId, key: varKey, value: iterationData },
+          { workflow_id: workflowId, key: indexKey, value: iterationIndex },
+          { workflow_id: workflowId, key: totalKey, value: 1 } // Single iteration
+        ]);
+      
+      // Execute body
+      let result;
+      
+      if (Array.isArray(config.body)) {
+        if (config.body.length > 0 && typeof config.body[0] === 'number') {
+          // New format: array of node positions
+          result = [];
+          console.log(`[EXECUTE_ITERATION] Executing body with ${config.body.length} node positions`);
+          
+          for (const nodePosition of config.body) {
+            const { data: bodyNode } = await supabase
+              .from('nodes')
+              .select('*')
+              .eq('workflow_id', workflowId)
+              .eq('position', nodePosition)
+              .single();
+              
+            if (bodyNode) {
+              console.log(`[EXECUTE_ITERATION] Executing node at position ${nodePosition}: ${bodyNode.type}`);
+              const nodeResult = await this.execute(bodyNode.id, workflowId);
+              result.push(nodeResult);
+            } else {
+              console.log(`[EXECUTE_ITERATION] Warning: Could not find node at position ${nodePosition}`);
+            }
+          }
+        }
+      }
+      
+      console.log(`[EXECUTE_ITERATION] Iteration ${iterationIndex} completed successfully`);
+      return { success: true, result, iterationIndex };
+      
+    } catch (error) {
+      console.error(`[EXECUTE_ITERATION] Error in iteration ${iterationIndex}:`, error);
+      return { success: false, error: error.message, iterationIndex };
+    } finally {
+      // Always pop the iteration context
+      this.popIterationContext();
+    }
+  }
+
+  async executeIterate(config, workflowId, iterateNodePosition, options = {}) {
     console.log(`[ITERATE] Starting iteration over: ${config.over}`);
     
     // Get the collection to iterate over
@@ -921,7 +1342,45 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       return { results: [], errors: [], processed: 0, total: 0 };
     }
     
-    console.log(`[ITERATE] Iterating over ${collection.length} items`);
+    console.log(`[ITERATE] Found ${collection.length} items to iterate over`);
+    
+    // If preview mode, return iteration structure without executing
+    if (options.previewOnly !== false) {  // Default to preview mode
+      console.log(`[ITERATE] Preview mode - preparing iteration structure`);
+      
+      // Get body node information for display
+      let bodyNodes = [];
+      if (Array.isArray(config.body) && config.body.length > 0 && typeof config.body[0] === 'number') {
+        // Fetch actual nodes by position
+        const { data: nodes } = await supabase
+          .from('nodes')
+          .select('*')
+          .eq('workflow_id', workflowId)
+          .in('position', config.body)
+          .order('position');
+        
+        bodyNodes = nodes || [];
+      }
+      
+      return {
+        iterationCount: collection.length,
+        items: collection.map((item, idx) => ({
+          index: idx,
+          data: item,
+          status: 'pending',
+          results: []
+        })),
+        variable: config.variable || 'item',
+        bodyNodePositions: config.body,
+        bodyNodes: bodyNodes,
+        status: 'ready',
+        processed: 0,
+        total: collection.length
+      };
+    }
+    
+    // Full execution mode (when explicitly requested)
+    console.log(`[ITERATE] Full execution mode - processing all ${collection.length} items`);
     
     const results = [];
     const errors = [];
@@ -938,14 +1397,21 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       const item = collection[i];
       console.log(`[ITERATE] Processing item ${i + 1}/${collection.length}`);
       
+      // Push iteration context
+      this.pushIterationContext(iterateNodePosition, i, variable, collection.length);
+      
       try {
-        // Set iteration variables in memory
+        // Set iteration variables in memory (these use the current context)
+        const varKey = this.getStorageKey(variable);
+        const indexKey = this.getStorageKey(indexVariable);
+        const totalKey = this.getStorageKey(`${variable}Total`);
+        
         await supabase
           .from('workflow_memory')
           .upsert([
-            { workflow_id: workflowId, key: variable, value: item },
-            { workflow_id: workflowId, key: indexVariable, value: i },
-            { workflow_id: workflowId, key: `${variable}Total`, value: collection.length }
+            { workflow_id: workflowId, key: varKey, value: item },
+            { workflow_id: workflowId, key: indexKey, value: i },
+            { workflow_id: workflowId, key: totalKey, value: collection.length }
           ]);
         
         // Execute body (single node or array of nodes)
@@ -1018,8 +1484,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         
         if (!config.continueOnError) {
           console.log(`[ITERATE] Stopping due to error (continueOnError: false)`);
+          // Pop context before breaking
+          this.popIterationContext();
           break;
         }
+      } finally {
+        // Always pop the iteration context
+        this.popIterationContext();
       }
     }
     
