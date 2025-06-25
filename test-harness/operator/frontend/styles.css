@@ -30,3 +30,131 @@
 * {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+/* Node depth styling */
+.node-depth-indicator {
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, 
+    transparent 0%, 
+    currentColor 20%, 
+    currentColor 80%, 
+    transparent 100%);
+}
+
+/* Connection lines */
+.node-connection-line {
+  stroke: #d1d5db;
+  stroke-width: 2;
+  fill: none;
+  stroke-dasharray: 0;
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.node-connection-line.active {
+  stroke: #3b82f6;
+  stroke-dasharray: 5, 5;
+  animation: dash 1s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* Iteration stack effects */
+.iteration-card {
+  transform-origin: center top;
+  will-change: transform;
+}
+
+.iteration-card:hover {
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* Glass morphism for deep nesting */
+.glass-morphism {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* Focus mode blur */
+.blur-background {
+  filter: blur(3px);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+/* Resize handle */
+.resize-handle {
+  position: relative;
+}
+
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 30px;
+  background-color: #e5e7eb;
+  border-radius: 1px;
+  transition: background-color 0.2s;
+}
+
+.resize-handle:hover::before {
+  background-color: #3b82f6;
+}
+
+/* Prevent text selection while resizing */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Iteration context styles */
+.iteration-node-context {
+  position: relative;
+}
+
+.iteration-node-context::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #e5e7eb;
+}
+
+/* Compact node hover effect */
+.compact-node:hover {
+  background-color: #f9fafb;
+  transform: translateX(2px);
+}
+
+/* Iteration item separator */
+.iteration-item {
+  position: relative;
+  isolation: isolate;
+}
+
+.iteration-item::after {
+  content: '';
+  position: absolute;
+  left: -48px;
+  right: -24px;
+  bottom: -8px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, #e5e7eb 48px, #e5e7eb calc(100% - 24px), transparent);
+}

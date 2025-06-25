@@ -2180,8 +2180,8 @@
     "data": {
       "inboxVisible": false
     },
-    "timestamp": 1750859554607,
-    "requestId": "udiz01mxjuk"
+    "timestamp": 1750863565693,
+    "requestId": "fxq0zksf0pt"
   },
   "76af6440e45c580684dacbb097407b7841fab231ee449e46a3e1e1e0ca541db1": {
     "data": {
@@ -2192,11 +2192,11 @@
   },
   "b0e1c5eef6195b5d57adb43d7bfa517b59b64d088fd43317808e31d15d9603d1": {
     "data": {
-      "progress": "The extraction response indicates that the Gmail inbox is not visible based on the current data, as the 'inboxVisible' flag is set to false. However, there are still more chunks to process.",
+      "progress": "The extraction response indicates that the Gmail inbox is not visible yet, as the 'inboxVisible' flag is set to false. There are still chunks left to process, suggesting that further data extraction is needed to determine if the inbox becomes visible.",
       "completed": false
     },
-    "timestamp": 1750859555824,
-    "requestId": "udiz01mxjuk"
+    "timestamp": 1750863567744,
+    "requestId": "fxq0zksf0pt"
   },
   "b12089a1e19214a569a8c1954c73bdef7463ad546ecbc2b1b9c0b268b4c8498a": {
     "data": {
@@ -2206,10 +2206,10 @@
   },
   "6b25ffc6cac5885464008d1bbd7f181959b91b87536472505f0056ac0f4c73fd": {
     "data": {
-      "progress": "The extraction response indicates that the Gmail inbox is not visible based on the current chunk, as the 'inboxVisible' field is set to false.",
+      "progress": "The extraction response indicates that the Gmail inbox is not visible yet, as the 'inboxVisible' field is set to false.",
       "completed": false
     },
-    "timestamp": 1750859559064
+    "timestamp": 1750863572748
   },
   "c90b0663feb1ae958115b3420fa9ca3cd7920e1728c78a48c93669e9ad29daa7": {
     "data": {
@@ -2698,8 +2698,8 @@
       "progress": "All emails for June 2nd have been extracted with the required details: sender name, sender email, subject, snippet, and CSS selector.",
       "completed": true
     },
-    "timestamp": 1750858719350,
-    "requestId": "j2237pi645"
+    "timestamp": 1750864410477,
+    "requestId": "8lh55horvmm"
   },
   "745c156ef873aaba9a5ed9897d7acd854cf0d689a4df8bd12a3e4796c3f109d5": {
     "data": {
@@ -2882,8 +2882,8 @@
         }
       ]
     },
-    "timestamp": 1750858718358,
-    "requestId": "j2237pi645"
+    "timestamp": 1750864408871,
+    "requestId": "8lh55horvmm"
   },
   "9c89b280362e37232a8e20c1310f616af0cf3776e37097fa6a29040c38b07501": {
     "data": {
@@ -3593,8 +3593,8 @@
     "data": {
       "completed": true
     },
-    "timestamp": 1750858220697,
-    "requestId": "acy58uw01uf"
+    "timestamp": 1750863606081,
+    "requestId": "gpf81gay6jk"
   },
   "61154cc7d6cd8895913b33eb289d71580c9502d805060d0b7c0fbb6dd7d9704b": {
     "data": {
@@ -3717,10 +3717,10 @@
   },
   "379b0f8f27928a348dbb4ea3381b4c7e660e6c6d431f6a66a2972bd55722099e": {
     "data": {
-      "progress": "All emails from June 2nd have been extracted with the required details: sender name, sender email, subject, snippet, and CSS selector.",
+      "progress": "All emails for June 2nd have been extracted with the required details: sender name, sender email, subject, snippet, and CSS selector.",
       "completed": false
     },
-    "timestamp": 1750855574779
+    "timestamp": 1750862092841
   },
   "43c9821e75658996cb5fdc5d24ab5024457052f089a132c4748d2603a8a8a838": {
     "data": {
@@ -4462,11 +4462,11 @@
   },
   "b2c59e3fc3c402a00d1070eb2d7ec7a3c4e3166cd5eaa6aeae039b6dbf440eb0": {
     "data": {
-      "progress": "All emails visible on the page for June 2nd have been extracted successfully. The extraction includes sender name, sender email, subject, snippet, and CSS selector for each email.",
+      "progress": "All emails for June 2nd have been extracted with the required details: sender name, sender email, subject, snippet, and CSS selector.",
       "completed": true
     },
-    "timestamp": 1750859669245,
-    "requestId": "9mqega2ttie"
+    "timestamp": 1750862628335,
+    "requestId": "f5qziq8c6pv"
   },
   "cb77c5d99086363667a1093102bfdeb0325c4efd4a328d1f5f1a3a27be46dfe0": {
     "data": {
@@ -4580,5 +4580,770 @@
       "completed": false
     },
     "timestamp": 1750859741943
+  },
+  "fa10b12837b3d5f73da10ab19a2d5f9550d9ab6d9de80f331104b1336aca8599": {
+    "data": {
+      "id": "chatcmpl-BmLTElmBvHDHw2nJaZ7A6h7VeZFlZ",
+      "object": "chat.completion",
+      "created": 1750861976,
+      "model": "gpt-4o-2024-08-06",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_sY9aEgScB1VQTM8ah2Zp8kfw",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\":\"click\",\"element\":2,\"args\":[],\"step\":\"Clicked on the search bar to focus on it for typing the search query.\",\"completed\":false}"
+                }
+              }
+            ],
+            "refusal": null,
+            "annotations": []
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 10446,
+        "completion_tokens": 42,
+        "total_tokens": 10488,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_a288987b44"
+    },
+    "timestamp": 1750861979203,
+    "requestId": "f99qseprge"
+  },
+  "21363b24de9386cc01cb8e42885e2f33096727e1022fc44b6164fc1902ff8d88": {
+    "data": {
+      "id": "chatcmpl-BmLTKdcsI5aZMG5LgP7gsMgYxtscH",
+      "object": "chat.completion",
+      "created": 1750861982,
+      "model": "gpt-4o-2024-08-06",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_5oNKniQHvi12Uv3yxoEnkMh5",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\":\"type\",\"element\":2,\"args\":[\"after:2025/06/02 before:2025/06/03\"],\"step\":\"Typed 'after:2025/06/02 before:2025/06/03' into the search bar.\",\"why\":\"This step inputs the date filter criteria into the search bar to filter emails from June 2nd, 2025.\",\"completed\":false}"
+                }
+              }
+            ],
+            "refusal": null,
+            "annotations": []
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 10506,
+        "completion_tokens": 94,
+        "total_tokens": 10600,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_07871e2ad8"
+    },
+    "timestamp": 1750861985844,
+    "requestId": "f99qseprge"
+  },
+  "91873124357a08749019e83fb908e49d3b3390d664a418bd66a9731fc67b6758": {
+    "data": {
+      "id": "chatcmpl-BmLTRGbjcSw84n3fBmjtvpvtHGzf9",
+      "object": "chat.completion",
+      "created": 1750861989,
+      "model": "gpt-4o-2024-08-06",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_BjiGPdh1h6yXFzZAU0T2VkEC",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\":\"press\",\"element\":2,\"args\":[\"Enter\"],\"step\":\"Pressed the Enter key to execute the search query in the search bar.\",\"why\":\"This step is necessary to initiate the search for emails from June 2nd, 2025, using the specified date filter criteria.\",\"completed\":true}"
+                }
+              }
+            ],
+            "refusal": null,
+            "annotations": []
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 10453,
+        "completion_tokens": 72,
+        "total_tokens": 10525,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_a288987b44"
+    },
+    "timestamp": 1750862002038,
+    "requestId": "f99qseprge"
+  },
+  "6be7f7a9ab9093807fcda80718976764efd1cde5a66d5cac9be70724fa31b55f": {
+    "data": {
+      "completed": true
+    },
+    "timestamp": 1750862009270,
+    "requestId": "f99qseprge"
+  },
+  "274d237499ac13ca74569cb3bad606b8cb925ce8f6ca571d4886496cfe528750": {
+    "data": {
+      "emails": [
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Your CloudTool invoice for June 2025 is now available. Amount: \n$299.00 Due Date: June 16th, 2025 View and pay your invoice in your account \ndashboard. Best regards, CloudTool Billing Team",
+          "subject": "Your Monthly Invoice is Ready",
+          "selector": "#thread-f:1833805475382161128",
+          "senderName": "CloudTool Billing",
+          "senderEmail": "billing@cloudtool.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Here's your weekly SaaS industry roundup for June 2025:  Top \nfunding rounds this week  Market trends and insights  New product \nlaunches to watch  Growth strategies that work Read",
+          "subject": "Weekly Newsletter - June Updates",
+          "selector": "#thread-f:1833805473694093354",
+          "senderName": "SaaS Weekly",
+          "senderEmail": "newsletter@saasweekly.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Just a friendly reminder about tomorrow's team lunch at 12:30 \nPM. Location: The Garden Bistro Address: 123 Main Street Looking forward to \nseeing everyone there! Best, People Team",
+          "subject": "Team Lunch Reminder",
+          "selector": "#thread-f:1833805472182021302",
+          "senderName": "CompanyHub People T.",
+          "senderEmail": "people@companyhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for the comprehensive deck and the follow-up materials. \nOur investment committee had a chance to review everything last week. We're \nexcited about the opportunity and would like",
+          "subject": "Re: Pitch Deck & Next Steps with Beta Capital",
+          "selector": "#thread-f:1833805470082694704",
+          "senderName": "Ben Thompson",
+          "senderEmail": "ben@betacapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for sending over the deck! I had a chance to review it \nover the weekend. Really impressed with the traction you've shown in the \nautomation space. The customer testimonials are",
+          "subject": "Re: Intro & Deck — Alpha Ventures",
+          "selector": "#thread-f:1833805469251684820",
+          "senderName": "Alice Chen",
+          "senderEmail": "alice@alpha.vc"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for the update and the deck — I had a quick look this \nmorning. I'm still digging into the metrics, but it's already looking quite \nstrong. Mind if I circle back with a few",
+          "subject": "Re: Excited to stay in the loop on your round",
+          "selector": "#thread-f:1830090349613960395",
+          "senderName": "Lisa Mendez",
+          "senderEmail": "lisa@firstroundcapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Your password was successfully changed on June 2nd, 2025 at \n3:33 PM UTC. If you didn't make this change, please contact our support \nteam immediately. Best regards, CompanyHub Security",
+          "subject": "Password Change Confirmation",
+          "selector": "#thread-f:1833805466930712534",
+          "senderName": "CompanyHub Security",
+          "senderEmail": "security@companyhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, You're invited to our upcoming webinar: \"The Future of Business \nAutomation\"  Date: June 10th, 2025  Time: 2:00 PM EST  Topic: \nAI-driven automation trends Register now to",
+          "subject": "Join Our Upcoming Webinar",
+          "selector": "#thread-f:1833805466283973160",
+          "senderName": "AutomationHub Events",
+          "senderEmail": "events@automationhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Clara mentioned you're raising a Series A and thought we should \nconnect. I'm Susan from Evergreen Capital. We focus on B2B SaaS companies \nin the $2-10M ARR range and have been",
+          "subject": "Intro from Clara – Evergreen Capital",
+          "selector": "#thread-f:1833805465834780419",
+          "senderName": "Susan Mei",
+          "senderEmail": "susan.mei@evergreencapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Great meeting with you last week. As discussed, here are the \nitems we'll need ahead of Tuesday's diligence session: 1. Updated financial \nprojections (3-year) 2. Customer reference",
+          "subject": "Follow‑up Items Ahead of Tuesday's Diligence Session",
+          "selector": "#thread-f:1833805465348744610",
+          "senderName": "Carla Rodriguez",
+          "senderEmail": "carla@gammafund.io"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Following up on our conversation last week about NovaCap Fund \nII's interest in your Series A round. We've completed our initial review \nand would like to schedule a deeper dive",
+          "subject": "Follow-Up: NovaCap Fund II Interest",
+          "selector": "#thread-f:1833805464747264516",
+          "senderName": "Raymond Liu",
+          "senderEmail": "raymond.liu@novacap.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, I hope this email finds you well. I'm Elena from Orion \nVentures, and I came across your company through a mutual connection. We're \nactively looking at early-stage AI companies, and",
+          "subject": "Exploring Investment Opportunities with Orion Ventures",
+          "selector": "#thread-f:1833805461598982479",
+          "senderName": "Elena Rios",
+          "senderEmail": "elena.rios@orionventures.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hey there! Here's what's trending on Product Hunt today:  AI Code \nAssistant Pro - Write better code faster  Design System Builder - Create \nconsistent UIs  Analytics Dashboard 3.0 - Better",
+          "subject": "Trending today on Product Hunt",
+          "selector": "#thread-f:1833805461598982479",
+          "senderName": "Product Hunt",
+          "senderEmail": "team@producthunt.com"
+        }
+      ]
+    },
+    "timestamp": 1750862623290,
+    "requestId": "rdj0ywqlgph"
+  },
+  "e28e02bb6c49aabf2baf4eb9ca7b4005d8fb018d6ca70e131e96fcba4181a6d5": {
+    "data": {
+      "inboxVisible": false
+    },
+    "timestamp": 1750863006800,
+    "requestId": "eze2liadww5"
+  },
+  "5cc97a1122eb1e076b73e0369f148515abe799f3de814cae6864343eee247c94": {
+    "data": {
+      "completed": true
+    },
+    "timestamp": 1750862594786,
+    "requestId": "zfrxf1ak83f"
+  },
+  "426ff73cd2c39568fd06e536f0df933a6c481af6516a1c687d89c83d7ffffb2f": {
+    "data": {
+      "id": "chatcmpl-BmLkDsJyELLKX2XVYs6nKeEWAUbSH",
+      "object": "chat.completion",
+      "created": 1750863029,
+      "model": "gpt-4o-2024-08-06",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_8zTY9uqfdyRqlAzjWmZBetHy",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\":\"click\",\"element\":2,\"args\":[],\"step\":\"Clicked on the search bar to focus on it.\",\"completed\":false}"
+                }
+              }
+            ],
+            "refusal": null,
+            "annotations": []
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 11078,
+        "completion_tokens": 37,
+        "total_tokens": 11115,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_07871e2ad8"
+    },
+    "timestamp": 1750863031759,
+    "requestId": "0vyxvh2xxwzo"
+  },
+  "5b50523d06896568a2dddaa7216a3a53cac1fa12c369b52a0ad96984c121e2d8": {
+    "data": {
+      "id": "chatcmpl-BmLkJnk3aoi4WfrbMzYptWIq3lISe",
+      "object": "chat.completion",
+      "created": 1750863035,
+      "model": "gpt-4o-2024-08-06",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_c0R07qLA8c0dYEUyZCYrNpoE",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\": \"type\", \"element\": 2, \"args\": [\"after:2025/06/02 before:2025/06/03\"], \"step\": \"Typed 'after:2025/06/02 before:2025/06/03' into the search bar.\", \"why\": \"To filter emails from June 2nd, 2025.\", \"completed\": false}"
+                }
+              },
+              {
+                "id": "call_MqEDneU1nCs5nNa2pfa0VJKm",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\": \"press\", \"element\": 2, \"args\": [\"Enter\"], \"step\": \"Pressed Enter to execute the search query.\", \"why\": \"To apply the date filter and display the relevant emails.\", \"completed\": true}"
+                }
+              }
+            ],
+            "refusal": null,
+            "annotations": []
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 10501,
+        "completion_tokens": 149,
+        "total_tokens": 10650,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_07871e2ad8"
+    },
+    "timestamp": 1750863040820,
+    "requestId": "0vyxvh2xxwzo"
+  },
+  "8284114381e6bf9febd6febc6709ea7c3cca19dca0c7380d0ec72dd39bd12560": {
+    "data": {
+      "id": "chatcmpl-BmLkTYhj7eVBOndA8x52GfjrVdReL",
+      "object": "chat.completion",
+      "created": 1750863045,
+      "model": "gpt-4o-2024-08-06",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_ir6B9fAep005WuOm4N7Lw2RZ",
+                "type": "function",
+                "function": {
+                  "name": "doAction",
+                  "arguments": "{\"method\":\"press\",\"element\":2,\"args\":[\"Enter\"],\"step\":\"Pressed the Enter key to execute the search query in the search bar.\",\"why\":\"This action will execute the search query to filter emails from June 2nd, 2025.\",\"completed\":true}"
+                }
+              }
+            ],
+            "refusal": null,
+            "annotations": []
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 10623,
+        "completion_tokens": 65,
+        "total_tokens": 10688,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_07871e2ad8"
+    },
+    "timestamp": 1750863047594,
+    "requestId": "0vyxvh2xxwzo"
+  },
+  "0b4fedfd84fb75b9104f0c1e44a9215698b32c08ce9967d755d0cc8836e96387": {
+    "data": {
+      "emails": [
+        {
+          "date": "Jun 2",
+          "snippet": "Neue Anmeldung auf Mac michaelburner595@gmail.com Wir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter",
+          "subject": "Sicherheitswarnung",
+          "selector": "#thread-f:1833807516082561754",
+          "senderName": "Google",
+          "senderEmail": "michaelburner595@gmail.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Your CloudTool invoice for June 2025 is now available. Amount: $299.00 Due Date: June 16th, 2025 View and pay your invoice in your account dashboard. Best regards, CloudTool Billing Team",
+          "subject": "Your Monthly Invoice is Ready",
+          "selector": "#thread-f:1833805475382161128",
+          "senderName": "CloudTool Billing",
+          "senderEmail": "billing@cloudtool.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Here's your weekly SaaS industry roundup for June 2025: Top funding rounds this week Market trends and insights New product launches to watch Growth strategies that work Read",
+          "subject": "Weekly Newsletter - June Updates",
+          "selector": "#thread-f:1833805473694093354",
+          "senderName": "SaaS Weekly",
+          "senderEmail": "newsletter@saasweekly.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Just a friendly reminder about tomorrow's team lunch at 12:30 PM. Location: The Garden Bistro Address: 123 Main Street Looking forward to seeing everyone there! Best, People Team",
+          "subject": "Team Lunch Reminder",
+          "selector": "#thread-f:1833805472182021302",
+          "senderName": "CompanyHub People T.",
+          "senderEmail": "people@companyhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for the comprehensive deck and the follow-up materials. Our investment committee had a chance to review everything last week. We're excited about the opportunity and would like",
+          "subject": "Re: Pitch Deck & Next Steps with Beta Capital",
+          "selector": "#thread-f:1833805470082694704",
+          "senderName": "Ben Thompson",
+          "senderEmail": "ben@betacapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for sending over the deck! I had a chance to review it over the weekend. Really impressed with the traction you've shown in the automation space. The customer testimonials are",
+          "subject": "Re: Intro & Deck — Alpha Ventures",
+          "selector": "#thread-f:1833805469251684820",
+          "senderName": "Alice Chen",
+          "senderEmail": "alice@alpha.vc"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for the update and the deck — I had a quick look this morning. I'm still digging into the metrics, but it's already looking quite strong. Mind if I circle back with a few",
+          "subject": "Re: Excited to stay in the loop on your round",
+          "selector": "#thread-f:1830090349613960395",
+          "senderName": "Lisa Mendez",
+          "senderEmail": "lisa@firstroundcapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Your password was successfully changed on June 2nd, 2025 at 3:33 PM UTC. If you didn't make this change, please contact our support team immediately. Best regards, CompanyHub Security",
+          "subject": "Password Change Confirmation",
+          "selector": "#thread-f:1833805466930712534",
+          "senderName": "CompanyHub Security",
+          "senderEmail": "security@companyhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, You're invited to our upcoming webinar: \"The Future of Business Automation\" Date: June 10th, 2025 Time: 2:00 PM EST Topic: AI-driven automation trends Register now to",
+          "subject": "Join Our Upcoming Webinar",
+          "selector": "#thread-f:1833805466283973160",
+          "senderName": "AutomationHub Events",
+          "senderEmail": "events@automationhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Clara mentioned you're raising a Series A and thought we should connect. I'm Susan from Evergreen Capital. We focus on B2B SaaS companies in the $2-10M ARR range and have been",
+          "subject": "Intro from Clara – Evergreen Capital",
+          "selector": "#thread-f:1833805465834780419",
+          "senderName": "Susan Mei",
+          "senderEmail": "susan.mei@evergreencapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Great meeting with you last week. As discussed, here are the items we'll need ahead of Tuesday's diligence session: 1. Updated financial projections (3-year) 2. Customer reference",
+          "subject": "Follow‑up Items Ahead of Tuesday's Diligence Session",
+          "selector": "#thread-f:1833805465348744610",
+          "senderName": "Carla Rodriguez",
+          "senderEmail": "carla@gammafund.io"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Following up on our conversation last week about NovaCap Fund II's interest in your Series A round. We've completed our initial review and would like to schedule a deeper dive",
+          "subject": "Follow-Up: NovaCap Fund II Interest",
+          "selector": "#thread-f:1833805464747264516",
+          "senderName": "Raymond Liu",
+          "senderEmail": "raymond.liu@novacap.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, I hope this email finds you well. I'm Elena from Orion Ventures, and I came across your company through a mutual connection. We're actively looking at early-stage AI companies, and",
+          "subject": "Exploring Investment Opportunities with Orion Ventures",
+          "selector": "#thread-f:1833805461598982479",
+          "senderName": "Elena Rios",
+          "senderEmail": "elena.rios@orionventures.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hey there! Here's what's trending on Product Hunt today: AI Code Assistant Pro - Write better code faster Design System Builder - Create consistent UIs Analytics Dashboard 3.0 - Better",
+          "subject": "Trending today on Product Hunt",
+          "selector": "#thread-f:1833805461598982479",
+          "senderName": "Product Hunt",
+          "senderEmail": "team@producthunt.com"
+        }
+      ]
+    },
+    "timestamp": 1750863073789,
+    "requestId": "skhlcst6qi"
+  },
+  "dd434ee8655dd1cf40e6a42a087c8fe6bed78a67746faf828d4031fad53e1916": {
+    "data": {
+      "emails": [
+        {
+          "date": "Jun 2",
+          "snippet": "Neue Anmeldung auf Mac michaelburner595@gmail.com Wir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter",
+          "subject": "Sicherheitswarnung",
+          "selector": "#thread-f:1833807516082561754",
+          "senderName": "Google",
+          "senderEmail": "michaelburner595@gmail.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Your CloudTool invoice for June 2025 is now available. Amount: $299.00 Due Date: June 16th, 2025 View and pay your invoice in your account dashboard. Best regards, CloudTool Billing Team",
+          "subject": "Your Monthly Invoice is Ready",
+          "selector": "#thread-f:1833805475382161128",
+          "senderName": "CloudTool Billing",
+          "senderEmail": "billing@cloudtool.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Here's your weekly SaaS industry roundup for June 2025: Top funding rounds this week Market trends and insights New product launches to watch Growth strategies that work Read",
+          "subject": "Weekly Newsletter - June Updates",
+          "selector": "#thread-f:1833805473694093354",
+          "senderName": "SaaS Weekly",
+          "senderEmail": "newsletter@saasweekly.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Just a friendly reminder about tomorrow's team lunch at 12:30 PM. Location: The Garden Bistro Address: 123 Main Street Looking forward to seeing everyone there! Best, People Team",
+          "subject": "Team Lunch Reminder",
+          "selector": "#thread-f:1833805472182021302",
+          "senderName": "CompanyHub People T.",
+          "senderEmail": "people@companyhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for the comprehensive deck and the follow-up materials. Our investment committee had a chance to review everything last week. We're excited about the opportunity and would like",
+          "subject": "Re: Pitch Deck & Next Steps with Beta Capital",
+          "selector": "#thread-f:1833805470082694704",
+          "senderName": "Ben Thompson",
+          "senderEmail": "ben@betacapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for sending over the deck! I had a chance to review it over the weekend. Really impressed with the traction you've shown in the automation space. The customer testimonials are",
+          "subject": "Re: Intro & Deck — Alpha Ventures",
+          "selector": "#thread-f:1833805469251684820",
+          "senderName": "Alice Chen",
+          "senderEmail": "alice@alpha.vc"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Thanks for the update and the deck — I had a quick look this morning. I'm still digging into the metrics, but it's already looking quite strong. Mind if I circle back with a few",
+          "subject": "Re: Excited to stay in the loop on your round",
+          "selector": "#thread-f:1830090349613960395",
+          "senderName": "Lisa Mendez",
+          "senderEmail": "lisa@firstroundcapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Your password was successfully changed on June 2nd, 2025 at 3:33 PM UTC. If you didn't make this change, please contact our support team immediately. Best regards, CompanyHub Security",
+          "subject": "Password Change Confirmation",
+          "selector": "#thread-f:1833805466930712534",
+          "senderName": "CompanyHub Security",
+          "senderEmail": "security@companyhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, You're invited to our upcoming webinar: \"The Future of Business Automation\" Date: June 10th, 2025 Time: 2:00 PM EST Topic: AI-driven automation trends Register now to",
+          "subject": "Join Our Upcoming Webinar",
+          "selector": "#thread-f:1833805466283973160",
+          "senderName": "AutomationHub Events",
+          "senderEmail": "events@automationhub.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Clara mentioned you're raising a Series A and thought we should connect. I'm Susan from Evergreen Capital. We focus on B2B SaaS companies in the $2-10M ARR range and have been",
+          "subject": "Intro from Clara – Evergreen Capital",
+          "selector": "#thread-f:1833805465834780419",
+          "senderName": "Susan Mei",
+          "senderEmail": "susan.mei@evergreencapital.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Great meeting with you last week. As discussed, here are the items we'll need ahead of Tuesday's diligence session: 1. Updated financial projections (3-year) 2. Customer reference",
+          "subject": "Follow‑up Items Ahead of Tuesday's Diligence Session",
+          "selector": "#thread-f:1833805465348744610",
+          "senderName": "Carla Rodriguez",
+          "senderEmail": "carla@gammafund.io"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, Following up on our conversation last week about NovaCap Fund II's interest in your Series A round. We've completed our initial review and would like to schedule a deeper dive",
+          "subject": "Follow-Up: NovaCap Fund II Interest",
+          "selector": "#thread-f:1833805464747264516",
+          "senderName": "Raymond Liu",
+          "senderEmail": "raymond.liu@novacap.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hi Michael, I hope this email finds you well. I'm Elena from Orion Ventures, and I came across your company through a mutual connection. We're actively looking at early-stage AI companies, and",
+          "subject": "Exploring Investment Opportunities with Orion Ventures",
+          "selector": "#thread-f:1833805461598982479",
+          "senderName": "Elena Rios",
+          "senderEmail": "elena.rios@orionventures.com"
+        },
+        {
+          "date": "Jun 2",
+          "snippet": "Hey there! Here's what's trending on Product Hunt today: AI Code Assistant Pro - Write better code faster Design System Builder - Create consistent UIs Analytics Dashboard 3.0 - Better",
+          "subject": "Trending today on Product Hunt",
+          "selector": "#thread-f:1833805461598982479",
+          "senderName": "Product Hunt",
+          "senderEmail": "team@producthunt.com"
+        }
+      ]
+    },
+    "timestamp": 1750863090264,
+    "requestId": "skhlcst6qi"
+  },
+  "934735cd79fe2b19b3318687ab4c33997fe3923f10b1ed01243ca81e6890cbd4": {
+    "data": {
+      "progress": "All emails for June 2nd have been extracted with the required details: sender name, sender email, subject, snippet, and CSS selector.",
+      "completed": true
+    },
+    "timestamp": 1750863091424,
+    "requestId": "skhlcst6qi"
+  },
+  "2646477c6f9efcb04735bf64f059250b33cc5ea0d1b58376d6e5bdc1d97afcad": {
+    "data": {
+      "completed": true
+    },
+    "timestamp": 1750864447914,
+    "requestId": "ud37uz4z3po"
+  },
+  "df67cf9d687fed3a1af4ad0a26ba51d42cd4698cdd128fd12df2262e1768ab86": {
+    "data": {
+      "subject": "Neue Anmeldung auf Mac",
+      "bodyText": "Wir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter unternehmen. Andernfalls unterstützen wir Sie gern dabei, die Sicherheit Ihres Kontos zu verbessern.\n\nSie können sich sicherheitsrelevante Aktivitäten auch hier ansehen:\nhttps://myaccount.google.com/notifications\n\nWir haben Ihnen diese E-Mail gesendet, um Sie über wichtige Änderungen zu Ihrem Google-Konto und den Diensten von Google zu informieren.",
+      "nextSteps": "Aktivität prüfen",
+      "senderEmail": "no-reply@accounts.google.com",
+      "fullSenderName": "Google",
+      "hasActionItems": false,
+      "investorCompany": "",
+      "isInvestorRelated": false
+    },
+    "timestamp": 1750864451109,
+    "requestId": "2or5kuqsyvg"
+  },
+  "29b6a3ecd4c6c716194545354a4026c0508409652134801b69fd56ec5029b202": {
+    "data": {
+      "subject": "Neue Anmeldung auf Mac",
+      "bodyText": "Wir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter unternehmen. Andernfalls unterstützen wir Sie gern dabei, die Sicherheit Ihres Kontos zu verbessern.\n\nSie können sich sicherheitsrelevante Aktivitäten auch hier ansehen:\nhttps://myaccount.google.com/notifications\n\nWir haben Ihnen diese E-Mail gesendet, um Sie über wichtige Änderungen zu Ihrem Google-Konto und den Diensten von Google zu informieren.",
+      "nextSteps": "Aktivität prüfen",
+      "senderEmail": "no-reply@accounts.google.com",
+      "fullSenderName": "Google",
+      "hasActionItems": false,
+      "investorCompany": "",
+      "isInvestorRelated": false
+    },
+    "timestamp": 1750864453726,
+    "requestId": "2or5kuqsyvg"
+  },
+  "78d53f7c92fde4190f0cb8b26467b2abeb1bdf0a45b26705bfba8e4b6bf985ee": {
+    "data": {
+      "progress": "Extracted email content includes sender details, subject, and body text. The email is not investor-related.",
+      "completed": false
+    },
+    "timestamp": 1750864462798,
+    "requestId": "2or5kuqsyvg"
+  },
+  "d0a3ff390fd79bbb04f2813c5e865067b7645f75ad0daa9a5b577af95a587dbb": {
+    "data": {
+      "subject": "Sicherheitswarnung",
+      "bodyText": "Wir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter unternehmen. Andernfalls unterstützen wir Sie gern dabei, die Sicherheit Ihres Kontos zu verbessern.\n\nAktivität prüfen\n\nSie können sich sicherheitsrelevante Aktivitäten auch hier ansehen:\nhttps://myaccount.google.com/notifications\n\nWir haben Ihnen diese E-Mail gesendet, um Sie über wichtige Änderungen zu Ihrem Google-Konto und den Diensten von Google zu informieren.",
+      "nextSteps": "Aktivität prüfen",
+      "senderEmail": "no-reply@accounts.google.com",
+      "fullSenderName": "Google",
+      "hasActionItems": true,
+      "investorCompany": "",
+      "isInvestorRelated": false
+    },
+    "timestamp": 1750864467465
+  },
+  "210d503f4ea0a5674dbf634e61e634b22e5cd11c4d711fff6c0160fcc86468d0": {
+    "data": {
+      "subject": "Sicherheitswarnung",
+      "bodyText": "Wir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter unternehmen. Andernfalls unterstützen wir Sie gern dabei, die Sicherheit Ihres Kontos zu verbessern.\n\nAktivität prüfen\n\nSie können sich sicherheitsrelevante Aktivitäten auch hier ansehen:\nhttps://myaccount.google.com/notifications\n\nWir haben Ihnen diese E-Mail gesendet, um Sie über wichtige Änderungen zu Ihrem Google-Konto und den Diensten von Google zu informieren.",
+      "nextSteps": "Aktivität prüfen",
+      "senderEmail": "no-reply@accounts.google.com",
+      "fullSenderName": "Google",
+      "hasActionItems": true,
+      "investorCompany": "",
+      "isInvestorRelated": false
+    },
+    "timestamp": 1750864470555
+  },
+  "8f30423f5bd2ba43f36e04bfc1708f92324683b28a731d212f08822e5a7ad906": {
+    "data": {
+      "progress": "Extracted email content includes sender details, subject, and body text. The email is not investor-related.",
+      "completed": false
+    },
+    "timestamp": 1750864472323
   }
 }

@@ -3,6 +3,12 @@ const { useState, useEffect, useRef, useCallback } = React;
 const API_BASE = 'http://localhost:3002/api/operator';
 
 function App() {
+  // Resizable panel state
+  const [workflowPanelWidth, setWorkflowPanelWidth] = useState(500); // Default 500px instead of 384px
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -80,6 +86,34 @@ function App() {
       nodesPanelRef.current.scrollTop = nodesPanelRef.current._lastScrollTop;
     }
   });
+
+  // Handle resize events
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!resizingRef.current) return;
+      
+      const deltaX = startXRef.current - e.clientX;
+      const newWidth = Math.max(300, Math.min(800, startWidthRef.current + deltaX));
+      setWorkflowPanelWidth(newWidth);
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizingRef.current = false;
+      document.body.style.cursor = '';
+    };
+    
+    if (isResizing) {
+      document.body.style.cursor = 'col-resize';
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing]);
 
   const loadWorkflows = async () => {
     try {
@@ -251,8 +285,58 @@ function App() {
     }
   };
 
+  // Helper function to get the color for a node type
+  const getNodeTypeColor = (type) => {
+    const colors = {
+      'context': '#10b981',      // green
+      'browser_action': '#3b82f6', // blue
+      'browser_query': '#8b5cf6',  // purple
+      'route': '#f59e0b',         // amber
+      'iterate': '#ef4444',       // red
+      'memory': '#06b6d4',        // cyan
+      'cognition': '#ec4899',     // pink
+    };
+    return colors[type] || '#6b7280';
+  };
+
+  // Helper to calculate indentation and styling based on depth
+  const getDepthStyles = (depth, isIterationContext = false) => {
+    // Cap indentation at 3 levels for iteration context, 4 for normal
+    const maxDepth = isIterationContext ? 3 : 4;
+    const effectiveDepth = Math.min(depth, maxDepth);
+    
+    // Minimal indentation - just enough to show hierarchy
+    const indentSize = isIterationContext ? 8 : 16;
+    const marginLeft = effectiveDepth * indentSize;
+    const marginRight = isIterationContext ? 4 : Math.min(effectiveDepth * 8, 24);
+    
+    // Visual depth indicators beyond max indentation
+    const visualDepth = depth - effectiveDepth;
+    const borderWidth = Math.max(4 - visualDepth, 1);
+    const opacity = 1; // Keep full opacity, use other cues
+    
+    return {
+      container: {
+        marginLeft: `${marginLeft}px`,
+        marginRight: `${marginRight}px`,
+        marginTop: depth > 0 ? '4px' : '12px',
+        marginBottom: '4px',
+        position: 'relative',
+      },
+      card: {
+        backgroundColor: depth > maxDepth ? 'rgba(249, 250, 251, 0.8)' : 'white',
+        borderLeftWidth: `${borderWidth}px`,
+        borderLeftStyle: 'solid',
+        boxShadow: depth > 0 ? '0 1px 2px rgba(0, 0, 0, 0.05)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+      },
+      connectionLine: null, // Removed connection lines for cleaner look
+      verticalLine: null, // Removed vertical lines
+      isCompact: depth > maxDepth || isIterationContext,
+    };
+  };
+
   // NodeCard Component - Handles display of nodes including complex route and iterate nodes
-  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues }) => {
+  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, isIterationContext = false }) => {
     console.log(`[DEBUG] Rendering NodeCard for node ${node.position} (${node.type}):`, { 
       id: node.id, 
       result: node.result,
@@ -373,13 +457,40 @@ function App() {
       return null;
     };
 
+    const depthStyles = getDepthStyles(depth, isIterationContext);
+    const nodeColor = getNodeTypeColor(node.type);
+    const isCompact = depthStyles.isCompact;
+
     return (
-      <div className="border rounded-lg p-3 hover:shadow-md transition-shadow" style={{marginLeft: depth * 20}}>
-        <div className="flex justify-between items-start mb-2">
+      <div style={depthStyles.container}>
+        {/* Connection lines for nested nodes */}
+        {depthStyles.connectionLine && <div style={depthStyles.connectionLine} />}
+        {depthStyles.verticalLine && <div style={depthStyles.verticalLine} />}
+        
+        <div 
+          className={`rounded-lg transition-all duration-300 ${isCompact ? 'p-2' : 'p-3'} ${depth > 0 ? 'shadow-sm hover:shadow-md' : 'shadow-md hover:shadow-lg'}`}
+          style={{
+            ...depthStyles.card,
+            borderLeftColor: nodeColor,
+          }}
+        >
+        <div className="flex justify-between items-start">
           <div className="flex-1">
-            <div className="font-medium text-sm flex items-center">
-              <span className="text-gray-500 mr-2">#{node.position}</span>
-              <span className="text-blue-600">{node.type}</span>
+            <div className={`font-medium ${isCompact ? 'text-xs' : 'text-sm'} flex items-center`}>
+              <span className="text-gray-400 mr-2 font-mono">#{node.position}</span>
+              <span style={{ color: nodeColor }}>{node.type}</span>
+              {/* Show action for browser_action nodes */}
+              {node.type === 'browser_action' && node.params?.action && (
+                <span className="ml-1 text-gray-500">
+                  · {node.params.action}
+                </span>
+              )}
+              {/* Depth indicator for deep nesting - but not in iteration context */}
+              {depth > 2 && !isIterationContext && (
+                <span className="ml-2 text-xs text-gray-400">
+                  (L{depth})
+                </span>
+              )}
               {(hasNestedNodes || hasIterateBody) && (
                 <button
                   onClick={(e) => {
@@ -393,7 +504,16 @@ function App() {
                 </button>
               )}
             </div>
-            <div className="text-xs text-gray-600 mt-1">{node.description}</div>
+            {/* Show description for non-compact nodes on separate line */}
+            {!isCompact && (
+              <div className="text-xs text-gray-600 mt-1">{node.description}</div>
+            )}
+            {/* For compact nodes in iterations, show inline after type */}
+            {isCompact && isIterationContext && node.description && (
+              <div className="text-xs text-gray-500 mt-0.5">
+                {node.description}
+              </div>
+            )}
             
             {/* Special display for route nodes */}
             {isRoute && node.params?.value && (
@@ -431,9 +551,9 @@ function App() {
             )}
             <button
               onClick={() => executeNode(node.id)}
-              className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+              className={`${isCompact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-xs'} bg-green-600 text-white rounded hover:bg-green-700`}
             >
-              Run
+              {isCompact ? '▶' : 'Run'}
             </button>
           </div>
         </div>
@@ -455,9 +575,16 @@ function App() {
                     nodePositions={branchContent} 
                     workflowId={currentWorkflow?.id}
                     nodeValues={nodeValues}
+                    depth={depth + 1}
+                    executeNode={executeNode}
+                    expandedNodes={expandedNodes}
+                    setExpandedNodes={setExpandedNodes}
+                    loadNodeValues={loadNodeValues}
+                    currentWorkflow={currentWorkflow}
+                    isIterationContext={isIterationContext}
                   />
                 ) : (
-                  renderNestedNode(branchContent, branchName, 0)
+                  renderNestedNode(branchContent, branchName, 0, depth + 1)
                 )}
               </div>
             ))}
@@ -466,83 +593,67 @@ function App() {
         
         {/* Expandable section for iterate nodes */}
         {expanded && hasIterateBody && (
-          <div className="mt-3 bg-gray-50 rounded p-3">
-            {console.log('[DEBUG] Iterate expanded section:', { expanded, hasIterateBody, node })}
-            <div className="text-xs font-semibold text-gray-700 mb-2">
-              Iteration Body:
-              {node.params.limit && (
-                <span className="ml-2 text-gray-500">
-                  (limit: {node.params.limit})
-                </span>
-              )}
-            </div>
-            
-            {/* Show the body template */}
-            <div className="mb-3">
-              <div className="text-xs text-gray-600 mb-1">Template:</div>
-              {/* Check if body contains position numbers or node objects */}
-              {Array.isArray(node.params.body) && node.params.body.length > 0 && typeof node.params.body[0] === 'number' ? (
-                <NestedNodesList 
-                  nodePositions={node.params.body} 
-                  workflowId={currentWorkflow?.id}
-                  nodeValues={nodeValues}
-                />
-              ) : (
-                renderNestedNode(node.params.body, 'body', 0)
-              )}
-            </div>
-            
-            {/* Show iteration results if available */}
-            {console.log('[DEBUG] About to render iterations:', { 
-              iterationData, 
-              hasData: !!iterationData, 
-              length: iterationData?.length,
-              isArray: Array.isArray(iterationData)
-            })}
-            {iterationData && iterationData.length > 0 && (
-              <div className="mt-3 border-t pt-3">
+          <div className="mt-3">
+            {/* Only show template if no iterations are available */}
+            {(!iterationData || iterationData.length === 0) && (
+              <div className="bg-gray-50 rounded p-3 mb-3">
                 <div className="text-xs font-semibold text-gray-700 mb-2">
-                  Iteration Results: {iterationData.length} items
+                  Iteration Template:
+                  {node.params.limit && (
+                    <span className="ml-2 text-gray-500">
+                      (limit: {node.params.limit})
+                    </span>
+                  )}
                 </div>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {iterationData.map((iterResult, idx) => {
-                    // Get the iteration item data from the result
-                    const itemData = iterResult?.data || iterResult?.item || iterResult;
-                    console.log(`Rendering iteration ${idx}:`, iterResult);
-                    
-                    // Get body nodes
-                    let bodyNodes = [];
-                    if (Array.isArray(node.params.body)) {
-                      bodyNodes = node.params.body;
-                    } else if (node.params.body) {
-                      bodyNodes = [node.params.body];
-                    }
-                    
-                    return (
-                      <IterationResult 
-                        key={idx}
-                        index={idx}
-                        result={iterResult}
-                        variable={node.params.variable}
-                        parentNodeId={node.id}
-                        parentNodePosition={node.position}
-                        iterationData={itemData}
-                        bodyNodes={bodyNodes}
-                        currentWorkflow={currentWorkflow}
-                        loadWorkflowNodes={loadWorkflowNodes}
-                        nodeValues={nodeValues}
-                        loadNodeValues={loadNodeValues}
-                      />
-                    );
-                  })}
+                <div className="text-xs text-gray-600 mb-3">
+                  These nodes will run for each item in the collection
                 </div>
+                {/* Check if body contains position numbers or node objects */}
+                {Array.isArray(node.params.body) && node.params.body.length > 0 && typeof node.params.body[0] === 'number' ? (
+                  <NestedNodesList 
+                    nodePositions={node.params.body} 
+                    workflowId={currentWorkflow?.id}
+                    nodeValues={nodeValues}
+                    depth={depth + 1}
+                    executeNode={executeNode}
+                    expandedNodes={expandedNodes}
+                    setExpandedNodes={setExpandedNodes}
+                    loadNodeValues={loadNodeValues}
+                    currentWorkflow={currentWorkflow}
+                    isIterationContext={false}
+                  />
+                ) : (
+                  renderNestedNode(node.params.body, 'body', 0, depth + 1)
+                )}
+              </div>
+            )}
+            
+            {/* Show iterations as the main content */}
+            {iterationData && iterationData.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-gray-700">
+                  {iterationData.length} Iterations
+                </div>
+                {/* Simple vertical list of iteration cards */}
+                <SimpleIterationList 
+                  iterations={iterationData}
+                  node={node}
+                  currentWorkflow={currentWorkflow}
+                  loadWorkflowNodes={loadWorkflowNodes}
+                  nodeValues={nodeValues}
+                  loadNodeValues={loadNodeValues}
+                  depth={depth}
+                  executeNode={executeNode}
+                  expandedNodes={expandedNodes}
+                  setExpandedNodes={setExpandedNodes}
+                />
               </div>
             )}
           </div>
         )}
         
-        {/* Show params for non-route/non-iterate nodes */}
-        {!isRoute && !isIterate && node.params && (
+        {/* Show params for non-route/non-iterate nodes - but not in iteration context */}
+        {!isRoute && !isIterate && node.params && !isIterationContext && (
           <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mt-2 font-mono">
             {JSON.stringify(node.params, null, 2)}
           </div>
@@ -581,6 +692,7 @@ function App() {
           }
           return null;
         })()}
+      </div>
       </div>
     );
   };
@@ -747,7 +859,7 @@ function App() {
   };
 
   // NestedNodesList Component - Fetches and displays nested nodes by position
-  const NestedNodesList = ({ nodePositions, workflowId, nodeValues }) => {
+  const NestedNodesList = ({ nodePositions, workflowId, nodeValues, depth = 1, executeNode, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, isIterationContext = false }) => {
     const [nestedNodes, setNestedNodes] = React.useState([]);
     const [loading, setLoading] = React.useState(true);
     
@@ -784,23 +896,108 @@ function App() {
     }
     
     return (
-      <div className="ml-4 mt-2 border-l-2 border-gray-300 pl-4">
-        <div className="text-xs font-semibold text-gray-600 mb-2">
-          {nestedNodes.length} steps in branch
-        </div>
+      <div className="space-y-2">
         {nestedNodes.map((node, idx) => (
-          <div key={node.id} className="mb-2">
-            <MiniNodeCard 
-              node={{
-                ...node,
-                config: node.params,
-                type: node.type,
-                description: node.description
-              }} 
-              index={idx} 
-              branchPath={`node${node.position}`}
-              parentNodeId={null}
-              nodeValues={nodeValues}
+          <NodeCard 
+            key={node.id}
+            node={node}
+            executeNode={executeNode}
+            depth={depth}
+            expandedNodes={expandedNodes}
+            setExpandedNodes={setExpandedNodes}
+            loadNodeValues={loadNodeValues}
+            currentWorkflow={currentWorkflow}
+            isIterationContext={isIterationContext}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  // IterationNodesList Component - Shows full nodes within an iteration context
+  const IterationNodesList = ({ nodePositions, workflowId, currentWorkflow, iterationIndex, iterationData, variable, parentNodeId, parentNodePosition, nodeValues, loadNodeValues, depth, executeNode, expandedNodes, setExpandedNodes }) => {
+    const [nodes, setNodes] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const fetchNodes = async () => {
+        if (!workflowId || !nodePositions) return;
+        
+        try {
+          const response = await fetch(`${API_BASE}/workflows/${workflowId}`);
+          if (!response.ok) throw new Error('Failed to fetch nodes');
+          
+          const data = await response.json();
+          const allNodes = data.nodes || [];
+          
+          // Filter to get only the nodes at the specified positions
+          const stepNodes = nodePositions.map(pos => 
+            allNodes.find(n => n.position === pos)
+          ).filter(Boolean);
+          
+          setNodes(stepNodes);
+        } catch (error) {
+          console.error('Failed to fetch iteration nodes:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchNodes();
+    }, [nodePositions, workflowId]);
+    
+    const executeIterationNode = async (nodeId) => {
+      console.log(`Execute node ${nodeId} in iteration ${iterationIndex}`, { iterationData });
+      
+      try {
+        // Execute within iteration context
+        const response = await fetch(`${API_BASE}/execute-iteration-step`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nodeId,
+            workflowId,
+            iterationIndex,
+            iterationData,
+            variable,
+            parentNodeId
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to execute node: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log('Iteration node execution result:', result);
+        
+        // Reload node values to show updated results
+        if (loadNodeValues) {
+          await loadNodeValues();
+        }
+      } catch (error) {
+        console.error('Failed to execute iteration node:', error);
+        alert(`Failed to execute node: ${error.message}`);
+      }
+    };
+    
+    if (loading) {
+      return <div className="text-xs text-gray-500">Loading nodes...</div>;
+    }
+    
+    return (
+      <div className="space-y-2">
+        {nodes.map((node) => (
+          <div key={node.id} className="iteration-node-context">
+            <NodeCard 
+              node={node}
+              executeNode={executeIterationNode}
+              depth={depth}
+              expandedNodes={expandedNodes}
+              setExpandedNodes={setExpandedNodes}
+              loadNodeValues={loadNodeValues}
+              currentWorkflow={currentWorkflow}
+              isIterationContext={true}
             />
           </div>
         ))}
@@ -880,31 +1077,39 @@ function App() {
     }
     
     return (
-      <div className="ml-4 space-y-1">
+      <div className="space-y-2">
         {nodes.map((node, idx) => {
           // Find any stored value for this node in this iteration context
           const iterKey = `node${node.position}@iter:${parentNodePosition}:${iterationIndex}`;
           const nodeValue = nodeValues[iterKey];
+          const nodeColor = getNodeTypeColor(node.type);
           
           return (
-            <div key={node.id} className="bg-gray-50 rounded p-2 border border-gray-200">
-              <div className="flex items-center justify-between">
+            <div key={node.id} className="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-sm transition-shadow">
+              <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="text-xs">
-                    <span className="text-gray-500">Step {idx + 1}:</span>
-                    <span className="ml-1 text-blue-600 font-medium">{node.type}</span>
+                  <div className="flex items-center text-sm">
+                    <span className="text-gray-400 font-mono text-xs">#{node.position}</span>
+                    <span className="ml-2 font-medium" style={{ color: nodeColor }}>{node.type}</span>
                     {node.params?.action && (
-                      <span className="text-gray-500 ml-1">:{node.params.action}</span>
+                      <span className="text-gray-500 ml-1 text-xs">• {node.params.action}</span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-600 mt-0.5">{node.description}</div>
+                  <div className="text-xs text-gray-600 mt-1">{node.description}</div>
+                  
+                  {/* Show specific params for this iteration */}
+                  {node.params?.selector && node.params.selector.includes('{{') && (
+                    <div className="mt-2 text-xs text-gray-500 font-mono bg-gray-50 p-1 rounded">
+                      Selector: {node.params.selector.replace(`{{${variable}.selector}}`, iterationData.selector || '[specific to this email]')}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => executeStep(node.id, idx)}
-                  className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 ml-2"
+                  className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 ml-2 flex-shrink-0"
                   title={`Execute ${node.description}`}
                 >
-                  ▶
+                  Run Step
                 </button>
               </div>
               
@@ -933,8 +1138,273 @@ function App() {
     );
   };
 
+  // SimpleIterationList Component - Shows iterations as expandable cards
+  const SimpleIterationList = ({ iterations, node, currentWorkflow, loadWorkflowNodes, nodeValues, loadNodeValues, depth, executeNode, expandedNodes, setExpandedNodes }) => {
+    return (
+      <div className="space-y-3">
+        {iterations.map((iterResult, idx) => {
+          const itemData = iterResult?.data || iterResult?.item || iterResult;
+          const iterationNodeId = `${node.id}_iter_${idx}`;
+          const isExpanded = expandedNodes?.has(iterationNodeId);
+          
+          return (
+            <div 
+              key={idx} 
+              className="border rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow"
+              style={{
+                marginLeft: `${(depth + 1) * 48}px`,
+                marginRight: `${(depth + 1) * 24}px`,
+              }}
+            >
+              {/* Iteration Header */}
+              <div 
+                className="p-4 cursor-pointer flex justify-between items-start"
+                onClick={() => {
+                  if (isExpanded) {
+                    setExpandedNodes(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete(iterationNodeId);
+                      return newSet;
+                    });
+                  } else {
+                    setExpandedNodes(prev => new Set([...prev, iterationNodeId]));
+                  }
+                }}
+              >
+                <div className="flex-1">
+                  <div className="flex items-center">
+                    <span className="text-sm font-semibold text-gray-700">
+                      Iteration {idx + 1}
+                    </span>
+                    <span className="ml-2 text-xs text-gray-500">
+                      {node.params.variable}[{idx}]
+                    </span>
+                    <span className="ml-2 text-gray-500">
+                      {isExpanded ? '▼' : '▶'}
+                    </span>
+                  </div>
+                  
+                  {/* Preview of iteration data */}
+                  <div className="mt-1 text-sm text-gray-600">
+                    {itemData.subject && (
+                      <div>Subject: {itemData.subject}</div>
+                    )}
+                    {itemData.senderName && (
+                      <div>From: {itemData.senderName}</div>
+                    )}
+                    {itemData.senderEmail && (
+                      <div className="text-xs text-gray-500">{itemData.senderEmail}</div>
+                    )}
+                    {/* Generic preview for non-email data */}
+                    {!itemData.subject && !itemData.senderName && (
+                      <div className="font-mono text-xs">
+                        {JSON.stringify(itemData).substring(0, 100)}...
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Execute button */}
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const response = await fetch(`${API_BASE}/execute-iteration`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          nodeId: node.id,
+                          workflowId: currentWorkflow?.id,
+                          iterationIndex: idx,
+                          iterationData: itemData
+                        })
+                      });
+                      
+                      if (!response.ok) {
+                        throw new Error(`Failed to execute iteration: ${response.statusText}`);
+                      }
+                      
+                      const result = await response.json();
+                      console.log('Iteration execution result:', result);
+                      
+                      // Refresh the workflow nodes to show updated results
+                      if (currentWorkflow?.id) {
+                        loadWorkflowNodes(currentWorkflow.id);
+                        loadNodeValues();
+                      }
+                    } catch (error) {
+                      console.error('Failed to execute iteration:', error);
+                      alert(`Failed to execute iteration: ${error.message}`);
+                    }
+                  }}
+                  className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+                >
+                  Run
+                </button>
+              </div>
+              
+              {/* Expanded content - show the nodes for this iteration */}
+              {isExpanded && (
+                <div className="border-t bg-gradient-to-r from-gray-50 to-white p-2">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-xs font-semibold text-gray-600">
+                      Steps for iteration {idx + 1}:
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {Array.isArray(node.params.body) ? node.params.body.length : 0} steps
+                    </div>
+                  </div>
+                  
+                  {/* Show the iteration steps with their specific context */}
+                  {Array.isArray(node.params.body) && node.params.body.length > 0 && typeof node.params.body[0] === 'number' ? (
+                    <IterationNodesList 
+                      nodePositions={node.params.body}
+                      workflowId={currentWorkflow?.id}
+                      currentWorkflow={currentWorkflow}
+                      iterationIndex={idx}
+                      iterationData={itemData}
+                      variable={node.params.variable}
+                      parentNodeId={node.id}
+                      parentNodePosition={node.position}
+                      nodeValues={nodeValues}
+                      loadNodeValues={loadNodeValues}
+                      depth={depth + 2}
+                      executeNode={executeNode}
+                      expandedNodes={expandedNodes}
+                      setExpandedNodes={setExpandedNodes}
+                    />
+                  ) : (
+                    <div className="text-xs text-gray-500">No steps defined</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // IterationStack Component - Shows iterations as a stack of cards
+  const IterationStack = ({ iterations, node, currentWorkflow, loadWorkflowNodes, nodeValues, loadNodeValues, depth }) => {
+    const [selectedIndex, setSelectedIndex] = React.useState(null);
+    const [hoveredIndex, setHoveredIndex] = React.useState(null);
+    
+    // Calculate stack positions
+    const getCardStyle = (idx) => {
+      const isSelected = selectedIndex === idx;
+      const isHovered = hoveredIndex === idx;
+      const offset = isSelected ? 0 : Math.min(idx * 8, 40); // Cap offset at 40px
+      const scale = isSelected ? 1 : 0.98 - (idx * 0.01);
+      const zIndex = iterations.length - idx;
+      
+      return {
+        position: isSelected ? 'relative' : 'absolute',
+        top: isSelected ? 'auto' : `${offset}px`,
+        left: isSelected ? 'auto' : `${offset}px`,
+        right: isSelected ? 'auto' : `${offset}px`,
+        transform: `scale(${scale})`,
+        zIndex: isSelected ? 1000 : zIndex,
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        cursor: 'pointer',
+        opacity: isSelected ? 1 : (isHovered ? 0.95 : 0.9),
+        boxShadow: isSelected 
+          ? '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      };
+    };
+    
+    return (
+      <div className="relative" style={{ minHeight: selectedIndex !== null ? 'auto' : '200px' }}>
+        {/* Stack view when no item is selected */}
+        {selectedIndex === null && (
+          <div className="relative" style={{ height: `${Math.min(iterations.length * 8 + 120, 200)}px` }}>
+            {iterations.slice(0, 5).map((iterResult, idx) => {
+              const itemData = iterResult?.data || iterResult?.item || iterResult;
+              return (
+                <div
+                  key={idx}
+                  style={getCardStyle(idx)}
+                  className="bg-white border rounded-lg p-3 hover:shadow-xl"
+                  onClick={() => setSelectedIndex(idx)}
+                  onMouseEnter={() => setHoveredIndex(idx)}
+                  onMouseLeave={() => setHoveredIndex(null)}
+                >
+                  <div className="text-xs font-medium text-gray-700">
+                    <span className="text-gray-500">#{idx + 1}</span>
+                    {itemData.subject && (
+                      <span className="ml-2">{itemData.subject.substring(0, 50)}...</span>
+                    )}
+                    {itemData.senderName && (
+                      <span className="ml-2 text-gray-600">from {itemData.senderName}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {iterations.length > 5 && (
+              <div className="absolute bottom-0 left-12 right-12 bg-gray-100 rounded-lg p-2 text-center text-xs text-gray-600">
+                +{iterations.length - 5} more items
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Expanded view when item is selected */}
+        {selectedIndex !== null && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h4 className="text-sm font-semibold text-gray-700">
+                Iteration {selectedIndex + 1} of {iterations.length}
+              </h4>
+              <button
+                onClick={() => setSelectedIndex(null)}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                ← Back to stack
+              </button>
+            </div>
+            
+            <IterationResult
+              index={selectedIndex}
+              result={iterations[selectedIndex]}
+              variable={node.params.variable}
+              parentNodeId={node.id}
+              parentNodePosition={node.position}
+              iterationData={iterations[selectedIndex]?.data || iterations[selectedIndex]?.item || iterations[selectedIndex]}
+              bodyNodes={Array.isArray(node.params.body) ? node.params.body : [node.params.body]}
+              currentWorkflow={currentWorkflow}
+              loadWorkflowNodes={loadWorkflowNodes}
+              nodeValues={nodeValues}
+              loadNodeValues={loadNodeValues}
+              depth={depth}
+            />
+          </div>
+        )}
+        
+        {/* Pagination dots */}
+        {selectedIndex === null && iterations.length > 1 && (
+          <div className="flex justify-center mt-4 space-x-1">
+            {iterations.slice(0, Math.min(iterations.length, 10)).map((_, idx) => (
+              <div
+                key={idx}
+                className={`w-2 h-2 rounded-full cursor-pointer transition-all ${
+                  hoveredIndex === idx ? 'bg-blue-600 w-4' : 'bg-gray-300'
+                }`}
+                onClick={() => setSelectedIndex(idx)}
+              />
+            ))}
+            {iterations.length > 10 && (
+              <span className="text-xs text-gray-500 ml-2">+{iterations.length - 10}</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // IterationResult Component - Shows results from each iteration
-  const IterationResult = ({ index, result, variable, parentNodeId, parentNodePosition, iterationData, bodyNodes, currentWorkflow, loadWorkflowNodes, nodeValues, loadNodeValues }) => {
+  const IterationResult = ({ index, result, variable, parentNodeId, parentNodePosition, iterationData, bodyNodes, currentWorkflow, loadWorkflowNodes, nodeValues, loadNodeValues, depth = 1 }) => {
     const [expanded, setExpanded] = React.useState(false);
     
     const executeIterationStep = async (stepIndex) => {
@@ -1279,7 +1749,7 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className={`flex flex-col h-screen bg-gray-50 ${isResizing ? 'no-select' : ''}`}>
       {/* Top Bar */}
       <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">
@@ -1402,7 +1872,24 @@ function App() {
         </div>
 
         {/* Nodes Panel */}
-        <div className="w-96 bg-white border-l flex flex-col">
+        <div 
+          className="bg-white border-l flex flex-col relative"
+          style={{ width: `${workflowPanelWidth}px` }}
+        >
+          {/* Resize Handle */}
+          <div
+            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 transition-colors resize-handle"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setIsResizing(true);
+              resizingRef.current = true;
+              startXRef.current = e.clientX;
+              startWidthRef.current = workflowPanelWidth;
+            }}
+            style={{ transform: 'translateX(-2px)' }}
+          >
+            <div className="absolute left-0 top-0 bottom-0 w-4 -translate-x-1/2" />
+          </div>
           <div className="p-4 border-b bg-gray-50">
             <div className="flex justify-between items-center">
               <div>
@@ -1460,7 +1947,16 @@ function App() {
                 )}
                 <div className="space-y-3">
                   {workflowNodes.map((node, index) => (
-                    <NodeCard key={node.id} node={node} executeNode={executeNode} expandedNodes={expandedNodes} setExpandedNodes={setExpandedNodes} loadNodeValues={loadNodeValues} />
+                    <NodeCard 
+                      key={node.id} 
+                      node={node} 
+                      executeNode={executeNode} 
+                      depth={0}
+                      expandedNodes={expandedNodes} 
+                      setExpandedNodes={setExpandedNodes} 
+                      loadNodeValues={loadNodeValues}
+                      currentWorkflow={currentWorkflow}
+                    />
                   ))}
                 </div>
               </>
