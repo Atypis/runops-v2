@@ -1,5 +1,5 @@
 {
-  "message": "I'll build a complete workflow to check Gmail for investor emails and update your Airtable CRM. Let me create the login flow for both Gmail and Airtable with proper routing to handle whether you're already logged in.",
+  "message": "I'll build a complete workflow to process Gmail investor emails and update Airtable CRM with precise back navigation and record handling. Let me create a bulletproof implementation.",
   "toolCalls": [
     {
       "toolCallId": "mock_workflow_1",
@@ -284,57 +284,73 @@
                     "action": "click",
                     "selector": "{{email.selector}}"
                   },
-                  "description": "Click on email to open it"
+                  "description": "Click on email thread to open it"
                 },
                 {
                   "type": "browser_action",
                   "config": {
                     "action": "wait",
-                    "duration": 2000
+                    "duration": 3000
                   },
-                  "description": "Wait for email to load"
+                  "description": "Wait for email content to fully load"
                 },
                 {
                   "type": "browser_query",
                   "config": {
                     "method": "extract",
-                    "instruction": "Extract the full email content including sender details, subject, body text, and determine if this is investor-related (from VCs, funds, or potential investors)",
+                    "instruction": "Extract the full email content including sender name, sender email address, subject line, and complete body text. Also analyze if this email is investor-related (from VCs, funds, angels, or mentions investment/funding)",
                     "schema": {
-                      "fullSenderName": "string",
+                      "senderName": "string",
                       "senderEmail": "string",
                       "subject": "string",
                       "bodyText": "string",
                       "isInvestorRelated": "boolean",
                       "investorCompany": "string",
-                      "hasActionItems": "boolean",
-                      "nextSteps": "string"
+                      "investmentStage": "string"
                     }
                   },
-                  "description": "Extract full email details and classify"
+                  "description": "Extract email details and classify"
                 },
                 {
                   "type": "route",
                   "config": {
                     "value": "node31.isInvestorRelated",
                     "paths": {
+                      "false": [
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "act",
+                            "instruction": "Click the back arrow button in Gmail to return to the inbox list"
+                          },
+                          "description": "Return to inbox for non-investor email"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "wait",
+                            "duration": 1000
+                          },
+                          "description": "Wait for inbox to reload"
+                        }
+                      ],
                       "true": [
                         {
                           "type": "context",
                           "config": {
                             "operation": "set",
-                            "key": "currentInvestorEmail",
+                            "key": "currentEmail",
                             "value": {
-                              "senderName": "{{node31.fullSenderName}}",
+                              "senderName": "{{node31.senderName}}",
                               "senderEmail": "{{node31.senderEmail}}",
                               "company": "{{node31.investorCompany}}",
                               "subject": "{{node31.subject}}",
                               "content": "{{node31.bodyText}}",
-                              "hasActionItems": "{{node31.hasActionItems}}",
-                              "nextSteps": "{{node31.nextSteps}}",
-                              "date": "{{email.date}}"
+                              "stage": "{{node31.investmentStage}}",
+                              "date": "2025-06-02"
                             }
                           },
-                          "description": "Store investor email data"
+                          "description": "Store current investor email data"
                         },
                         {
                           "type": "browser_action",
@@ -345,71 +361,265 @@
                           "description": "Switch to Airtable tab"
                         },
                         {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "act",
+                            "instruction": "Click on the search bar at the top of Airtable and search for '{{currentEmail.company}}' or '{{currentEmail.senderEmail}}'"
+                          },
+                          "description": "Search for existing investor record"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "wait",
+                            "duration": 1500
+                          },
+                          "description": "Wait for search results"
+                        },
+                        {
                           "type": "browser_query",
                           "config": {
                             "method": "extract",
-                            "instruction": "Check if investor {{currentInvestorEmail.company}} already exists in the table",
+                            "instruction": "Check if any records appear in the search results matching the investor",
                             "schema": {
-                              "investorExists": "boolean",
-                              "existingRecordSelector": "string"
+                              "recordFound": "boolean",
+                              "recordSelector": "string"
                             }
                           },
-                          "description": "Check if investor exists in Airtable"
+                          "description": "Check if investor record exists"
                         },
                         {
-                          "type": "cognition",
+                          "type": "route",
                           "config": {
-                            "prompt": "Process the investor email and determine the appropriate CRM update",
-                            "input": "currentInvestorEmail",
-                            "output": "airtableUpdate",
-                            "schema": {
-                              "updateType": "string",
-                              "stage": "string",
-                              "notes": "string",
-                              "followUpNeeded": "boolean"
+                            "value": "node37.recordFound",
+                            "paths": {
+                              "true": [
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "click",
+                                    "selector": "{{node37.recordSelector}}"
+                                  },
+                                  "description": "Click on existing record to open it"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "wait",
+                                    "duration": 1000
+                                  },
+                                  "description": "Wait for record to open"
+                                },
+                                {
+                                  "type": "browser_query",
+                                  "config": {
+                                    "method": "extract",
+                                    "instruction": "Extract current values from the record: Stage field, Last Contact date, and Notes field content",
+                                    "schema": {
+                                      "currentStage": "string",
+                                      "lastContactDate": "string",
+                                      "currentNotes": "string"
+                                    }
+                                  },
+                                  "description": "Read current record values"
+                                },
+                                {
+                                  "type": "cognition",
+                                  "config": {
+                                    "prompt": "Compare the email data with current record values. Determine: 1) If Last Contact should be updated to June 2nd, 2) If Stage should change based on email content, 3) Create a summary to append to Notes",
+                                    "input": {
+                                      "email": "currentEmail",
+                                      "record": "node40"
+                                    },
+                                    "output": "updateDecision",
+                                    "schema": {
+                                      "updateLastContact": "boolean",
+                                      "updateStage": "boolean",
+                                      "newStage": "string",
+                                      "noteSummary": "string"
+                                    }
+                                  },
+                                  "description": "Determine what to update"
+                                },
+                                {
+                                  "type": "route",
+                                  "config": {
+                                    "value": "updateDecision.updateLastContact",
+                                    "paths": {
+                                      "true": [
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "act",
+                                            "instruction": "Click on the Last Contact field and update it to 06/02/2025"
+                                          },
+                                          "description": "Update Last Contact date"
+                                        }
+                                      ],
+                                      "false": []
+                                    }
+                                  },
+                                  "description": "Update Last Contact if needed"
+                                },
+                                {
+                                  "type": "route",
+                                  "config": {
+                                    "value": "updateDecision.updateStage",
+                                    "paths": {
+                                      "true": [
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "act",
+                                            "instruction": "Click on the Stage field and update it to '{{updateDecision.newStage}}'"
+                                          },
+                                          "description": "Update Stage if needed"
+                                        }
+                                      ],
+                                      "false": []
+                                    }
+                                  },
+                                  "description": "Update Stage if needed"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Click on the Notes field and append this text at the end: '\n\n[2025-06-02] {{updateDecision.noteSummary}}'"
+                                  },
+                                  "description": "Append email summary to Notes"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Press ESC key to close the record view and save changes"
+                                  },
+                                  "description": "Close record with ESC"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "wait",
+                                    "duration": 1000
+                                  },
+                                  "description": "Wait for record to close"
+                                }
+                              ],
+                              "false": [
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Click the '+' button in the Airtable toolbar to add a new record"
+                                  },
+                                  "description": "Click + to add new record"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "wait",
+                                    "duration": 1000
+                                  },
+                                  "description": "Wait for new record form"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Fill in the Name field with '{{currentEmail.senderName}}'"
+                                  },
+                                  "description": "Enter investor name"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Fill in the Email field with '{{currentEmail.senderEmail}}'"
+                                  },
+                                  "description": "Enter investor email"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Fill in the Company field with '{{currentEmail.company}}'"
+                                  },
+                                  "description": "Enter investor company"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Set the Stage field to '{{currentEmail.stage}}' or 'Lead' if not specified"
+                                  },
+                                  "description": "Set initial stage"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Set the Last Contact field to 06/02/2025"
+                                  },
+                                  "description": "Set Last Contact date"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Fill the Notes field with '[2025-06-02] Email: {{currentEmail.subject}} - {{currentEmail.content}}' (truncate if too long)"
+                                  },
+                                  "description": "Add initial notes"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "act",
+                                    "instruction": "Click outside the form or press Enter to save the new record"
+                                  },
+                                  "description": "Save new record"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "wait",
+                                    "duration": 1000
+                                  },
+                                  "description": "Wait for record to save"
+                                }
+                              ]
                             }
                           },
-                          "description": "Determine CRM update strategy"
-                        }
-                      ],
-                      "false": [
+                          "description": "Handle existing vs new investor record"
+                        },
                         {
-                          "type": "context",
+                          "type": "browser_action",
                           "config": {
-                            "operation": "set",
-                            "key": "skippedEmail",
-                            "value": "{{email.subject}}"
+                            "action": "switchTab",
+                            "tabName": "main"
                           },
-                          "description": "Log skipped non-investor email"
+                          "description": "Switch back to Gmail tab"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "act",
+                            "instruction": "Click the back arrow button in Gmail to return to the inbox list"
+                          },
+                          "description": "Return to inbox after processing"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "wait",
+                            "duration": 1000
+                          },
+                          "description": "Wait for inbox to reload"
                         }
                       ]
                     }
                   },
                   "description": "Route based on investor classification"
-                },
-                {
-                  "type": "browser_action",
-                  "config": {
-                    "action": "switchTab",
-                    "tabName": "main"
-                  },
-                  "description": "Switch back to Gmail for next email"
-                },
-                {
-                  "type": "browser_action",
-                  "config": {
-                    "action": "navigate",
-                    "url": "https://mail.google.com"
-                  },
-                  "description": "Navigate back to inbox"
-                },
-                {
-                  "type": "browser_action",
-                  "config": {
-                    "action": "wait",
-                    "duration": 2000
-                  },
-                  "description": "Wait for inbox to load"
                 }
               ],
               "continueOnError": true
