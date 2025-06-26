@@ -704,6 +704,14 @@ export class NodeExecutor {
           title: await currentPage.title()
         };
         
+      case 'keypress':
+        // Native keyboard press - faster than using act for simple keys
+        console.log(`[KEYPRESS] Pressing key: ${config.key}`);
+        const keypressPage = await getActiveStagehandPage();
+        await keypressPage.keyboard.press(config.key);
+        console.log(`[KEYPRESS] Key pressed: ${config.key}`);
+        return { pressed: config.key };
+        
       case 'act':
         // Use StageHand's natural language action capability
         console.log(`[ACT] Executing natural language action: ${config.instruction}`);
@@ -806,7 +814,7 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
     const prompt = config.prompt.replace('{{input}}', JSON.stringify(inputData));
     
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4-turbo-preview',
+      model: 'o4-mini-2025-04-16',
       messages: [
         { role: 'system', content: 'You are a helpful assistant that processes data according to instructions.' },
         { role: 'user', content: prompt }

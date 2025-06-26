@@ -14,9 +14,9 @@ NEVER create nodes with empty config - each node type requires specific paramete
   - A route at position 12 that needs login status from position 11 uses: node11.loginSuccess
 
 ## browser_action:
-REQUIRED: action field must be one of: click, type, navigate, wait, openNewTab, switchTab, back, forward, refresh, screenshot, listTabs, getCurrentTab, act
+REQUIRED: action field must be one of: click, type, navigate, wait, openNewTab, switchTab, back, forward, refresh, screenshot, listTabs, getCurrentTab, keypress, act
 {
-  "action": "click" | "type" | "navigate" | "wait" | "openNewTab" | "switchTab" | "back" | "forward" | "refresh" | "screenshot" | "listTabs" | "getCurrentTab" | "act",
+  "action": "click" | "type" | "navigate" | "wait" | "openNewTab" | "switchTab" | "back" | "forward" | "refresh" | "screenshot" | "listTabs" | "getCurrentTab" | "keypress" | "act",
   "selector": "CSS selector or text description (for click/type/screenshot)",
   "text": "text to type (for type action)",
   "url": "URL to navigate to (for navigate/openNewTab action)",
@@ -25,6 +25,7 @@ REQUIRED: action field must be one of: click, type, navigate, wait, openNewTab, 
   "name": "tab name to assign (for openNewTab action)",
   "path": "file path for screenshot (optional)",
   "fullPage": "boolean for full page screenshot (optional, default true)",
+  "key": "key to press (for keypress action, e.g. 'Enter', 'Escape', 'Tab', 'ArrowDown', etc.)",
   "instruction": "natural language instruction (for act action)"
 }
 
@@ -51,6 +52,8 @@ Examples:
 - Natural language click: {"action": "click", "selector": "act:click the blue submit button"}
 - Type with fallbacks: {"action": "type", "selector": ["#email", "input[type='email']", "act:find email field"], "text": "{{email}}"}
 - Wait: {"action": "wait", "duration": 2000}
+- Keypress: {"action": "keypress", "key": "Enter"}
+- Special keys: {"action": "keypress", "key": "Escape"}, {"action": "keypress", "key": "Tab"}, {"action": "keypress", "key": "ArrowDown"}
 - Generic act action: {"action": "act", "instruction": "click the blue Next button"}
 - Complex act: {"action": "act", "instruction": "find the search box and type 'product demo'"}
 - Open new tab: {"action": "openNewTab", "url": "https://example.com", "name": "example"}
@@ -362,6 +365,142 @@ Example pattern:
    {"type": "iterate", "over": "state.updates", "variable": "update", "body": {"type": "browser_action", "action": "state.update.action", "selector": "state.update.selector"}}
 
 This approach treats web UIs like APIs - much more efficient than mimicking human click-by-click behavior!
+
+## Advanced Pattern: Fuzzy Search with Intelligent Retries
+When implementing search functionality that might not return exact matches, use this pattern to enhance search resilience with AI-powered retry logic:
+
+### Pattern Overview:
+1. **Initial Search**: Execute the primary search with the user's original terms
+2. **Result Evaluation**: Check if meaningful results were found
+3. **Intelligent Retry**: Use cognition to generate alternative search strategies
+4. **Iterative Refinement**: Retry with variations until satisfactory results are found
+
+### Implementation Steps:
+
+1. **Initial Search & Capture**:
+   \`\`\`json
+   // Store original search term
+   {"type": "context", "config": {"operation": "set", "key": "search_config", "value": {"original_term": "{{user_search_term}}", "max_retries": 3, "current_attempt": 0}}}
+   
+   // Execute initial search
+   {"type": "browser_action", "config": {"action": "type", "selector": "input.search", "text": "{{search_config.original_term}}"}}
+   {"type": "browser_action", "config": {"action": "click", "selector": "button[type='submit']"}}
+   
+   // Extract results
+   {"type": "browser_query", "config": {"method": "extract", "instruction": "Extract search results. Return empty array if no results found.", "schema": {"results": "array", "count": "number"}}}
+   \`\`\`
+
+2. **Result Evaluation & Retry Decision**:
+   \`\`\`json
+   // Check if we need to retry
+   {"type": "route", "config": {
+     "conditions": [
+       {"path": "node4.count", "operator": "equals", "value": 0, "branch": [/* retry logic */]},
+       {"path": "search_config.current_attempt", "operator": "equals", "value": "{{search_config.max_retries}}", "branch": [/* max retries reached */]}
+     ],
+     "default": [/* process results */]
+   }}
+   \`\`\`
+
+3. **Intelligent Search Term Generation**:
+   \`\`\`json
+   {"type": "cognition", "config": {
+     "prompt": "Generate alternative search terms based on the original query. Consider: synonyms, partial matches, common misspellings, abbreviations, related terms, broader/narrower concepts. Return 3-5 variations prioritized by likelihood of success.",
+     "input": "$.search_config",
+     "output": "$.search_alternatives",
+     "schema": {
+       "alternatives": {
+         "type": "array",
+         "items": {
+           "type": "object",
+           "properties": {
+             "term": "string",
+             "strategy": "string",
+             "confidence": "number"
+           }
+         }
+       }
+     }
+   }}
+   \`\`\`
+
+4. **Retry Loop Implementation**:
+   \`\`\`json
+   {"type": "iterate", "config": {
+     "over": "search_alternatives.alternatives",
+     "variable": "alt_search",
+     "body": [
+       // Clear previous search
+       {"type": "browser_action", "config": {"action": "click", "selector": "input.search"}},
+       {"type": "browser_action", "config": {"action": "type", "selector": "input.search", "text": "{{alt_search.term}}"}},
+       {"type": "browser_action", "config": {"action": "click", "selector": "button[type='submit']"}},
+       
+       // Check results
+       {"type": "browser_query", "config": {"method": "extract", "instruction": "Count search results", "schema": {"count": "number"}}},
+       
+       // Break if results found
+       {"type": "route", "config": {
+         "value": "node{current}.count",
+         "paths": {
+           "0": [], // Continue to next alternative
+           "default": {"type": "context", "config": {"operation": "set", "key": "found_results", "value": true}}
+         }
+       }}
+     ],
+     "continueOnError": true
+   }}
+   \`\`\`
+
+### Use Cases & Adaptations:
+
+1. **Product Search** (e-commerce):
+   - Original: "wireless earbuds noise cancelling"
+   - Alternatives: ["bluetooth headphones ANC", "true wireless NC", "noise canceling earphones"]
+
+2. **People Search** (directories/CRMs):
+   - Original: "John Smith CEO"
+   - Alternatives: ["J Smith Chief Executive", "John Smith C-suite", "Smith executive"]
+
+3. **Document Search** (knowledge bases):
+   - Original: "API authentication guide"
+   - Alternatives: ["API auth docs", "authentication tutorial", "API security guide"]
+
+4. **Location Search** (maps/addresses):
+   - Original: "123 Main St Suite 400"
+   - Alternatives: ["123 Main Street #400", "123 Main St 4th floor", "123 Main"]
+
+### Advanced Enhancements:
+
+1. **Context-Aware Alternatives**:
+   Include page context in cognition prompt to generate domain-specific variations:
+   \`\`\`json
+   {"type": "cognition", "config": {
+     "prompt": "Based on the search interface ({{page_context}}) and failed search '{{original_term}}', suggest alternatives using this domain's terminology",
+     "input": ["$.search_config", "$.page_context"]
+   }}
+   \`\`\`
+
+2. **Learning from Success**:
+   Store successful alternative terms for future use:
+   \`\`\`json
+   {"type": "context", "config": {
+     "operation": "update", 
+     "key": "successful_alternatives",
+     "value": {"{{search_config.original_term}}": "{{alt_search.term}}"}
+   }}
+   \`\`\`
+
+3. **Fuzzy Matching Results**:
+   Use cognition to find best matches even when exact results aren't found:
+   \`\`\`json
+   {"type": "cognition", "config": {
+     "prompt": "From these search results, identify items that might match the intent of '{{original_term}}' even if not exact matches. Score by relevance.",
+     "input": "$.search_results",
+     "schema": {"matches": "array", "best_match": "object"}
+   }}
+   \`\`\`
+
+This pattern ensures robust search functionality across any web interface, adapting intelligently when exact matches aren't found!
 
 ## Communication Style:
 - Be conversational and helpful
