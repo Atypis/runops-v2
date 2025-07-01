@@ -1,6 +1,6 @@
 const { useState, useEffect, useRef, useCallback } = React;
 
-const API_BASE = 'http://localhost:3002/api/operator';
+const API_BASE = '/api/director';
 
 function App() {
   // Resizable panel state
@@ -142,11 +142,14 @@ function App() {
       console.log('[DEBUG] All nodes:', data.nodes?.map(n => ({ id: n.id, position: n.position, type: n.type })));
       console.log('[DEBUG] Node 28 (iterate):', data.nodes?.find(n => n.position === 28));
       console.log('[DEBUG] Iterate nodes:', data.nodes?.filter(n => n.type === 'iterate'));
+      console.log('[DEBUG] Group nodes:', data.nodes?.filter(n => n.type === 'group'));
       
       // Filter to only show top-level nodes (those without parent_position)
       const topLevelNodes = (data.nodes || []).filter(node => 
         !node.params?._parent_position
       );
+      console.log('[DEBUG] Top-level nodes count:', topLevelNodes.length);
+      console.log('[DEBUG] Top-level group nodes:', topLevelNodes.filter(n => n.type === 'group'));
       setWorkflowNodes(topLevelNodes);
     } catch (error) {
       console.error('Failed to load workflow nodes:', error);
@@ -157,7 +160,7 @@ function App() {
   const loadMockOperatorResponse = async () => {
     try {
       // Fetch the mock response JSON directly
-      const response = await fetch('/mock-operator/response.json');
+      const response = await fetch('/mock-director/response.json');
       if (!response.ok) {
         throw new Error('Failed to load mock response');
       }
@@ -243,6 +246,7 @@ function App() {
       );
       
       console.log('Top-level nodes:', topLevelNodes);
+      console.log('Group nodes in top-level:', topLevelNodes.filter(n => n.type === 'group'));
       setWorkflowNodes(topLevelNodes);
       
       // Log success
@@ -295,6 +299,7 @@ function App() {
       'iterate': '#ef4444',       // red
       'memory': '#06b6d4',        // cyan
       'cognition': '#ec4899',     // pink
+      'group': '#14b8a6',         // teal
     };
     return colors[type] || '#6b7280';
   };
@@ -358,6 +363,7 @@ function App() {
     const [isLoadingPreview, setIsLoadingPreview] = React.useState(false);
     const isRoute = node.type === 'route';
     const isIterate = node.type === 'iterate';
+    const isGroup = node.type === 'group';
     const hasNestedNodes = isRoute && node.params?.paths;
     const hasIterateBody = isIterate && node.params?.body;
     
@@ -541,6 +547,23 @@ function App() {
                 )}
               </div>
             )}
+            
+            {/* Special display for group nodes */}
+            {isGroup && node.params?.nodeRange && (
+              <div className="mt-2 p-2 bg-teal-50 border border-teal-200 rounded">
+                <div className="text-sm font-semibold text-teal-800 mb-1">
+                  Group: {node.params.name || 'Unnamed Group'}
+                </div>
+                <div className="text-xs text-teal-700">
+                  Executes nodes: 
+                  <span className="font-mono bg-teal-100 px-1 ml-1 rounded text-teal-900">
+                    {Array.isArray(node.params.nodeRange) 
+                      ? `${node.params.nodeRange[0]}-${node.params.nodeRange[1]}` 
+                      : node.params.nodeRange}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             {node.status === 'success' && (
@@ -551,9 +574,9 @@ function App() {
             )}
             <button
               onClick={() => executeNode(node.id)}
-              className={`${isCompact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-xs'} bg-green-600 text-white rounded hover:bg-green-700`}
+              className={`${isCompact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-xs'} ${isGroup ? 'bg-teal-600 hover:bg-teal-700' : 'bg-green-600 hover:bg-green-700'} text-white rounded`}
             >
-              {isCompact ? '▶' : 'Run'}
+              {isGroup ? 'Run Group' : (isCompact ? '▶' : 'Run')}
             </button>
           </div>
         </div>
@@ -652,8 +675,8 @@ function App() {
           </div>
         )}
         
-        {/* Show params for non-route/non-iterate nodes - but not in iteration context */}
-        {!isRoute && !isIterate && node.params && !isIterationContext && (
+        {/* Show params for non-route/non-iterate/non-group nodes - but not in iteration context */}
+        {!isRoute && !isIterate && !isGroup && node.params && !isIterationContext && (
           <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mt-2 font-mono">
             {JSON.stringify(node.params, null, 2)}
           </div>
@@ -1753,7 +1776,7 @@ function App() {
       {/* Top Bar */}
       <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">
-          Operator
+          Director
           {mockMode && <span className="ml-2 text-sm font-normal text-purple-600">(Mock Mode)</span>}
         </h1>
         <div className="flex items-center space-x-4">
@@ -1764,9 +1787,9 @@ function App() {
                 ? 'bg-purple-600 text-white hover:bg-purple-700' 
                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             }`}
-            title={mockMode ? 'Using Claude Code as operator' : 'Using OpenAI operator'}
+            title={mockMode ? 'Using Claude Code as director' : 'Using OpenAI director'}
           >
-            {mockMode ? '🤖 Mock Mode' : '✨ Real Operator'}
+            {mockMode ? '🤖 Mock Mode' : '✨ Real Director'}
           </button>
           <select
             value={currentWorkflow?.id || ''}
@@ -1802,12 +1825,12 @@ function App() {
           {mockMode && (
             <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
               <div className="font-semibold mb-1">🤖 Mock Mode Active</div>
-              <div>Claude Code is acting as the operator. Responses are read from mock-operator/response.json</div>
+              <div>Claude Code is acting as the director. Responses are read from mock-director/response.json</div>
             </div>
           )}
           {messages.length === 0 && (
             <div className="text-center text-gray-500 mt-20">
-              <p className="text-lg mb-2">Hi! I'm the {mockMode ? 'Mock ' : ''}Operator.</p>
+              <p className="text-lg mb-2">Hi! I'm the {mockMode ? 'Mock ' : ''}Director.</p>
               <p>Tell me what workflow you'd like to build, and I'll guide you through it step by step.</p>
               <p className="text-sm mt-4">Example: "I want to copy emails from Gmail to Airtable"</p>
             </div>
@@ -1935,7 +1958,7 @@ function App() {
                 {mockMode && workflowNodes.some(n => n.id && typeof n.id === 'string' && n.id.startsWith('mock_')) && (
                   <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
                     <div className="text-sm text-purple-700 mb-2">
-                      These nodes are loaded from mock-operator/response.json
+                      These nodes are loaded from mock-director/response.json
                     </div>
                     <button
                       onClick={uploadMockNodesToSupabase}
@@ -1946,18 +1969,23 @@ function App() {
                   </div>
                 )}
                 <div className="space-y-3">
-                  {workflowNodes.map((node, index) => (
-                    <NodeCard 
-                      key={node.id} 
-                      node={node} 
-                      executeNode={executeNode} 
-                      depth={0}
-                      expandedNodes={expandedNodes} 
-                      setExpandedNodes={setExpandedNodes} 
-                      loadNodeValues={loadNodeValues}
-                      currentWorkflow={currentWorkflow}
-                    />
-                  ))}
+                  {workflowNodes.map((node, index) => {
+                    if (node.type === 'group') {
+                      console.log('[RENDER] Rendering group node:', node);
+                    }
+                    return (
+                      <NodeCard 
+                        key={node.id} 
+                        node={node} 
+                        executeNode={executeNode} 
+                        depth={0}
+                        expandedNodes={expandedNodes} 
+                        setExpandedNodes={setExpandedNodes} 
+                        loadNodeValues={loadNodeValues}
+                        currentWorkflow={currentWorkflow}
+                      />
+                    );
+                  })}
                 </div>
               </>
             )}

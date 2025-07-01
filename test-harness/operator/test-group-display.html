@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Group Node Display Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        #group-nodes {
+            margin-top: 20px;
+        }
+        .node-card {
+            border: 2px solid #14b8a6;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Group Node Display Test</h1>
+    
+    <div id="test-results"></div>
+    <div id="group-nodes"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:3002/api/operator';
+        
+        async function testGroupNodes() {
+            const results = document.getElementById('test-results');
+            const groupNodesDiv = document.getElementById('group-nodes');
+            
+            try {
+                // Get workflows
+                const workflowsRes = await fetch(`${API_BASE}/workflows`);
+                const workflows = await workflowsRes.json();
+                
+                if (workflows.length === 0) {
+                    results.innerHTML += '<div class="test-result error">No workflows found</div>';
+                    return;
+                }
+                
+                results.innerHTML += `<div class="test-result success">Found ${workflows.length} workflows</div>`;
+                
+                // Get latest workflow
+                const latestWorkflow = workflows[0];
+                const workflowRes = await fetch(`${API_BASE}/workflows/${latestWorkflow.id}`);
+                const workflow = await workflowRes.json();
+                
+                results.innerHTML += `<div class="test-result success">Loaded workflow: ${workflow.id}</div>`;
+                results.innerHTML += `<div class="test-result">Total nodes: ${workflow.nodes.length}</div>`;
+                
+                // Find group nodes
+                const groupNodes = workflow.nodes.filter(n => n.type === 'group');
+                
+                if (groupNodes.length === 0) {
+                    results.innerHTML += '<div class="test-result error">No group nodes found!</div>';
+                    return;
+                }
+                
+                results.innerHTML += `<div class="test-result success">Found ${groupNodes.length} group nodes!</div>`;
+                
+                // Display group nodes
+                groupNodesDiv.innerHTML = '<h2>Group Nodes:</h2>';
+                groupNodes.forEach(node => {
+                    const nodeCard = document.createElement('div');
+                    nodeCard.className = 'node-card';
+                    nodeCard.innerHTML = `
+                        <h3>#${node.position} - Group: ${node.params.name || 'Unnamed'}</h3>
+                        <p><strong>Type:</strong> ${node.type}</p>
+                        <p><strong>Node Range:</strong> ${Array.isArray(node.params.nodeRange) 
+                            ? `${node.params.nodeRange[0]}-${node.params.nodeRange[1]}` 
+                            : node.params.nodeRange}</p>
+                        <p><strong>Description:</strong> ${node.description}</p>
+                        <p><strong>Has _parent_position:</strong> ${node.params._parent_position ? 'Yes' : 'No'}</p>
+                    `;
+                    groupNodesDiv.appendChild(nodeCard);
+                });
+                
+                // Check if frontend would filter these
+                const topLevelNodes = workflow.nodes.filter(n => !n.params?._parent_position);
+                const groupsInTopLevel = topLevelNodes.filter(n => n.type === 'group');
+                
+                results.innerHTML += `<div class="test-result">Top-level nodes: ${topLevelNodes.length}</div>`;
+                results.innerHTML += `<div class="test-result ${groupsInTopLevel.length > 0 ? 'success' : 'error'}">Group nodes in top-level: ${groupsInTopLevel.length}</div>`;
+                
+            } catch (error) {
+                results.innerHTML += `<div class="test-result error">Error: ${error.message}</div>`;
+                console.error(error);
+            }
+        }
+        
+        // Run test on load
+        testGroupNodes();
+    </script>
+</body>
+</html>

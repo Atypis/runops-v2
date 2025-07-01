@@ -1,0 +1,170 @@
+STAGEHAND SIMPLE POV TEST RESULTS
+================================================================================
+
+Total elements found: 27
+
+ELEMENTS:
+[
+  {
+    "description": "Über Google",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[1]/a[1]"
+  },
+  {
+    "description": "Store",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[1]/a[2]"
+  },
+  {
+    "description": "Gmail",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/header[1]/div[1]/div[1]/a[1]"
+  },
+  {
+    "description": "Nach Bildern suchen",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/header[1]/div[1]/div[2]/a[1]"
+  },
+  {
+    "description": "Google-Apps",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/header[1]/div[2]/div[1]/a[1]"
+  },
+  {
+    "description": "Anmelden",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/header[1]/div[3]/a[1]"
+  },
+  {
+    "description": "Suche",
+    "method": "fill",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[3]/form[1]/div[1]/div[1]/div[1]/div[1]/div[2]/textarea[1]"
+  },
+  {
+    "description": "Sprachsuche",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[3]/form[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[2]"
+  },
+  {
+    "description": "Suche anhand von Bildern",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[3]/form[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[3]"
+  },
+  {
+    "description": "Google Suche",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[3]/form[1]/div[1]/div[1]/div[3]/center[1]/input[1]"
+  },
+  {
+    "description": "Auf gut Glück!",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[3]/form[1]/div[1]/div[1]/div[3]/center[1]/input[2]"
+  },
+  {
+    "description": "English",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[4]/div[3]/div[1]/a[1]"
+  },
+  {
+    "description": "Werbeprogramme",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[1]/a[1]"
+  },
+  {
+    "description": "Unternehmen",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[1]/a[2]"
+  },
+  {
+    "description": "Wie funktioniert die Google Suche?",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[1]/a[3]"
+  },
+  {
+    "description": "Drei Jahrzehnte Klimaschutz: Jede Entscheidung zählt",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[2]/a[1]"
+  },
+  {
+    "description": "Datenschutzerklärung",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[3]/a[1]"
+  },
+  {
+    "description": "Nutzungsbedingungen",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[3]/a[2]"
+  },
+  {
+    "description": "Einstellungen",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[1]/div[6]/div[1]/div[2]/div[3]/span[1]/span[1]/g-popup[1]/div[1]"
+  },
+  {
+    "description": "Sprache: ‪Deutsch‬",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/button[1]"
+  },
+  {
+    "description": "Anmelden",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/button[1]"
+  },
+  {
+    "description": "Cookies",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/a[1]"
+  },
+  {
+    "description": "Alle ablehnen",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[3]/div[1]/button[1]"
+  },
+  {
+    "description": "Alle akzeptieren",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[3]/div[1]/button[2]"
+  },
+  {
+    "description": "Weitere Optionen für Personalisierungseinstellungen und Cookies",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[3]/div[2]/button[1]"
+  },
+  {
+    "description": "Datenschutz",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[4]/a[1]"
+  },
+  {
+    "description": "Nutzungsbedingungen",
+    "method": "click",
+    "arguments": [],
+    "selector": "xpath=/html[1]/body[1]/div[2]/div[2]/div[3]/span[1]/div[1]/div[1]/div[1]/div[4]/a[2]"
+  }
+]

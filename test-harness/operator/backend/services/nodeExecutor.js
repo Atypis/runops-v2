@@ -2,6 +2,7 @@ import { Stagehand } from '@browserbasehq/stagehand';
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { supabase } from '../config/supabase.js';
+import { dirname, join } from 'path';
 
 export class NodeExecutor {
   constructor() {
@@ -11,8 +12,12 @@ export class NodeExecutor {
     this.stagehandInstance = null;
     // Track iteration context for nested loops
     this.iterationContext = [];
+    // Track group context for nested groups
+    this.groupContext = [];
     // Store recent node values for frontend polling
     this.recentNodeValues = new Map(); // nodeId -> { position, value, storageKey, timestamp }
+    // Store group definitions
+    this.groupDefinitions = new Map();
   }
 
   // StageHand logging control:
@@ -39,6 +44,26 @@ export class NodeExecutor {
 
   getCurrentIterationContext() {
     return this.iterationContext[this.iterationContext.length - 1] || null;
+  }
+
+  // Helper methods for group context
+  pushGroupContext(groupNodePos, groupId, params) {
+    this.groupContext.push({
+      groupNodePos,
+      groupId,
+      params
+    });
+    console.log(`[GROUP_CONTEXT] Pushed context: group node ${groupNodePos}, id ${groupId}`);
+  }
+
+  popGroupContext() {
+    const context = this.groupContext.pop();
+    console.log(`[GROUP_CONTEXT] Popped context: group node ${context?.groupNodePos}, id ${context?.groupId}`);
+    return context;
+  }
+
+  getCurrentGroupContext() {
+    return this.groupContext[this.groupContext.length - 1] || null;
   }
 
   // Build storage key with iteration context
@@ -129,6 +154,23 @@ export class NodeExecutor {
       let replacementValue = '';
       
       try {
+        // Handle group parameter references (e.g., {{param.email}})
+        const groupContext = this.getCurrentGroupContext();
+        if (groupContext && expression.startsWith('param.')) {
+          const paramName = expression.substring(6); // Remove 'param.' prefix
+          replacementValue = groupContext.params[paramName];
+          if (replacementValue !== undefined) {
+            // Convert to string if needed
+            if (typeof replacementValue === 'object') {
+              replacementValue = JSON.stringify(replacementValue);
+            } else {
+              replacementValue = String(replacementValue);
+            }
+            resolved = resolved.replace(match[0], replacementValue);
+            continue;
+          }
+        }
+        
         // Handle iteration context variables (e.g., email, email.selector)
         const currentContext = this.getCurrentIterationContext();
         if (currentContext && expression.startsWith(currentContext.variable)) {
@@ -211,6 +253,10 @@ export class NodeExecutor {
         env: 'LOCAL',
         headless: false,
         enableCaching: true,
+        modelName: 'gpt-4.1-mini-2025-04-14', // Using gpt-4.1-mini-2025-04-14 for browser actions (act, extract, observe)
+        modelClientOptions: {
+          apiKey: process.env.OPENAI_API_KEY
+        },
         verbose: process.env.STAGEHAND_VERBOSE ? parseInt(process.env.STAGEHAND_VERBOSE) : 1,
         logger: (logLine) => {
           // Filter out noisy stagehand:openai logs with DOM snapshots
@@ -278,10 +324,10 @@ export class NodeExecutor {
     try {
       let result;
       
-      // Resolve template variables in params if we're in an iteration context
+      // Resolve template variables in params if we're in an iteration or group context
       let resolvedParams = node.params;
-      if (this.iterationContext.length > 0) {
-        console.log(`[EXECUTE] Resolving template variables in iteration context`);
+      if (this.iterationContext.length > 0 || this.groupContext.length > 0) {
+        console.log(`[EXECUTE] Resolving template variables in context`);
         resolvedParams = await this.resolveNodeParams(node.params, workflowId);
         console.log(`[EXECUTE] Resolved params:`, JSON.stringify(resolvedParams, null, 2));
       }
@@ -314,6 +360,13 @@ export class NodeExecutor {
         case 'iterate':
           console.log(`[EXECUTE] Executing iterate...`);
           result = await this.executeIterate(resolvedParams, workflowId, node.position, options);
+          break;
+        case 'group':
+          console.log(`[EXECUTE] Executing group...`);
+          result = await this.executeGroup(resolvedParams, workflowId, node.position);
+          break;
+        case 'agent':
+          result = await this.executeAgent(resolvedParams);
           break;
         default:
           throw new Error(`Unsupported node type: ${node.type}`);
@@ -440,9 +493,42 @@ export class NodeExecutor {
               console.log(`[CLICK] Trying CSS selector: ${selector}`);
               const activePage = await getActiveStagehandPage();
               
+              // Handle jQuery-style :contains() selectors
+              if (selector.includes(':contains(')) {
+                console.log(`[CLICK] Detected jQuery-style :contains() selector, converting to Playwright format`);
+                
+                // Extract the text from :contains('text') or :contains("text")
+                const containsMatch = selector.match(/:contains\(['"]([^'"]+)['"]\)/);
+                if (containsMatch) {
+                  const searchText = containsMatch[1];
+                  const baseSelector = selector.substring(0, selector.indexOf(':contains'));
+                  
+                  // Use Playwright's text selector
+                  const playwrightSelector = `${baseSelector}:has-text("${searchText}")`;
+                  console.log(`[CLICK] Converted to Playwright selector: ${playwrightSelector}`);
+                  
+                  try {
+                    await activePage.click(playwrightSelector, { timeout: 3000 });
+                    clicked = true;
+                    break;
+                  } catch (textSelectorError) {
+                    console.log(`[CLICK] Text selector failed, trying XPath as fallback`);
+                    // Try XPath as fallback
+                    const xpathSelector = `//${baseSelector.includes('.') ? 'div' : '*'}[contains(text(), "${searchText}")]`;
+                    try {
+                      await activePage.click(xpathSelector, { timeout: 3000 });
+                      clicked = true;
+                      break;
+                    } catch (xpathError) {
+                      console.log(`[CLICK] XPath also failed: ${xpathError.message}`);
+                    }
+                  }
+                }
+              }
+              
               // Escape CSS selector if it contains special characters
               let escapedSelector = selector;
-              if (selector.includes(':') && !selector.includes('\\:')) {
+              if (selector.includes(':') && !selector.includes('\\:') && !selector.includes(':contains')) {
                 // For ID selectors with colons, we need to escape them
                 if (selector.startsWith('#')) {
                   const id = selector.slice(1);
@@ -811,15 +897,34 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
   }
 
   async executeCognition(config, inputData) {
+    // If agentTask is provided, delegate to StagehandAgent.ensure()
+    if (config.agentTask) {
+      const stagehand = await this.getStagehand();
+      // Reuse the active page (main or switched)
+      const page = stagehand.page;
+      const agent = new (await import('@browserbasehq/stagehand')).StagehandAgent(page);
+      console.log(`[AGENT] Running agent task:`, JSON.stringify(config.agentTask, null, 2));
+      const ok = await agent.ensure(config.agentTask);
+      return { ok };
+    }
+
     const prompt = config.prompt.replace('{{input}}', JSON.stringify(inputData));
     
+    // OpenAI requires the word "JSON" to appear in the messages when using
+    // `response_format: {type: 'json_object'}`.  Append a one-liner if the
+    // caller didn't already mention it.
+    const needsJsonHint = !!config.schema && !/json/i.test(prompt);
+    const safePrompt   = needsJsonHint
+      ? `${prompt}\n\nRespond ONLY in valid JSON format.`
+      : prompt;
+
     const completion = await this.openai.chat.completions.create({
-      model: 'o4-mini-2025-04-16',
+      model: 'gpt-4.1-mini-2025-04-14',
       messages: [
         { role: 'system', content: 'You are a helpful assistant that processes data according to instructions.' },
-        { role: 'user', content: prompt }
+        { role: 'user', content: safePrompt }
       ],
-      temperature: 0.3,
+      temperature: 1,
       response_format: config.schema ? { type: 'json_object' } : undefined
     });
 
@@ -834,23 +939,35 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
     
     switch (config.operation) {
       case 'set':
-        // Resolve environment variables in the value
+        // Resolve environment variables AND template variables (e.g., {{node23.investors}})
         let resolvedValue = config.value;
         if (typeof resolvedValue === 'object') {
           resolvedValue = this.resolveEnvVarsInObject(resolvedValue);
         } else if (typeof resolvedValue === 'string') {
+          // First resolve env vars like {{ENV}}
           resolvedValue = this.resolveEnvVar(resolvedValue);
+          // Then resolve workflow template vars such as {{node23.investors}}
+          resolvedValue = await this.resolveTemplateVariables(resolvedValue, workflowId);
+          // If the resulting string is valid JSON, parse it so we store real arrays/objects
+          try {
+            resolvedValue = JSON.parse(resolvedValue);
+          } catch (_) {
+            /* leave as string */
+          }
         }
         
         console.log(`[MEMORY] Resolved value:`, JSON.stringify(resolvedValue, null, 2));
         
         const { data: upsertData, error } = await supabase
           .from('workflow_memory')
-          .upsert({
-            workflow_id: workflowId,
-            key: config.key,
-            value: resolvedValue
-          })
+          .upsert(
+            {
+              workflow_id: workflowId,
+              key: config.key,
+              value: resolvedValue
+            },
+            { onConflict: 'workflow_id,key' }
+          )
           .select();
         
         if (error) {
@@ -1050,7 +1167,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
   
   async executeNodeConfig(nodeConfig, workflowId) {
-    // Execute a node configuration directly (used by route and iterate)
+    // Execute a node configuration directly (used by route, iterate, and group)
     console.log(`[EXECUTE_CONFIG] Executing ${nodeConfig.type} node`);
     
     // Map the config to params based on node type
@@ -1079,8 +1196,11 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       case 'iterate':
         result = await this.executeIterate(params, workflowId);
         break;
+      case 'group':
+        result = await this.executeGroup(params, workflowId);
+        break;
       default:
-        throw new Error(`Unsupported node type in route: ${nodeConfig.type}`);
+        throw new Error(`Unsupported node type: ${nodeConfig.type}`);
     }
     
     // Store nested node result in workflow memory if it has a position
@@ -1217,6 +1337,23 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       .single();
       
     console.log(`[STATE] Found in memory:`, data?.value);
+    
+    if (!data) {
+      // Fallback to global key if iteration-specific not found
+      if (storageKey.includes('@iter:')) {
+        const globalKey = path;
+        const { data: globalData } = await supabase
+          .from('workflow_memory')
+          .select('value')
+          .eq('workflow_id', workflowId)
+          .eq('key', globalKey)
+          .single();
+        if (globalData) {
+          console.log(`[STATE] Fallback found global key ${globalKey}`);
+          return globalData.value;
+        }
+      }
+    }
     
     // If not found, log available keys for debugging
     if (!data) {
@@ -1517,6 +1654,144 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     };
   }
 
+  async executeGroup(config, workflowId, groupNodePosition) {
+    console.log(`[GROUP] Executing group at position ${groupNodePosition}`);
+    console.log(`[GROUP] Config:`, JSON.stringify(config, null, 2));
+    
+    // Handle node range groups (e.g., nodeRange: "1-25" or nodeRange: [1, 25])
+    if (config.nodeRange) {
+      let startPos, endPos;
+      
+      // Parse the range
+      if (typeof config.nodeRange === 'string') {
+        const [start, end] = config.nodeRange.split('-').map(n => parseInt(n.trim()));
+        startPos = start;
+        endPos = end;
+      } else if (Array.isArray(config.nodeRange)) {
+        [startPos, endPos] = config.nodeRange;
+      } else {
+        throw new Error('Invalid nodeRange format. Use "1-25" or [1, 25]');
+      }
+      
+      console.log(`[GROUP] Executing nodes from position ${startPos} to ${endPos}`);
+      
+      // Get all nodes in the range
+      const { data: nodes, error } = await supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .gte('position', startPos)
+        .lte('position', endPos)
+        .order('position', { ascending: true });
+        
+      if (error) throw error;
+      
+      console.log(`[GROUP] Found ${nodes.length} nodes to execute`);
+      
+      const results = [];
+      const errors = [];
+      const skippedNodes = new Set(); // Track nodes that should be skipped
+      
+      // Execute each node in sequence
+      for (const node of nodes) {
+        // Check if this node should be skipped (it's nested in a route that wasn't taken)
+        if (skippedNodes.has(node.position)) {
+          console.log(`[GROUP] Skipping node at position ${node.position} (inside unexecuted route branch)`);
+          continue;
+        }
+        
+        // Check if this node has a parent position (meaning it's nested)
+        if (node.params?._parent_position) {
+          console.log(`[GROUP] Skipping nested node at position ${node.position} (will be executed by parent)`);
+          continue;
+        }
+        
+        console.log(`[GROUP] Executing node at position ${node.position}: ${node.type} - ${node.description}`);
+        
+        try {
+          const result = await this.execute(node.id, workflowId);
+          results.push({
+            nodeId: node.id,
+            position: node.position,
+            type: node.type,
+            description: node.description,
+            result
+          });
+          
+          // If this was a route node, track which branches were NOT taken
+          if (node.type === 'route' && result.path && node.params?.paths) {
+            // Find all node positions in branches that were NOT taken
+            for (const [branchName, branchNodes] of Object.entries(node.params.paths)) {
+              if (branchName !== result.path) {
+                // This branch was not taken, mark its nodes as skipped
+                if (Array.isArray(branchNodes)) {
+                  branchNodes.forEach(pos => {
+                    if (typeof pos === 'number') {
+                      skippedNodes.add(pos);
+                      console.log(`[GROUP] Marking position ${pos} as skipped (${branchName} branch not taken)`);
+                    }
+                  });
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[GROUP] Error executing node ${node.position}:`, error);
+          errors.push({
+            nodeId: node.id,
+            position: node.position,
+            error: error.message
+          });
+          
+          // Stop on first error unless continueOnError is set
+          if (!config.continueOnError) {
+            break;
+          }
+        }
+      }
+      
+      return {
+        groupId: config.groupId || config.name,
+        nodeRange: `${startPos}-${endPos}`,
+        executed: results.length,
+        total: nodes.length,
+        skipped: skippedNodes.size,
+        results,
+        errors: errors.length > 0 ? errors : undefined,
+        success: errors.length === 0
+      };
+    }
+    
+    // Legacy path for groups with embedded nodes
+    throw new Error('Group must specify nodeRange (e.g., "1-25" or [1, 25])');
+  }
+
+  async getGroupDefinition(groupId, workflowId) {
+    // First check in-memory definitions
+    if (this.groupDefinitions.has(groupId)) {
+      return this.groupDefinitions.get(groupId);
+    }
+    
+    // Check workflow memory for group definitions
+    const { data: groupData } = await supabase
+      .from('workflow_memory')
+      .select('value')
+      .eq('workflow_id', workflowId)
+      .eq('key', `group_def_${groupId}`)
+      .single();
+      
+    if (groupData?.value) {
+      this.groupDefinitions.set(groupId, groupData.value);
+      return groupData.value;
+    }
+    
+    return null;
+  }
+
+  setGroupDefinition(groupId, definition) {
+    this.groupDefinitions.set(groupId, definition);
+  }
+
   async logExecution(nodeId, workflowId, level, message, details = null) {
     await supabase
       .from('execution_logs')
@@ -1729,5 +2004,16 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       await this.stagehandInstance.close();
       this.stagehandInstance = null;
     }
+  }
+
+  // Execute Stagehand Agent task
+  async executeAgent(config) {
+    const stagehand = await this.getStagehand();
+    const page = stagehand.page;
+    const { StagehandAgent } = await import('@browserbasehq/stagehand/lib/agent/StagehandAgent.js');
+    const agent = new StagehandAgent(page);
+    console.log(`[AGENT] ensure() with task:`, JSON.stringify(config, null, 2));
+    const ok = await agent.ensure(config);
+    return { ok };
   }
 }

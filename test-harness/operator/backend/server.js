@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import operatorRoutes from './routes/operator.js';
+import directorRoutes from './routes/director.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -26,13 +26,13 @@ app.use(cors({
 app.use(express.json());
 
 // Serve mock-operator files FIRST (before frontend)
-app.use('/mock-operator', express.static(join(__dirname, '../mock-operator')));
+app.use('/mock-director', express.static(join(__dirname, '../mock-director')));
 
 // Serve static files from frontend directory
 app.use(express.static(join(__dirname, '../frontend')));
 
 // API routes
-app.use('/api/operator', operatorRoutes);
+app.use('/api/director', directorRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -42,6 +42,17 @@ app.get('*', (req, res) => {
   res.sendFile(join(__dirname, '../frontend/index.html'));
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Operator server running on http://localhost:${PORT}`);
 });
+
+// Graceful hot-reload for development
+if (process.env.NODE_ENV === 'development') {
+  process.once('SIGUSR2', () => {
+    console.log('[HOT-RELOAD] Graceful restart requested');
+    server.close(() => {
+      console.log('[HOT-RELOAD] HTTP server closed, exiting process');
+      process.kill(process.pid, 'SIGUSR2'); // hand control back to nodemon
+    });
+  });
+}

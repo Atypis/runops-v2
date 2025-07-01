@@ -2,7 +2,7 @@
   "name": "operator-prototype",
   "version": "1.0.0",
   "type": "module",
-  "description": "Workflow Operator - The system that builds the system",
+  "description": "Workflow Director - The AI system that designs automation workflows",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",

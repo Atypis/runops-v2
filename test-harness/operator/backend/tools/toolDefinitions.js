@@ -16,7 +16,7 @@ export function createToolDefinitions() {
                 properties: {
                   type: {
                     type: 'string',
-                    enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory']
+                    enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
                   },
                   config: {
                     type: 'object'
@@ -43,7 +43,7 @@ export function createToolDefinitions() {
           properties: {
             type: {
               type: 'string',
-              enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory'],
+              enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group'],
               description: 'The type of node to create'
             },
             config: {
@@ -199,6 +199,92 @@ export function createToolDefinitions() {
             }
           },
           required: ['nodeId']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'define_group',
+        description: 'Define a reusable group of nodes that can be executed as a unit',
+        parameters: {
+          type: 'object',
+          properties: {
+            groupId: {
+              type: 'string',
+              description: 'Unique identifier for this group (e.g., "login_flow", "search_pattern")'
+            },
+            name: {
+              type: 'string',
+              description: 'Human-readable name for the group'
+            },
+            description: {
+              type: 'string',
+              description: 'Description of what this group does'
+            },
+            parameters: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Array of parameter names that can be passed to this group'
+            },
+            nodes: {
+              type: 'array',
+              description: 'Array of node configurations that make up this group',
+              items: {
+                type: 'object',
+                properties: {
+                  type: {
+                    type: 'string'
+                  },
+                  config: {
+                    type: 'object'
+                  },
+                  description: {
+                    type: 'string'
+                  }
+                }
+              }
+            }
+          },
+          required: ['groupId', 'name', 'nodes']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'use_group',
+        description: 'Use a previously defined group in the workflow',
+        parameters: {
+          type: 'object',
+          properties: {
+            groupId: {
+              type: 'string',
+              description: 'ID of the group to use'
+            },
+            params: {
+              type: 'object',
+              description: 'Parameters to pass to the group'
+            },
+            description: {
+              type: 'string',
+              description: 'Description for this instance of the group'
+            }
+          },
+          required: ['groupId']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_groups',
+        description: 'List all available groups in the current workflow',
+        parameters: {
+          type: 'object',
+          properties: {}
         }
       }
     }

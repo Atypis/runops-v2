@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Count Visible Nodes</title>
+    <script>
+        async function countNodes() {
+            // Wait for the page to load
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Find all node cards
+            const nodeCards = document.querySelectorAll('[class*="rounded-lg"]');
+            console.log(`Total node cards found: ${nodeCards.length}`);
+            
+            // Count by type
+            const nodeTypes = {};
+            let groupCount = 0;
+            
+            nodeCards.forEach(card => {
+                const typeSpan = card.querySelector('span[style*="color"]');
+                if (typeSpan) {
+                    const type = typeSpan.textContent.trim();
+                    nodeTypes[type] = (nodeTypes[type] || 0) + 1;
+                    
+                    if (type === 'group') {
+                        groupCount++;
+                        const positionSpan = card.querySelector('.font-mono');
+                        console.log(`Found group node at position: ${positionSpan?.textContent}`);
+                    }
+                }
+            });
+            
+            console.log('Node types found:', nodeTypes);
+            console.log(`Group nodes visible: ${groupCount}`);
+            
+            // Check if nodes panel is scrollable
+            const nodesPanel = document.querySelector('[class*="overflow-y-auto"]');
+            if (nodesPanel) {
+                console.log(`Nodes panel height: ${nodesPanel.clientHeight}px`);
+                console.log(`Nodes panel scroll height: ${nodesPanel.scrollHeight}px`);
+                console.log(`Is scrollable: ${nodesPanel.scrollHeight > nodesPanel.clientHeight}`);
+                
+                // Try scrolling to bottom
+                nodesPanel.scrollTop = nodesPanel.scrollHeight;
+                console.log('Scrolled to bottom of nodes panel');
+            }
+        }
+        
+        // Run when DOM is loaded
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', countNodes);
+        } else {
+            countNodes();
+        }
+    </script>
+</head>
+<body>
+    <h1>Open the browser console to see the results</h1>
+    <p>Then navigate to http://localhost:3002 in this tab</p>
+</body>
+</html>

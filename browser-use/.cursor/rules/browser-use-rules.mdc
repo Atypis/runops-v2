@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 ## 🧠 General Guidelines for Contributing to `browser-use`
 
@@ -39,7 +39,7 @@ uv sync
   Do **not** replace `gpt-4o` with `gpt-4`. The model `gpt-4o` is a distinct release and supported.
 
 * ✅ **Type-safe coding**
-  Use **Pydantic models** for all internal action schemas, task inputs/outputs, and controller I/O. This ensures robust validation and LLM-call integrity.
+  Use **Pydantic v2 models** for all internal action schemas, task inputs/outputs, and controller I/O. This ensures robust validation and LLM-call integrity.
 
 ---
 
@@ -48,12 +48,13 @@ uv sync
 To add a new action that your browser agent can execute:
 
 ```python
+from playwright.async_api import Page
 from browser_use.core.controller import Controller, ActionResult
 
 controller = Controller()
 
 @controller.registry.action("Search the web for a specific query")
-async def search_web(query: str):
+async def search_web(query: str, page: Page):
     # Implement your logic here, e.g., query a search engine and return results
     result = ...
     return ActionResult(extracted_content=result, include_in_memory=True)
@@ -71,8 +72,8 @@ async def search_web(query: str):
 To define a task and run a browser-use agent:
 
 ```python
-from browser_use.core.agent import Agent
-from langchain.chat_models import ChatOpenAI
+from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
 task = "Find the CEO of OpenAI and return their name"
 model = ChatOpenAI(model="gpt-4o")
@@ -81,3 +82,7 @@ agent = Agent(task=task, llm=model, controller=controller)
 
 history = await agent.run()
 ```
+
+# Never create random examples
+
+When I ask you to implement a feature never create new files that show off that feature -> the code just gets messy. If you do anything to test it out, just do the inline code inside the terminal (if you want).
