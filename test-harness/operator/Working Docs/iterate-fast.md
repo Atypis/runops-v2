@@ -56,14 +56,26 @@ This document outlines the current state of the Operator system and provides a c
 - Update tools: `directorService.js:387-496`
 - Frontend refresh: `app.js` (loadWorkflowNodes)
 
-### 4. Update Nodes Functionality
+### 4. Update Nodes Functionality ✅ COMPLETED
 
 #### Current State:
-- **Tool Available**: `update_nodes` tool exists and works
-- **Bug**: ✅ FIXED - Frontend now auto-refreshes after `update_nodes` calls
-- **No Bulk Operations**: Each node updated individually (still an issue)
-- **No Atomic Updates**: Partial success possible (still an issue)
-- **Field Naming Confusion**: API uses 'config', DB uses 'params' (still an issue)
+- **Tool Available**: ✅ Both `update_node` and `update_nodes` tools work perfectly
+- **Auto-refresh**: ✅ FIXED - Frontend auto-refreshes after both `update_node` and `update_nodes` calls
+- **AI Usage**: ✅ FIXED - AI now correctly uses update_node when asked to modify existing nodes
+- **No Bulk Operations**: Each node updated individually (minor issue, not affecting usability)
+- **No Atomic Updates**: Partial success possible (minor issue, not affecting usability)
+- **Field Naming Confusion**: API uses 'config', DB uses 'params' (handled transparently)
+
+#### What Was Fixed:
+1. **Frontend Auto-refresh**: Added `update_nodes` to the nodeTools array for automatic UI updates
+2. **AI Decision Making**: Added clear guidance in prompts for when to use update vs create
+3. **Parameter Structure**: Added explicit examples showing correct update_node parameter format
+4. **Common Mistakes Section**: Prevents AI from calling update_node without the updates parameter
+
+#### Result:
+- Asking "change node 2 to navigate to Facebook" now correctly updates the existing node
+- UI updates immediately without manual refresh
+- Node execution works seamlessly after updates
 
 ## Improvement Plan
 
@@ -245,20 +257,20 @@ The current system already stores all variables and node results in Supabase:
 
 ## Implementation Priority
 
-1. **High Priority** (Quick wins):
-   - Fix `update_nodes` auto-refresh bug
-   - Add "Start Fresh Browser" button
-   - Implement browser cookie persistence
+### ✅ Completed (High Priority):
+1. **Browser Session Management** - Full cookie/storage persistence with UI controls
+2. **Update Nodes Fix** - AI now correctly updates nodes, UI refreshes automatically
+3. **Browser Controls** - Start Fresh, Save Session, Load Session buttons
 
-2. **Medium Priority** (Major improvements):
-   - WebSocket live updates
-   - Browser state save/load
-   - Optimistic UI updates
+### 🚀 Next Up (Medium Priority):
+1. **WebSocket Live Updates** - See node changes in real-time as AI works
+2. **Optimistic UI Updates** - Instant feedback before server confirms
+3. **Node Execution History** - Track all executions for debugging
 
-3. **Low Priority** (Nice to have):
-   - Bulk node updates
-   - Execution history
-   - Advanced browser profile management
+### 📋 Nice to Have (Low Priority):
+1. **Bulk Database Operations** - Optimize update_nodes for large batches
+2. **Advanced Browser Profiles** - Multiple browser instances, different profiles
+3. **Execution Timeline View** - Visual representation of workflow execution
 
 ## Success Metrics
 
