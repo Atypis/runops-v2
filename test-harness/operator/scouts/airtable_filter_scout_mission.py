@@ -12,19 +12,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from scout_engine import ScoutEngine
-from scout_config import ScoutConfig
+from datetime import datetime
 
 async def run_airtable_filter_reconnaissance():
-    # Configure scout with enhanced DOM visibility
-    config = ScoutConfig(
-        model='gemini-2.5-pro',
-        temperature=1.0,
-        max_steps=40,
-        save_to_file=True,
-        output_dir='./reports'
-    )
-    
-    scout = ScoutEngine(config)
+    # Initialize scout with enhanced DOM visibility
+    scout = ScoutEngine()
     
     # Critical mission briefing
     mission = '''
@@ -192,6 +184,14 @@ async def run_airtable_filter_reconnaissance():
         },
         "recommended_approach": "Step by step best practice"
     }
+    
+    CRITICAL: When you complete your reconnaissance, save your findings to a file named "results.md" in your current directory. The file should contain:
+    1. A markdown header "# Airtable Filter Scout Results"
+    2. The timestamp of completion
+    3. Your complete JSON findings formatted in a code block
+    4. Any additional observations or recommendations
+    
+    Use the file_write action to save this report before completing your mission.
     '''
     
     print("\n🚀 Deploying Airtable Filter Scout...")
@@ -201,25 +201,17 @@ async def run_airtable_filter_reconnaissance():
     print("=" * 60)
     
     # Run the mission
-    result = await scout.run(
-        task=mission,
-        url='https://airtable.com/appTnT68Rt8yHIGV3'
+    result = await scout.deploy_scout(
+        mission=mission,
+        target_url='https://airtable.com/appTnT68Rt8yHIGV3',
+        max_steps=40
     )
     
     # Display results
     print("\n✅ SCOUT MISSION COMPLETE")
     print("=" * 60)
-    
-    if result.get('output_file'):
-        print(f"📄 Full report saved to: {result['output_file']}")
-    
-    if result.get('summary'):
-        print("\n📊 Quick Summary:")
-        print(result['summary'][:800])
-        if len(result['summary']) > 800:
-            print("\n... (see full report for complete details)")
-    
-    print("\n💡 Next Step: Analyze scout findings to build bulletproof workflow")
+    print("\nThe scout has saved its findings to results.md")
+    print("\n💡 Check the results.md file for the complete report")
     print("=" * 60)
     
     return result

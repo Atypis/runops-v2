@@ -20,7 +20,7 @@
           "type": "browser_action",
           "config": {
             "action": "click",
-            "selector": ["#identifierNext", "button:contains('Next')"]
+            "selector": ["#identifierNext", "text=/Next/i", "text=Next", "act:click the Next button"]
           },
           "description": "Click Next after email"
         },
@@ -45,7 +45,7 @@
           "type": "browser_action",
           "config": {
             "action": "click",
-            "selector": ["#passwordNext", "button:contains('Next')"]
+            "selector": ["#passwordNext", "text=/Next/i", "text=Next", "act:click the Next button"]
           },
           "description": "Click Next after password"
         },
@@ -59,7 +59,7 @@
         }
       ]
     },
-    "airtable_google_auth": {
+"airtable_google_auth": {
       "groupId": "airtable_google_auth",
       "name": "Airtable Google OAuth",
       "description": "Handle Airtable login via Google OAuth",
@@ -69,7 +69,7 @@
           "type": "browser_action",
           "config": {
             "action": "click",
-            "selector": ["button:contains('Continue with Google')", "text=Continue with Google"]
+            "selector": ["button[data-provider='google']", "div[data-provider='google'] button", "text=/Sign in with Google/i", "text=/Continue with Google/i", "act:click the Google sign-in button"]
           },
           "description": "Click Continue with Google"
         },
@@ -183,7 +183,7 @@
                     "type": "browser_action",
                     "config": {
                       "action": "click",
-                      "selector": ["#identifierNext", "button:contains('Next')"]
+                      "selector": ["#identifierNext", "text=/Next/i", "text=Next", "act:click the Next button"]
                     },
                     "description": "Click Next after email"
                   },
@@ -208,7 +208,7 @@
                     "type": "browser_action",
                     "config": {
                       "action": "click",
-                      "selector": ["#passwordNext", "button:contains('Next')"]
+                      "selector": ["#passwordNext", "text=/Next/i", "text=Next", "act:click the Next button"]
                     },
                     "description": "Click Next after password"
                   },
@@ -275,7 +275,7 @@
                     "type": "browser_action",
                     "config": {
                       "action": "click",
-                      "selector": ["button:contains('Continue with Google')", "text=Continue with Google"]
+                      "selector": ["button[data-provider='google']", "div[data-provider='google'] button", "text=/Sign in with Google/i", "text=/Continue with Google/i", "act:click the Google sign-in button"]
                     },
                     "description": "Click Continue with Google"
                   },
@@ -504,7 +504,7 @@
                         {
                           "type": "route",
                           "config": {
-                            "value": "investorMatch.found",
+                            "value": "state.investorMatch.found",
                             "paths": {
                               "true": [
                                 {
@@ -525,10 +525,16 @@
                                   "type": "browser_query",
                                   "config": {
                                     "method": "extract",
-                                    "instruction": "Check if filter panel is open and count any existing filter conditions. Look for 'Remove item' buttons.",
+                                    "instruction": "Check if the Airtable filter panel is open by verifying the presence of the 'Add condition' button (div[role='button']:has-text('Add condition')). Count how many 'Remove item' buttons are present and return their individual selectors. Only include buttons actually visible on screen.",
                                     "schema": {
                                       "panelOpen": "boolean",
-                                      "existingFilterCount": "number"
+                                      "existingFilterCount": "number",
+                                      "removeButtons": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
                                     }
                                   },
                                   "description": "Check panel state and existing filters"
@@ -536,29 +542,30 @@
                                 {
                                   "type": "route",
                                   "config": {
-                                    "value": "node27.existingFilterCount",
+                                    "value": "node41.existingFilterCount",
                                     "paths": {
                                       "0": [],
                                       "default": [
                                         {
                                           "type": "iterate",
                                           "config": {
-                                            "over": "Array(node27.existingFilterCount).fill(0)",
-                                            "variable": "filterIdx",
+                                            "over": "node41.removeButtons",
+                                            "variable": "btnSelector",
                                             "body": {
                                               "type": "browser_action",
                                               "config": {
                                                 "action": "click",
-                                                "selector": "div[role='button'][aria-label^='Remove item']:first"
+                                                "selector": "{{btnSelector}}",
+                                                "fallback": "click on the filter remove button"
                                               },
                                               "description": "Remove existing filter"
                                             }
                                           },
-                                          "description": "Clear all existing filters individually"
+                                          "description": "Clear all existing filters individually using exact selectors"
                                         },
                                         {
                                           "type": "browser_action",
-                                          "config": {"action": "wait", "duration": 1500},
+                                          "config": {"action": "wait", "duration": 1200},
                                           "description": "Wait for filters to clear"
                                         }
                                       ]
@@ -583,7 +590,7 @@
                                   "type": "browser_action",
                                   "config": {
                                     "action": "click",
-                                    "selector": "div[role='button'][aria-haspopup='menu']:first"
+                                    "selector": "div[role='button'][aria-haspopup='menu']"
                                   },
                                   "description": "Click field dropdown"
                                 },
@@ -634,7 +641,7 @@
                                 {
                                   "type": "route",
                                   "config": {
-                                    "value": "node43.rowCount",
+                                    "value": "node51.rowCount",
                                     "paths": {
                                       "0": [
                                         {
@@ -798,7 +805,7 @@
                                   "type": "browser_action",
                                   "config": {
                                     "action": "type",
-                                    "selector": ["input[placeholder='Name']", ".cell-edit input:first"],
+                                    "selector": ["input[placeholder='Name']", ".cell-edit input"],
                                     "text": "{{node32.senderName}}"
                                   },
                                   "description": "Enter name"

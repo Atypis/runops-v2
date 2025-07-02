@@ -31,6 +31,12 @@ Scouts see **33 DOM attributes** (vs. standard 13), including:
 - Includes discovered selectors, patterns, and recommendations
 - Provides ready-to-use selector strategies
 
+### 5. **File System Access**
+- Scouts have full file system access via Browser-Use
+- Can write their findings directly to files
+- Simply instruct them to save results to `results.md` or any filename
+- No need for external report generation - scouts handle it themselves
+
 ## How to Deploy a Scout
 
 ### Simple Deployment (Coming Soon)
@@ -205,7 +211,10 @@ This intelligence helps Directors understand site automation-friendliness!
 - **Model**: Gemini 2.5 Pro (gemini-2.5-pro)
 - **Temperature**: 1.0
 - **API**: Pre-configured, no setup needed
-- **File Output**: Saves to `results.md` in agent's temp directory
+- **File Output**: Scouts can save to any file using `file_write` action
+  - Default recommendation: `results.md`
+  - Location: Agent's temporary directory
+  - Simply instruct in mission: "Save your findings to results.md"
 
 ## Future Enhancements
 
@@ -251,7 +260,7 @@ async def run_reconnaissance():
     RECONNAISSANCE TARGETS:
     [List specific things to investigate]
     
-    DELIVERABLE: Save findings to 'results.md' using write_file action
+    DELIVERABLE: Save findings to 'results.md' using file_write action
     '''
     
     result = await scout.deploy_scout(
@@ -270,7 +279,9 @@ if __name__ == "__main__":
 
 - **Be Specific**: List exact selectors, timings, and patterns you need
 - **Include Credentials**: Provide login details if authentication required  
-- **Request File Output**: Always ask scout to save findings to 'results.md'
+- **Request File Output**: Always include in mission: "Save your findings to results.md using file_write"
+  - The scout has file system access and will create the file
+  - No external processing needed - scout handles everything
 - **Focus Areas**: DOM selectors, timing measurements, state detection, edge cases
 - **Structured Output**: Request JSON format for easy parsing
 
