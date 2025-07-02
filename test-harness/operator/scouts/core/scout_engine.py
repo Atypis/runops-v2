@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 # Apply Browser-Use monkey patch for extended DOM visibility
-import browser_use_patch
+from . import browser_use_patch
 
 from browser_use import Agent
 from browser_use.browser.session import BrowserSession
@@ -87,7 +87,7 @@ REPORTING GUIDELINES:
 
 Remember: The Director will use your findings to build robust automation workflows. Be thorough!"""
     
-    async def deploy_scout(self, mission: str, target_url: Optional[str] = None, max_steps: int = 30) -> str:
+    async def deploy_scout(self, mission: str, target_url: Optional[str] = None, max_steps: int = 30, save_report: bool = False) -> str:
         """
         Deploy a scout on a reconnaissance mission.
         
@@ -95,6 +95,7 @@ Remember: The Director will use your findings to build robust automation workflo
             mission: Natural language description of what to explore
             target_url: Optional starting URL (scout can navigate if not provided)
             max_steps: Maximum steps before returning (default: 30)
+            save_report: If True, saves report to scouts/reports/ folder
             
         Returns:
             Natural language report of findings
@@ -123,8 +124,13 @@ Remember: The Director will use your findings to build robust automation workflo
             logger.info("Scout beginning reconnaissance...")
             result = await agent.run(max_steps=max_steps)
             
+            
             # Generate report
             report = self._generate_report(mission, result, agent)
+            
+            # Save report if requested
+            if save_report:
+                self._save_report(report, mission_id)
             
             logger.info("Scout mission completed successfully")
             return report
@@ -136,6 +142,24 @@ Remember: The Director will use your findings to build robust automation workflo
             # Clean up browser session
             if hasattr(agent, 'browser_session') and agent.browser_session:
                 await agent.browser_session.close()
+    
+    def _save_report(self, report: str, mission_id: str):
+        """Save scout report to the reports directory."""
+        try:
+            scout_dir = Path(__file__).parent.parent
+            reports_dir = scout_dir / "reports"
+            reports_dir.mkdir(exist_ok=True)
+            
+            filename = f"scout_report_{mission_id}.md"
+            filepath = reports_dir / filename
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(report)
+            
+            logger.info(f"Scout report saved to: reports/{filename}")
+            
+        except Exception as e:
+            logger.warning(f"Could not save scout report: {e}")
     
     def _generate_report(self, mission: str, result, agent) -> str:
         """Generate natural language report from scout findings."""
@@ -166,11 +190,11 @@ Based on the enhanced DOM visibility ({len(browser_use_patch.SCOUT_WHITELIST)} a
                 report += f"\n{content}\n"
         
         # Add action history summary
-        if result.history:
+        if hasattr(result, 'history') and result.history:
             report += "\n### Reconnaissance Path\n"
-            for step in result.history:
-                if step.action:
-                    report += f"- Step {step.step_number}: {step.action[0]}\n"
+            for i, step in enumerate(result.history):
+                if hasattr(step, 'result') and step.result:
+                    report += f"- Step {i+1}: {step.result}\n"
         
         # Add errors if any
         if result.has_errors():

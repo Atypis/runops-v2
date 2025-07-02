@@ -13,7 +13,7 @@ from datetime import datetime
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from scout_engine import ScoutEngine
+from ..core.scout_engine import ScoutEngine
 
 async def run_record_interaction_reconnaissance():
     scout = ScoutEngine()  # Uses Gemini 2.5 Pro by default

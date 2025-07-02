@@ -14,7 +14,7 @@ from datetime import datetime
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from scout_engine import ScoutEngine  # type: ignore
+from ..core.scout_engine import ScoutEngine  # type: ignore
 
 
 async def run_airtable_login_reconnaissance():

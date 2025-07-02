@@ -1,207 +1,63 @@
-# Scout Browser-Use Enhancement
+# Scout System Directory Structure
 
-This package provides monkey patches to enhance Browser-Use's DOM attribute visibility for Scout reconnaissance operations.
+This directory contains the Scout reconnaissance system for discovering web UI selectors and automation patterns.
 
-## Problem
+## 📁 Directory Organization
 
-Browser-Use filters DOM attributes to reduce noise for LLMs, but this hides valuable selector information that Scouts need for discovering stable automation patterns:
-
-- IDs (even stable ones) are hidden
-- Test automation attributes (`data-testid`, `data-qa`) are filtered out
-- Custom attributes that might be perfect for deterministic automation are invisible
-
-## Solution
-
-The Scout patch extends Browser-Use's attribute whitelist to include:
-
-- **Test Hooks**: `data-testid`, `data-test`, `data-cy`, `data-qa`, etc.
-- **Unique IDs**: The `id` attribute
-- **Navigation**: `href` for links
-- **Accessibility**: `aria-labelledby`, `aria-describedby`, `aria-controls`
-- **Form Metadata**: `formcontrolname`, `autocomplete`
-- **Framework Hooks**: `data-component`, `data-role`, `data-field`, etc.
-
-## Quick Start
-
-### Option 1: Use ScoutAgent (Recommended)
-
-```python
-from scouts.scout_agent import ScoutAgent
-from browser_use.llm.openai import ChatOpenAI
-
-# ScoutAgent automatically applies patches
-agent = ScoutAgent(
-    task="Find all stable selectors on the login form",
-    llm=ChatOpenAI(model='gpt-4')
-)
-
-# Run reconnaissance
-result = await agent.run()
+```
+scouts/
+├── core/                 # Core scout system components
+│   ├── browser_use_patch.py    # DOM visibility enhancer (adds 20 attributes)
+│   ├── scout_engine.py         # Zero-config scout deployment
+│   ├── scout_agent.py          # Browser-Use agent wrapper
+│   └── scout_config.py         # LLM model configurations
+│
+├── missions/            # Executable scout missions
+│   ├── airtable_filter_scout_mission.py
+│   ├── airtable_login_scout_mission.py
+│   └── airtable_record_interaction_scout.py
+│
+├── docs/                # Documentation
+│   ├── README.md              # Detailed system documentation
+│   ├── OVERVIEW.md            # Architecture overview
+│   ├── IMPLEMENTATION_REPORT.md
+│   └── SCOUT_PATCH_SUMMARY.md
+│
+├── examples/            # Example usage and runners
+│   ├── example_usage.py
+│   └── run_*.py              # Various scout runners
+│
+├── tests/               # Test suite
+│   ├── test_integration.py
+│   ├── test_dom_patch.py
+│   └── test_*.py
+│
+└── reports/             # Scout output reports
+    └── [generated JSON/MD reports]
 ```
 
-### Option 2: Manual Patching
+## 🚀 Quick Start
 
-```python
-from scouts import browser_use_patch
-from browser_use import Agent
+1. **Run a mission:**
+   ```bash
+   cd missions
+   python airtable_filter_scout_mission.py
+   ```
 
-# Apply patch
-browser_use_patch.apply_scout_patch()
+2. **Create custom mission:**
+   ```python
+   from scouts.core.scout_engine import scout
+   report = await scout("Find login form selectors", "https://example.com")
+   ```
 
-# Use regular Browser-Use agent (now enhanced)
-agent = Agent(
-    task="Extract automation selectors",
-    llm=your_llm
-)
-```
+3. **Check documentation:**
+   - See `docs/OVERVIEW.md` for architecture details
+   - See `docs/README.md` for comprehensive guide
 
-## What Changes
+## 🔑 Key Components
 
-### Before Scout Patch
-```html
-[1]<button aria-label='Submit'>Submit</button>
-[2]<input name='email' type='email' />
-[3]<a>Login</a>
-```
+- **Core System**: 5 essential files in `core/`
+- **Active Missions**: 4 reconnaissance missions in `missions/`
+- **Documentation**: Complete guides in `docs/`
 
-### After Scout Patch
-```html
-[1]<button id='submit-btn' data-testid='form-submit' aria-label='Submit'>Submit</button>
-[2]<input id='email' name='email' data-qa='email-input' type='email' />
-[3]<a href='/login' data-automation='login-link'>Login</a>
-```
-
-## Features
-
-- **Automatic Patching**: ScoutAgent applies patches automatically
-- **Backward Compatible**: Preserves all Browser-Use defaults
-- **Reversible**: Can be disabled or removed at runtime
-- **Tested**: Comprehensive unit and integration tests
-- **Zero Dependencies**: Only requires Browser-Use
-
-## Installation
-
-1. Copy the `scouts` directory to your project
-2. Ensure Browser-Use is installed: `pip install browser-use`
-3. Import and use!
-
-## Testing
-
-Run the test suite:
-
-```bash
-python scouts/tests/run_tests.py
-```
-
-## Configuration
-
-### Disable Auto-Patching
-
-Set environment variable before importing:
-
-```python
-import os
-os.environ['SCOUT_DISABLE_PATCH'] = '1'
-
-from scouts import browser_use_patch
-# Patch is not applied automatically
-```
-
-### Custom Attribute List
-
-```python
-# Check current attributes
-from scouts import browser_use_patch
-print(browser_use_patch.SCOUT_WHITELIST)
-
-# Add your own attributes before patching
-browser_use_patch.SCOUT_ADDITIONAL_ATTRIBUTES.append('custom-attr')
-browser_use_patch.apply_scout_patch()
-```
-
-## Architecture
-
-The patch works by:
-
-1. Modifying `AgentSettings.model_fields['include_attributes'].default` to include Scout attributes
-2. Wrapping `Agent.__init__` to ensure Scout attributes are always included
-3. Maintaining backward compatibility by preserving existing attributes
-
-## Attributes Added
-
-Total: 20 new attributes (154% increase over Browser-Use defaults)
-
-### Complete List
-
-- `data-testid` - Explicit test IDs
-- `data-test` - Common test variant  
-- `data-cy` - Cypress testing
-- `data-qa` - QA automation
-- `data-test-id` - Another variant
-- `data-pw` - Playwright test IDs
-- `data-automation` - Generic automation
-- `data-automation-id` - Automation variant
-- `id` - HTML element IDs
-- `aria-labelledby` - Accessibility
-- `aria-describedby` - Accessibility
-- `aria-controls` - Accessibility
-- `href` - Link destinations
-- `formcontrolname` - Angular forms
-- `autocomplete` - Form hints
-- `data-component` - Component markers
-- `data-role` - Role markers
-- `data-field` - Field identifiers
-- `data-track` - Analytics hooks
-- `data-selenium` - Selenium automation
-
-## Integration with Director/Scout System
-
-This patch enables Scouts to discover deterministic selectors that the Director can use:
-
-```javascript
-// Scout discovers with patch:
-{
-  "reliable_selectors": {
-    "submit_button": "#submit-btn",           // ID selector
-    "email_input": "[data-testid='email']",   // Test ID
-    "login_link": "a[href='/login']"          // Href selector
-  }
-}
-
-// Director creates deterministic nodes:
-{
-  "type": "browser_action",
-  "config": {
-    "action": "click",
-    "selector": "#submit-btn",  // Hardcoded from Scout
-    "fallback": "click submit"   // AI fallback
-  }
-}
-```
-
-## Troubleshooting
-
-### Patch Not Working
-
-1. Check if already patched: `browser_use_patch.is_patched()`
-2. Ensure no environment variable: `SCOUT_DISABLE_PATCH`
-3. Verify Browser-Use version compatibility
-
-### Attributes Not Showing
-
-1. Verify patch is applied before creating agents
-2. Check the DOM string includes your attributes
-3. Ensure elements have the attributes in the HTML
-
-## Contributing
-
-When adding new attributes:
-
-1. Add to `SCOUT_ADDITIONAL_ATTRIBUTES` in `browser_use_patch.py`
-2. Add test case in `test_dom_patch.py`
-3. Update this README
-4. Run tests to ensure compatibility
-
-## License
-
-Same as your project license
+The Scout system extends Browser-Use to see 33 DOM attributes (vs default 13), enabling discovery of hidden automation hooks like `data-testid`, `id`, and `href`.
