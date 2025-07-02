@@ -385,4 +385,58 @@ router.post('/workflows', async (req, res, next) => {
   }
 });
 
+// Browser session management endpoints
+router.post('/browser/restart', async (req, res, next) => {
+  try {
+    const result = await directorService.nodeExecutor.restartBrowser();
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/browser/sessions', async (req, res, next) => {
+  try {
+    const { name, description } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Session name is required' });
+    }
+    
+    const session = await directorService.nodeExecutor.saveBrowserSession(name, description);
+    res.json(session);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/browser/sessions', async (req, res, next) => {
+  try {
+    const sessions = await directorService.nodeExecutor.listBrowserSessions();
+    res.json(sessions);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/browser/sessions/:name/load', async (req, res, next) => {
+  try {
+    const { name } = req.params;
+    const session = await directorService.nodeExecutor.loadBrowserSession(name);
+    res.json(session);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/browser/sessions/:name', async (req, res, next) => {
+  try {
+    const { name } = req.params;
+    await directorService.nodeExecutor.deleteBrowserSession(name);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

@@ -20,6 +20,10 @@ function App() {
   const [mockMode, setMockMode] = useState(false);
   const [nodeValues, setNodeValues] = useState({}); // Storage key -> value mapping
   const [expandedNodes, setExpandedNodes] = useState(new Set()); // Track expanded iterate nodes
+  const [browserSessions, setBrowserSessions] = useState([]);
+  const [showSaveSessionDialog, setShowSaveSessionDialog] = useState(false);
+  const [sessionName, setSessionName] = useState('');
+  const [sessionDescription, setSessionDescription] = useState('');
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
   const nodesPanelRef = useRef(null); // Reference to the nodes panel scroll container
@@ -40,6 +44,7 @@ function App() {
   // Load workflows on mount
   useEffect(() => {
     loadWorkflows();
+    loadBrowserSessions();
     // Load mock operator response if in mock mode
     if (mockMode) {
       loadMockOperatorResponse();
@@ -193,6 +198,131 @@ function App() {
       }
     } catch (error) {
       console.error('Failed to load mock operator response:', error);
+    }
+  };
+
+  // Helper function to add system messages
+  const addMessage = (type, content) => {
+    const message = {
+      role: type === 'error' ? 'error' : 'system',
+      content,
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, message]);
+  };
+
+  // Browser session management functions
+  const loadBrowserSessions = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/browser/sessions`);
+      if (!response.ok) {
+        throw new Error('Failed to load browser sessions');
+      }
+      const data = await response.json();
+      setBrowserSessions(data || []);
+    } catch (error) {
+      console.error('Failed to load browser sessions:', error);
+      setBrowserSessions([]);
+    }
+  };
+
+  const restartBrowser = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/browser/restart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!response.ok) {
+        throw new Error('Failed to restart browser');
+      }
+      addMessage('system', 'Browser restarted with fresh state');
+    } catch (error) {
+      console.error('Failed to restart browser:', error);
+      addMessage('error', `Failed to restart browser: ${error.message}`);
+    }
+  };
+
+  const saveBrowserSession = async () => {
+    if (!sessionName.trim()) {
+      addMessage('error', 'Session name is required');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/browser/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: sessionName.trim(),
+          description: sessionDescription.trim() || null
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save session');
+      }
+      
+      const session = await response.json();
+      addMessage('system', `Browser session "${session.name}" saved successfully`);
+      
+      // Reset dialog state
+      setShowSaveSessionDialog(false);
+      setSessionName('');
+      setSessionDescription('');
+      
+      // Reload sessions
+      loadBrowserSessions();
+    } catch (error) {
+      console.error('Failed to save browser session:', error);
+      addMessage('error', `Failed to save session: ${error.message}`);
+    }
+  };
+
+  const loadBrowserSession = async (sessionName) => {
+    try {
+      const response = await fetch(`${API_BASE}/browser/sessions/${encodeURIComponent(sessionName)}/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load session');
+      }
+      
+      const session = await response.json();
+      addMessage('system', `Browser session "${session.name}" loaded successfully`);
+      
+      // Reload sessions to update last_used_at
+      loadBrowserSessions();
+    } catch (error) {
+      console.error('Failed to load browser session:', error);
+      addMessage('error', `Failed to load session: ${error.message}`);
+    }
+  };
+
+  const deleteBrowserSession = async (sessionName) => {
+    if (!confirm(`Are you sure you want to delete the session "${sessionName}"?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/browser/sessions/${encodeURIComponent(sessionName)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete session');
+      }
+      
+      addMessage('system', `Browser session "${sessionName}" deleted`);
+      
+      // Reload sessions
+      loadBrowserSessions();
+    } catch (error) {
+      console.error('Failed to delete browser session:', error);
+      addMessage('error', `Failed to delete session: ${error.message}`);
     }
   };
 
@@ -1622,7 +1752,7 @@ function App() {
         });
         
         // Refresh nodes if any node-related tools were called
-        const nodeTools = ['create_node', 'create_workflow_sequence', 'update_node', 'delete_node'];
+        const nodeTools = ['create_node', 'create_workflow_sequence', 'update_node', 'update_nodes', 'delete_node'];
         if (data.toolCalls.some(tc => nodeTools.includes(tc.toolName))) {
           await loadWorkflowNodes(workflowId);
         }
@@ -1915,7 +2045,7 @@ function App() {
           </div>
           <div className="p-4 border-b bg-gray-50">
             <div className="flex justify-between items-center">
-              <div>
+              <div className="flex-1">
                 <h3 className="font-semibold text-lg">
                   {mockMode ? 'Mock Workflow' : 'Workflow Nodes'}
                 </h3>
@@ -1925,6 +2055,45 @@ function App() {
                     : currentWorkflow ? `${workflowNodes.length} nodes` : 'No workflow selected'
                   }
                 </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={restartBrowser}
+                  className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                  title="Start fresh browser (no cookies)"
+                >
+                  Start Fresh
+                </button>
+                <button
+                  onClick={() => setShowSaveSessionDialog(true)}
+                  className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                  title="Save current browser session"
+                >
+                  Save Session
+                </button>
+                <div className="relative">
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        loadBrowserSession(e.target.value);
+                      }
+                    }}
+                    className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors appearance-none pr-8"
+                    title="Load saved browser session"
+                  >
+                    <option value="">Load Session</option>
+                    {browserSessions.map(session => (
+                      <option key={session.id} value={session.name}>
+                        {session.name} {session.last_used_at && `(${new Date(session.last_used_at).toLocaleDateString()})`}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                    <svg className="w-3 h-3 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
               </div>
               {mockMode && (
                 <button
@@ -2026,6 +2195,94 @@ function App() {
             ))}
             <div ref={logsEndRef} />
           </div>
+        </div>
+      )}
+      
+      {/* Save Session Dialog */}
+      {showSaveSessionDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Save Browser Session</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Session Name *
+              </label>
+              <input
+                type="text"
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="e.g., Google & Airtable logged in"
+                autoFocus
+              />
+            </div>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description (optional)
+              </label>
+              <textarea
+                value={sessionDescription}
+                onChange={(e) => setSessionDescription(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows="3"
+                placeholder="e.g., Logged into Google workspace and Airtable with admin account"
+              />
+            </div>
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowSaveSessionDialog(false);
+                  setSessionName('');
+                  setSessionDescription('');
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveBrowserSession}
+                className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Save Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Session Management Dropdown (for deletion) */}
+      {browserSessions.length > 0 && (
+        <div className="fixed bottom-4 right-4">
+          <details className="relative">
+            <summary className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded cursor-pointer hover:bg-gray-200 transition-colors">
+              Manage Sessions ({browserSessions.length})
+            </summary>
+            <div className="absolute bottom-full right-0 mb-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg">
+              <div className="p-2">
+                <h4 className="text-xs font-semibold text-gray-600 mb-2">Saved Sessions</h4>
+                {browserSessions.map(session => (
+                  <div key={session.id} className="flex items-center justify-between py-1 px-2 hover:bg-gray-50 rounded">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{session.name}</div>
+                      {session.description && (
+                        <div className="text-xs text-gray-500">{session.description}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => deleteBrowserSession(session.name)}
+                      className="ml-2 text-red-600 hover:text-red-800 text-xs"
+                      title="Delete session"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </details>
         </div>
       )}
     </div>

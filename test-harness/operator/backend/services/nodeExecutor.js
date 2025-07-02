@@ -2003,7 +2003,188 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     if (this.stagehandInstance) {
       await this.stagehandInstance.close();
       this.stagehandInstance = null;
+      // Clear tab tracking
+      this.stagehandPages = {};
+      this.mainPage = null;
+      this.activeTabName = 'main';
     }
+  }
+
+  // Browser session management methods
+  async saveBrowserSession(name, description = null) {
+    if (!this.stagehandInstance) {
+      throw new Error('No browser instance to save');
+    }
+
+    try {
+      // Get cookies from the browser context
+      const cookies = await this.stagehandInstance.page.context().cookies();
+      
+      // Get localStorage and sessionStorage from the main page
+      const storageData = await this.stagehandInstance.page.evaluate(() => {
+        const local = {};
+        const session = {};
+        
+        // Extract localStorage
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          local[key] = localStorage.getItem(key);
+        }
+        
+        // Extract sessionStorage
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          session[key] = sessionStorage.getItem(key);
+        }
+        
+        return { localStorage: local, sessionStorage: session };
+      });
+
+      // Upsert to database
+      const { data, error } = await supabase
+        .from('browser_sessions')
+        .upsert({
+          name,
+          description,
+          cookies,
+          local_storage: storageData.localStorage,
+          session_storage: storageData.sessionStorage,
+          last_used_at: new Date()
+        }, { onConflict: 'name' })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[BROWSER_SESSION] Error saving session:', error);
+        throw error;
+      }
+
+      console.log(`[BROWSER_SESSION] Saved session "${name}" with ${cookies.length} cookies`);
+      return data;
+    } catch (error) {
+      console.error('[BROWSER_SESSION] Failed to save browser session:', error);
+      throw error;
+    }
+  }
+
+  async loadBrowserSession(name) {
+    try {
+      // Get session from database
+      const { data: session, error } = await supabase
+        .from('browser_sessions')
+        .select('*')
+        .eq('name', name)
+        .single();
+
+      if (error) {
+        console.error('[BROWSER_SESSION] Error loading session:', error);
+        throw error;
+      }
+
+      if (!session) {
+        throw new Error(`Session "${name}" not found`);
+      }
+
+      // Clean up existing browser
+      await this.cleanup();
+
+      // Start new browser
+      const stagehand = await this.getStagehand();
+
+      // Add cookies to the browser context
+      if (session.cookies && session.cookies.length > 0) {
+        await stagehand.page.context().addCookies(session.cookies);
+        console.log(`[BROWSER_SESSION] Loaded ${session.cookies.length} cookies`);
+      }
+
+      // Navigate to a page to set localStorage/sessionStorage
+      // We need to be on a page to set storage
+      if (session.cookies && session.cookies.length > 0) {
+        // Navigate to the domain of the first cookie to set storage
+        const firstCookie = session.cookies[0];
+        const url = `${firstCookie.secure ? 'https' : 'http'}://${firstCookie.domain}`;
+        await stagehand.page.goto(url, { waitUntil: 'domcontentloaded' });
+
+        // Restore localStorage and sessionStorage
+        await stagehand.page.evaluate((storageData) => {
+          // Clear existing storage
+          localStorage.clear();
+          sessionStorage.clear();
+
+          // Restore localStorage
+          if (storageData.local_storage) {
+            Object.entries(storageData.local_storage).forEach(([key, value]) => {
+              localStorage.setItem(key, value);
+            });
+          }
+
+          // Restore sessionStorage
+          if (storageData.session_storage) {
+            Object.entries(storageData.session_storage).forEach(([key, value]) => {
+              sessionStorage.setItem(key, value);
+            });
+          }
+        }, session);
+      }
+
+      // Update last used timestamp
+      await supabase
+        .from('browser_sessions')
+        .update({ last_used_at: new Date() })
+        .eq('id', session.id);
+
+      console.log(`[BROWSER_SESSION] Loaded session "${name}"`);
+      return session;
+    } catch (error) {
+      console.error('[BROWSER_SESSION] Failed to load browser session:', error);
+      throw error;
+    }
+  }
+
+  async listBrowserSessions() {
+    try {
+      const { data: sessions, error } = await supabase
+        .from('browser_sessions')
+        .select('id, name, description, created_at, updated_at, last_used_at')
+        .order('last_used_at', { ascending: false });
+
+      if (error) {
+        console.error('[BROWSER_SESSION] Error listing sessions:', error);
+        throw error;
+      }
+
+      return sessions || [];
+    } catch (error) {
+      console.error('[BROWSER_SESSION] Failed to list browser sessions:', error);
+      throw error;
+    }
+  }
+
+  async deleteBrowserSession(name) {
+    try {
+      const { error } = await supabase
+        .from('browser_sessions')
+        .delete()
+        .eq('name', name);
+
+      if (error) {
+        console.error('[BROWSER_SESSION] Error deleting session:', error);
+        throw error;
+      }
+
+      console.log(`[BROWSER_SESSION] Deleted session "${name}"`);
+      return true;
+    } catch (error) {
+      console.error('[BROWSER_SESSION] Failed to delete browser session:', error);
+      throw error;
+    }
+  }
+
+  async restartBrowser() {
+    console.log('[BROWSER_SESSION] Restarting browser with fresh state');
+    await this.cleanup();
+    // Next getStagehand() call will create a new instance
+    return { success: true };
   }
 
   // Execute Stagehand Agent task

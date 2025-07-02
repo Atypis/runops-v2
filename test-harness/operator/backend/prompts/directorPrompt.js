@@ -381,12 +381,58 @@ The JSON helpers you can call from chat are:
 - use_group: Create a group node that executes a defined group
 - list_groups: List all available groups in the workflow
 
+## CRITICAL: When to Use Update vs Create
+
+**Use update_node when the user says:**
+- "Change node X to..."
+- "Update node X..."
+- "Modify node X..."
+- "Fix node X..."
+- "Edit node X..."
+- "Make node X do Y instead"
+- "Node X should navigate to Facebook instead of Gmail"
+
+**Use create_node when the user says:**
+- "Add a node..."
+- "Create a node..."
+- "Insert a node..."
+- "Add a new step..."
+- "Then click on..."
+
+**IMPORTANT NODE IDENTIFICATION:**
+- When CREATING: Nodes are numbered by position (1, 2, 3...)
+- When UPDATING: Use the actual database ID from the workflow context (e.g., "clxy123...")
+- Check the workflow context to see existing nodes with their IDs and positions
+
 ### Update Examples:
-- Update browser action: update_node({nodeId: "123", updates: {config: {action: "click", selector: "button.new"}}})
-- Update description: update_node({nodeId: "123", updates: {description: "Click the submit button"}})
-- Update route value check: update_node({nodeId: "456", updates: {config: {value: "node88.needsLogin", paths: {"true": [...], "false": []}}}})
-- Update route conditions: update_node({nodeId: "456", updates: {config: {conditions: [{path: "state.loginNeeded", operator: "equals", value: true, branch: [...]}]}}})
-- Batch update: update_nodes({updates: [{nodeId: "123", updates: {config: {action: "type"}}}, {nodeId: "456", updates: {description: "Updated"}}]})
+**User says "Change node 2 to navigate to Facebook instead of Gmail":**
+1. Look in workflow context for node at position 2
+2. Find its ID (e.g., "4340")
+3. Call: update_node({
+     nodeId: "4340",
+     updates: {
+       config: {
+         action: "navigate",
+         url: "https://facebook.com"
+       }
+     }
+   })
+
+**CRITICAL: The update_node tool requires TWO parameters:**
+- nodeId: The database ID of the node (NOT the position number)
+- updates: An object containing what to change (usually with a "config" field)
+
+**Common mistakes to avoid:**
+- ❌ update_node({nodeId: "4340"}) - Missing updates parameter!
+- ❌ update_node("4340", {config: {...}}) - Wrong parameter format!
+- ✅ update_node({nodeId: "4340", updates: {config: {...}}}) - Correct!
+
+**More examples:**
+- Change navigation: update_node({nodeId: "4340", updates: {config: {action: "navigate", url: "https://facebook.com"}}})
+- Update selector: update_node({nodeId: "4341", updates: {config: {action: "click", selector: "#new-button"}}})
+- Change wait time: update_node({nodeId: "4342", updates: {config: {action: "wait", duration: 5000}}})
+- Update description only: update_node({nodeId: "4343", updates: {description: "New description"}})
+- Update both config and description: update_node({nodeId: "4344", updates: {config: {action: "type", text: "hello"}, description: "Type greeting"}})
 
 CRITICAL: When using create_node or create_workflow_sequence, you MUST provide a "config" parameter for each node with the required fields for that node type. See the node configuration examples below.
 

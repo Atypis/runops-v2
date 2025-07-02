@@ -43,17 +43,6 @@ CREATE TABLE conversations (
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Workflow memory/context storage
-CREATE TABLE workflow_memory (
-  id SERIAL PRIMARY KEY,
-  workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-  key TEXT NOT NULL,
-  value JSONB,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(workflow_id, key)
-);
-
 -- Learned patterns (for future)
 CREATE TABLE patterns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -65,29 +54,12 @@ CREATE TABLE patterns (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Browser sessions for cookie/state persistence
-CREATE TABLE browser_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  cookies JSONB NOT NULL DEFAULT '[]'::jsonb,
-  local_storage JSONB,
-  session_storage JSONB,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  last_used_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-);
-
 -- Indexes for performance
 CREATE INDEX idx_nodes_workflow_id ON nodes(workflow_id);
 CREATE INDEX idx_nodes_position ON nodes(workflow_id, position);
 CREATE INDEX idx_logs_workflow_id ON execution_logs(workflow_id);
 CREATE INDEX idx_logs_timestamp ON execution_logs(timestamp);
 CREATE INDEX idx_conversations_workflow_id ON conversations(workflow_id);
-CREATE INDEX idx_workflow_memory_workflow_id ON workflow_memory(workflow_id);
-CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
-CREATE INDEX idx_browser_sessions_name ON browser_sessions(name);
-CREATE INDEX idx_browser_sessions_last_used ON browser_sessions(last_used_at DESC);
 
 -- Updated timestamp trigger
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -99,10 +71,4 @@ END;
 $$ language 'plpgsql';
 
 CREATE TRIGGER update_workflows_updated_at BEFORE UPDATE ON workflows
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_workflow_memory_updated_at BEFORE UPDATE ON workflow_memory
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_browser_sessions_updated_at BEFORE UPDATE ON browser_sessions
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();;
