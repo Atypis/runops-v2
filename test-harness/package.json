@@ -4,10 +4,6 @@
   "type": "module",
   "description": "Rapid iteration test environment for AEF",
   "scripts": {
-    "start": "node server.js",
-    "start:unified": "node workflows/interfaces/frontend-adapter.js",
-    "start:v2": "node workflows/interfaces/frontend-adapter-v2.js",
-    "dev": "node --watch server.js",
     "workflow": "node workflows/interfaces/cli.js",
     "workflow:list": "node workflows/interfaces/cli.js list",
     "workflow:server": "node workflows/interfaces/server.js"

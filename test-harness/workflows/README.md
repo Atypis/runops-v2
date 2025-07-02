@@ -1,6 +1,10 @@
 # Unified Workflow Architecture
 
-This is the new unified architecture for the test harness, providing a single source of truth for workflow definitions and execution.
+> **⚠️ IMPORTANT: This system is OUTDATED and NOT USED by the Operator/Director.**  
+> See [OUTDATED_NOTICE.md](./OUTDATED_NOTICE.md) for details.  
+> The Operator uses its own implementation in `operator/backend/services/nodeExecutor.js`.
+
+This is the unified architecture that was built for the old test harness (now deleted). It provides a clean, modular approach to workflow execution.
 
 ## 🚀 Quick Start
 
