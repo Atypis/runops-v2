@@ -1,10 +1,12 @@
 import express from 'express';
 import { DirectorService } from '../services/directorService.js';
 import { WorkflowService } from '../services/workflowService.js';
+import { PlanService } from '../services/planService.js';
 
 const router = express.Router();
 const directorService = new DirectorService();
 const workflowService = new WorkflowService();
+const planService = new PlanService();
 
 // Chat endpoint - main conversation with director
 router.post('/chat', async (req, res, next) => {
@@ -434,6 +436,44 @@ router.delete('/browser/sessions/:name', async (req, res, next) => {
     const { name } = req.params;
     await directorService.nodeExecutor.deleteBrowserSession(name);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Plan management endpoints
+router.get('/workflows/:id/plan', async (req, res, next) => {
+  try {
+    const plan = await planService.getCurrentPlan(req.params.id);
+    res.json(plan || { message: 'No plan found' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/workflows/:id/plan/history', async (req, res, next) => {
+  try {
+    const history = await planService.getPlanHistory(req.params.id);
+    res.json(history);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Variable management endpoints
+router.get('/workflows/:id/variables', async (req, res, next) => {
+  try {
+    const variables = await directorService.variableManagementService.getAllVariables(req.params.id);
+    res.json(variables);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/workflows/:id/variables/formatted', async (req, res, next) => {
+  try {
+    const formattedVariables = await directorService.variableManagementService.getFormattedVariables(req.params.id);
+    res.json({ formattedDisplay: formattedVariables });
   } catch (error) {
     next(error);
   }

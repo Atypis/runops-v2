@@ -24,6 +24,10 @@ function App() {
   const [showSaveSessionDialog, setShowSaveSessionDialog] = useState(false);
   const [sessionName, setSessionName] = useState('');
   const [sessionDescription, setSessionDescription] = useState('');
+  const [currentPlan, setCurrentPlan] = useState(null);
+  const [planExpanded, setPlanExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState('plan'); // 'plan', 'variables', 'browser', 'context'
+  const [variables, setVariables] = useState([]);
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
   const nodesPanelRef = useRef(null); // Reference to the nodes panel scroll container
@@ -58,9 +62,10 @@ function App() {
     }
   }, [mockMode]);
 
-  // Load nodes when workflow changes
+  // Load nodes and plan when workflow changes
   useEffect(() => {
     loadWorkflowNodes(currentWorkflow?.id);
+    loadCurrentPlan(currentWorkflow?.id);
   }, [currentWorkflow]);
 
   // Load node values only when needed
@@ -68,11 +73,43 @@ function App() {
     if (!currentWorkflow?.id) return;
     
     try {
-      const response = await fetch(`${API_BASE}/node-values/${currentWorkflow.id}`);
-      if (response.ok) {
-        const values = await response.json();
-        setNodeValues(values);
+      // Get both execution results and current variables
+      const [nodeResponse, variablesResponse] = await Promise.all([
+        fetch(`${API_BASE}/node-values/${currentWorkflow.id}`),
+        fetch(`${API_BASE}/workflows/${currentWorkflow.id}/variables`)
+      ]);
+      
+      const values = nodeResponse.ok ? await nodeResponse.json() : {};
+      
+      // If variables are available, merge them in (variables override execution results)
+      if (variablesResponse.ok) {
+        const variables = await variablesResponse.json();
+        
+        // Convert variables array to key-value object and merge with node values
+        variables.forEach(({ key, value }) => {
+          // Handle nested property updates (e.g., node4.inboxVisible)
+          if (key.includes('.') && key.startsWith('node')) {
+            const [nodeKey, propertyPath] = key.split('.', 2);
+            
+            // Update nested property in existing node value
+            if (values[nodeKey] && values[nodeKey].value) {
+              values[nodeKey].value[propertyPath] = value;
+            } else {
+              // Create new node value if it doesn't exist
+              values[nodeKey] = {
+                value: { [propertyPath]: value },
+                storageKey: nodeKey,
+                fromVariable: true
+              };
+            }
+          } else {
+            // Direct key assignment for non-nested variables
+            values[key] = value;
+          }
+        });
       }
+      
+      setNodeValues(values);
     } catch (error) {
       console.error('Failed to load node values:', error);
     }
@@ -82,7 +119,35 @@ function App() {
   useEffect(() => {
     if (currentWorkflow?.id) {
       loadNodeValues();
+      loadVariables();
     }
+  }, [currentWorkflow?.id]);
+
+  // Load variables for the Variables tab
+  const loadVariables = async () => {
+    if (!currentWorkflow?.id) return;
+    
+    try {
+      const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/variables`);
+      if (response.ok) {
+        const vars = await response.json();
+        setVariables(vars);
+      }
+    } catch (error) {
+      console.error('Failed to load variables:', error);
+    }
+  };
+
+  // Poll for variable updates every 3 seconds to catch Director changes
+  useEffect(() => {
+    if (!currentWorkflow?.id) return;
+    
+    const interval = setInterval(() => {
+      loadNodeValues();
+      loadVariables(); // Also refresh variables tab
+    }, 3000); // Poll every 3 seconds
+    
+    return () => clearInterval(interval);
   }, [currentWorkflow?.id]);
   
   // Preserve scroll position after state updates
@@ -159,6 +224,30 @@ function App() {
     } catch (error) {
       console.error('Failed to load workflow nodes:', error);
       setWorkflowNodes([]);
+    }
+  };
+
+  const loadCurrentPlan = async (workflowId) => {
+    if (!workflowId) {
+      setCurrentPlan(null);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_BASE}/workflows/${workflowId}/plan`);
+      if (response.ok) {
+        const plan = await response.json();
+        if (plan && plan.plan_data) {
+          setCurrentPlan(plan);
+        } else {
+          setCurrentPlan(null);
+        }
+      } else {
+        setCurrentPlan(null);
+      }
+    } catch (error) {
+      console.error('Failed to load current plan:', error);
+      setCurrentPlan(null);
     }
   };
 
@@ -468,6 +557,228 @@ function App() {
       verticalLine: null, // Removed vertical lines
       isCompact: depth > maxDepth || isIterationContext,
     };
+  };
+
+  // VariablesViewer Component
+  const VariablesViewer = ({ variables, workflowId }) => {
+    if (!variables || variables.length === 0) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <p className="text-sm">No variables stored yet</p>
+          <p className="text-xs mt-1">Variables will appear here when nodes execute or Director sets them</p>
+        </div>
+      );
+    }
+
+    const formatValue = (value) => {
+      if (value === null) return 'null';
+      if (value === undefined) return 'undefined';
+      if (typeof value === 'boolean') return value.toString();
+      if (typeof value === 'string') return `"${value}"`;
+      return JSON.stringify(value, null, 2);
+    };
+
+    const isNodeVariable = (key) => key.startsWith('node');
+    const isCustomVariable = (key) => !key.startsWith('node');
+
+    const nodeVariables = variables.filter(v => isNodeVariable(v.key));
+    const customVariables = variables.filter(v => isCustomVariable(v.key));
+
+    return (
+      <div className="space-y-4">
+        {/* Custom Variables */}
+        {customVariables.length > 0 && (
+          <div>
+            <h5 className="font-medium text-gray-800 mb-2 text-sm">Custom Variables ({customVariables.length})</h5>
+            <div className="space-y-2">
+              {customVariables.map((variable) => (
+                <div key={variable.key} className="bg-gray-50 rounded-lg p-3 border">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-mono text-sm font-medium text-blue-700">{variable.key}</span>
+                    <span className="text-xs text-gray-500">
+                      {new Date(variable.updated_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <pre className="whitespace-pre-wrap break-words text-gray-800 bg-white p-2 rounded border text-xs font-mono">
+                      {formatValue(variable.value)}
+                    </pre>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Node Variables */}
+        {nodeVariables.length > 0 && (
+          <div>
+            <h5 className="font-medium text-gray-800 mb-2 text-sm">Node Results ({nodeVariables.length})</h5>
+            <div className="space-y-2">
+              {nodeVariables.map((variable) => (
+                <div key={variable.key} className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-mono text-sm font-medium text-blue-700">{variable.key}</span>
+                    <span className="text-xs text-gray-500">
+                      {new Date(variable.updated_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <pre className="whitespace-pre-wrap break-words text-gray-800 bg-white p-2 rounded border text-xs font-mono">
+                      {formatValue(variable.value)}
+                    </pre>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Stats */}
+        <div className="border-t pt-3 mt-4">
+          <div className="text-xs text-gray-500 flex justify-between">
+            <span>Total: {variables.length} variables</span>
+            <span>Updated: {new Date().toLocaleTimeString()}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // PlanViewer Component - Displays structured plan as interactive to-do list
+  const PlanViewer = ({ plan, workflowId }) => {
+    if (!plan || !plan.plan_data) {
+      return (
+        <div className="text-center text-gray-500 py-4">
+          <p className="text-sm">No plan available</p>
+          <p className="text-xs mt-1">Director will create a plan when you start building</p>
+        </div>
+      );
+    }
+
+    const { plan_data } = plan;
+    const { overall_goal, current_phase, phases, next_actions, blockers, notes } = plan_data;
+
+    const getStatusIcon = (status) => {
+      switch (status) {
+        case 'completed': return '✅';
+        case 'in_progress': return '🔄';
+        case 'failed': return '❌';
+        default: return '⏸️';
+      }
+    };
+
+    const getStatusColor = (status) => {
+      switch (status) {
+        case 'completed': return 'text-green-600 bg-green-50';
+        case 'in_progress': return 'text-blue-600 bg-blue-50';
+        case 'failed': return 'text-red-600 bg-red-50';
+        default: return 'text-gray-600 bg-gray-50';
+      }
+    };
+
+    return (
+      <div className="space-y-4">
+        {/* Plan Header */}
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-200">
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h4 className="font-semibold text-lg text-gray-800">{overall_goal}</h4>
+              <p className="text-sm text-gray-600 mt-1">
+                Current Phase: <span className="font-medium text-blue-700">{current_phase}</span>
+              </p>
+            </div>
+            <div className="text-xs text-gray-500">
+              v{plan.plan_version} • {new Date(plan.updated_at).toLocaleString()}
+            </div>
+          </div>
+        </div>
+
+        {/* Phases */}
+        <div className="space-y-3">
+          {phases.map((phase, phaseIndex) => (
+            <div key={phaseIndex} className="border rounded-lg bg-white">
+              <div className="p-3 border-b bg-gray-50 rounded-t-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">{getStatusIcon(phase.status)}</span>
+                    <h5 className="font-medium text-gray-800">{phase.phase_name}</h5>
+                  </div>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(phase.status)}`}>
+                    {phase.status}
+                  </span>
+                </div>
+              </div>
+              
+              {/* Tasks */}
+              {phase.tasks && phase.tasks.length > 0 && (
+                <div className="p-3">
+                  <div className="space-y-2">
+                    {phase.tasks.map((task) => (
+                      <div key={task.task_id} className="flex items-start space-x-3 p-2 rounded hover:bg-gray-50">
+                        <span className="text-sm mt-0.5">{getStatusIcon(task.status)}</span>
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-800">{task.description}</div>
+                          {task.node_ids && task.node_ids.length > 0 && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              Nodes: {task.node_ids.join(', ')}
+                            </div>
+                          )}
+                          {task.notes && (
+                            <div className="text-xs text-gray-600 mt-1 italic">{task.notes}</div>
+                          )}
+                        </div>
+                        <span className={`px-2 py-1 rounded text-xs ${getStatusColor(task.status)}`}>
+                          {task.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Next Actions */}
+        {next_actions && next_actions.length > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <h6 className="font-medium text-yellow-800 mb-2">📋 Next Actions</h6>
+            <ul className="space-y-1">
+              {next_actions.map((action, index) => (
+                <li key={index} className="text-sm text-yellow-700 flex items-start">
+                  <span className="text-yellow-500 mr-2">•</span>
+                  {action}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Blockers */}
+        {blockers && blockers.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <h6 className="font-medium text-red-800 mb-2">🚧 Blockers</h6>
+            <ul className="space-y-1">
+              {blockers.map((blocker, index) => (
+                <li key={index} className="text-sm text-red-700 flex items-start">
+                  <span className="text-red-500 mr-2">•</span>
+                  {blocker}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Notes */}
+        {notes && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <h6 className="font-medium text-gray-800 mb-2">📝 Notes</h6>
+            <p className="text-sm text-gray-700">{notes}</p>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // NodeCard Component - Handles display of nodes including complex route and iterate nodes
@@ -1756,6 +2067,11 @@ function App() {
         if (data.toolCalls.some(tc => nodeTools.includes(tc.toolName))) {
           await loadWorkflowNodes(workflowId);
         }
+        
+        // Refresh plan if update_plan was called
+        if (data.toolCalls.some(tc => tc.toolName === 'update_plan')) {
+          await loadCurrentPlan(workflowId);
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -2047,7 +2363,7 @@ function App() {
             <div className="flex justify-between items-center">
               <div className="flex-1">
                 <h3 className="font-semibold text-lg">
-                  {mockMode ? 'Mock Workflow' : 'Workflow Nodes'}
+                  {mockMode ? 'Mock Workflow' : 'Workflow'}
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
                   {mockMode 
@@ -2106,6 +2422,68 @@ function App() {
               )}
             </div>
           </div>
+          
+          {/* Tabbed Control Panel */}
+          {!mockMode && currentWorkflow && (
+            <div className="border-b bg-white">
+              {/* Tab Headers */}
+              <div className="flex border-b bg-gray-50">
+                <button
+                  onClick={() => setActiveTab('plan')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'plan'
+                      ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Plan
+                </button>
+                <button
+                  onClick={() => setActiveTab('variables')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'variables'
+                      ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Variables
+                  {variables.length > 0 && (
+                    <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                      {variables.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('browser')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'browser'
+                      ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                  disabled
+                  title="Coming in Phase 2"
+                >
+                  Browser
+                </button>
+              </div>
+              
+              {/* Tab Content */}
+              <div className="p-4 max-h-96 overflow-y-auto">
+                {activeTab === 'plan' && (
+                  <PlanViewer plan={currentPlan} workflowId={currentWorkflow?.id} />
+                )}
+                {activeTab === 'variables' && (
+                  <VariablesViewer variables={variables} workflowId={currentWorkflow?.id} />
+                )}
+                {activeTab === 'browser' && (
+                  <div className="text-center text-gray-500 py-8">
+                    <p className="text-sm">Browser State Monitor</p>
+                    <p className="text-xs mt-1">Coming in Phase 2: Browser State Service</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           
           <div 
             ref={nodesPanelRef} 

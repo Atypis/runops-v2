@@ -3,6 +3,8 @@ import { Stagehand } from '@browserbasehq/stagehand';
 import { DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPrompt.js';
 import { createToolDefinitions } from '../tools/toolDefinitions.js';
 import { NodeExecutor } from './nodeExecutor.js';
+import { PlanService } from './planService.js';
+import { VariableManagementService } from './variableManagementService.js';
 import { supabase } from '../config/supabase.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -17,6 +19,8 @@ export class DirectorService {
       apiKey: process.env.OPENAI_API_KEY
     });
     this.nodeExecutor = new NodeExecutor();
+    this.planService = new PlanService();
+    this.variableManagementService = new VariableManagementService();
     this.supabase = supabase;
   }
 
@@ -80,10 +84,10 @@ export class DirectorService {
         }
       }
 
-      // Normal operation - Get current workflow state if workflowId provided
-      let workflowContext = null;
+      // Normal operation - Build Director 2.0 context if workflowId provided
+      let director2Context = '';
       if (workflowId) {
-        workflowContext = await this.getWorkflowContext(workflowId);
+        director2Context = await this.buildDirector2Context(workflowId);
       }
 
       // Build messages array, filtering out any null content
@@ -93,9 +97,9 @@ export class DirectorService {
         { role: 'user', content: message }
       ];
 
-      // Add workflow context to the latest message if available
-      if (workflowContext) {
-        messages[messages.length - 1].content += `\n\nCurrent workflow state:\n${JSON.stringify(workflowContext, null, 2)}`;
+      // Add Director 2.0 context to the latest message if available
+      if (director2Context) {
+        messages[messages.length - 1].content += `\n\n${director2Context}`;
       }
       
       // Add available environment variables for Gmail
@@ -181,6 +185,21 @@ export class DirectorService {
             break;
           case 'list_groups':
             result = await this.listGroups(workflowId);
+            break;
+          case 'update_plan':
+            result = await this.updatePlan(args, workflowId);
+            break;
+          case 'get_workflow_variable':
+            result = await this.getWorkflowVariable(args, workflowId);
+            break;
+          case 'set_variable':
+            result = await this.setVariable(args, workflowId);
+            break;
+          case 'clear_variable':
+            result = await this.clearVariable(args, workflowId);
+            break;
+          case 'clear_all_variables':
+            result = await this.clearAllVariables(args, workflowId);
             break;
           default:
             result = { error: `Unknown tool: ${toolName}` };
@@ -739,5 +758,230 @@ export class DirectorService {
     }
     
     return substitutedNode;
+  }
+
+  /**
+   * Director 2.0: Build 6-part context structure
+   */
+  async buildDirector2Context(workflowId) {
+    const parts = [];
+    
+    try {
+      // Part 1: System Prompt - already included in messages, skip here
+      
+      // Part 2: Current Plan
+      const currentPlan = await this.planService.getCurrentPlan(workflowId);
+      if (currentPlan) {
+        parts.push(`(2) CURRENT PLAN\n${this.planService.getPlanSummary(currentPlan.plan_data)}`);
+      } else {
+        parts.push(`(2) CURRENT PLAN\nNo plan created yet. Use update_plan tool to create structured plan.`);
+      }
+      
+      // Part 3: Workflow Snapshot
+      const workflowContext = await this.getWorkflowContext(workflowId);
+      if (workflowContext && workflowContext.nodes && workflowContext.nodes.length > 0) {
+        const nodesSummary = workflowContext.nodes.map(node => 
+          `  ${node.position}. ${node.type} - ${node.description || 'No description'} (${node.status})`
+        ).join('\n');
+        parts.push(`(3) WORKFLOW SNAPSHOT\nWorkflow: ${workflowContext.goal}\nNodes:\n${nodesSummary}`);
+      } else {
+        parts.push(`(3) WORKFLOW SNAPSHOT\nNo nodes created yet.`);
+      }
+      
+      // Part 4: Workflow Variables
+      const variableDisplay = await this.variableManagementService.getFormattedVariables(workflowId);
+      parts.push(`(4) WORKFLOW VARIABLES\n${variableDisplay}`);
+      
+      // Part 5: Browser State (placeholder for Phase 2)  
+      parts.push(`(5) BROWSER STATE\n[Coming in Phase 2: Browser State Service]`);
+      
+      // Part 6: Conversation History - already filtered in main flow, skip here
+      
+      return parts.join('\n\n');
+      
+    } catch (error) {
+      console.error('Error building Director 2.0 context:', error);
+      return `Director 2.0 Context Error: ${error.message}`;
+    }
+  }
+
+  /**
+   * Handle update_plan tool calls
+   */
+  async updatePlan(args, workflowId) {
+    try {
+      const { plan, reason } = args;
+      
+      if (!plan) {
+        throw new Error('Plan data is required');
+      }
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required for plan updates');
+      }
+      
+      // Update plan through PlanService
+      const updatedPlan = await this.planService.updatePlan(workflowId, plan, reason);
+      
+      return {
+        success: true,
+        message: `Plan updated successfully (version ${updatedPlan.plan_version})`,
+        plan_id: updatedPlan.id,
+        version: updatedPlan.plan_version,
+        updated_at: updatedPlan.updated_at
+      };
+      
+    } catch (error) {
+      console.error('Failed to update plan:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Variable Management Tool Handlers
+   */
+  
+  async getWorkflowVariable(args, workflowId) {
+    try {
+      const { variableName, nodeId } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+
+      let result;
+      
+      if (nodeId) {
+        // Get all variables for a specific node
+        result = await this.variableManagementService.getNodeVariables(workflowId, nodeId);
+        return {
+          success: true,
+          nodeId,
+          variables: result
+        };
+      } else if (variableName) {
+        // Get specific variable or all variables
+        result = await this.variableManagementService.getVariable(workflowId, variableName);
+        
+        if (variableName === 'all') {
+          return {
+            success: true,
+            allVariables: result
+          };
+        } else {
+          return {
+            success: true,
+            variableName,
+            value: result
+          };
+        }
+      } else {
+        throw new Error('Either variableName or nodeId is required');
+      }
+      
+    } catch (error) {
+      console.error('Failed to get workflow variable:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async setVariable(args, workflowId) {
+    try {
+      const { variableName, value, reason, schema } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+      
+      if (!variableName || value === undefined) {
+        throw new Error('variableName and value are required');
+      }
+
+      const result = await this.variableManagementService.setVariable(
+        workflowId, 
+        variableName, 
+        value, 
+        schema, 
+        reason
+      );
+      
+      return {
+        success: true,
+        message: `Variable '${variableName}' set successfully`,
+        variable: variableName,
+        value,
+        reason: reason || 'No reason provided'
+      };
+      
+    } catch (error) {
+      console.error('Failed to set variable:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async clearVariable(args, workflowId) {
+    try {
+      const { variableName, reason } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+      
+      if (!variableName) {
+        throw new Error('variableName is required');
+      }
+
+      const result = await this.variableManagementService.deleteVariable(workflowId, variableName);
+      
+      return {
+        success: true,
+        message: `Variable '${variableName}' cleared successfully`,
+        variable: variableName,
+        reason: reason || 'No reason provided'
+      };
+      
+    } catch (error) {
+      console.error('Failed to clear variable:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async clearAllVariables(args, workflowId) {
+    try {
+      const { reason } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+
+      const result = await this.variableManagementService.clearAllVariables(workflowId);
+      
+      return {
+        success: true,
+        message: `All variables cleared successfully (${result.deletedCount} variables)`,
+        deletedCount: result.deletedCount,
+        deletedVariables: result.deletedKeys,
+        reason: reason || 'No reason provided'
+      };
+      
+    } catch (error) {
+      console.error('Failed to clear all variables:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 }

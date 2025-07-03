@@ -287,6 +287,189 @@ export function createToolDefinitions() {
           properties: {}
         }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_plan',
+        description: 'Update the current workflow plan with structured phases and tasks. This is the primary tool for Director 2.0 planning methodology.',
+        parameters: {
+          type: 'object',
+          properties: {
+            plan: {
+              type: 'object',
+              description: 'Complete plan object with phases, tasks, and status tracking',
+              properties: {
+                overall_goal: {
+                  type: 'string',
+                  description: 'Clear description of the workflow goal'
+                },
+                current_phase: {
+                  type: 'string', 
+                  description: 'Name of the phase currently being worked on'
+                },
+                phases: {
+                  type: 'array',
+                  description: 'Array of workflow phases with tasks',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      phase_name: {
+                        type: 'string',
+                        description: 'Name of this phase'
+                      },
+                      status: {
+                        type: 'string',
+                        enum: ['pending', 'in_progress', 'completed', 'failed'],
+                        description: 'Current status of this phase'
+                      },
+                      tasks: {
+                        type: 'array',
+                        description: 'Tasks within this phase',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            task_id: {
+                              type: 'number',
+                              description: 'Unique identifier for this task'
+                            },
+                            description: {
+                              type: 'string',
+                              description: 'What this task involves'
+                            },
+                            status: {
+                              type: 'string',
+                              enum: ['pending', 'in_progress', 'completed', 'failed'],
+                              description: 'Current status of this task'
+                            },
+                            node_ids: {
+                              type: 'array',
+                              items: { type: 'string' },
+                              description: 'Node IDs associated with this task (optional)'
+                            },
+                            notes: {
+                              type: 'string',
+                              description: 'Additional notes about this task (optional)'
+                            }
+                          },
+                          required: ['task_id', 'description', 'status']
+                        }
+                      }
+                    },
+                    required: ['phase_name', 'status']
+                  }
+                },
+                next_actions: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Immediate next steps to take'
+                },
+                blockers: {
+                  type: 'array', 
+                  items: { type: 'string' },
+                  description: 'Current blockers preventing progress'
+                },
+                notes: {
+                  type: 'string',
+                  description: 'General notes about the plan or discoveries'
+                }
+              },
+              required: ['overall_goal', 'current_phase', 'phases']
+            },
+            reason: {
+              type: 'string',
+              description: 'Why the plan is being updated (for audit trail)'
+            }
+          },
+          required: ['plan', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_variable',
+        description: 'Get full variable content (bypasses chunked display). Use this tool when you need to see the complete content of a variable that appears truncated in the WORKFLOW VARIABLES section.',
+        parameters: {
+          type: 'object',
+          properties: {
+            variableName: {
+              type: 'string',
+              description: 'Variable name (e.g., "node7.emails", "gmail_creds") or "all" for complete variable dump'
+            },
+            nodeId: {
+              type: 'number',
+              description: 'Alternative: get all variables from specific node (e.g., 7 for all node7.* variables)'
+            }
+          }
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'set_variable',
+        description: 'Set or update a variable for debugging and testing. Use this tool to manually override variables or set test data.',
+        parameters: {
+          type: 'object',
+          properties: {
+            variableName: {
+              type: 'string',
+              description: 'Variable name (e.g., "test_email", "gmail_creds")'
+            },
+            value: {
+              description: 'Variable value (any JSON type: string, number, boolean, object, array)'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why setting this variable (for debugging logs)'
+            },
+            schema: {
+              type: 'object',
+              description: 'Optional JSON schema for validation (e.g., {"type": "object", "properties": {...}})'
+            }
+          },
+          required: ['variableName', 'value', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'clear_variable',
+        description: 'Delete a specific variable for testing. Use this tool to reset variables when debugging workflow behavior.',
+        parameters: {
+          type: 'object',
+          properties: {
+            variableName: {
+              type: 'string',
+              description: 'Variable name to clear (e.g., "node7.emails", "test_data")'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why clearing this variable (for debugging logs)'
+            }
+          },
+          required: ['variableName', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'clear_all_variables',
+        description: 'Reset entire workflow variable state. Use this tool to get a completely fresh workflow state for clean testing.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reason: {
+              type: 'string',
+              description: 'Why clearing all variables (for debugging logs)'
+            }
+          },
+          required: ['reason']
+        }
+      }
     }
   ];
 }
