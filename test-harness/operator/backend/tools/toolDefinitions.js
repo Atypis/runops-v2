@@ -205,6 +205,28 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
+        name: 'execute_nodes',
+        description: 'Execute specific workflow nodes by position selection. This allows Director to test and validate nodes incrementally.',
+        parameters: {
+          type: 'object',
+          properties: {
+            nodeSelection: {
+              type: 'string',
+              description: 'Node positions to execute. Examples: "5" (single node), "3-5" (range), "1-3,10,15-17" (multiple ranges), "all" (all nodes)'
+            },
+            resetBrowserFirst: {
+              type: 'boolean',
+              description: 'Whether to reset browser session before execution for clean testing',
+              default: false
+            }
+          },
+          required: ['nodeSelection']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'define_group',
         description: 'Define a reusable group of nodes that can be executed as a unit',
         parameters: {

@@ -177,6 +177,9 @@ export class DirectorService {
           case 'test_node':
             result = await this.testNode(args);
             break;
+          case 'execute_nodes':
+            result = await this.executeNodes(args, workflowId);
+            break;
           case 'define_group':
             result = await this.defineGroup(args, workflowId);
             break;
@@ -980,6 +983,190 @@ export class DirectorService {
       console.error('Failed to clear all variables:', error);
       return {
         success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Parse node selection string into array of positions
+   * Supports: "5", "3-5", "1-3,10,15-17,25", "all"
+   */
+  async parseNodeSelection(selectionString, workflowId) {
+    if (selectionString === 'all') {
+      // Get all node positions for this workflow
+      const { data: nodes } = await this.supabase
+        .from('nodes')
+        .select('position')
+        .eq('workflow_id', workflowId)
+        .order('position');
+      
+      return nodes ? nodes.map(n => n.position) : [];
+    }
+    
+    const positions = [];
+    const parts = selectionString.split(',');
+    
+    for (const part of parts) {
+      const trimmed = part.trim();
+      
+      if (trimmed.includes('-')) {
+        // Handle range: "3-5" → [3,4,5]
+        const [start, end] = trimmed.split('-').map(n => parseInt(n.trim()));
+        
+        if (isNaN(start) || isNaN(end) || start > end) {
+          throw new Error(`Invalid range: "${trimmed}". Range should be like "3-5"`);
+        }
+        
+        for (let i = start; i <= end; i++) {
+          positions.push(i);
+        }
+      } else {
+        // Handle individual: "20" → [20]
+        const position = parseInt(trimmed);
+        
+        if (isNaN(position)) {
+          throw new Error(`Invalid position: "${trimmed}". Position should be a number`);
+        }
+        
+        positions.push(position);
+      }
+    }
+    
+    // Remove duplicates and sort by position to maintain workflow order
+    return [...new Set(positions)].sort((a, b) => a - b);
+  }
+
+  /**
+   * Execute specific nodes by position selection
+   * This gives Director the same execution capability as the frontend UI
+   */
+  async executeNodes(args, workflowId) {
+    try {
+      const { nodeSelection, resetBrowserFirst = false } = args;
+      
+      console.log(`[EXECUTE_NODES] Starting execution of: ${nodeSelection}`);
+      console.log(`[EXECUTE_NODES] Reset browser first: ${resetBrowserFirst}`);
+      
+      // Parse node selection string into positions array
+      const positions = await this.parseNodeSelection(nodeSelection, workflowId);
+      console.log(`[EXECUTE_NODES] Parsed positions: [${positions.join(', ')}]`);
+      
+      if (positions.length === 0) {
+        return {
+          execution_results: [],
+          summary: {
+            total_requested: 0,
+            successfully_executed: 0,
+            failed: 0,
+            execution_time: '0s'
+          },
+          message: 'No nodes to execute'
+        };
+      }
+      
+      // Get nodes for the specified positions
+      const { data: availableNodes, error: nodesError } = await this.supabase
+        .from('nodes')
+        .select('id, position, type, description')
+        .eq('workflow_id', workflowId)
+        .in('position', positions)
+        .order('position');
+      
+      if (nodesError) {
+        throw new Error(`Failed to fetch nodes: ${nodesError.message}`);
+      }
+      
+      console.log(`[EXECUTE_NODES] Found ${availableNodes.length} nodes out of ${positions.length} requested positions`);
+      
+      // Check for missing positions
+      const foundPositions = availableNodes.map(n => n.position);
+      const missingPositions = positions.filter(p => !foundPositions.includes(p));
+      
+      if (missingPositions.length > 0) {
+        console.warn(`[EXECUTE_NODES] Missing positions: [${missingPositions.join(', ')}]`);
+      }
+      
+      // Reset browser if requested
+      if (resetBrowserFirst) {
+        console.log(`[EXECUTE_NODES] Resetting browser session`);
+        await this.nodeExecutor.cleanup();
+        await this.nodeExecutor.getStagehand(); // This will create a fresh browser
+      }
+      
+      // Execute each node
+      const results = [];
+      const startTime = Date.now();
+      
+      for (const node of availableNodes) {
+        const nodeStartTime = Date.now();
+        console.log(`[EXECUTE_NODES] Executing node ${node.position}: ${node.type} - ${node.description}`);
+        
+        try {
+          const result = await this.nodeExecutor.execute(node.id, workflowId);
+          
+          results.push({
+            node_position: node.position,
+            node_id: node.id,
+            status: 'success',
+            result: result.data,
+            execution_time: `${((Date.now() - nodeStartTime) / 1000).toFixed(1)}s`
+          });
+          
+          console.log(`[EXECUTE_NODES] ✅ Node ${node.position} executed successfully`);
+        } catch (error) {
+          console.error(`[EXECUTE_NODES] ❌ Node ${node.position} failed:`, error.message);
+          
+          results.push({
+            node_position: node.position,
+            node_id: node.id,
+            status: 'error',
+            error_details: error.message,
+            execution_time: `${((Date.now() - nodeStartTime) / 1000).toFixed(1)}s`
+          });
+        }
+      }
+      
+      // Add results for missing positions
+      for (const missingPos of missingPositions) {
+        results.push({
+          node_position: missingPos,
+          node_id: null,
+          status: 'error',
+          error_details: 'Node not found at this position',
+          execution_time: '0s'
+        });
+      }
+      
+      // Sort results by position
+      results.sort((a, b) => a.node_position - b.node_position);
+      
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      const successCount = results.filter(r => r.status === 'success').length;
+      const failCount = results.filter(r => r.status === 'error').length;
+      
+      console.log(`[EXECUTE_NODES] Execution complete: ${successCount} success, ${failCount} failed, ${totalTime}s total`);
+      
+      return {
+        execution_results: results,
+        summary: {
+          total_requested: positions.length,
+          successfully_executed: successCount,
+          failed: failCount,
+          execution_time: `${totalTime}s`
+        }
+      };
+      
+    } catch (error) {
+      console.error('Failed to execute nodes:', error);
+      return {
+        execution_results: [],
+        summary: {
+          total_requested: 0,
+          successfully_executed: 0,
+          failed: 1,
+          execution_time: '0s'
+        },
         error: error.message
       };
     }

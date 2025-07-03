@@ -1341,7 +1341,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     if (!data) {
       // Fallback to global key if iteration-specific not found
       if (storageKey.includes('@iter:')) {
-        const globalKey = path;
+        // Re-parse the path to handle node references like "node3.first_product_name"
+        const parts = normalizedPath.split('.');
+        const nodeRef = parts[0];
+        
+        // For node references, try just the node key "node3" instead of the full path
+        const globalKey = nodeRef.startsWith('node') ? nodeRef : path;
+        console.log(`[STATE] Iteration-specific key not found, trying global key: ${globalKey}`);
         const { data: globalData } = await supabase
           .from('workflow_memory')
           .select('value')
@@ -1350,7 +1356,24 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
           .single();
         if (globalData) {
           console.log(`[STATE] Fallback found global key ${globalKey}`);
-          return globalData.value;
+          
+          // If this was a node reference, navigate to the nested property
+          if (nodeRef.startsWith('node') && parts.length > 1) {
+            let value = globalData.value;
+            const propertyPath = parts.slice(1);
+            if (propertyPath[0] === 'result' && propertyPath.length > 1) {
+              propertyPath.shift();
+            }
+            for (const prop of propertyPath) {
+              value = value?.[prop];
+            }
+            const resolvedType = Array.isArray(value) ? `array[${value.length}]` : typeof value;
+            console.log(`[STATE] Resolved to value of type: ${resolvedType}`);
+            return value;
+          } else {
+            // For non-node references, return the value directly
+            return globalData.value;
+          }
         }
       }
     }

@@ -782,7 +782,7 @@ function App() {
   };
 
   // NodeCard Component - Handles display of nodes including complex route and iterate nodes
-  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, isIterationContext = false }) => {
+  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, nodeValues, isIterationContext = false }) => {
     console.log(`[DEBUG] Rendering NodeCard for node ${node.position} (${node.type}):`, { 
       id: node.id, 
       result: node.result,
@@ -2530,6 +2530,7 @@ function App() {
                         setExpandedNodes={setExpandedNodes} 
                         loadNodeValues={loadNodeValues}
                         currentWorkflow={currentWorkflow}
+                        nodeValues={nodeValues}
                       />
                     );
                   })}
