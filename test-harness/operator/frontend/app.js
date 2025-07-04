@@ -2667,7 +2667,12 @@ function App() {
             ...lastMessage,
             content: data.message,
             toolCalls: data.toolCalls,
-            isTemporary: false
+            isTemporary: false,
+            // Include reasoning summary if available (blocking response)
+            reasoning: data.reasoning_summary ? {
+              text: data.reasoning_summary,
+              isThinking: false
+            } : null
           };
         }
         return updated;

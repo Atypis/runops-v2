@@ -173,7 +173,8 @@ export class DirectorService {
         return {
           message: finalMessage,
           toolCalls: toolResults,
-          workflowId
+          workflowId,
+          reasoning_summary: completion.reasoning_summary
         };
       }
 
@@ -189,7 +190,8 @@ export class DirectorService {
 
       return {
         message: finalMessage,
-        workflowId
+        workflowId,
+        reasoning_summary: completion.reasoning_summary
       };
     } catch (error) {
       console.error('Error processing message:', error);
@@ -1359,8 +1361,8 @@ export class DirectorService {
   }
 
   /**
-   * Full control loop for reasoning models with tool calling
-   * Based on OpenAI research documentation pattern
+   * Simplified non-streaming control loop for reasoning models with tool calling
+   * Radically simplified approach - single blocking call per step with accurate token counts
    */
   async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0) {
     // Prevent infinite recursion
@@ -1368,20 +1370,13 @@ export class DirectorService {
       throw new Error('Maximum recursion depth reached in Director control loop');
     }
 
-    console.log(`[CONTROL_LOOP] Starting loop (depth ${recursionDepth}) with ${initialInput.length} input items`);
-    
-    // Only broadcast reasoning start for the top-level call (not recursive calls)
-    if (recursionDepth === 0) {
-      this.broadcastReasoningUpdate(workflowId, {
-        type: 'reasoning_start'
-      }).catch(error => console.error('[CONTROL_LOOP] Failed to broadcast reasoning start:', error));
-    }
+    console.log(`[CONTROL_LOOP] Starting blocking loop (depth ${recursionDepth}) with ${initialInput.length} input items`);
     
     // Convert tools from Chat Completions format to Responses API format
     const chatTools = createToolDefinitions();
     const responsesTools = this.convertToolsForResponsesAPI(chatTools);
 
-    // Make initial request with streaming
+    // Make blocking request - no streaming!
     const response = await this.openai.responses.create({
       model,
       instructions,
@@ -1392,213 +1387,112 @@ export class DirectorService {
         summary: 'detailed'
       },
       include: ['reasoning.encrypted_content'],
-      store: false,
-      stream: true
+      store: false,  // Fine - usage is still complete without streaming
+      stream: false  // KEY CHANGE: No streaming = accurate token counts immediately
     });
 
-    // Process stream events
-    const encryptedBlobs = [];
-    const assistantChunks = [];
-    const executedTools = []; // Track tools executed during reasoning
-    let tokenUsage = null;
-    let responseId = null; // Track response ID for post-stream retrieval
-    let visibleTextTokenCount = 0; // Track visible text tokens for reasoning estimation
+    console.log(`[CONTROL_LOOP] Blocking response received. Processing...`);
+
+    // Extract data from blocking response
+    const assistantMessages = response.output.filter(item => item.type === 'message' && item.role === 'assistant');
+    const functionCalls = response.output.filter(item => item.type === 'function_call');
+    const encryptedBlobs = response.output.filter(item => item.type === 'reasoning' && item.encrypted_content);
     
-    for await (const event of response) {
-      console.log(`[CONTROL_LOOP] Event: ${event.type}`);
-      switch (event.type) {
-        case 'response.output_item_added':
-          if (event.item.type === 'message' && event.item.role === 'assistant') {
-            // Collect visible assistant text
-            if (event.item.content) {
-              const textChunks = event.item.content.map(c => c.text || '');
-              console.log(`[CONTROL_LOOP] Assistant content: ${JSON.stringify(textChunks)}`);
-              assistantChunks.push(...textChunks);
-            }
-          }
-          break;
+    // Get assistant content
+    const assistantContent = assistantMessages
+      .flatMap(msg => msg.content || [])
+      .map(content => content.text || '')
+      .join('');
+    
+    // Extract reasoning summary from reasoning output items (available immediately with blocking response)
+    const reasoningItems = response.output.filter(item => item.type === 'reasoning' && item.summary);
+    const reasoningSummary = reasoningItems.length > 0 ? 
+      reasoningItems.map(item => item.summary.map(s => s.text).join('\n')).join('\n\n') : 
+      null;
 
-        case 'response.output_text.delta':
-          // Collect streaming text deltas
-          if (event.delta && event.delta.text) {
-            console.log(`[CONTROL_LOOP] Text delta: "${event.delta.text}"`);
-            assistantChunks.push(event.delta.text);
-          }
-          break;
-
-        case 'response.output_item.done':
-          console.log(`[CONTROL_LOOP] Output item done - type: ${event.item.type}`);
-          // Check if this completed item is a function call
-          if (event.item.type === 'function_call') {
-            console.log(`[CONTROL_LOOP] Function call detected: ${event.item.name}`);
-            
-            try {
-              // Execute the tool
-              const toolResult = await this.executeToolCall(event.item, workflowId);
-              
-              // Track this tool execution for reporting
-              executedTools.push({
-                name: event.item.name,
-                arguments: event.item.arguments,
-                result: toolResult,
-                call_id: event.item.call_id
-              });
-              
-              // Prepare follow-up input with tool result
-              const followUps = [
-                event.item, // Echo the original call
-                {
-                  type: 'function_call_output',
-                  call_id: event.item.call_id,
-                  output: JSON.stringify(toolResult)
-                }
-              ];
-
-              // Continue the chain recursively  
-              // Don't pass encrypted blobs from current session to avoid context conflicts
-              const recursiveResult = await this.runDirectorControlLoop(
-                model, 
-                instructions, 
-                initialInput.concat(followUps), 
-                workflowId, 
-                recursionDepth + 1
-              );
-              
-              // Merge executed tools from recursive call
-              if (recursiveResult.executedTools) {
-                executedTools.push(...recursiveResult.executedTools);
-              }
-              
-              // Merge token usage from both the initial reasoning and recursive calls
-              // Note: tokenUsage now contains accurate reasoning tokens from post-stream retrieval
-              const mergedTokenUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
-              
-              return {
-                ...recursiveResult,
-                executedTools,
-                usage: mergedTokenUsage
-              };
-
-            } catch (toolError) {
-              console.error(`[CONTROL_LOOP] Tool execution failed:`, toolError);
-              
-              // Track failed tool execution
-              executedTools.push({
-                name: event.item.name,
-                arguments: event.item.arguments,
-                error: toolError.message || 'Tool execution failed',
-                call_id: event.item.call_id
-              });
-              
-              // Provide error feedback to model
-              const errorFollowUps = [
-                event.item,
-                {
-                  type: 'function_call_output',
-                  call_id: event.item.call_id,
-                  output: JSON.stringify({ error: true, message: toolError.message || 'Tool execution failed' })
-                }
-              ];
-
-              // Continue with error feedback
-              const recursiveResult = await this.runDirectorControlLoop(
-                model, 
-                instructions, 
-                initialInput.concat(errorFollowUps), 
-                workflowId, 
-                recursionDepth + 1
-              );
-              
-              // Merge executed tools from recursive call
-              if (recursiveResult.executedTools) {
-                executedTools.push(...recursiveResult.executedTools);
-              }
-              
-              // Merge token usage from both the initial reasoning and recursive calls  
-              const mergedTokenUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
-              
-              return {
-                ...recursiveResult,
-                executedTools,
-                usage: mergedTokenUsage
-              };
-            }
-          }
-          // Store encrypted reasoning blobs
-          else if (event.item.type === 'reasoning' && event.item.encrypted_content) {
-            encryptedBlobs.push(event.item);
-          }
-          break;
-
-        case 'response.reasoning_summary_text.delta':
-          // Log thinking for debugging  
-          if (event.delta) {
-            console.log(`[THINKING] ${event.delta}`);
-            
-            // Broadcast reasoning update to WebSocket clients
-            this.broadcastReasoningUpdate(workflowId, {
-              type: 'reasoning_delta',
-              text: event.delta
-            }).catch(error => console.error('[CONTROL_LOOP] Failed to broadcast reasoning delta:', error));
-          } else {
-            console.log(`[THINKING] Delta event but no delta:`, JSON.stringify(event, null, 2));
-          }
-          break;
-
-        case 'response.completed':
-          // Extract final token usage from completed event (but reasoning tokens will be 0 due to OpenAI streaming limitation)
-          console.log('[RESPONSES_API] response.completed event - extracting token usage and response ID');
-          responseId = event.response.id; // Store response ID for post-stream retrieval
-          if (event.response && event.response.usage) {
-            tokenUsage = {
-              input_tokens: event.response.usage.input_tokens,
-              output_tokens: event.response.usage.output_tokens,
-              total_tokens: event.response.usage.total_tokens,
-              output_tokens_details: {
-                reasoning_tokens: event.response.usage.output_tokens_details?.reasoning_tokens || 0
-              }
-            };
-            console.log('[RESPONSES_API] Streaming token usage (reasoning tokens will be 0):', tokenUsage);
-          } else {
-            console.log('[RESPONSES_API] No token usage found in response.completed event');
-          }
-          break;
+    // Get accurate token usage immediately (no streaming = no retrieval needed!)
+    const tokenUsage = {
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
+      total_tokens: response.usage.total_tokens,
+      output_tokens_details: {
+        reasoning_tokens: response.usage.output_tokens_details?.reasoning_tokens || 0
       }
-    }
-
-    console.log(`[CONTROL_LOOP] Completed (depth ${recursionDepth}). Assistant chunks: ${assistantChunks.length}, Tools executed: ${executedTools.length}`);
+    };
     
-    // Get accurate token usage including reasoning tokens (OpenAI streaming limitation workaround)
-    // Only retrieve when no tools were executed (tool execution invalidates response IDs)
-    if (responseId && executedTools.length === 0) {
-      try {
-        console.log('[RESPONSES_API] Retrieving full response for accurate reasoning tokens (no tools executed)...');
-        const fullResponse = await this.openai.responses.retrieve(responseId);
-        if (fullResponse.usage) {
-          const accurateTokenUsage = {
-            input_tokens: fullResponse.usage.input_tokens,
-            output_tokens: fullResponse.usage.output_tokens,
-            total_tokens: fullResponse.usage.total_tokens,
-            output_tokens_details: {
-              reasoning_tokens: fullResponse.usage.output_tokens_details?.reasoning_tokens || 0
-            }
-          };
-          console.log('[RESPONSES_API] Accurate token usage retrieved:', accurateTokenUsage);
-          tokenUsage = accurateTokenUsage; // Replace streaming token usage with accurate data
+    console.log('[RESPONSES_API] Accurate token usage (no streaming):', tokenUsage);
+
+    // Handle tool calls if present
+    if (functionCalls.length > 0) {
+      console.log(`[CONTROL_LOOP] ${functionCalls.length} function calls detected`);
+      
+      const executedTools = [];
+      const followUps = [];
+      
+      // Execute all tool calls
+      for (const call of functionCalls) {
+        try {
+          console.log(`[CONTROL_LOOP] Executing tool: ${call.name}`);
+          const toolResult = await this.executeToolCall(call, workflowId);
+          
+          executedTools.push({
+            name: call.name,
+            arguments: call.arguments,
+            result: toolResult,
+            call_id: call.call_id
+          });
+          
+          // Add to follow-up input
+          followUps.push(call);
+          followUps.push({
+            type: 'function_call_output',
+            call_id: call.call_id,
+            output: JSON.stringify(toolResult)
+          });
+          
+        } catch (toolError) {
+          console.error(`[CONTROL_LOOP] Tool execution failed:`, toolError);
+          
+          executedTools.push({
+            name: call.name,
+            arguments: call.arguments,
+            error: toolError.message || 'Tool execution failed',
+            call_id: call.call_id
+          });
+          
+          // Add error to follow-up input
+          followUps.push(call);
+          followUps.push({
+            type: 'function_call_output',
+            call_id: call.call_id,
+            output: JSON.stringify({ error: true, message: toolError.message || 'Tool execution failed' })
+          });
         }
-      } catch (error) {
-        console.error('[RESPONSES_API] Failed to retrieve accurate token usage:', error);
-        // Continue with streaming token usage as fallback
       }
-    } else if (responseId && executedTools.length > 0) {
-      console.log('[RESPONSES_API] Skipping post-stream retrieval due to tool execution (response ID invalidated)');
-    }
-    
-    // Only broadcast reasoning completion for the top-level call (not recursive calls)
-    if (recursionDepth === 0) {
-      this.broadcastReasoningUpdate(workflowId, {
-        type: 'reasoning_complete'
-      }).catch(error => console.error('[CONTROL_LOOP] Failed to broadcast reasoning complete:', error));
+      
+      // Continue the chain recursively with tool results
+      const recursiveResult = await this.runDirectorControlLoop(
+        model, 
+        instructions, 
+        initialInput.concat(followUps), 
+        workflowId, 
+        recursionDepth + 1
+      );
+      
+      // Merge executed tools from recursive call
+      if (recursiveResult.executedTools) {
+        executedTools.push(...recursiveResult.executedTools);
+      }
+      
+      // Merge token usage from both calls
+      const mergedTokenUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
+      
+      return {
+        ...recursiveResult,
+        executedTools,
+        usage: mergedTokenUsage,
+        reasoning_summary: reasoningSummary || recursiveResult.reasoning_summary // Preserve reasoning summary
+      };
     }
     
     // Store encrypted reasoning context
@@ -1606,22 +1500,21 @@ export class DirectorService {
       await this.storeReasoningContextFromBlobs(workflowId, encryptedBlobs, tokenUsage);
     }
 
-    // Return in format compatible with existing code, including executed tools
+    console.log(`[CONTROL_LOOP] Completed (depth ${recursionDepth}). Final response ready.`);
+
+    // Return in format compatible with existing code
     return {
       choices: [{
         message: {
-          content: assistantChunks.join(''),
+          content: assistantContent,
           tool_calls: null, // Tools were executed in the loop
-          role: 'assistant'
+          role: 'assistant',
+          reasoning_summary: reasoningSummary // Include reasoning summary for immediate display
         }
       }],
-      usage: tokenUsage || { 
-        input_tokens: 0, 
-        output_tokens: 0, 
-        total_tokens: 0,
-        output_tokens_details: { reasoning_tokens: 0 }
-      },
-      executedTools // Include tools executed during reasoning
+      usage: tokenUsage,
+      executedTools: [], // No tools executed at this level
+      reasoning_summary: reasoningSummary // Also include at top level for compatibility
     };
   }
 

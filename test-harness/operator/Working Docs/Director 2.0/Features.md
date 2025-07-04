@@ -77,14 +77,14 @@ CREATE TABLE director_plans (
 
 #### Requirements
 - ✅ Context builder service that assembles 6-part structure  
-- ⏸️ Context compression at 180k tokens using Director (Phase 4)
+- ⏸️ **Context compression at 180k tokens using Director (ON HOLD - see On Hold section)**
 - ✅ Conversation filtering (exclude old prompts/plans/JSONs)
 - ✅ Real-time updates of all context sections
 
 #### Components to Build
 - `ContextBuilder` service
 - `ConversationFilter` utility  
-- `ContextCompressor` service
+- ⏸️ `ContextCompressor` service (ON HOLD)
 - Context size monitoring middleware
 
 ---
