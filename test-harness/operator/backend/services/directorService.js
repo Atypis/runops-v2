@@ -249,6 +249,7 @@ export class DirectorService {
         message: finalMessage,
         workflowId,
         reasoning_summary: completion.reasoning_summary,
+        // THIS IS THE TOTAL INPUT TOKENS SENT TO THE API (includes both cached and uncached)
         input_tokens: completion.usage?.input_tokens || 0,
         output_tokens: completion.usage?.output_tokens || 0,
         debug_input: debugInput
@@ -1434,6 +1435,8 @@ export class DirectorService {
               console.log(`    [🔍 MESSAGE LENGTH] ${item.content.length} characters`);
             }
           }
+        } else if (item.type === 'reasoning' && item.encrypted_content) {
+          console.log(`  - Input[${idx}] (encrypted reasoning): ${JSON.stringify(item.encrypted_content).substring(0, 100)}... (${JSON.stringify(item).length} chars total)`);
         }
       });
 
@@ -1507,16 +1510,39 @@ export class DirectorService {
       null;
 
     // Get accurate token usage immediately (no streaming = no retrieval needed!)
+    // CRITICAL: Understanding OpenAI's token counting:
+    // - input_tokens = TOTAL tokens sent to API (cached + uncached)
+    // - cached_tokens = subset of input_tokens that were cached (75% discount)
+    // - uncached tokens = input_tokens - cached_tokens (full price)
     const tokenUsage = {
-      input_tokens: response.usage.input_tokens,
+      input_tokens: response.usage.input_tokens,  // <-- THIS IS THE TOTAL YOU WANT!
       output_tokens: response.usage.output_tokens,
       total_tokens: response.usage.total_tokens,
       output_tokens_details: {
         reasoning_tokens: response.usage.output_tokens_details?.reasoning_tokens || 0
-      }
+      },
+      // Cached tokens are a SUBSET of input_tokens, not additional
+      cached_tokens: response.usage.input_tokens_details?.cached_tokens || 0,
+      // For backwards compatibility, actual_input_tokens = input_tokens (the total)
+      actual_input_tokens: response.usage.input_tokens
     };
     
-    console.log('[RESPONSES_API] Accurate token usage (no streaming):', tokenUsage);
+    console.log('[RESPONSES_API] Accurate token usage (no streaming):', {
+      TOTAL_INPUT_TOKENS_SENT_TO_API: tokenUsage.input_tokens,  // THIS IS WHAT YOU WANT!
+      breakdown: {
+        cached_portion: tokenUsage.cached_tokens,
+        uncached_portion: tokenUsage.input_tokens - tokenUsage.cached_tokens
+      },
+      output: tokenUsage.output_tokens,
+      reasoning: tokenUsage.output_tokens_details.reasoning_tokens,
+      total: tokenUsage.total_tokens
+    });
+    
+    // Debug: Log full usage details to understand caching
+    if (tokenUsage.cached_tokens > 0) {
+      console.log('[CACHE_DEBUG] Full usage object:', JSON.stringify(response.usage, null, 2));
+      console.log('[CACHE_DEBUG] Unexpected caching at depth', recursionDepth, '- investigating...');
+    }
 
     // Handle tool calls if present
     if (functionCalls.length > 0) {
@@ -1589,6 +1615,12 @@ export class DirectorService {
         const totalUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
         console.log(`[TOKEN_DEBUG] Initial message tokens: ${tokenUsage.input_tokens} in, ${tokenUsage.output_tokens} out`);
         console.log(`[TOKEN_DEBUG] Total with ${executedTools.length} tool executions: ${totalUsage.input_tokens} in, ${totalUsage.output_tokens} out`);
+        
+        // Store encrypted reasoning context at depth 0 (initial call)
+        if (encryptedBlobs.length > 0 && tokenUsage) {
+          console.log(`[REASONING_STORAGE] Storing ${encryptedBlobs.length} encrypted blobs from initial call`);
+          await this.storeReasoningContextFromBlobs(workflowId, encryptedBlobs, tokenUsage);
+        }
       }
       
       return {

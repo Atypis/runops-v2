@@ -29,6 +29,8 @@ export class TokenCounterService {
       timestamp: new Date().toISOString(),
       messageType,
       input_tokens: usage.input_tokens || 0,
+      cached_tokens: usage.cached_tokens || 0,  // NEW: Track cached tokens
+      actual_input_tokens: usage.actual_input_tokens || usage.input_tokens || 0,  // NEW: Total input including cached
       output_tokens: usage.output_tokens || 0,
       reasoning_tokens: usage.output_tokens_details?.reasoning_tokens || 0,
       total_tokens: usage.total_tokens || 0,
@@ -74,11 +76,16 @@ export class TokenCounterService {
    * Calculate cost for a message based on token usage
    */
   calculateMessageCost(usage) {
-    const inputCost = (usage.input_tokens || 0) * this.pricing.input_tokens;
+    // Regular input tokens at full price
+    const uncachedInputCost = (usage.input_tokens || 0) * this.pricing.input_tokens;
+    
+    // Cached tokens at 75% discount (25% of normal price)
+    const cachedInputCost = (usage.cached_tokens || 0) * this.pricing.input_tokens * 0.25;
+    
     const outputCost = (usage.output_tokens || 0) * this.pricing.output_tokens;
     const reasoningCost = (usage.output_tokens_details?.reasoning_tokens || 0) * this.pricing.reasoning_tokens;
     
-    return inputCost + outputCost + reasoningCost;
+    return uncachedInputCost + cachedInputCost + outputCost + reasoningCost;
   }
 
   /**

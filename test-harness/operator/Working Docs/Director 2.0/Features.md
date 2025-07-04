@@ -574,3 +574,18 @@ const userFacingUsage = recursionDepth === 0 ? tokenUsage : recursiveResult.usag
 - ✅ **8 features fully completed**: Planning (#1), Context Management (#2), Variable Context (#4), Variable Debugging Tools (#5), Node Execution (#6), Unified Control Panel (#11), Context Builder (#13), Variable Management Service (#14), Token Counting Fix (#17)
 - 🔴 **9 features not started**: Enhanced System Prompt (#3), Validation Node Type (#7), Browser State Context (#8), Tab Inspection (#9), Debug Navigation (#10), Context Size Monitor (#12), Browser State Service (#15), Database Updates (#16)
 - 🟡 **0 features in progress**: All features are either complete or not started
+
+---
+
+## **On Hold / Future Investigation**
+
+### **Prompt Caching Investigation** 🔵
+**Status**: ON HOLD - Requires future examination  
+**Description**: OpenAI appears to automatically cache system prompts (~10k cached tokens on first message)  
+**Open Questions**:
+- Is automatic prompt caching reliable/documented behavior?
+- Can it be explicitly controlled or disabled?
+- How does it work across workflow IDs and sessions?
+- What are the cache TTL and invalidation rules?
+
+**Note**: Currently working as expected with 75% cost reduction on cached tokens, but the automatic behavior needs documentation.

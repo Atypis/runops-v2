@@ -2849,11 +2849,44 @@ function App() {
       setMessages(prev => [...prev, tempAssistantMessage]);
 
       // Filter out debug_input and other large fields from conversation history
-      const cleanConversationHistory = messages.map(msg => ({
-        role: msg.role,
-        content: msg.content
-        // Exclude: toolCalls, reasoning, tokenUsage, debug_input
-      }));
+      const cleanConversationHistory = messages.map(msg => {
+        let content = msg.content;
+        
+        // For assistant messages, include reasoning and tool calls in the content
+        if (msg.role === 'assistant') {
+          const parts = [];
+          
+          // Add reasoning if present
+          if (msg.reasoning?.text) {
+            parts.push('[REASONING]');
+            parts.push(msg.reasoning.text);
+            parts.push('');
+          }
+          
+          // Add tool calls if present
+          if (msg.toolCalls && msg.toolCalls.length > 0) {
+            parts.push('[TOOL CALLS]');
+            msg.toolCalls.forEach(tc => {
+              parts.push(`Tool: ${tc.toolName}`);
+              parts.push(`Result: ${JSON.stringify(tc.result, null, 2)}`);
+              parts.push('---');
+            });
+            parts.push('');
+          }
+          
+          // Add the actual response
+          parts.push('[RESPONSE]');
+          parts.push(content);
+          
+          content = parts.join('\n');
+        }
+        
+        return {
+          role: msg.role,
+          content
+          // Exclude: toolCalls, reasoning, tokenUsage, debug_input
+        };
+      });
 
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
