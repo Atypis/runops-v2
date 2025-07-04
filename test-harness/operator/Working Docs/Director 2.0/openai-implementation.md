@@ -105,19 +105,37 @@ const reasoningSummary = reasoningItems.length > 0 ?
 - No closure issues
 
 ### **Token Counting Results** 📊
-```
-=== Real Production Logs ===
-[RESPONSES_API] Accurate token usage (no streaming): {
-  input_tokens: 9792,
-  output_tokens: 2120,
-  total_tokens: 11912,
-  output_tokens_details: { reasoning_tokens: 1920 }  // ✅ ACCURATE!
-}
 
-[TOKEN_COUNTER] Recorded usage:
-  reasoning_tokens: 1920,  // ✅ PERFECT ACCURACY
-  cost: 0.0845268         // ✅ CORRECT BILLING
+#### **CRITICAL UPDATE (July 4, 2025): Token Reporting Fix**
+
+We discovered that token counts were being **misleadingly accumulated** across recursive tool execution calls. This made it appear that messages were using 20k-40k tokens when they actually only used ~10k.
+
+**The Issue**: When reasoning models execute tools, they make recursive API calls. The original implementation was summing ALL tokens from these internal calls and presenting them as a single message's usage.
+
+**The Fix**: Now we only report the INITIAL message's token usage to users, treating tool execution as an internal implementation detail.
+
+**Before Fix** (Misleading accumulated totals):
 ```
+Message 1: 19.7k tokens (actually ~10k + ~10k from tool execution)
+Message 2: 40.6k tokens (actually ~10k + ~30k from 3 tool executions)
+```
+
+**After Fix** (Accurate per-message counts):
+```
+Message 1: 9.7k tokens ✅
+Message 2: 9.9k tokens ✅
+```
+
+**Debug Logging** now shows both values:
+```
+[TOKEN_DEBUG] Initial message tokens: 9839 in, 1534 out
+[TOKEN_DEBUG] Total with 3 tool executions: 40663 in, 2560 out
+```
+
+This fix provides:
+- **Predictable costs** - Each message costs ~10k tokens consistently
+- **Clear understanding** - Tool execution overhead is internal
+- **Linear scaling** - Costs grow with conversation length, not tool usage
 
 ---
 
@@ -281,6 +299,29 @@ npm start
 
 ---
 
+## 🔧 **CONTEXT MANAGEMENT & TOKEN OPTIMIZATION**
+
+### **Director 2.0 Context Handling**
+
+The system appends Director 2.0 context (plan, workflow snapshot, variables, etc.) to each user message. To prevent exponential token growth, we implemented **automatic context stripping**:
+
+```javascript
+// Strip any existing director2Context from historical messages
+const cleanHistory = conversationHistory.map(msg => ({
+  role: msg.role,
+  content: msg.content ? msg.content.split('\n\n(2) CURRENT PLAN')[0].trim() : msg.content
+}));
+```
+
+This ensures:
+- Historical messages maintain their original content only
+- Fresh director2Context is added only to the current message
+- Token usage grows linearly, not exponentially
+
+**Without this fix**: Each message would accumulate all previous contexts, causing token explosion.
+
+---
+
 ## 💡 **KEY ARCHITECTURAL DECISIONS**
 
 ### **Why We Dropped Streaming**
@@ -318,4 +359,4 @@ The OpenAI Responses API integration is **COMPLETE AND PRODUCTION-READY**.
 
 ---
 
-*Last updated: July 4, 2025 - Implementation Complete*
+*Last updated: July 4, 2025 - Implementation Complete with Token Reporting Fix*

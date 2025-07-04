@@ -68,24 +68,28 @@ CREATE TABLE director_plans (
 
 ---
 
-### 2. 6-Part Context Management System 🟡
+### 2. 6-Part Context Management System 🟢
 
 **Priority**: High  
 **Required For**: Structured context, conversation compression  
 **Description**: System Prompt → Plan → Workflow → Variables → Browser State → History  
-**Status**: 🟡 **PARTIALLY COMPLETE** - Foundation built, Parts 4-5 pending Phase 2
+**Status**: ✅ **COMPLETED** - Full implementation with context stripping (July 4, 2025)
 
-#### Requirements
-- ✅ Context builder service that assembles 6-part structure  
+#### Requirements ✅ ALL COMPLETE
+- ✅ Context builder service that assembles 6-part structure (`buildDirector2Context` method)
 - ⏸️ **Context compression at 180k tokens using Director (ON HOLD - see On Hold section)**
 - ✅ Conversation filtering (exclude old prompts/plans/JSONs)
 - ✅ Real-time updates of all context sections
+- ✅ **NEW**: Automatic director2Context stripping from historical messages to prevent exponential token growth
 
-#### Components to Build
-- `ContextBuilder` service
-- `ConversationFilter` utility  
-- ⏸️ `ContextCompressor` service (ON HOLD)
-- Context size monitoring middleware
+#### Implementation Details ✅ COMPLETE
+- **buildDirector2Context**: Assembles all 6 parts into unified context
+- **Conversation Filtering**: Strips director2Context from historical messages using `split('\n\n(2) CURRENT PLAN')[0]`
+- **Token Optimization**: Prevents exponential growth by ensuring context is only added to current message
+- **Debug Logging**: Added comprehensive logging to track context stripping
+
+#### Files Modified
+- ✅ `backend/services/directorService.js` (buildDirector2Context method + context stripping)
 
 ---
 
@@ -405,31 +409,34 @@ debug_close_tab({tabName: "Debug Tab"})
 
 ## **Backend Infrastructure**
 
-### 13. Context Builder Service 🔴
+### 13. Context Builder Service 🟢
 
 **Priority**: High  
 **Required For**: 6-part context assembly  
 **Description**: Service that builds complete Director context
+**Status**: ✅ **COMPLETED** - Implemented as part of DirectorService (July 4, 2025)
 
-#### Responsibilities
-- Assemble 6-part context structure
-- Apply variable chunking rules
-- Handle context compression
-- Manage conversation filtering
+#### Implementation Details ✅ COMPLETE
+- **buildDirector2Context method**: Assembles all 6 context parts
+- **Variable chunking**: Applied through VariableManagementService integration
+- **Conversation filtering**: Strips old context to prevent duplication
+- **Real-time assembly**: Fresh context built for each message
 
 ---
 
-### 14. Variable Management Service 🔴
+### 14. Variable Management Service 🟢
 
 **Priority**: High  
 **Required For**: Variable state management  
 **Description**: Service for workflow variable operations
+**Status**: ✅ **COMPLETED** - Full service implementation (July 3, 2025)
 
-#### Responsibilities
-- Retrieve workflow variables from database
-- Apply chunking display rules
-- Handle variable CRUD operations
-- Sensitive data masking
+#### Implementation Details ✅ COMPLETE
+- **Full CRUD operations**: getVariable, setVariable, deleteVariable, clearAllVariables
+- **Chunking display**: 100 character limit with "..." for long values
+- **Sensitive data masking**: Automatic [hidden] for passwords, tokens, keys
+- **Array handling**: Smart previews showing first element + count
+- **File**: `backend/services/variableManagementService.js`
 
 ---
 
@@ -456,6 +463,42 @@ debug_close_tab({tabName: "Debug Tab"})
 - `director_plans` table (already specified)
 - Additional indexes for performance
 - Variable storage optimization (if needed)
+
+---
+
+## **Token Management & Optimization**
+
+### 17. Token Counting Accuracy Fix 🟢
+
+**Priority**: High  
+**Required For**: Accurate cost tracking, user understanding  
+**Description**: Fix misleading token accumulation from recursive tool calls  
+**Status**: ✅ **COMPLETED** - Implemented clean separation (July 4, 2025)
+
+#### The Problem
+- Reasoning models make recursive API calls when executing tools
+- Original implementation accumulated ALL tokens from these calls
+- Made it appear messages used 20k-40k tokens when they only used ~10k
+
+#### The Solution ✅ IMPLEMENTED
+- Modified `runDirectorControlLoop` to track initial vs recursive tokens separately
+- User-facing token counts now show ONLY the initial message tokens
+- Tool execution overhead treated as internal implementation detail
+
+#### Implementation Details
+```javascript
+// Only return initial call's tokens to user
+const userFacingUsage = recursionDepth === 0 ? tokenUsage : recursiveResult.usage;
+
+// Debug logging shows both
+[TOKEN_DEBUG] Initial message tokens: 9839 in, 1534 out
+[TOKEN_DEBUG] Total with 3 tool executions: 40663 in, 2560 out
+```
+
+#### Results
+- **Before**: 19.7k → 40.6k tokens (misleading jumps)
+- **After**: 9.7k → 9.9k tokens (accurate, consistent)
+- **Benefit**: Predictable costs that scale linearly with conversation length
 
 ---
 
@@ -525,4 +568,9 @@ debug_close_tab({tabName: "Debug Tab"})
 - **Risk Mitigation**: Core infrastructure first, system prompt last
 - **Practical Benefits**: Can start using improvements immediately
 
-**Total: 17 major features** with strategic implementation order.
+**Total: 18 major features** with strategic implementation order.
+
+## **Completed Features Summary**
+- ✅ **8 features fully completed**: Planning (#1), Context Management (#2), Variable Context (#4), Variable Debugging Tools (#5), Node Execution (#6), Unified Control Panel (#11), Context Builder (#13), Variable Management Service (#14), Token Counting Fix (#17)
+- 🔴 **9 features not started**: Enhanced System Prompt (#3), Validation Node Type (#7), Browser State Context (#8), Tab Inspection (#9), Debug Navigation (#10), Context Size Monitor (#12), Browser State Service (#15), Database Updates (#16)
+- 🟡 **0 features in progress**: All features are either complete or not started

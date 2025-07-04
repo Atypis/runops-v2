@@ -94,12 +94,27 @@ export class DirectorService {
 
       // Clean conversation history to only include essential fields for AI
       // This prevents exponential token growth from debug_input and other UI-only fields
-      const cleanHistory = conversationHistory.map(msg => ({
-        role: msg.role,
-        content: msg.content
-        // Intentionally exclude: toolCalls, reasoning, tokenUsage, debug_input
-      })).filter(msg => msg.content !== null && msg.content !== undefined);
+      const cleanHistory = conversationHistory.map((msg, idx) => {
+        // Log if we find director2Context in historical messages
+        if (msg.content && msg.content.includes('(2) CURRENT PLAN')) {
+          console.log(`[🔍 CONTEXT_STRIP] Found director2Context in history at index ${idx} (${msg.role}), stripping it...`);
+          console.log(`[🔍 CONTEXT_STRIP] Original length: ${msg.content.length}, After strip: ${msg.content.split('\n\n(2) CURRENT PLAN')[0].trim().length}`);
+        }
+        
+        return {
+          role: msg.role,
+          // CRITICAL: Strip any existing director2Context from historical messages to prevent duplication
+          content: msg.content ? msg.content.split('\n\n(2) CURRENT PLAN')[0].trim() : msg.content
+          // Intentionally exclude: toolCalls, reasoning, tokenUsage, debug_input
+        };
+      }).filter(msg => msg.content !== null && msg.content !== undefined);
 
+      // Check if the current message already has director2Context
+      if (message && message.includes('(2) CURRENT PLAN')) {
+        console.log(`[🔍 CURRENT_MESSAGE_WARNING] Current message ALREADY contains director2Context!`);
+        console.log(`[🔍 CURRENT_MESSAGE_WARNING] This should not happen - frontend may be sending modified messages`);
+      }
+      
       // Build messages array with cleaned history
       const messages = [
         { role: 'system', content: DIRECTOR_SYSTEM_PROMPT },
@@ -109,6 +124,8 @@ export class DirectorService {
 
       // Add Director 2.0 context to the latest message if available
       if (director2Context) {
+        console.log(`[🔍 DIRECTOR_CONTEXT_DEBUG] Adding director2Context of length ${director2Context.length} to message at index ${messages.length - 1}`);
+        console.log(`[🔍 DIRECTOR_CONTEXT_DEBUG] Historical messages have been stripped of any previous director2Context`);
         messages[messages.length - 1].content += `\n\n${director2Context}`;
       }
       
@@ -163,10 +180,12 @@ export class DirectorService {
       const responseMessage = completion.choices[0].message;
       
       // Record token usage for this conversation
+      // NOTE: For reasoning models with tool execution, this only records the INITIAL message tokens
+      // not the accumulated tokens from recursive tool execution calls
       if (workflowId && completion.usage) {
         this.tokenCounter.recordUserMessage(workflowId, message);
         this.tokenCounter.recordTokenUsage(workflowId, completion.usage, 'assistant');
-        console.log('[DIRECTOR] Token usage recorded for conversation');
+        console.log('[DIRECTOR] Token usage recorded for initial message (excludes internal tool execution tokens)');
       }
       
       // Check if this is a reasoning model response (has reasoning token usage)
@@ -1377,6 +1396,7 @@ export class DirectorService {
     try {
       // Load previous encrypted reasoning context
       const encryptedContext = await this.loadReasoningContext(workflowId);
+      console.log(`[🔍 ENCRYPTED_CONTEXT] Loaded ${encryptedContext.length} encrypted reasoning blobs from previous turns`);
       
       // Convert messages to Responses API format
       const systemMessage = messages.find(m => m.role === 'system');
@@ -1391,6 +1411,31 @@ export class DirectorService {
           content: msg.content
         }))
       ];
+
+      // Enhanced logging for debugging token counts
+      console.log('[🔍 RESPONSES_API_DEBUG] Initial input details:');
+      console.log(`  - Encrypted context items: ${encryptedContext.length}`);
+      console.log(`  - User/Assistant messages: ${userMessages.length}`);
+      console.log(`  - Total input array length: ${initialInput.length}`);
+      console.log(`  - Input stringified size: ${JSON.stringify(initialInput).length} characters`);
+      console.log(`  - System prompt size: ${systemMessage?.content?.length || 0} characters`);
+      
+      // Log the actual content being sent (first 500 chars of each message)
+      initialInput.forEach((item, idx) => {
+        if (item.type === 'message') {
+          const preview = item.content ? item.content.substring(0, 500) : 'null';
+          console.log(`  - Input[${idx}] (${item.role}): ${preview}${item.content?.length > 500 ? '...' : ''}`);
+          
+          // Check for director2Context patterns in each message
+          if (item.content && item.role === 'user') {
+            const contextOccurrences = (item.content.match(/CURRENT PLAN/g) || []).length;
+            if (contextOccurrences > 0) {
+              console.log(`    [🔍 CONTEXT COUNT] This user message contains ${contextOccurrences} director2Context occurrence(s)`);
+              console.log(`    [🔍 MESSAGE LENGTH] ${item.content.length} characters`);
+            }
+          }
+        }
+      });
 
       // Run the full control loop
       return await this.runDirectorControlLoop(model, systemMessage?.content || DIRECTOR_SYSTEM_PROMPT, initialInput, workflowId);
@@ -1433,11 +1478,21 @@ export class DirectorService {
     });
 
     console.log(`[CONTROL_LOOP] Blocking response received. Processing...`);
+    
+    // Debug: Log response output types
+    const outputTypes = response.output.map(item => item.type);
+    console.log(`[RESPONSE_DEBUG] Output types in response:`, outputTypes);
+    console.log(`[RESPONSE_DEBUG] Total output items:`, response.output.length);
 
     // Extract data from blocking response
     const assistantMessages = response.output.filter(item => item.type === 'message' && item.role === 'assistant');
     const functionCalls = response.output.filter(item => item.type === 'function_call');
     const encryptedBlobs = response.output.filter(item => item.type === 'reasoning' && item.encrypted_content);
+    
+    console.log(`[ENCRYPTED_BLOBS] Found ${encryptedBlobs.length} encrypted reasoning blobs in response`);
+    if (encryptedBlobs.length > 0) {
+      console.log(`[ENCRYPTED_BLOBS] First blob preview:`, JSON.stringify(encryptedBlobs[0]).substring(0, 200) + '...');
+    }
     
     // Get assistant content
     const assistantContent = assistantMessages
@@ -1525,13 +1580,21 @@ export class DirectorService {
         executedTools.push(...recursiveResult.executedTools);
       }
       
-      // Merge token usage from both calls
-      const mergedTokenUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
+      // IMPORTANT: For user-facing token counts, only return the INITIAL call's tokens
+      // The recursive calls are internal implementation details
+      const userFacingUsage = recursionDepth === 0 ? tokenUsage : recursiveResult.usage;
+      
+      // Log the actual total for debugging if needed
+      if (recursionDepth === 0) {
+        const totalUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
+        console.log(`[TOKEN_DEBUG] Initial message tokens: ${tokenUsage.input_tokens} in, ${tokenUsage.output_tokens} out`);
+        console.log(`[TOKEN_DEBUG] Total with ${executedTools.length} tool executions: ${totalUsage.input_tokens} in, ${totalUsage.output_tokens} out`);
+      }
       
       return {
         ...recursiveResult,
         executedTools,
-        usage: mergedTokenUsage,
+        usage: userFacingUsage, // Only show the initial message tokens to user
         reasoning_summary: reasoningSummary || recursiveResult.reasoning_summary // Preserve reasoning summary
       };
     }
