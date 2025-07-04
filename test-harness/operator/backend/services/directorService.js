@@ -112,6 +112,30 @@ export class DirectorService {
       // Get model for this workflow - default to o4-mini for reasoning capabilities
       const model = process.env.DIRECTOR_MODEL || 'o4-mini';
       
+      // 🔍 INTERCEPTOR: Log exact OpenAI input for debugging
+      const debugInput = {
+        messages: messages,
+        model: model,
+        total_chars: JSON.stringify(messages).length,
+        total_messages: messages.length,
+        message_breakdown: messages.map((m, i) => ({
+          index: i,
+          role: m.role,
+          content_length: m.content ? m.content.length : 0,
+          content_preview: m.content ? m.content.substring(0, 200) + (m.content.length > 200 ? '...' : '') : 'null'
+        })),
+        timestamp: new Date().toISOString()
+      };
+      
+      console.log('[🔍 OPENAI_INTERCEPTOR] Exact input being sent:');
+      console.log('[🔍 OPENAI_INTERCEPTOR] Model:', model);
+      console.log('[🔍 OPENAI_INTERCEPTOR] Message count:', messages.length);
+      console.log('[🔍 OPENAI_INTERCEPTOR] Total characters:', JSON.stringify(messages).length);
+      console.log('[🔍 OPENAI_INTERCEPTOR] Message breakdown:');
+      debugInput.message_breakdown.forEach(m => {
+        console.log(`  [${m.index}] ${m.role}: ${m.content_length} chars - "${m.content_preview}"`);
+      });
+      
       // Route to appropriate API based on model type
       let completion;
       if (this.isReasoningModel(model)) {
@@ -147,7 +171,10 @@ export class DirectorService {
         return {
           message: responseMessage.content || '',  // Default to empty string if null
           toolCalls: toolResults,
-          workflowId
+          workflowId,
+          input_tokens: completion.usage?.input_tokens || 0,
+          output_tokens: completion.usage?.output_tokens || 0,
+          debug_input: debugInput
         };
       }
       
@@ -174,7 +201,10 @@ export class DirectorService {
           message: finalMessage,
           toolCalls: toolResults,
           workflowId,
-          reasoning_summary: completion.reasoning_summary
+          reasoning_summary: completion.reasoning_summary,
+          input_tokens: completion.usage?.input_tokens || 0,
+          output_tokens: completion.usage?.output_tokens || 0,
+          debug_input: debugInput
         };
       }
 
@@ -191,7 +221,10 @@ export class DirectorService {
       return {
         message: finalMessage,
         workflowId,
-        reasoning_summary: completion.reasoning_summary
+        reasoning_summary: completion.reasoning_summary,
+        input_tokens: completion.usage?.input_tokens || 0,
+        output_tokens: completion.usage?.output_tokens || 0,
+        debug_input: debugInput
       };
     } catch (error) {
       console.error('Error processing message:', error);

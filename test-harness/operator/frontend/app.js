@@ -42,6 +42,202 @@ function ReasoningComponent({ reasoning }) {
   );
 }
 
+// Token usage component for Director messages
+function TokenUsageComponent({ tokenUsage }) {
+  if (!tokenUsage || (!tokenUsage.input_tokens && !tokenUsage.output_tokens)) {
+    return null;
+  }
+  
+  const totalTokens = tokenUsage.input_tokens + tokenUsage.output_tokens;
+  const formatNumber = (num) => {
+    if (num > 1000) return `${(num / 1000).toFixed(1)}K`;
+    return num.toLocaleString();
+  };
+  
+  // Red highlight if input tokens exceed 150k
+  const isHighTokens = tokenUsage.input_tokens > 150000;
+  
+  return (
+    <div style={{ 
+      marginTop: '8px', 
+      fontSize: '11px', 
+      color: '#6b7280', 
+      borderTop: '1px solid #d1d5db', 
+      paddingTop: '6px' 
+    }}>
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between' 
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={{ marginRight: '4px' }}>📊</span>
+          <span>Token Usage:</span>
+        </span>
+        <span style={{ 
+          fontFamily: 'monospace', 
+          fontSize: '10px',
+          color: isHighTokens ? '#dc2626' : '#6b7280',
+          fontWeight: isHighTokens ? 'bold' : 'normal'
+        }}>
+          {formatNumber(tokenUsage.input_tokens)} in • {formatNumber(tokenUsage.output_tokens)} out • {formatNumber(totalTokens)} total
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Debug Input Modal for examining OpenAI input
+function DebugInputModal({ debugInput, isOpen, onClose }) {
+  if (!isOpen || !debugInput) return null;
+
+  const downloadDebugData = () => {
+    const dataStr = JSON.stringify(debugInput, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `debug-input-${debugInput.timestamp.replace(/[:.]/g, '-')}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(debugInput, null, 2));
+      alert('Debug data copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        width: '90vw',
+        height: '90vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '16px',
+          borderBottom: '1px solid #e5e7eb',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
+            🔍 OpenAI Input Debug ({debugInput.total_messages} messages, {debugInput.total_chars.toLocaleString()} chars)
+          </h3>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={copyToClipboard}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              📋 Copy JSON
+            </button>
+            <button
+              onClick={downloadDebugData}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              💾 Download
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: '16px'
+        }}>
+          {/* Message Breakdown */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 'bold' }}>Message Breakdown:</h4>
+            {debugInput.message_breakdown.map((msg, i) => (
+              <div key={i} style={{
+                padding: '8px',
+                marginBottom: '4px',
+                backgroundColor: msg.role === 'system' ? '#fef3c7' : msg.role === 'user' ? '#dbeafe' : '#f3f4f6',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontFamily: 'monospace'
+              }}>
+                <strong>[{msg.index}] {msg.role}:</strong> {msg.content_length.toLocaleString()} chars
+                <br />
+                <span style={{ color: '#6b7280' }}>"{msg.content_preview}"</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Full JSON */}
+          <div>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 'bold' }}>Full Debug Data:</h4>
+            <pre style={{
+              backgroundColor: '#f9fafb',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              padding: '12px',
+              fontSize: '11px',
+              overflow: 'auto',
+              maxHeight: '400px',
+              fontFamily: 'monospace',
+              whiteSpace: 'pre-wrap'
+            }}>
+              {JSON.stringify(debugInput, null, 2)}
+            </pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // Resizable panel state
   const [workflowPanelWidth, setWorkflowPanelWidth] = useState(500); // Default 500px instead of 384px
@@ -76,6 +272,8 @@ function App() {
   const [reasoningSessions, setReasoningSessions] = useState([]); // Persistent reasoning sessions
   const [currentSessionId, setCurrentSessionId] = useState(null); // Track current session
   const [tokenStats, setTokenStats] = useState(null); // Token usage statistics
+  const [debugModalOpen, setDebugModalOpen] = useState(false); // Debug modal state
+  const [debugModalData, setDebugModalData] = useState(null); // Debug modal data
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
   const nodesPanelRef = useRef(null); // Reference to the nodes panel scroll container
@@ -561,7 +759,12 @@ function App() {
             setMessages([{
               role: 'assistant',
               content: mockData.message,
-              toolCalls: mockData.toolCalls
+              toolCalls: mockData.toolCalls,
+              // Add mock token usage for demonstration
+              tokenUsage: {
+                input_tokens: 245,
+                output_tokens: 186
+              }
             }]);
           }
         }
@@ -2672,7 +2875,14 @@ function App() {
             reasoning: data.reasoning_summary ? {
               text: data.reasoning_summary,
               isThinking: false
-            } : null
+            } : null,
+            // Store token usage data
+            tokenUsage: {
+              input_tokens: data.input_tokens || 0,
+              output_tokens: data.output_tokens || 0
+            },
+            // Store debug input for examination
+            debug_input: data.debug_input
           };
         }
         return updated;
@@ -2948,6 +3158,38 @@ function App() {
                 {message.toolCalls && message.toolCalls.map((toolCall, i) => (
                   <div key={i}>{formatToolCall(toolCall)}</div>
                 ))}
+                
+                {/* Token usage component for assistant messages */}
+                {message.role === 'assistant' && message.tokenUsage && (
+                  <TokenUsageComponent tokenUsage={message.tokenUsage} />
+                )}
+                
+                {/* Debug input button for assistant messages */}
+                {message.role === 'assistant' && message.debug_input && (
+                  <button
+                    onClick={() => {
+                      setDebugModalData(message.debug_input);
+                      setDebugModalOpen(true);
+                    }}
+                    style={{
+                      marginTop: '4px',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      backgroundColor: '#f3f4f6',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      color: '#374151',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    onMouseOver={(e) => e.target.style.backgroundColor = '#e5e7eb'}
+                    onMouseOut={(e) => e.target.style.backgroundColor = '#f3f4f6'}
+                  >
+                    🔍 Examine Input ({message.debug_input.total_chars.toLocaleString()} chars)
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -3396,6 +3638,16 @@ function App() {
           </details>
         </div>
       )}
+      
+      {/* Debug Input Modal */}
+      <DebugInputModal 
+        debugInput={debugModalData}
+        isOpen={debugModalOpen}
+        onClose={() => {
+          setDebugModalOpen(false);
+          setDebugModalData(null);
+        }}
+      />
     </div>
   );
 }
