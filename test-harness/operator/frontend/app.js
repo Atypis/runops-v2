@@ -2848,13 +2848,20 @@ function App() {
       
       setMessages(prev => [...prev, tempAssistantMessage]);
 
+      // Filter out debug_input and other large fields from conversation history
+      const cleanConversationHistory = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+        // Exclude: toolCalls, reasoning, tokenUsage, debug_input
+      }));
+
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: input,
           workflowId,
-          conversationHistory: messages,
+          conversationHistory: cleanConversationHistory,
           mockMode
         })
       });

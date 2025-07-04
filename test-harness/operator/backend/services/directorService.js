@@ -92,10 +92,18 @@ export class DirectorService {
         director2Context = await this.buildDirector2Context(workflowId);
       }
 
-      // Build messages array, filtering out any null content
+      // Clean conversation history to only include essential fields for AI
+      // This prevents exponential token growth from debug_input and other UI-only fields
+      const cleanHistory = conversationHistory.map(msg => ({
+        role: msg.role,
+        content: msg.content
+        // Intentionally exclude: toolCalls, reasoning, tokenUsage, debug_input
+      })).filter(msg => msg.content !== null && msg.content !== undefined);
+
+      // Build messages array with cleaned history
       const messages = [
         { role: 'system', content: DIRECTOR_SYSTEM_PROMPT },
-        ...conversationHistory.filter(msg => msg.content !== null && msg.content !== undefined),
+        ...cleanHistory,
         { role: 'user', content: message }
       ];
 
@@ -1693,6 +1701,11 @@ export class DirectorService {
       }
 
       console.log(`[REASONING_CONTEXT] Loaded ${allEncryptedItems.length} encrypted items`);
+      
+      // Debug: Log size of encrypted context
+      const contextSize = JSON.stringify(allEncryptedItems).length;
+      console.log(`[REASONING_CONTEXT] Encrypted context size: ${contextSize} chars (~${Math.round(contextSize/4)} tokens)`);
+      
       return allEncryptedItems;
 
     } catch (error) {

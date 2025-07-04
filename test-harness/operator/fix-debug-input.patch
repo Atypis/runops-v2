@@ -1,0 +1,105 @@
+--- a/backend/services/directorService.js
++++ b/backend/services/directorService.js
+@@ -1376,10 +1376,25 @@ export class DirectorService {
+   async processWithResponsesAPI(model, messages, workflowId) {
+     try {
+       // Load previous encrypted reasoning context
+       const encryptedContext = await this.loadReasoningContext(workflowId);
+       
++      // Calculate encrypted context size for debugging
++      const encryptedContextInfo = {
++        items_count: encryptedContext.length,
++        total_size: JSON.stringify(encryptedContext).length,
++        estimated_tokens: Math.ceil(JSON.stringify(encryptedContext).length / 4)
++      };
++      
++      console.log('[REASONING_CONTEXT] Loaded encrypted context:');
++      console.log(`  Items: ${encryptedContextInfo.items_count}`);
++      console.log(`  Size: ${encryptedContextInfo.total_size} characters`);
++      console.log(`  Estimated tokens: ${encryptedContextInfo.estimated_tokens}`);
++      
+       // Convert messages to Responses API format
+       const systemMessage = messages.find(m => m.role === 'system');
+       const userMessages = messages.filter(m => m.role === 'user' || m.role === 'assistant');
+       
+       // Build initial input array
+@@ -1392,11 +1407,11 @@ export class DirectorService {
+         }))
+       ];
+ 
+       // Run the full control loop
+-      return await this.runDirectorControlLoop(model, systemMessage?.content || DIRECTOR_SYSTEM_PROMPT, initialInput, workflowId);
++      return await this.runDirectorControlLoop(model, systemMessage?.content || DIRECTOR_SYSTEM_PROMPT, initialInput, workflowId, 0, encryptedContextInfo);
+ 
+     } catch (error) {
+       console.error('[RESPONSES_API] Error:', error);
+       throw error;
+     }
+@@ -1405,11 +1420,11 @@ export class DirectorService {
+   /**
+    * Simplified non-streaming control loop for reasoning models with tool calling
+    * Radically simplified approach - single blocking call per step with accurate token counts
+    */
+-  async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0) {
++  async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0, encryptedContextInfo = null) {
+     // Prevent infinite recursion
+     if (recursionDepth > 10) {
+       throw new Error('Maximum recursion depth reached in Director control loop');
+     }
+ 
+@@ -1553,11 +1568,14 @@ export class DirectorService {
+         }
+       }],
+       usage: tokenUsage,
+       executedTools: [], // No tools executed at this level
+-      reasoning_summary: reasoningSummary // Also include at top level for compatibility
++      reasoning_summary: reasoningSummary, // Also include at top level for compatibility
++      // Add encrypted context info to the response for debugging
++      encrypted_context_info: encryptedContextInfo
+     };
+   }
+
+Also need to update the main processMessage method to include this info in debug_input:
+
+@@ -121,6 +121,20 @@ export class DirectorService {
+       // Get model for this workflow - default to o4-mini for reasoning capabilities
+       const model = process.env.DIRECTOR_MODEL || 'o4-mini';
+       
++      // Check if this is a reasoning model to estimate encrypted context impact
++      let encryptedContextPreview = null;
++      if (this.isReasoningModel(model) && workflowId) {
++        try {
++          const contextItems = await this.loadReasoningContext(workflowId);
++          encryptedContextPreview = {
++            items_loaded: contextItems.length,
++            estimated_size: JSON.stringify(contextItems).length,
++            estimated_tokens: Math.ceil(JSON.stringify(contextItems).length / 4)
++          };
++        } catch (e) {
++          // Ignore errors in preview
++        }
++      }
++      
+       // 🔍 INTERCEPTOR: Log exact OpenAI input for debugging
+       const debugInput = {
+         messages: messages,
+@@ -133,7 +147,8 @@ export class DirectorService {
+           content_length: m.content ? m.content.length : 0,
+           content_preview: m.content ? m.content.substring(0, 200) + (m.content.length > 200 ? '...' : '') : 'null'
+         })),
+-        timestamp: new Date().toISOString()
++        timestamp: new Date().toISOString(),
++        encrypted_reasoning_context: encryptedContextPreview
+       };
+       
+       console.log('[🔍 OPENAI_INTERCEPTOR] Exact input being sent:');
+@@ -143,6 +158,11 @@ export class DirectorService {
+       console.log('[🔍 OPENAI_INTERCEPTOR] Message breakdown:');
+       debugInput.message_breakdown.forEach(m => {
+         console.log(`  [${m.index}] ${m.role}: ${m.content_length} chars - "${m.content_preview}"`);
+       });
++      if (encryptedContextPreview) {
++        console.log('[🔍 OPENAI_INTERCEPTOR] Encrypted reasoning context:');
++        console.log(`  Items: ${encryptedContextPreview.items_loaded}`);
++        console.log(`  Additional tokens: ~${encryptedContextPreview.estimated_tokens}`);
++      }
