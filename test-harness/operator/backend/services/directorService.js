@@ -5,6 +5,7 @@ import { createToolDefinitions } from '../tools/toolDefinitions.js';
 import { NodeExecutor } from './nodeExecutor.js';
 import { PlanService } from './planService.js';
 import { VariableManagementService } from './variableManagementService.js';
+import { TokenCounterService } from './tokenCounterService.js';
 import { supabase } from '../config/supabase.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -21,6 +22,7 @@ export class DirectorService {
     this.nodeExecutor = new NodeExecutor();
     this.planService = new PlanService();
     this.variableManagementService = new VariableManagementService();
+    this.tokenCounter = new TokenCounterService();
     this.supabase = supabase;
   }
 
@@ -107,18 +109,38 @@ export class DirectorService {
         messages[messages.length - 1].content += `\n\nAvailable credentials:\nGMAIL_EMAIL: ${process.env.GMAIL_EMAIL}\nGMAIL_PASSWORD: ${process.env.GMAIL_PASSWORD}`;
       }
 
-      // Call OpenAI with tool functions
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4.1-mini-2025-04-14', // OpenAI gpt-4.1-mini model
-        messages,
-        tools: createToolDefinitions(),
-        tool_choice: 'auto',
-        temperature: 1
-      });
+      // Get model for this workflow - default to o4-mini for reasoning capabilities
+      const model = process.env.DIRECTOR_MODEL || 'o4-mini';
+      
+      // Route to appropriate API based on model type
+      let completion;
+      if (this.isReasoningModel(model)) {
+        console.log(`[DIRECTOR] Using Responses API for reasoning model: ${model}`);
+        completion = await this.processWithResponsesAPI(model, messages, workflowId);
+      } else {
+        console.log(`[DIRECTOR] Using Chat Completions API for model: ${model}`);
+        completion = await this.openai.chat.completions.create({
+          model,
+          messages,
+          tools: createToolDefinitions(),
+          tool_choice: 'auto',
+          temperature: 1
+        });
+      }
 
       const responseMessage = completion.choices[0].message;
       
-      // Process any tool calls
+      // Record token usage for this conversation
+      if (workflowId && completion.usage) {
+        this.tokenCounter.recordUserMessage(workflowId, message);
+        this.tokenCounter.recordTokenUsage(workflowId, completion.usage, 'assistant');
+        console.log('[DIRECTOR] Token usage recorded for conversation');
+      }
+      
+      // Check if this is a reasoning model response (has reasoning token usage)
+      const isReasoningResponse = completion.usage && completion.usage.reasoning_tokens > 0;
+      
+      // Process any tool calls from traditional Chat Completions API
       if (responseMessage.tool_calls) {
         const toolResults = await this.processToolCalls(responseMessage.tool_calls, workflowId);
         
@@ -128,9 +150,45 @@ export class DirectorService {
           workflowId
         };
       }
+      
+      // Handle tools executed during reasoning (from Responses API)
+      if (completion.executedTools && completion.executedTools.length > 0) {
+        console.log(`[DIRECTOR] Reasoning model executed ${completion.executedTools.length} tools`);
+        
+        // Convert executed tools to the expected format for consistent response
+        const toolResults = completion.executedTools.map(tool => ({
+          toolName: tool.name,
+          result: tool.result || { error: tool.error },
+          success: !tool.error
+        }));
+        
+        // Enhance the message with tool execution details if content is generic
+        let finalMessage = responseMessage.content;
+        if (!finalMessage || finalMessage.includes("completed the necessary actions")) {
+          const toolNames = completion.executedTools.map(t => t.name).join(', ');
+          finalMessage = `I've executed the following tools during reasoning: ${toolNames}. ` + 
+                        (responseMessage.content || "Check the workflow for updates.");
+        }
+        
+        return {
+          message: finalMessage,
+          toolCalls: toolResults,
+          workflowId
+        };
+      }
+
+      // For reasoning models, provide better feedback when no visible content
+      let finalMessage = responseMessage.content;
+      if (!finalMessage) {
+        if (isReasoningResponse) {
+          finalMessage = "I've analyzed the request and completed the necessary actions. Check the workflow for any new nodes or updates.";
+        } else {
+          finalMessage = "I've completed the requested actions.";
+        }
+      }
 
       return {
-        message: responseMessage.content || "I've completed the requested actions.",
+        message: finalMessage,
         workflowId
       };
     } catch (error) {
@@ -795,8 +853,37 @@ export class DirectorService {
       const variableDisplay = await this.variableManagementService.getFormattedVariables(workflowId);
       parts.push(`(4) WORKFLOW VARIABLES\n${variableDisplay}`);
       
-      // Part 5: Browser State (placeholder for Phase 2)  
-      parts.push(`(5) BROWSER STATE\n[Coming in Phase 2: Browser State Service]`);
+      // Part 5: Browser State & Context Metrics
+      let browserAndMetrics = '[Coming in Phase 2: Browser State Service]';
+      
+      // Add reasoning token metrics if available
+      try {
+        const { data: latestContext } = await this.supabase
+          .from('reasoning_context')
+          .select('token_counts, created_at')
+          .eq('workflow_id', workflowId)
+          .order('conversation_turn', { ascending: false })
+          .limit(1);
+        
+        if (latestContext?.[0]?.token_counts) {
+          const tokens = latestContext[0].token_counts;
+          const timestamp = new Date(latestContext[0].created_at).toLocaleString();
+          browserAndMetrics += `\n\nREASONING TOKEN USAGE (Latest Turn - ${timestamp}):\n`;
+          browserAndMetrics += `- Input Tokens: ${tokens.input_tokens?.toLocaleString() || 0}\n`;
+          browserAndMetrics += `- Output Tokens: ${tokens.output_tokens?.toLocaleString() || 0}\n`;
+          browserAndMetrics += `- Reasoning Tokens: ${tokens.reasoning_tokens?.toLocaleString() || 0}\n`;
+          browserAndMetrics += `- Total Tokens: ${tokens.total_tokens?.toLocaleString() || 0}`;
+          
+          if (tokens.reasoning_tokens > 0) {
+            const reasoningPercentage = ((tokens.reasoning_tokens / tokens.total_tokens) * 100).toFixed(1);
+            browserAndMetrics += `\n- Reasoning %: ${reasoningPercentage}%`;
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching reasoning context metrics:', error);
+      }
+      
+      parts.push(`(5) BROWSER STATE & CONTEXT METRICS\n${browserAndMetrics}`);
       
       // Part 6: Conversation History - already filtered in main flow, skip here
       
@@ -1170,5 +1257,601 @@ export class DirectorService {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Check if a model is a reasoning model that requires Responses API
+   */
+  isReasoningModel(model) {
+    const reasoningModels = ['o4-mini', 'o3', 'o4-mini-2025-04-16', 'o3-2025-04-16'];
+    return reasoningModels.includes(model);
+  }
+
+  /**
+   * Broadcast reasoning updates to WebSocket clients via API (with fallback)
+   */
+  async broadcastReasoningUpdate(workflowId, data) {
+    try {
+      // Try multiple possible ports for the frontend server
+      const ports = [3000, 3003, 3001];
+      let success = false;
+      
+      for (const port of ports) {
+        try {
+          const response = await fetch(`http://localhost:${port}/api/reasoning/broadcast`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              executionId: workflowId,
+              data
+            })
+          });
+
+          if (response.ok) {
+            console.log(`[DIRECTOR] Successfully broadcast reasoning update on port ${port}`);
+            success = true;
+            break;
+          }
+        } catch (portError) {
+          // Try next port
+          continue;
+        }
+      }
+      
+      if (!success) {
+        console.log(`[DIRECTOR] Frontend API not available, reasoning update logged locally: ${data.type} - ${data.text || ''}`);
+      }
+    } catch (error) {
+      console.error('[DIRECTOR] Error broadcasting reasoning update:', error);
+    }
+  }
+
+  /**
+   * Convert tool definitions from Chat Completions format to Responses API format
+   * Chat Completions: { type: 'function', function: { name, description, parameters } }
+   * Responses API: { type: 'function', name, description, parameters }
+   */
+  convertToolsForResponsesAPI(chatTools) {
+    return chatTools.map(tool => {
+      if (tool.type === 'function' && tool.function) {
+        return {
+          type: 'function',
+          name: tool.function.name,
+          description: tool.function.description,
+          parameters: tool.function.parameters
+        };
+      }
+      return tool; // Return as-is if already in correct format
+    });
+  }
+
+  /**
+   * Process message using OpenAI Responses API for reasoning models with full control loop
+   */
+  async processWithResponsesAPI(model, messages, workflowId) {
+    try {
+      // Load previous encrypted reasoning context
+      const encryptedContext = await this.loadReasoningContext(workflowId);
+      
+      // Convert messages to Responses API format
+      const systemMessage = messages.find(m => m.role === 'system');
+      const userMessages = messages.filter(m => m.role === 'user' || m.role === 'assistant');
+      
+      // Build initial input array
+      const initialInput = [
+        ...encryptedContext,
+        ...userMessages.map(msg => ({
+          type: 'message',
+          role: msg.role,
+          content: msg.content
+        }))
+      ];
+
+      // Run the full control loop
+      return await this.runDirectorControlLoop(model, systemMessage?.content || DIRECTOR_SYSTEM_PROMPT, initialInput, workflowId);
+
+    } catch (error) {
+      console.error('[RESPONSES_API] Error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Full control loop for reasoning models with tool calling
+   * Based on OpenAI research documentation pattern
+   */
+  async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0) {
+    // Prevent infinite recursion
+    if (recursionDepth > 10) {
+      throw new Error('Maximum recursion depth reached in Director control loop');
+    }
+
+    console.log(`[CONTROL_LOOP] Starting loop (depth ${recursionDepth}) with ${initialInput.length} input items`);
+    
+    // Only broadcast reasoning start for the top-level call (not recursive calls)
+    if (recursionDepth === 0) {
+      this.broadcastReasoningUpdate(workflowId, {
+        type: 'reasoning_start'
+      }).catch(error => console.error('[CONTROL_LOOP] Failed to broadcast reasoning start:', error));
+    }
+    
+    // Convert tools from Chat Completions format to Responses API format
+    const chatTools = createToolDefinitions();
+    const responsesTools = this.convertToolsForResponsesAPI(chatTools);
+
+    // Make initial request with streaming
+    const response = await this.openai.responses.create({
+      model,
+      instructions,
+      input: initialInput,
+      tools: responsesTools,
+      reasoning: { 
+        effort: 'medium', 
+        summary: 'detailed'
+      },
+      include: ['reasoning.encrypted_content'],
+      store: false,
+      stream: true
+    });
+
+    // Process stream events
+    const encryptedBlobs = [];
+    const assistantChunks = [];
+    const executedTools = []; // Track tools executed during reasoning
+    let tokenUsage = null;
+    let responseId = null; // Track response ID for post-stream retrieval
+    let visibleTextTokenCount = 0; // Track visible text tokens for reasoning estimation
+    
+    for await (const event of response) {
+      console.log(`[CONTROL_LOOP] Event: ${event.type}`);
+      switch (event.type) {
+        case 'response.output_item_added':
+          if (event.item.type === 'message' && event.item.role === 'assistant') {
+            // Collect visible assistant text
+            if (event.item.content) {
+              const textChunks = event.item.content.map(c => c.text || '');
+              console.log(`[CONTROL_LOOP] Assistant content: ${JSON.stringify(textChunks)}`);
+              assistantChunks.push(...textChunks);
+            }
+          }
+          break;
+
+        case 'response.output_text.delta':
+          // Collect streaming text deltas
+          if (event.delta && event.delta.text) {
+            console.log(`[CONTROL_LOOP] Text delta: "${event.delta.text}"`);
+            assistantChunks.push(event.delta.text);
+          }
+          break;
+
+        case 'response.output_item.done':
+          console.log(`[CONTROL_LOOP] Output item done - type: ${event.item.type}`);
+          // Check if this completed item is a function call
+          if (event.item.type === 'function_call') {
+            console.log(`[CONTROL_LOOP] Function call detected: ${event.item.name}`);
+            
+            try {
+              // Execute the tool
+              const toolResult = await this.executeToolCall(event.item, workflowId);
+              
+              // Track this tool execution for reporting
+              executedTools.push({
+                name: event.item.name,
+                arguments: event.item.arguments,
+                result: toolResult,
+                call_id: event.item.call_id
+              });
+              
+              // Prepare follow-up input with tool result
+              const followUps = [
+                event.item, // Echo the original call
+                {
+                  type: 'function_call_output',
+                  call_id: event.item.call_id,
+                  output: JSON.stringify(toolResult)
+                }
+              ];
+
+              // Continue the chain recursively  
+              // Don't pass encrypted blobs from current session to avoid context conflicts
+              const recursiveResult = await this.runDirectorControlLoop(
+                model, 
+                instructions, 
+                initialInput.concat(followUps), 
+                workflowId, 
+                recursionDepth + 1
+              );
+              
+              // Merge executed tools from recursive call
+              if (recursiveResult.executedTools) {
+                executedTools.push(...recursiveResult.executedTools);
+              }
+              
+              // Merge token usage from both the initial reasoning and recursive calls
+              // Note: tokenUsage now contains accurate reasoning tokens from post-stream retrieval
+              const mergedTokenUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
+              
+              return {
+                ...recursiveResult,
+                executedTools,
+                usage: mergedTokenUsage
+              };
+
+            } catch (toolError) {
+              console.error(`[CONTROL_LOOP] Tool execution failed:`, toolError);
+              
+              // Track failed tool execution
+              executedTools.push({
+                name: event.item.name,
+                arguments: event.item.arguments,
+                error: toolError.message || 'Tool execution failed',
+                call_id: event.item.call_id
+              });
+              
+              // Provide error feedback to model
+              const errorFollowUps = [
+                event.item,
+                {
+                  type: 'function_call_output',
+                  call_id: event.item.call_id,
+                  output: JSON.stringify({ error: true, message: toolError.message || 'Tool execution failed' })
+                }
+              ];
+
+              // Continue with error feedback
+              const recursiveResult = await this.runDirectorControlLoop(
+                model, 
+                instructions, 
+                initialInput.concat(errorFollowUps), 
+                workflowId, 
+                recursionDepth + 1
+              );
+              
+              // Merge executed tools from recursive call
+              if (recursiveResult.executedTools) {
+                executedTools.push(...recursiveResult.executedTools);
+              }
+              
+              // Merge token usage from both the initial reasoning and recursive calls  
+              const mergedTokenUsage = this.mergeTokenUsage(tokenUsage, recursiveResult.usage);
+              
+              return {
+                ...recursiveResult,
+                executedTools,
+                usage: mergedTokenUsage
+              };
+            }
+          }
+          // Store encrypted reasoning blobs
+          else if (event.item.type === 'reasoning' && event.item.encrypted_content) {
+            encryptedBlobs.push(event.item);
+          }
+          break;
+
+        case 'response.reasoning_summary_text.delta':
+          // Log thinking for debugging  
+          if (event.delta) {
+            console.log(`[THINKING] ${event.delta}`);
+            
+            // Broadcast reasoning update to WebSocket clients
+            this.broadcastReasoningUpdate(workflowId, {
+              type: 'reasoning_delta',
+              text: event.delta
+            }).catch(error => console.error('[CONTROL_LOOP] Failed to broadcast reasoning delta:', error));
+          } else {
+            console.log(`[THINKING] Delta event but no delta:`, JSON.stringify(event, null, 2));
+          }
+          break;
+
+        case 'response.completed':
+          // Extract final token usage from completed event (but reasoning tokens will be 0 due to OpenAI streaming limitation)
+          console.log('[RESPONSES_API] response.completed event - extracting token usage and response ID');
+          responseId = event.response.id; // Store response ID for post-stream retrieval
+          if (event.response && event.response.usage) {
+            tokenUsage = {
+              input_tokens: event.response.usage.input_tokens,
+              output_tokens: event.response.usage.output_tokens,
+              total_tokens: event.response.usage.total_tokens,
+              output_tokens_details: {
+                reasoning_tokens: event.response.usage.output_tokens_details?.reasoning_tokens || 0
+              }
+            };
+            console.log('[RESPONSES_API] Streaming token usage (reasoning tokens will be 0):', tokenUsage);
+          } else {
+            console.log('[RESPONSES_API] No token usage found in response.completed event');
+          }
+          break;
+      }
+    }
+
+    console.log(`[CONTROL_LOOP] Completed (depth ${recursionDepth}). Assistant chunks: ${assistantChunks.length}, Tools executed: ${executedTools.length}`);
+    
+    // Get accurate token usage including reasoning tokens (OpenAI streaming limitation workaround)
+    // Only retrieve when no tools were executed (tool execution invalidates response IDs)
+    if (responseId && executedTools.length === 0) {
+      try {
+        console.log('[RESPONSES_API] Retrieving full response for accurate reasoning tokens (no tools executed)...');
+        const fullResponse = await this.openai.responses.retrieve(responseId);
+        if (fullResponse.usage) {
+          const accurateTokenUsage = {
+            input_tokens: fullResponse.usage.input_tokens,
+            output_tokens: fullResponse.usage.output_tokens,
+            total_tokens: fullResponse.usage.total_tokens,
+            output_tokens_details: {
+              reasoning_tokens: fullResponse.usage.output_tokens_details?.reasoning_tokens || 0
+            }
+          };
+          console.log('[RESPONSES_API] Accurate token usage retrieved:', accurateTokenUsage);
+          tokenUsage = accurateTokenUsage; // Replace streaming token usage with accurate data
+        }
+      } catch (error) {
+        console.error('[RESPONSES_API] Failed to retrieve accurate token usage:', error);
+        // Continue with streaming token usage as fallback
+      }
+    } else if (responseId && executedTools.length > 0) {
+      console.log('[RESPONSES_API] Skipping post-stream retrieval due to tool execution (response ID invalidated)');
+    }
+    
+    // Only broadcast reasoning completion for the top-level call (not recursive calls)
+    if (recursionDepth === 0) {
+      this.broadcastReasoningUpdate(workflowId, {
+        type: 'reasoning_complete'
+      }).catch(error => console.error('[CONTROL_LOOP] Failed to broadcast reasoning complete:', error));
+    }
+    
+    // Store encrypted reasoning context
+    if (encryptedBlobs.length > 0 && tokenUsage) {
+      await this.storeReasoningContextFromBlobs(workflowId, encryptedBlobs, tokenUsage);
+    }
+
+    // Return in format compatible with existing code, including executed tools
+    return {
+      choices: [{
+        message: {
+          content: assistantChunks.join(''),
+          tool_calls: null, // Tools were executed in the loop
+          role: 'assistant'
+        }
+      }],
+      usage: tokenUsage || { 
+        input_tokens: 0, 
+        output_tokens: 0, 
+        total_tokens: 0,
+        output_tokens_details: { reasoning_tokens: 0 }
+      },
+      executedTools // Include tools executed during reasoning
+    };
+  }
+
+  /**
+   * Merge token usage from multiple API calls (e.g., recursive calls)
+   */
+  mergeTokenUsage(usage1, usage2) {
+    if (!usage1) return usage2;
+    if (!usage2) return usage1;
+    
+    return {
+      input_tokens: (usage1.input_tokens || 0) + (usage2.input_tokens || 0),
+      output_tokens: (usage1.output_tokens || 0) + (usage2.output_tokens || 0),
+      total_tokens: (usage1.total_tokens || 0) + (usage2.total_tokens || 0),
+      output_tokens_details: {
+        reasoning_tokens: 
+          (usage1.output_tokens_details?.reasoning_tokens || 0) + 
+          (usage2.output_tokens_details?.reasoning_tokens || 0)
+      }
+    };
+  }
+
+  /**
+   * Execute a single tool call during the control loop
+   */
+  async executeToolCall(toolCallItem, workflowId) {
+    const { name: toolName, arguments: toolArgs, call_id } = toolCallItem;
+    
+    console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${call_id}`);
+    
+    try {
+      const args = JSON.parse(toolArgs);
+      let result;
+      
+      // Route to appropriate tool handler (same as existing processToolCalls)
+      switch (toolName) {
+        case 'create_workflow_sequence':
+          result = await this.createWorkflowSequence(args, workflowId);
+          break;
+        case 'create_node':
+          result = await this.createNode(args, workflowId);
+          break;
+        case 'update_node':
+          result = await this.updateNode(args, workflowId);
+          break;
+        case 'update_plan':
+          result = await this.updatePlan(args, workflowId);
+          break;
+        case 'execute_nodes':
+          result = await this.executeNodes(args, workflowId);
+          break;
+        case 'get_workflow_variable':
+          result = await this.getWorkflowVariable(args, workflowId);
+          break;
+        case 'set_variable':
+          result = await this.setVariable(args, workflowId);
+          break;
+        case 'clear_variable':
+          result = await this.clearVariable(args, workflowId);
+          break;
+        case 'clear_all_variables':
+          result = await this.clearAllVariables(args, workflowId);
+          break;
+        default:
+          throw new Error(`Unknown tool: ${toolName}`);
+      }
+      
+      console.log(`[TOOL_EXECUTION] ${toolName} completed successfully`);
+      console.log(`[TOOL_EXECUTION] Result:`, JSON.stringify(result, null, 2));
+      return result;
+      
+    } catch (error) {
+      console.error(`[TOOL_EXECUTION] ${toolName} failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Store encrypted reasoning context from blobs (used in control loop)
+   */
+  async storeReasoningContextFromBlobs(workflowId, encryptedBlobs, tokenUsage) {
+    try {
+      if (encryptedBlobs.length === 0) {
+        console.log('[REASONING_CONTEXT] No encrypted reasoning blobs to store');
+        return;
+      }
+
+      // Get next conversation turn number
+      const { data: lastTurn } = await this.supabase
+        .from('reasoning_context')
+        .select('conversation_turn')
+        .eq('workflow_id', workflowId)
+        .order('conversation_turn', { ascending: false })
+        .limit(1);
+
+      const nextTurn = (lastTurn?.[0]?.conversation_turn || 0) + 1;
+
+      // Store the context
+      const { error } = await this.supabase
+        .from('reasoning_context')
+        .insert({
+          workflow_id: workflowId,
+          conversation_turn: nextTurn,
+          encrypted_items: encryptedBlobs,
+          token_counts: tokenUsage
+        });
+
+      if (error) {
+        console.error('[REASONING_CONTEXT] Error storing context:', error);
+      } else {
+        console.log(`[REASONING_CONTEXT] Stored ${encryptedBlobs.length} encrypted blobs for turn ${nextTurn}`);
+        console.log('[RESPONSES_API] Token usage:', tokenUsage);
+      }
+
+    } catch (error) {
+      console.error('[REASONING_CONTEXT] Error storing context from blobs:', error);
+    }
+  }
+
+  /**
+   * Load encrypted reasoning context for a workflow
+   */
+  async loadReasoningContext(workflowId) {
+    try {
+      const { data: contexts, error } = await this.supabase
+        .from('reasoning_context')
+        .select('encrypted_items')
+        .eq('workflow_id', workflowId)
+        .order('conversation_turn', { ascending: false })
+        .limit(5); // Load last 5 turns to maintain reasonable context
+
+      if (error) {
+        console.error('[REASONING_CONTEXT] Error loading context:', error);
+        return [];
+      }
+
+      // Flatten all encrypted items from recent turns
+      const allEncryptedItems = [];
+      for (const context of contexts || []) {
+        if (context.encrypted_items && Array.isArray(context.encrypted_items)) {
+          allEncryptedItems.push(...context.encrypted_items);
+        }
+      }
+
+      console.log(`[REASONING_CONTEXT] Loaded ${allEncryptedItems.length} encrypted items`);
+      return allEncryptedItems;
+
+    } catch (error) {
+      console.error('[REASONING_CONTEXT] Error loading context:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Store encrypted reasoning context after API response
+   */
+  async storeReasoningContext(workflowId, response, tokenUsage) {
+    try {
+      // Extract encrypted reasoning items from response
+      const encryptedItems = response.output?.filter(item => 
+        item.type === 'reasoning' && item.encrypted_content
+      ) || [];
+
+      if (encryptedItems.length === 0) {
+        console.log('[REASONING_CONTEXT] No encrypted reasoning items to store');
+        return;
+      }
+
+      // Get next conversation turn number
+      const { data: lastTurn } = await this.supabase
+        .from('reasoning_context')
+        .select('conversation_turn')
+        .eq('workflow_id', workflowId)
+        .order('conversation_turn', { ascending: false })
+        .limit(1);
+
+      const nextTurn = (lastTurn?.[0]?.conversation_turn || 0) + 1;
+
+      // Store the context
+      const { error } = await this.supabase
+        .from('reasoning_context')
+        .insert({
+          workflow_id: workflowId,
+          conversation_turn: nextTurn,
+          encrypted_items: encryptedItems,
+          token_counts: tokenUsage
+        });
+
+      if (error) {
+        console.error('[REASONING_CONTEXT] Error storing context:', error);
+      } else {
+        console.log(`[REASONING_CONTEXT] Stored ${encryptedItems.length} encrypted items for turn ${nextTurn}`);
+      }
+
+    } catch (error) {
+      console.error('[REASONING_CONTEXT] Error storing context:', error);
+    }
+  }
+
+  /**
+   * Extract tool calls from Responses API response
+   */
+  extractToolCallsFromResponse(response) {
+    const toolCalls = [];
+    
+    for (const item of response.output || []) {
+      if (item.type === 'function_call') {
+        toolCalls.push({
+          id: item.call_id,
+          type: 'function',
+          function: {
+            name: item.name,
+            arguments: item.arguments
+          }
+        });
+      }
+    }
+
+    return toolCalls.length > 0 ? toolCalls : null;
+  }
+
+  /**
+   * Extract assistant message content from Responses API response
+   */
+  extractAssistantContent(response) {
+    for (const item of response.output || []) {
+      if (item.type === 'message' && item.role === 'assistant') {
+        return item.content?.[0]?.text || '';
+      }
+    }
+    return '';
   }
 }

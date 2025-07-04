@@ -169,6 +169,13 @@ export class HybridBrowserManager extends EventEmitter {
   }
 
   /**
+   * Broadcast message to all WebSocket connections for an execution
+   */
+  public broadcastToExecution(executionId: string, message: any): void {
+    this.browserManager.broadcastToExecution(executionId, message);
+  }
+
+  /**
    * Get browser manager statistics
    */
   public getStats() {

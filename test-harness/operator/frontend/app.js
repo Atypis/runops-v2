@@ -2,6 +2,46 @@ const { useState, useEffect, useRef, useCallback } = React;
 
 const API_BASE = '/api/director';
 
+// Reasoning component for chat messages
+function ReasoningComponent({ reasoning }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Show the component if there's reasoning text, thinking is active, or if reasoning object exists
+  if (!reasoning) {
+    return null;
+  }
+  
+  return (
+    <div className="mb-3 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-3 py-2 text-left text-sm font-medium text-blue-800 hover:bg-blue-100 transition-colors flex items-center justify-between"
+      >
+        <span className="flex items-center">
+          <span className="mr-2">🧠</span>
+          AI Reasoning
+          {reasoning.isThinking && (
+            <span className="ml-2 text-blue-600">
+              <span className="animate-pulse">●</span>
+            </span>
+          )}
+        </span>
+        <span className="text-blue-600">
+          {isExpanded ? '▼' : '▶'}
+        </span>
+      </button>
+      
+      {isExpanded && (
+        <div className="px-3 pb-3 border-t border-blue-200">
+          <div className="text-sm text-gray-700 whitespace-pre-wrap font-mono bg-white p-2 rounded border mt-2">
+            {reasoning.text || (reasoning.isThinking ? 'AI is thinking...' : 'No reasoning available')}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   // Resizable panel state
   const [workflowPanelWidth, setWorkflowPanelWidth] = useState(500); // Default 500px instead of 384px
@@ -26,11 +66,23 @@ function App() {
   const [sessionDescription, setSessionDescription] = useState('');
   const [currentPlan, setCurrentPlan] = useState(null);
   const [planExpanded, setPlanExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState('plan'); // 'plan', 'variables', 'browser', 'context'
+  const [activeTab, setActiveTab] = useState('plan'); // 'plan', 'variables', 'browser', 'reasoning', 'tokens'
   const [variables, setVariables] = useState([]);
+  const [reasoningText, setReasoningText] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [reasoningConnected, setReasoningConnected] = useState(false);
+  const [reasoningVersion, setReasoningVersion] = useState(0); // Force re-renders
+  const [currentReasoningMessageIndex, setCurrentReasoningMessageIndex] = useState(null); // Track which message is currently receiving reasoning
+  const [reasoningSessions, setReasoningSessions] = useState([]); // Persistent reasoning sessions
+  const [currentSessionId, setCurrentSessionId] = useState(null); // Track current session
+  const [tokenStats, setTokenStats] = useState(null); // Token usage statistics
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
   const nodesPanelRef = useRef(null); // Reference to the nodes panel scroll container
+  const wsRef = useRef(null);
+  // Refs to hold current values for WebSocket callbacks (to avoid stale closure issues)
+  const currentReasoningMessageIndexRef = useRef(null);
+  const currentSessionIdRef = useRef(null);
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -120,6 +172,7 @@ function App() {
     if (currentWorkflow?.id) {
       loadNodeValues();
       loadVariables();
+      loadTokenStats();
     }
   }, [currentWorkflow?.id]);
 
@@ -138,6 +191,20 @@ function App() {
     }
   };
 
+  const loadTokenStats = async () => {
+    if (!currentWorkflow?.id) return;
+    
+    try {
+      const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/token-stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setTokenStats(data.tokenStats);
+      }
+    } catch (error) {
+      console.error('Failed to load token stats:', error);
+    }
+  };
+
   // Poll for variable updates every 3 seconds to catch Director changes
   useEffect(() => {
     if (!currentWorkflow?.id) return;
@@ -145,6 +212,7 @@ function App() {
     const interval = setInterval(() => {
       loadNodeValues();
       loadVariables(); // Also refresh variables tab
+      loadTokenStats(); // Also refresh token stats
     }, 3000); // Poll every 3 seconds
     
     return () => clearInterval(interval);
@@ -184,6 +252,219 @@ function App() {
       };
     }
   }, [isResizing]);
+
+  // WebSocket connection for reasoning stream
+  useEffect(() => {
+    const connectWebSocket = () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        return;
+      }
+
+      try {
+        const ws = new WebSocket(`ws://localhost:3003`);
+        
+        ws.onopen = () => {
+          console.log('[ReasoningStream] WebSocket connected');
+          setReasoningConnected(true);
+          
+          // Subscribe to reasoning updates for current workflow
+          if (currentWorkflow?.id) {
+            ws.send(JSON.stringify({
+              type: 'reasoning_subscribe',
+              executionId: currentWorkflow.id
+            }));
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            
+            if (message.type === 'reasoning_update' && message.data) {
+              const update = message.data;
+              
+              switch (update.type) {
+                case 'reasoning_start':
+                  console.log('[ReasoningStream] Reasoning started');
+                  setIsThinking(true);
+                  setReasoningText('');
+                  setReasoningVersion(prev => prev + 1);
+                  
+                  // Create new reasoning session
+                  const sessionId = Date.now();
+                  const messageIndex = currentReasoningMessageIndexRef.current;
+                  console.log('[ReasoningStream] Creating session with message index from ref:', messageIndex);
+                  
+                  setCurrentSessionId(sessionId);
+                  currentSessionIdRef.current = sessionId;
+                  
+                  setReasoningSessions(prev => [...prev, {
+                    id: sessionId,
+                    text: '',
+                    isThinking: true,
+                    timestamp: new Date(),
+                    messageIndex: messageIndex
+                  }]);
+                  
+                  // Update the current message with reasoning capability
+                  if (messageIndex !== null) {
+                    setMessages(prev => {
+                      console.log('[ReasoningStream] Starting reasoning for message index:', messageIndex);
+                      const updated = [...prev];
+                      if (updated[messageIndex]) {
+                        updated[messageIndex] = {
+                          ...updated[messageIndex],
+                          reasoning: {
+                            text: '',
+                            isThinking: true
+                          }
+                        };
+                      }
+                      return updated;
+                    });
+                  }
+                  break;
+                  
+                case 'reasoning_delta':
+                  if (update.text) {
+                    const messageIndex = currentReasoningMessageIndexRef.current;
+                    const sessionId = currentSessionIdRef.current;
+                    
+                    console.log('[ReasoningStream] Reasoning delta:', update.text);
+                    console.log('[ReasoningStream] Current reasoning message index (ref):', messageIndex);
+                    console.log('[ReasoningStream] Current session ID (ref):', sessionId);
+                    
+                    // Update global reasoning text (for compatibility)
+                    setReasoningText(prev => {
+                      const newText = prev + update.text;
+                      console.log('[ReasoningStream] New text length:', newText.length);
+                      return newText;
+                    });
+                    setReasoningVersion(prev => prev + 1); // Force re-render
+                    
+                    // Update the current reasoning session
+                    if (sessionId !== null) {
+                      setReasoningSessions(prev => {
+                        return prev.map(session => {
+                          if (session.id === sessionId) {
+                            return {
+                              ...session,
+                              text: session.text + update.text
+                            };
+                          }
+                          return session;
+                        });
+                      });
+                    }
+                    
+                    // Update the reasoning text in the current message
+                    if (messageIndex !== null) {
+                      setMessages(prev => {
+                        console.log('[ReasoningStream] Updating message at index:', messageIndex);
+                        const updated = [...prev];
+                        if (updated[messageIndex]) {
+                          const oldText = updated[messageIndex].reasoning?.text || '';
+                          const newText = oldText + update.text;
+                          console.log('[ReasoningStream] Message reasoning update:', oldText.length, '->', newText.length);
+                          updated[messageIndex] = {
+                            ...updated[messageIndex],
+                            reasoning: {
+                              text: newText,
+                              isThinking: true
+                            }
+                          };
+                          console.log('[ReasoningStream] Updated message:', updated[messageIndex]);
+                        } else {
+                          console.log('[ReasoningStream] No message found at index:', messageIndex);
+                        }
+                        return updated;
+                      });
+                    } else {
+                      console.log('[ReasoningStream] No current reasoning message index set');
+                    }
+                  }
+                  break;
+                  
+                case 'reasoning_complete':
+                  console.log('[ReasoningStream] Reasoning completed');
+                  const completeMessageIndex = currentReasoningMessageIndexRef.current;
+                  const completeSessionId = currentSessionIdRef.current;
+                  
+                  setIsThinking(false);
+                  setReasoningVersion(prev => prev + 1);
+                  
+                  // Mark the current session as complete
+                  if (completeSessionId !== null) {
+                    setReasoningSessions(prev => {
+                      return prev.map(session => {
+                        if (session.id === completeSessionId) {
+                          return {
+                            ...session,
+                            isThinking: false,
+                            completedAt: new Date()
+                          };
+                        }
+                        return session;
+                      });
+                    });
+                    setCurrentSessionId(null);
+                    currentSessionIdRef.current = null;
+                  }
+                  
+                  // Mark reasoning as complete for the current message
+                  if (completeMessageIndex !== null) {
+                    setMessages(prev => {
+                      console.log('[ReasoningStream] Completing reasoning for message index:', completeMessageIndex);
+                      const updated = [...prev];
+                      if (updated[completeMessageIndex] && updated[completeMessageIndex].reasoning) {
+                        updated[completeMessageIndex].reasoning.isThinking = false;
+                        console.log('[ReasoningStream] Message reasoning completed');
+                      }
+                      return updated;
+                    });
+                    setCurrentReasoningMessageIndex(null);
+                    currentReasoningMessageIndexRef.current = null;
+                  }
+                  break;
+              }
+            } else if (message.type === 'reasoning_subscribed') {
+              console.log('[ReasoningStream] Subscribed to reasoning updates');
+            }
+          } catch (error) {
+            console.error('[ReasoningStream] Error parsing message:', error);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('[ReasoningStream] WebSocket disconnected');
+          setReasoningConnected(false);
+          
+          // Auto-reconnect after 2 seconds
+          setTimeout(() => {
+            console.log('[ReasoningStream] Attempting to reconnect...');
+            connectWebSocket();
+          }, 2000);
+        };
+
+        ws.onerror = (error) => {
+          console.error('[ReasoningStream] WebSocket error:', error);
+          setReasoningConnected(false);
+        };
+
+        wsRef.current = ws;
+      } catch (error) {
+        console.error('[ReasoningStream] Failed to connect:', error);
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [currentWorkflow?.id]);
 
   const loadWorkflows = async () => {
     try {
@@ -638,6 +919,322 @@ function App() {
         <div className="border-t pt-3 mt-4">
           <div className="text-xs text-gray-500 flex justify-between">
             <span>Total: {variables.length} variables</span>
+            <span>Updated: {new Date().toLocaleTimeString()}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // TokenViewer Component - Displays real-time token usage and cost statistics
+  const TokenViewer = ({ tokenStats }) => {
+    if (!tokenStats) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <div className="text-2xl mb-2">📊</div>
+          <p className="text-sm">No token data yet</p>
+          <p className="text-xs mt-1">Token usage will appear here after conversations begin</p>
+        </div>
+      );
+    }
+
+    const { totals, breakdown, warnings, recent_messages } = tokenStats;
+    
+    const formatNumber = (num) => {
+      if (num > 1000000) return `${(num / 1000000).toFixed(1)}M`;
+      if (num > 1000) return `${(num / 1000).toFixed(1)}K`;
+      return num.toLocaleString();
+    };
+
+    const formatCost = (cost) => {
+      if (cost < 0.001) return `$${(cost * 1000).toFixed(3)}m`; // Show in millicents
+      return `$${cost.toFixed(4)}`;
+    };
+
+    return (
+      <div className="space-y-4">
+        {/* Warnings */}
+        {warnings && warnings.length > 0 && (
+          <div className="space-y-2">
+            {warnings.map((warning, index) => (
+              <div key={index} className={`p-3 rounded-lg border ${
+                warning.level === 'critical' ? 'bg-red-50 border-red-200 text-red-800' :
+                warning.level === 'warning' ? 'bg-orange-50 border-orange-200 text-orange-800' :
+                'bg-blue-50 border-blue-200 text-blue-800'
+              }`}>
+                <div className="flex items-center">
+                  <span className="mr-2">
+                    {warning.level === 'critical' ? '🚨' : warning.level === 'warning' ? '⚠️' : 'ℹ️'}
+                  </span>
+                  <span className="text-sm font-medium">{warning.message}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Overview Cards */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="text-lg font-bold text-blue-800">{formatNumber(totals.total_tokens)}</div>
+            <div className="text-xs text-blue-600">Total Tokens</div>
+          </div>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="text-lg font-bold text-green-800">{formatCost(totals.total_cost)}</div>
+            <div className="text-xs text-green-600">Total Cost</div>
+          </div>
+        </div>
+
+        {/* Token Breakdown */}
+        <div className="bg-gray-50 border rounded-lg p-3">
+          <h5 className="font-medium text-gray-800 mb-3 text-sm">Token Breakdown</h5>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Input tokens:</span>
+              <span className="font-mono text-gray-800">{formatNumber(totals.input_tokens)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Output tokens:</span>
+              <span className="font-mono text-gray-800">{formatNumber(totals.output_tokens)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Reasoning tokens:</span>
+              <span className="font-mono text-orange-700 font-medium">{formatNumber(totals.reasoning_tokens)}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between text-sm font-medium">
+              <span className="text-gray-800">Total:</span>
+              <span className="font-mono text-gray-900">{formatNumber(totals.total_tokens)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Cost Breakdown */}
+        <div className="bg-gray-50 border rounded-lg p-3">
+          <h5 className="font-medium text-gray-800 mb-3 text-sm">Cost Breakdown</h5>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Input cost:</span>
+              <span className="font-mono text-gray-800">{formatCost(breakdown.cost_breakdown.input_cost)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Output cost:</span>
+              <span className="font-mono text-gray-800">{formatCost(breakdown.cost_breakdown.output_cost)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Reasoning cost:</span>
+              <span className="font-mono text-orange-700 font-medium">{formatCost(breakdown.cost_breakdown.reasoning_cost)}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between text-sm font-medium">
+              <span className="text-gray-800">Total:</span>
+              <span className="font-mono text-gray-900">{formatCost(totals.total_cost)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Conversation Stats */}
+        <div className="bg-gray-50 border rounded-lg p-3">
+          <h5 className="font-medium text-gray-800 mb-3 text-sm">Conversation Stats</h5>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-lg font-bold text-gray-800">{breakdown.user_messages}</div>
+              <div className="text-xs text-gray-600">User Messages</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-gray-800">{breakdown.assistant_messages}</div>
+              <div className="text-xs text-gray-600">AI Responses</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-orange-700">{formatNumber(Math.round(breakdown.average_reasoning_per_message))}</div>
+              <div className="text-xs text-gray-600">Avg Reasoning/Msg</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-gray-800">{totals.message_count}</div>
+              <div className="text-xs text-gray-600">Total Messages</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        {recent_messages && recent_messages.length > 0 && (
+          <div className="bg-gray-50 border rounded-lg p-3">
+            <h5 className="font-medium text-gray-800 mb-3 text-sm">Recent Activity</h5>
+            <div className="space-y-2 max-h-32 overflow-y-auto">
+              {recent_messages.map((msg, index) => (
+                <div key={index} className="text-xs">
+                  <div className="flex justify-between">
+                    <span className={`font-medium ${msg.messageType === 'user' ? 'text-blue-600' : 'text-green-600'}`}>
+                      {msg.messageType} message
+                    </span>
+                    <span className="text-gray-500">{formatCost(msg.cost)}</span>
+                  </div>
+                  <div className="text-gray-600">
+                    {formatNumber(msg.total_tokens)} tokens
+                    {msg.reasoning_tokens > 0 && (
+                      <span className="ml-2 text-orange-600">({formatNumber(msg.reasoning_tokens)} reasoning)</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="border-t pt-3 mt-4">
+          <div className="text-xs text-gray-500 flex justify-between">
+            <span>Updated: {new Date().toLocaleTimeString()}</span>
+            <span>{tokenStats.lastUpdated && `Data from ${new Date(tokenStats.lastUpdated).toLocaleTimeString()}`}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ReasoningMetricsViewer Component - Displays token usage metrics for reasoning models
+  const ReasoningMetricsViewer = ({ workflowId }) => {
+    const [metrics, setMetrics] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+      if (!workflowId) {
+        setMetrics(null);
+        setLoading(false);
+        return;
+      }
+
+      const fetchMetrics = async () => {
+        try {
+          setLoading(true);
+          const response = await fetch(`${API_BASE}/workflows/${workflowId}/reasoning-metrics`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch metrics: ${response.statusText}`);
+          }
+          const data = await response.json();
+          setMetrics(data);
+          setError(null);
+        } catch (err) {
+          console.error('Error fetching reasoning metrics:', err);
+          setError(err.message);
+          setMetrics(null);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchMetrics();
+      
+      // Refresh metrics every 10 seconds
+      const interval = setInterval(fetchMetrics, 10000);
+      return () => clearInterval(interval);
+    }, [workflowId]);
+
+    if (loading) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <div className="animate-pulse">Loading reasoning metrics...</div>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="text-center text-red-500 py-8">
+          <p className="text-sm">Error loading metrics</p>
+          <p className="text-xs mt-1">{error}</p>
+        </div>
+      );
+    }
+
+    if (!metrics || !metrics.summary || metrics.summary.total_conversations === 0) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <p className="text-sm">No reasoning metrics yet</p>
+          <p className="text-xs mt-1">Metrics will appear when using reasoning models (o4-mini, o3)</p>
+        </div>
+      );
+    }
+
+    const { summary, metrics: metricsList } = metrics;
+
+    return (
+      <div className="space-y-4">
+        {/* Summary Stats */}
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border">
+          <h5 className="font-medium text-gray-800 mb-3 text-sm">Token Usage Summary</h5>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="bg-white rounded p-2 border">
+              <div className="text-gray-600">Total Conversations</div>
+              <div className="font-bold text-lg text-blue-600">{summary.total_conversations}</div>
+            </div>
+            <div className="bg-white rounded p-2 border">
+              <div className="text-gray-600">Total Tokens</div>
+              <div className="font-bold text-lg text-purple-600">{summary.cumulative_tokens.total.toLocaleString()}</div>
+            </div>
+            <div className="bg-white rounded p-2 border">
+              <div className="text-gray-600">Reasoning Tokens</div>
+              <div className="font-bold text-lg text-orange-600">{summary.cumulative_tokens.reasoning.toLocaleString()}</div>
+            </div>
+            <div className="bg-white rounded p-2 border">
+              <div className="text-gray-600">Avg Reasoning %</div>
+              <div className="font-bold text-lg text-green-600">{summary.cumulative_tokens.average_reasoning_percentage}%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Latest Turn Details */}
+        {summary.latest_turn && (
+          <div className="bg-gray-50 rounded-lg p-3 border">
+            <h6 className="font-medium text-gray-800 mb-2 text-sm">Latest Turn (#{summary.latest_turn.turn})</h6>
+            <div className="grid grid-cols-4 gap-2 text-xs">
+              <div className="text-center">
+                <div className="text-gray-600">Input</div>
+                <div className="font-mono font-bold text-blue-600">{summary.latest_turn.tokens.input.toLocaleString()}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-gray-600">Output</div>
+                <div className="font-mono font-bold text-green-600">{summary.latest_turn.tokens.output.toLocaleString()}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-gray-600">Reasoning</div>
+                <div className="font-mono font-bold text-orange-600">{summary.latest_turn.tokens.reasoning.toLocaleString()}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-gray-600">% Reasoning</div>
+                <div className="font-mono font-bold text-purple-600">{summary.latest_turn.tokens.reasoning_percentage}%</div>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 mt-2">
+              {new Date(summary.latest_turn.timestamp).toLocaleString()}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Turns History */}
+        {metricsList && metricsList.length > 1 && (
+          <div>
+            <h6 className="font-medium text-gray-800 mb-2 text-sm">Recent Turns ({metricsList.length})</h6>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {metricsList.slice(0, 5).map((metric) => (
+                <div key={metric.turn} className="bg-white rounded p-2 border text-xs">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-medium text-gray-700">Turn #{metric.turn}</span>
+                    <span className="text-gray-500">{new Date(metric.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Total: {metric.tokens.total.toLocaleString()}</span>
+                    <span>Reasoning: {metric.tokens.reasoning.toLocaleString()} ({metric.tokens.reasoning_percentage}%)</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Refresh Info */}
+        <div className="border-t pt-3 mt-4">
+          <div className="text-xs text-gray-500 flex justify-between">
+            <span>Auto-refresh: Every 10s</span>
             <span>Updated: {new Date().toLocaleTimeString()}</span>
           </div>
         </div>
@@ -2029,6 +2626,25 @@ function App() {
         workflowId = workflow?.id;
       }
 
+      // Add a temporary assistant message that can receive reasoning
+      const tempAssistantMessage = {
+        role: 'assistant',
+        content: '', // Will be updated when response arrives
+        reasoning: {
+          text: '',
+          isThinking: false
+        },
+        isTemporary: true
+      };
+      
+      // Set this as the current reasoning message BEFORE adding the message
+      const newMessageIndex = messages.length + 1; // +1 because we already added user message
+      setCurrentReasoningMessageIndex(newMessageIndex);
+      currentReasoningMessageIndexRef.current = newMessageIndex; // Also set the ref
+      console.log('[SendMessage] Setting current reasoning message index to:', newMessageIndex);
+      
+      setMessages(prev => [...prev, tempAssistantMessage]);
+
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2042,13 +2658,20 @@ function App() {
 
       const data = await response.json();
       
-      // Add operator response
-      const assistantMessage = {
-        role: 'assistant',
-        content: data.message,
-        toolCalls: data.toolCalls
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+      // Update the temporary message with actual response
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMessage = updated[updated.length - 1];
+        if (lastMessage && lastMessage.isTemporary) {
+          updated[updated.length - 1] = {
+            ...lastMessage,
+            content: data.message,
+            toolCalls: data.toolCalls,
+            isTemporary: false
+          };
+        }
+        return updated;
+      });
 
       // If there were tool calls, add execution logs and refresh nodes
       if (data.toolCalls) {
@@ -2075,13 +2698,30 @@ function App() {
       }
     } catch (error) {
       console.error('Failed to send message:', error);
-      const errorMessage = {
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.'
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      
+      // Update the temporary message with error content
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMessage = updated[updated.length - 1];
+        if (lastMessage && lastMessage.isTemporary) {
+          updated[updated.length - 1] = {
+            ...lastMessage,
+            content: 'Sorry, I encountered an error. Please try again.',
+            isTemporary: false
+          };
+        } else {
+          // Fallback: add new error message if temp message not found
+          updated.push({
+            role: 'assistant',
+            content: 'Sorry, I encountered an error. Please try again.'
+          });
+        }
+        return updated;
+      });
     } finally {
       setIsLoading(false);
+      setCurrentReasoningMessageIndex(null); // Clear reasoning tracking
+      currentReasoningMessageIndexRef.current = null; // Clear ref too
     }
   };
 
@@ -2294,6 +2934,11 @@ function App() {
                     : 'bg-gray-200 text-gray-800'
                 }`}
               >
+                {/* Reasoning component for assistant messages */}
+                {message.role === 'assistant' && (message.reasoning || message.isTemporary) && (
+                  <ReasoningComponent reasoning={message.reasoning || { text: '', isThinking: false }} />
+                )}
+                
                 <div className="whitespace-pre-wrap">{message.content || '(No message - tool calls only)'}</div>
                 {message.toolCalls && message.toolCalls.map((toolCall, i) => (
                   <div key={i}>{formatToolCall(toolCall)}</div>
@@ -2454,16 +3099,40 @@ function App() {
                   )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('browser')}
+                  onClick={() => setActiveTab('metrics')}
                   className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'browser'
+                    activeTab === 'metrics'
                       ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
-                  disabled
-                  title="Coming in Phase 2"
                 >
-                  Browser
+                  Metrics
+                </button>
+                <button
+                  onClick={() => setActiveTab('reasoning')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'reasoning'
+                      ? 'text-purple-700 border-b-2 border-purple-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  AI Reasoning
+                  {isThinking && (
+                    <span className="ml-2 inline-block w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('tokens')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'tokens'
+                      ? 'text-green-700 border-b-2 border-green-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Tokens
+                  {tokenStats && tokenStats.totals.total_tokens > 100000 && (
+                    <span className="ml-2 inline-block w-2 h-2 bg-orange-500 rounded-full" />
+                  )}
                 </button>
               </div>
               
@@ -2475,11 +3144,69 @@ function App() {
                 {activeTab === 'variables' && (
                   <VariablesViewer variables={variables} workflowId={currentWorkflow?.id} />
                 )}
-                {activeTab === 'browser' && (
-                  <div className="text-center text-gray-500 py-8">
-                    <p className="text-sm">Browser State Monitor</p>
-                    <p className="text-xs mt-1">Coming in Phase 2: Browser State Service</p>
+                {activeTab === 'metrics' && (
+                  <ReasoningMetricsViewer workflowId={currentWorkflow?.id} />
+                )}
+                {activeTab === 'reasoning' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium text-gray-700">AI Reasoning Sessions</div>
+                        <div className={`w-2 h-2 rounded-full ${reasoningConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                        <span className="text-xs text-gray-500">
+                          {reasoningConnected ? 'Connected' : 'Disconnected'}
+                        </span>
+                      </div>
+                      {reasoningSessions.length > 0 && (
+                        <button
+                          onClick={() => setReasoningSessions([])}
+                          className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+                    
+                    {reasoningSessions.length > 0 ? (
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {reasoningSessions.map((session, index) => (
+                          <div key={session.id} className="bg-gray-50 border rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-medium text-gray-600">
+                                Session {index + 1} • {session.timestamp.toLocaleTimeString()}
+                                {session.messageIndex !== null && (
+                                  <span className="ml-2 bg-blue-100 text-blue-700 px-1 rounded">
+                                    Message #{session.messageIndex + 1}
+                                  </span>
+                                )}
+                              </div>
+                              {session.isThinking && (
+                                <span className="inline-block w-2 h-2 bg-purple-500 animate-pulse rounded-full" />
+                              )}
+                            </div>
+                            <div className="text-sm font-mono text-gray-800 whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
+                              {session.text || (session.isThinking ? 'AI is thinking...' : 'No reasoning text')}
+                            </div>
+                            <div className="text-xs text-gray-400 mt-2">
+                              Length: {session.text.length} • {session.isThinking ? 'In Progress' : 'Completed'}
+                              {session.completedAt && (
+                                <span> • Finished at {session.completedAt.toLocaleTimeString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center text-gray-500 py-8">
+                        <div className="text-2xl mb-2">🧠</div>
+                        <p className="text-sm">No reasoning sessions yet</p>
+                        <p className="text-xs mt-1">AI reasoning will appear here when available</p>
+                      </div>
+                    )}
                   </div>
+                )}
+                {activeTab === 'tokens' && (
+                  <TokenViewer tokenStats={tokenStats} />
                 )}
               </div>
             </div>

@@ -175,7 +175,7 @@ export class BrowserManager extends EventEmitter {
     }
   }
   
-  private broadcastToExecution(executionId: string, message: WebSocketMessage): void {
+  public broadcastToExecution(executionId: string, message: WebSocketMessage): void {
     const connections = this.wsConnections.get(executionId);
     if (!connections) return;
     

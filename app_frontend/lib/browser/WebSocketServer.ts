@@ -112,6 +112,14 @@ export class AEFWebSocketServer {
         this.handleVncDisconnection(ws, executionId);
         break;
         
+      case 'reasoning_subscribe':
+        this.handleReasoningSubscription(ws, executionId);
+        break;
+        
+      case 'reasoning_unsubscribe':
+        this.handleReasoningUnsubscription(ws, executionId);
+        break;
+        
       default:
         console.warn(`[WebSocketServer] Unknown message type: ${message.type}`);
         break;
@@ -368,6 +376,48 @@ export class AEFWebSocketServer {
     }));
   }
   
+  private handleReasoningSubscription(ws: WebSocket, executionId: string) {
+    console.log(`[WebSocketServer] Reasoning subscription for execution ${executionId}`);
+    
+    ws.send(JSON.stringify({
+      type: 'reasoning_subscribed',
+      timestamp: Date.now(),
+      data: { 
+        executionId,
+        message: 'Subscribed to reasoning updates'
+      }
+    }));
+  }
+  
+  private handleReasoningUnsubscription(ws: WebSocket, executionId: string) {
+    console.log(`[WebSocketServer] Reasoning unsubscription for execution ${executionId}`);
+    
+    ws.send(JSON.stringify({
+      type: 'reasoning_unsubscribed',
+      timestamp: Date.now(),
+      data: { 
+        executionId,
+        message: 'Unsubscribed from reasoning updates'
+      }
+    }));
+  }
+  
+  // Public method to broadcast reasoning updates
+  public broadcastReasoningUpdate(executionId: string, data: {
+    type: 'reasoning_start' | 'reasoning_delta' | 'reasoning_complete';
+    text?: string;
+    nodeId?: string;
+    stage?: string;
+  }) {
+    console.log(`[WebSocketServer] Broadcasting reasoning update for ${executionId}: ${data.type}`);
+    
+    hybridBrowserManager.broadcastToExecution(executionId, {
+      type: 'reasoning_update',
+      timestamp: Date.now(),
+      data
+    });
+  }
+
   public start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.server.listen(this.port, (error: any) => {

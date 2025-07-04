@@ -479,4 +479,129 @@ router.get('/workflows/:id/variables/formatted', async (req, res, next) => {
   }
 });
 
+// Reasoning token metrics endpoint
+router.get('/workflows/:id/reasoning-metrics', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    const { limit = 10 } = req.query;
+
+    const { data: metrics, error } = await directorService.supabase
+      .from('reasoning_context')
+      .select('conversation_turn, token_counts, created_at')
+      .eq('workflow_id', workflowId)
+      .order('conversation_turn', { ascending: false })
+      .limit(parseInt(limit));
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    // Calculate totals and trends
+    let totalTokens = 0;
+    let totalReasoningTokens = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
+    const formattedMetrics = (metrics || []).map(metric => {
+      const tokens = metric.token_counts;
+      totalTokens += tokens.total_tokens || 0;
+      totalReasoningTokens += tokens.reasoning_tokens || 0;
+      totalInputTokens += tokens.input_tokens || 0;
+      totalOutputTokens += tokens.output_tokens || 0;
+
+      return {
+        turn: metric.conversation_turn,
+        timestamp: metric.created_at,
+        tokens: {
+          input: tokens.input_tokens || 0,
+          output: tokens.output_tokens || 0,
+          reasoning: tokens.reasoning_tokens || 0,
+          total: tokens.total_tokens || 0,
+          reasoning_percentage: tokens.reasoning_tokens > 0 
+            ? ((tokens.reasoning_tokens / tokens.total_tokens) * 100).toFixed(1) 
+            : 0
+        }
+      };
+    });
+
+    const summary = {
+      total_conversations: metrics?.length || 0,
+      cumulative_tokens: {
+        input: totalInputTokens,
+        output: totalOutputTokens,
+        reasoning: totalReasoningTokens,
+        total: totalTokens,
+        average_reasoning_percentage: totalTokens > 0 
+          ? ((totalReasoningTokens / totalTokens) * 100).toFixed(1) 
+          : 0
+      },
+      latest_turn: formattedMetrics[0] || null
+    };
+
+    res.json({
+      summary,
+      metrics: formattedMetrics
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// SSE endpoint for real-time reasoning thinking
+router.get('/workflows/:workflowId/thinking', (req, res) => {
+  const { workflowId } = req.params;
+  
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+
+  // Send initial connection confirmation
+  res.write(`data: ${JSON.stringify({ type: 'connected', workflowId })}\n\n`);
+
+  // Store this connection for broadcasting thinking events
+  // We'll implement the broadcasting in the director service
+  const connectionId = `${workflowId}_${Date.now()}`;
+  
+  // Clean up on client disconnect
+  req.on('close', () => {
+    console.log(`[SSE] Client disconnected from thinking stream: ${connectionId}`);
+  });
+
+  // Keep connection alive with periodic heartbeat
+  const heartbeat = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: Date.now() })}\n\n`);
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+  });
+});
+
+// Token statistics endpoint
+router.get('/workflows/:id/token-stats', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    
+    if (!workflowId) {
+      return res.status(400).json({ error: 'Workflow ID is required' });
+    }
+
+    const tokenStats = directorService.tokenCounter.getTokenStats(workflowId);
+    
+    res.json({
+      success: true,
+      workflowId,
+      tokenStats
+    });
+  } catch (error) {
+    console.error('[API] Error getting token stats:', error);
+    next(error);
+  }
+});
+
 export default router;

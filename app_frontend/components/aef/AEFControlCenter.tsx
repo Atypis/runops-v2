@@ -12,6 +12,7 @@ import TransformLoading from './TransformLoading';
 import CredentialPanel from './CredentialPanel';
 import AccountCredentialPanel from './AccountCredentialPanel';
 import EnhancedCredentialPanel from './EnhancedCredentialPanel';
+import { ReasoningStream } from './ReasoningStream';
 import { Button } from '@/components/ui/button';
 import { CredentialStorage } from '@/lib/credentials/storage';
 import { getAuthMethodsForService, getSharedOAuthCredentialId } from '@/lib/credentials/auth-methods';
@@ -236,6 +237,7 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
   const [discoveredSession, setDiscoveredSession] = useState<DiscoveredSession | null>(null);
   const [sessionDiscoveryStatus, setSessionDiscoveryStatus] = useState<'discovering' | 'found' | 'not_found' | 'error'>('discovering');
   const [currentExecutionId, setCurrentExecutionId] = useState<string>(executionId || 'discovering...');
+  const [bottomTab, setBottomTab] = useState<'logs' | 'reasoning'>('logs');
   
   // Enhanced credential panel state (Advanced UI) - ONLY UI WE USE
   const [enhancedCredentialPanelOpen, setEnhancedCredentialPanelOpen] = useState(false);
@@ -1230,12 +1232,49 @@ const AEFControlCenter: React.FC<AEFControlCenterProps> = ({
           </div>
         </div>
         
-        {/* Bottom area - Resizable height */}
-        <div className="border-t border-gray-200 overflow-hidden flex-1" style={{ height: `${100 - topPanelHeight}%` }}>
-          <ExecutionLog 
-            executionId={activeExecutionId}
-            mockLogs={combinedLogs}
-          />
+        {/* Bottom area - Resizable height with tabs for Logs and Reasoning */}
+        <div className="border-t border-gray-200 overflow-hidden flex-1 flex flex-col" style={{ height: `${100 - topPanelHeight}%` }}>
+          {/* Bottom area tabs */}
+          <div className="flex border-b border-gray-200 bg-gray-50 px-4">
+            <button
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                bottomTab === 'logs' 
+                  ? 'border-blue-500 text-blue-600 bg-white' 
+                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+              onClick={() => setBottomTab('logs')}
+            >
+              Execution Logs
+            </button>
+            <button
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                bottomTab === 'reasoning' 
+                  ? 'border-purple-500 text-purple-600 bg-white' 
+                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+              onClick={() => setBottomTab('reasoning')}
+            >
+              AI Reasoning
+            </button>
+          </div>
+          
+          {/* Bottom content */}
+          <div className="flex-1 overflow-hidden">
+            {bottomTab === 'logs' ? (
+              <ExecutionLog 
+                executionId={activeExecutionId}
+                mockLogs={combinedLogs}
+              />
+            ) : (
+              <div className="h-full p-4">
+                <ReasoningStream 
+                  executionId={activeExecutionId || 'no-execution'}
+                  autoExpand={true}
+                  className="h-full"
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
