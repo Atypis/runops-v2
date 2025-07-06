@@ -272,6 +272,7 @@ function App() {
   const [reasoningSessions, setReasoningSessions] = useState([]); // Persistent reasoning sessions
   const [currentSessionId, setCurrentSessionId] = useState(null); // Track current session
   const [tokenStats, setTokenStats] = useState(null); // Token usage statistics
+  const [browserState, setBrowserState] = useState(null); // Browser state for Director 2.0
   const [debugModalOpen, setDebugModalOpen] = useState(false); // Debug modal state
   const [debugModalData, setDebugModalData] = useState(null); // Debug modal data
   const messagesEndRef = useRef(null);
@@ -323,7 +324,7 @@ function App() {
     if (!currentWorkflow?.id) return;
     
     try {
-      // Get both execution results and current variables
+      // Get execution results and variables (browser state via SSE)
       const [nodeResponse, variablesResponse] = await Promise.all([
         fetch(`${API_BASE}/node-values/${currentWorkflow.id}`),
         fetch(`${API_BASE}/workflows/${currentWorkflow.id}/variables`)
@@ -365,23 +366,42 @@ function App() {
     }
   };
   
-  // Initial load of node values when workflow changes
+  // Initial load of data when workflow changes
   useEffect(() => {
     if (currentWorkflow?.id) {
       loadNodeValues();
       loadVariables();
       loadTokenStats();
+      loadInitialBrowserState(); // Load initial browser state as fallback
     }
   }, [currentWorkflow?.id]);
+
+  // Load initial browser state (fallback for SSE)
+  const loadInitialBrowserState = async () => {
+    if (!currentWorkflow?.id) return;
+    
+    try {
+      console.log('[FALLBACK] Loading initial browser state for:', currentWorkflow.id);
+      const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/browser-state`);
+      if (response.ok) {
+        const browserStateData = await response.json();
+        setBrowserState(browserStateData);
+        console.log('[FALLBACK] Initial browser state loaded:', browserStateData.formattedDisplay?.substring(0, 50) + '...');
+      }
+    } catch (error) {
+      console.error('[FALLBACK] Failed to load initial browser state:', error);
+    }
+  };
 
   // Load variables for the Variables tab
   const loadVariables = async () => {
     if (!currentWorkflow?.id) return;
     
     try {
-      const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/variables`);
-      if (response.ok) {
-        const vars = await response.json();
+      const variablesResponse = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/variables`);
+      
+      if (variablesResponse.ok) {
+        const vars = await variablesResponse.json();
         setVariables(vars);
       }
     } catch (error) {
@@ -403,15 +423,47 @@ function App() {
     }
   };
 
-  // Poll for variable updates every 3 seconds to catch Director changes
+  // Real-time browser state updates via Server-Sent Events
+  useEffect(() => {
+    if (!currentWorkflow?.id) return;
+    
+    console.log(`[SSE] Connecting to browser state stream for workflow: ${currentWorkflow.id}`);
+    
+    const eventSource = new EventSource(`${API_BASE}/workflows/${currentWorkflow.id}/browser-state/stream`);
+    
+    eventSource.onopen = () => {
+      console.log('[SSE] Browser state stream connected');
+    };
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const browserStateData = JSON.parse(event.data);
+        console.log('[SSE] Received browser state update:', browserStateData.formattedDisplay?.substring(0, 50) + '...');
+        setBrowserState(browserStateData);
+      } catch (error) {
+        console.error('[SSE] Error parsing browser state update:', error);
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error('[SSE] Browser state stream error:', error);
+    };
+    
+    return () => {
+      console.log('[SSE] Closing browser state stream');
+      eventSource.close();
+    };
+  }, [currentWorkflow?.id]);
+
+  // Reduced polling for variables and token stats (no browser state)
   useEffect(() => {
     if (!currentWorkflow?.id) return;
     
     const interval = setInterval(() => {
       loadNodeValues();
-      loadVariables(); // Also refresh variables tab
-      loadTokenStats(); // Also refresh token stats
-    }, 3000); // Poll every 3 seconds
+      loadVariables(); // Variables only (browser state via SSE)
+      loadTokenStats(); // Token stats
+    }, 10000); // Poll every 10 seconds (less frequent)
     
     return () => clearInterval(interval);
   }, [currentWorkflow?.id]);
@@ -3386,14 +3438,19 @@ function App() {
                   )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('metrics')}
+                  onClick={() => setActiveTab('browser')}
                   className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'metrics'
+                    activeTab === 'browser'
                       ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  Metrics
+                  Browser State
+                  {browserState?.rawState?.tabs?.length > 0 && (
+                    <span className="ml-1 inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                      {browserState.rawState.tabs.length}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => setActiveTab('reasoning')}
@@ -3431,8 +3488,28 @@ function App() {
                 {activeTab === 'variables' && (
                   <VariablesViewer variables={variables} workflowId={currentWorkflow?.id} />
                 )}
-                {activeTab === 'metrics' && (
-                  <ReasoningMetricsViewer workflowId={currentWorkflow?.id} />
+                {activeTab === 'browser' && (
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h3 className="text-sm font-medium text-gray-900 mb-3">Director's Browser View</h3>
+                      <div className="bg-white rounded border p-3">
+                        <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                          {browserState?.formattedDisplay || 'BROWSER STATE:\nNo browser session active'}
+                        </pre>
+                      </div>
+                    </div>
+                    
+                    {browserState?.rawState && (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h3 className="text-sm font-medium text-gray-900 mb-3">Raw Browser State</h3>
+                        <div className="bg-white rounded border p-3">
+                          <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono overflow-auto max-h-64">
+                            {JSON.stringify(browserState.rawState, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {activeTab === 'reasoning' && (
                   <div className="space-y-3">

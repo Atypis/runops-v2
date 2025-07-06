@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import { supabase } from '../config/supabase.js';
 import { dirname, join } from 'path';
+import BrowserStateService from './browserStateService.js';
 
 export class NodeExecutor {
   constructor() {
@@ -18,6 +19,10 @@ export class NodeExecutor {
     this.recentNodeValues = new Map(); // nodeId -> { position, value, storageKey, timestamp }
     // Store group definitions
     this.groupDefinitions = new Map();
+    // Browser state service for Director 2.0 real-time context
+    this.browserStateService = new BrowserStateService();
+    // Track current workflow ID for browser state updates
+    this.currentWorkflowId = null;
   }
 
   // StageHand logging control:
@@ -137,6 +142,98 @@ export class NodeExecutor {
       values[nodeId] = data;
     }
     return values;
+  }
+
+  // Browser state management for Director 2.0
+  async updateBrowserStateInDB() {
+    console.log(`[BROWSER_STATE] updateBrowserStateInDB called. Workflow ID: ${this.currentWorkflowId}, Active tab: ${this.activeTabName}`);
+    
+    if (!this.currentWorkflowId) {
+      console.log('[BROWSER_STATE] No workflow ID set, skipping browser state update');
+      return;
+    }
+
+    try {
+      // Collect current tab information
+      const tabs = await this.getCurrentTabsInfo();
+      
+      // Update browser state in database
+      await this.browserStateService.updateBrowserState(this.currentWorkflowId, {
+        tabs,
+        activeTabName: this.activeTabName
+      });
+      
+      console.log(`[BROWSER_STATE] Successfully updated browser state for workflow ${this.currentWorkflowId}: ${tabs.length} tabs, active: ${this.activeTabName}`);
+    } catch (error) {
+      console.error(`[BROWSER_STATE] Failed to update browser state:`, error);
+    }
+  }
+
+  async getCurrentTabsInfo() {
+    const tabs = [];
+    
+    try {
+      console.log(`[BROWSER_STATE] Collecting current tab info. MainPage exists: ${!!this.mainPage}, StagehandPages exists: ${!!this.stagehandPages}`);
+      
+      // Add main tab if it exists
+      if (this.mainPage) {
+        try {
+          const mainUrl = this.mainPage.url();
+          console.log(`[BROWSER_STATE] Found main tab with URL: ${mainUrl}`);
+          tabs.push({
+            name: 'main',
+            url: mainUrl || 'about:blank'
+          });
+        } catch (error) {
+          console.warn(`[BROWSER_STATE] Could not get URL for main tab:`, error.message);
+          tabs.push({
+            name: 'main',
+            url: 'about:blank'
+          });
+        }
+      } else {
+        console.log(`[BROWSER_STATE] No main tab found`);
+      }
+      
+      // Add named tabs
+      if (this.stagehandPages) {
+        const namedTabNames = Object.keys(this.stagehandPages);
+        console.log(`[BROWSER_STATE] Found ${namedTabNames.length} named tabs: ${namedTabNames.join(', ')}`);
+        
+        for (const [name, page] of Object.entries(this.stagehandPages)) {
+          try {
+            const url = page.url();
+            console.log(`[BROWSER_STATE] Named tab ${name} has URL: ${url}`);
+            tabs.push({
+              name,
+              url: url || 'about:blank'
+            });
+          } catch (error) {
+            console.warn(`[BROWSER_STATE] Could not get URL for tab ${name}:`, error.message);
+            tabs.push({
+              name,
+              url: 'about:blank'
+            });
+          }
+        }
+      } else {
+        console.log(`[BROWSER_STATE] No named tabs found`);
+      }
+      
+      console.log(`[BROWSER_STATE] Collected ${tabs.length} total tabs:`, tabs.map(t => `${t.name}=${t.url?.substring(0, 30)}...`));
+      
+    } catch (error) {
+      console.error('[BROWSER_STATE] Error collecting tab info:', error);
+    }
+    
+    return tabs;
+  }
+
+  // Set workflow ID for browser state tracking
+  setWorkflowId(workflowId) {
+    console.log(`[BROWSER_STATE] Setting workflow ID from ${this.currentWorkflowId} to ${workflowId}`);
+    this.currentWorkflowId = workflowId;
+    console.log(`[BROWSER_STATE] Workflow ID set: ${workflowId}`);
   }
 
   // Resolve template variables in a value
@@ -465,6 +562,10 @@ export class NodeExecutor {
       case 'navigate':
         const navigatePage = await getActiveStagehandPage();
         await navigatePage.goto(config.url);
+        
+        // Update browser state for Director 2.0 (URL might have changed)
+        await this.updateBrowserStateInDB();
+        
         return { navigated: config.url };
         
       case 'click':
@@ -695,6 +796,9 @@ export class NodeExecutor {
         console.log(`[OPEN NEW TAB] StageHand automatically wrapped it with act/extract/observe capabilities`);
         console.log(`[OPEN NEW TAB] Tab is now active for subsequent operations`);
         
+        // Update browser state for Director 2.0
+        await this.updateBrowserStateInDB();
+        
         return { openedTab: config.name || 'unnamed', url: config.url, active: true };
         
       case 'switchTab':
@@ -728,6 +832,9 @@ export class NodeExecutor {
         
         console.log(`[SWITCH TAB] Successfully switched to tab: ${config.tabName}`);
         console.log(`[SWITCH TAB] StagehandPage is active and ready for commands`);
+        
+        // Update browser state for Director 2.0
+        await this.updateBrowserStateInDB();
         
         return { switchedTo: config.tabName };
         

@@ -150,6 +150,9 @@ router.post('/execute-node', async (req, res, next) => {
       });
     }
     
+    // Set workflow ID for browser state tracking
+    directorService.nodeExecutor.setWorkflowId(workflowId);
+    
     // Normal node execution
     const result = await directorService.executeNode(nodeId, workflowId);
     res.json(result);
@@ -474,6 +477,70 @@ router.get('/workflows/:id/variables/formatted', async (req, res, next) => {
   try {
     const formattedVariables = await directorService.variableManagementService.getFormattedVariables(req.params.id);
     res.json({ formattedDisplay: formattedVariables });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Browser state endpoint
+router.get('/workflows/:id/browser-state', async (req, res, next) => {
+  try {
+    const browserStateContext = await directorService.browserStateService.getBrowserStateContext(req.params.id);
+    const rawBrowserState = await directorService.browserStateService.getBrowserState(req.params.id);
+    res.json({ 
+      formattedDisplay: browserStateContext,
+      rawState: rawBrowserState 
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Real-time browser state updates via Server-Sent Events
+router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
+  try {
+    const workflowId = req.params.id;
+    console.log(`[SSE] New browser state stream connection for workflow: ${workflowId}`);
+    
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+
+    // Send initial browser state
+    const sendInitialState = async () => {
+      try {
+        const browserStateContext = await directorService.browserStateService.getBrowserStateContext(workflowId);
+        const rawBrowserState = await directorService.browserStateService.getBrowserState(workflowId);
+        
+        const data = JSON.stringify({
+          formattedDisplay: browserStateContext,
+          rawState: rawBrowserState,
+          timestamp: new Date().toISOString()
+        });
+        
+        res.write(`data: ${data}\n\n`);
+        console.log(`[SSE] Sent initial browser state for workflow: ${workflowId}`);
+      } catch (error) {
+        console.error(`[SSE] Error sending initial browser state:`, error);
+      }
+    };
+
+    sendInitialState();
+
+    // Register this connection with the browser state service for updates
+    directorService.browserStateService.addSSEConnection(workflowId, res);
+
+    // Handle client disconnect
+    req.on('close', () => {
+      console.log(`[SSE] Browser state stream closed for workflow: ${workflowId}`);
+      directorService.browserStateService.removeSSEConnection(workflowId, res);
+    });
+
   } catch (error) {
     next(error);
   }

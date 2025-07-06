@@ -6,6 +6,7 @@ import { NodeExecutor } from './nodeExecutor.js';
 import { PlanService } from './planService.js';
 import { VariableManagementService } from './variableManagementService.js';
 import { TokenCounterService } from './tokenCounterService.js';
+import BrowserStateService from './browserStateService.js';
 import { supabase } from '../config/supabase.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -23,11 +24,14 @@ export class DirectorService {
     this.planService = new PlanService();
     this.variableManagementService = new VariableManagementService();
     this.tokenCounter = new TokenCounterService();
+    this.browserStateService = new BrowserStateService();
     this.supabase = supabase;
   }
 
   async processMessage({ message, workflowId, conversationHistory = [], mockMode = false }) {
     try {
+      // Set workflow ID in node executor for browser state tracking
+      this.nodeExecutor.setWorkflowId(workflowId);
       // Check for mock mode
       if (mockMode || process.env.MOCK_DIRECTOR_MODE === 'true') {
         console.log('\n[MOCK DIRECTOR] Received message:', message);
@@ -916,37 +920,11 @@ export class DirectorService {
       const variableDisplay = await this.variableManagementService.getFormattedVariables(workflowId);
       parts.push(`(4) WORKFLOW VARIABLES\n${variableDisplay}`);
       
-      // Part 5: Browser State & Context Metrics
-      let browserAndMetrics = '[Coming in Phase 2: Browser State Service]';
-      
-      // Add reasoning token metrics if available
-      try {
-        const { data: latestContext } = await this.supabase
-          .from('reasoning_context')
-          .select('token_counts, created_at')
-          .eq('workflow_id', workflowId)
-          .order('conversation_turn', { ascending: false })
-          .limit(1);
-        
-        if (latestContext?.[0]?.token_counts) {
-          const tokens = latestContext[0].token_counts;
-          const timestamp = new Date(latestContext[0].created_at).toLocaleString();
-          browserAndMetrics += `\n\nREASONING TOKEN USAGE (Latest Turn - ${timestamp}):\n`;
-          browserAndMetrics += `- Input Tokens: ${tokens.input_tokens?.toLocaleString() || 0}\n`;
-          browserAndMetrics += `- Output Tokens: ${tokens.output_tokens?.toLocaleString() || 0}\n`;
-          browserAndMetrics += `- Reasoning Tokens: ${tokens.reasoning_tokens?.toLocaleString() || 0}\n`;
-          browserAndMetrics += `- Total Tokens: ${tokens.total_tokens?.toLocaleString() || 0}`;
-          
-          if (tokens.reasoning_tokens > 0) {
-            const reasoningPercentage = ((tokens.reasoning_tokens / tokens.total_tokens) * 100).toFixed(1);
-            browserAndMetrics += `\n- Reasoning %: ${reasoningPercentage}%`;
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching reasoning context metrics:', error);
-      }
-      
-      parts.push(`(5) BROWSER STATE & CONTEXT METRICS\n${browserAndMetrics}`);
+      // Part 5: Browser State
+      console.log(`[DIRECTOR_CONTEXT] Fetching browser state context for workflow: ${workflowId}`);
+      const browserStateContext = await this.browserStateService.getBrowserStateContext(workflowId);
+      console.log(`[DIRECTOR_CONTEXT] Browser state context result: ${browserStateContext?.substring(0, 100)}...`);
+      parts.push(`(5) ${browserStateContext}`);
       
       // Part 6: Conversation History - already filtered in main flow, skip here
       
