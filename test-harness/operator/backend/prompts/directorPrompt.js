@@ -118,12 +118,24 @@ Examples:
 - Screenshot: {"action": "screenshot", "path": "page.png"}
 
 ## browser_query:
-REQUIRED: method and instruction fields
+REQUIRED: method field
 {
-  "method": "extract" | "observe",
+  "method": "extract" | "observe" | "validate",
   "instruction": "what to extract or observe",
-  "schema": {object} (optional - for extract method only, supports both simple and nested formats)
+  "schema": {object} (optional - for extract method only, supports both simple and nested formats),
+  "rules": [array] (required for validate method only),
+  "onFailure": "stop_workflow" | "continue_with_error" (optional for validate method)
 }
+
+VALIDATION RULES for "validate" method:
+- element_exists: {"type": "element_exists", "selector": "#loginButton", "description": "Login button must be present"}
+- element_absent: {"type": "element_absent", "selector": "[role='alert']", "description": "No error messages should be visible"}
+- ai_assessment: {"type": "ai_assessment", "instruction": "Are we on Gmail login page?", "expected": "gmail_login_page", "description": "Verify correct page state"}
+
+Examples:
+- Check login state: {"method": "validate", "rules": [{"type": "element_exists", "selector": "#identifierId", "description": "Email field must be present"}], "onFailure": "stop_workflow"}
+- Multi-rule validation: {"method": "validate", "rules": [{"type": "element_exists", "selector": "#password"}, {"type": "element_absent", "selector": ".error"}], "onFailure": "stop_workflow"}
+- AI + deterministic: {"method": "validate", "rules": [{"type": "element_exists", "selector": "#inbox"}, {"type": "ai_assessment", "instruction": "Are we in Gmail inbox?", "expected": "inbox"}]}
 
 CRITICAL DATA EXTRACTION BEST PRACTICE:
 When using the extract method, ALWAYS include explicit instructions to prevent data hallucination:

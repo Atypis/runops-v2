@@ -981,6 +981,101 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
         instruction: config.instruction
       });
       return result;
+    } else if (config.method === 'validate') {
+      // New validation method - supports deterministic and AI validation
+      const activePage = await getActiveStagehandPage();
+      console.log(`[BROWSER_QUERY] Validating ${config.rules?.length || 0} rules`);
+      
+      const results = {
+        passed: true,
+        errors: [],
+        details: {
+          rule_results: [],
+          validated_url: activePage.url(),
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      for (const rule of config.rules || []) {
+        console.log(`[BROWSER_QUERY] Checking rule: ${rule.type} - ${rule.description || 'No description'}`);
+        
+        const ruleResult = {
+          type: rule.type,
+          description: rule.description || '',
+          passed: false,
+          error: null
+        };
+        
+        try {
+          switch (rule.type) {
+            case 'element_exists':
+              // Check if element exists using Playwright
+              const elementExists = await activePage.$(rule.selector);
+              ruleResult.passed = !!elementExists;
+              if (!ruleResult.passed) {
+                ruleResult.error = `Element not found: ${rule.selector}`;
+              }
+              break;
+              
+            case 'element_absent':
+              // Check if element does NOT exist
+              const elementAbsent = await activePage.$(rule.selector);
+              ruleResult.passed = !elementAbsent;
+              if (!ruleResult.passed) {
+                ruleResult.error = `Element should not exist but found: ${rule.selector}`;
+              }
+              break;
+              
+            case 'ai_assessment':
+              // Use Stagehand's observe for AI-powered validation
+              const aiResult = await activePage.observe({
+                instruction: rule.instruction
+              });
+              
+              // Check if result matches expected value
+              if (rule.expected) {
+                ruleResult.passed = aiResult === rule.expected || 
+                  (typeof aiResult === 'string' && aiResult.toLowerCase().includes(rule.expected.toLowerCase()));
+              } else {
+                // If no expected value, assume true result means passed
+                ruleResult.passed = !!aiResult;
+              }
+              
+              if (!ruleResult.passed) {
+                ruleResult.error = `AI assessment failed. Expected: ${rule.expected}, Got: ${aiResult}`;
+              }
+              ruleResult.ai_result = aiResult;
+              break;
+              
+            default:
+              ruleResult.error = `Unknown validation rule type: ${rule.type}`;
+              break;
+          }
+        } catch (error) {
+          ruleResult.error = `Validation error: ${error.message}`;
+          console.error(`[BROWSER_QUERY] Rule validation error:`, error);
+        }
+        
+        results.details.rule_results.push(ruleResult);
+        
+        if (!ruleResult.passed) {
+          results.passed = false;
+          results.errors.push(ruleResult.error);
+          console.log(`[BROWSER_QUERY] Rule failed: ${ruleResult.error}`);
+        } else {
+          console.log(`[BROWSER_QUERY] Rule passed: ${rule.description || rule.type}`);
+        }
+      }
+      
+      console.log(`[BROWSER_QUERY] Validation complete. Overall result: ${results.passed ? 'PASSED' : 'FAILED'}`);
+      
+      // Handle failure behavior
+      if (!results.passed && config.onFailure === 'stop_workflow') {
+        const errorSummary = results.errors.join('; ');
+        throw new Error(`Validation failed: ${errorSummary}`);
+      }
+      
+      return results;
     } else {
       throw new Error(`Unknown browser_query method: ${config.method}`);
     }

@@ -1342,6 +1342,10 @@ export class DirectorService {
             error_details: error.message,
             execution_time: `${((Date.now() - nodeStartTime) / 1000).toFixed(1)}s`
           });
+          
+          // Stop execution on first error
+          console.log(`[EXECUTE_NODES] 🛑 Stopping execution due to node failure`);
+          break;
         }
       }
       
