@@ -34,6 +34,9 @@ Thumbs.db
 dist/
 build/
 
+# Exception: Vendor JavaScript has manual modifications not in TypeScript source
+!vendor/stagehand-pov/dist/
+
 # Temporary files
 *.tmp
 *.temp

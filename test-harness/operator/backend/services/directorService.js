@@ -329,6 +329,12 @@ export class DirectorService {
           case 'clear_all_variables':
             result = await this.clearAllVariables(args, workflowId);
             break;
+          case 'inspect_tab':
+            result = await this.inspectTab(args, workflowId);
+            break;
+          case 'expand_dom_selector':
+            result = await this.expandDomSelector(args, workflowId);
+            break;
           default:
             result = { error: `Unknown tool: ${toolName}` };
         }
@@ -1117,6 +1123,90 @@ export class DirectorService {
   }
 
   /**
+   * Inspect a browser tab to see page content and selectors
+   */
+  async inspectTab(args, workflowId) {
+    try {
+      const { tabName, inspectionType, instruction } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+      
+      if (!tabName) {
+        throw new Error('Tab name is required');
+      }
+      
+      if (!inspectionType) {
+        throw new Error('Inspection type is required (dom_snapshot or lightweight_exploration)');
+      }
+      
+      if (inspectionType === 'lightweight_exploration' && !instruction) {
+        throw new Error('Instruction is required for lightweight exploration');
+      }
+      
+      // Use the tab inspection service, passing nodeExecutor for browser access
+      const tabInspectionService = (await import('./tabInspectionService.js')).default;
+      const result = await tabInspectionService.inspectTab(
+        workflowId,
+        tabName,
+        inspectionType,
+        instruction,
+        this.nodeExecutor  // Pass the nodeExecutor instance
+      );
+      
+      return {
+        success: true,
+        ...result
+      };
+      
+    } catch (error) {
+      console.error('Failed to inspect tab:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async expandDomSelector(args, workflowId) {
+    try {
+      const { tabName, elementId } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+      
+      if (!tabName) {
+        throw new Error('Tab name is required');
+      }
+      
+      if (!elementId) {
+        throw new Error('Element ID is required');
+      }
+      
+      const tabInspectionService = (await import('./tabInspectionService.js')).default;
+      const result = await tabInspectionService.expandDomSelector(
+        workflowId,
+        tabName,
+        elementId
+      );
+      
+      return {
+        success: true,
+        ...result
+      };
+      
+    } catch (error) {
+      console.error('Failed to expand DOM selector:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Parse node selection string into array of positions
    * Supports: "5", "3-5", "1-3,10,15-17,25", "all"
    */
@@ -1691,6 +1781,12 @@ export class DirectorService {
           break;
         case 'clear_all_variables':
           result = await this.clearAllVariables(args, workflowId);
+          break;
+        case 'inspect_tab':
+          result = await this.inspectTab(args, workflowId);
+          break;
+        case 'expand_dom_selector':
+          result = await this.expandDomSelector(args, workflowId);
           break;
         default:
           throw new Error(`Unknown tool: ${toolName}`);

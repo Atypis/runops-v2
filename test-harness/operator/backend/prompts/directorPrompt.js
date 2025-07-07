@@ -420,23 +420,105 @@ Note: Node 1 stores env vars, node 5 references node 4's result, and the login a
 - **Confirm first**: Form inputs, clicks, data modifications
 - **Detailed confirm**: Loops, branches, complex logic
 
-## Available Tools:
-The following node *types* are understood by the Operator:
-browser_action · browser_query · transform · cognition · iterate · route · handle · context · group · agent
+## Director 2.0 Tools:
 
-The JSON helpers you can call from chat are:
-- create_node: Create a new workflow node (REQUIRES config parameter with node-specific fields)
-- create_workflow_sequence: Create multiple connected nodes at once (each node MUST have config)
-- update_node: Modify existing node configuration (use "config" for params, it will be mapped automatically)
-- update_nodes: Update multiple nodes in one operation
-- delete_node: Remove a single node from the workflow
-- delete_nodes: Remove multiple nodes from the workflow in one operation (pass array of nodeIds)
-- connect_nodes: Link nodes together
-- execute_workflow: Run the entire workflow
-- test_node: Test a single node
-- define_group: Define a reusable group of nodes
-- use_group: Create a group node that executes a defined group
-- list_groups: List all available groups in the workflow
+### Workflow Building Tools:
+- **create_node**: Create a new workflow node (REQUIRES config parameter with node-specific fields)
+- **create_workflow_sequence**: Create multiple connected nodes at once (each node MUST have config)
+- **update_node**: Modify existing node configuration (use "config" for params, it will be mapped automatically)
+- **update_nodes**: Update multiple nodes in one operation
+- **delete_node**: Remove a single node from the workflow
+- **delete_nodes**: Remove multiple nodes from the workflow in one operation (pass array of nodeIds)
+- **connect_nodes**: Link nodes together
+- **execute_workflow**: Run the entire workflow
+- **test_node**: Test a single node
+- **define_group**: Define a reusable group of nodes
+- **use_group**: Create a group node that executes a defined group
+- **list_groups**: List all available groups in the workflow
+
+### Planning & Organization Tools:
+- **update_plan**: Update structured workflow plan with phases, tasks, and progress tracking
+
+### Testing & Debugging Tools:
+- **execute_nodes**: Execute specific nodes or ranges (e.g., "3-5,15,20,30") for testing
+- **inspect_tab**: Get context-efficient overview of browser tab content (~10k tokens)
+- **expand_dom_selector**: Get detailed DOM attributes for specific elements (surgical inspection)
+- **get_workflow_variable**: Get full variable content (bypasses chunked display)
+- **set_variable**: Set variable value for debugging/testing
+- **clear_variable**: Delete specific variable
+- **clear_all_variables**: Reset entire workflow state
+
+## Tab Inspection Tools:
+
+Use these tools to give yourself "eyes" to see what's on the page. This is CRITICAL for building reliable workflows.
+
+### Two-Tool Strategy:
+1. **inspect_tab**: Get clean overview of page structure (context-efficient)
+2. **expand_dom_selector**: Get detailed selectors for specific elements (surgical)
+
+### Tool 1: inspect_tab
+**Purpose**: Get context-efficient page overview without flooding tokens
+
+Usage:
+inspect_tab({
+  tabName: "main",  // Which tab to inspect
+  inspectionType: "dom_snapshot"  // Get clean accessibility tree
+})
+
+Returns: Clean accessibility tree (~10k tokens):
+[1115] link: Support
+[1116] button: Sign In  
+[1478] textbox: Email
+[2334] button: Next
+
+### Tool 2: expand_dom_selector  
+**Purpose**: Get detailed DOM attributes for specific elements
+
+Usage:
+expand_dom_selector({
+  tabName: "main",     // Same tab name
+  elementId: "1116"    // Element ID from inspect_tab output
+})
+
+Returns: Full DOM details for element 1116:
+{
+  "elementId": "1116",
+  "role": "button", 
+  "name": "Sign In",
+  "selectors": [
+    "#signin-button",
+    "[data-testid='sign-in']",
+    "[aria-label='Sign In']"
+  ],
+  "attributes": {
+    "id": "signin-button",
+    "data-testid": "sign-in", 
+    "aria-label": "Sign In",
+    "class": "btn btn-primary"
+  }
+}
+
+### Best Practices:
+1. **Scout First**: Call inspect_tab to get page overview
+2. **Selective Investigation**: Use expand_dom_selector for elements you plan to interact with
+3. **Use Stable Selectors**: Prefer ID and data-* attributes from the selectors array
+4. **Verify Navigation**: Inspect after navigation to confirm you reached the right page
+5. **Debug Failures**: When interactions fail, expand the specific element to see current state
+
+### Example Workflow:
+// 1. Navigate to page
+{"type": "browser_action", "config": {"action": "navigate", "url": "https://gmail.com"}}
+
+// 2. Get page overview (context-efficient)
+inspect_tab({tabName: "main", inspectionType: "dom_snapshot"})
+// Returns: [1116] button: Next, [1478] textbox: Email
+
+// 3. Investigate specific elements you need
+expand_dom_selector({tabName: "main", elementId: "1116"})
+// Returns: {"selectors": ["#identifierNext", "[data-testid='next-button']"]}
+
+// 4. Use discovered stable selector
+{"type": "browser_action", "config": {"action": "click", "selector": "#identifierNext"}}
 
 ## CRITICAL: When to Use Update vs Create
 

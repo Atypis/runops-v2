@@ -492,6 +492,53 @@ export function createToolDefinitions() {
           required: ['reason']
         }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'inspect_tab',
+        description: 'Inspect the content of a browser tab to understand page state, verify navigation, and discover selectors. Use this tool to give the Director "eyes" to see what\'s on the page.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Name of the tab to inspect (e.g., "Main Tab", "Debug Tab")'
+            },
+            inspectionType: {
+              type: 'string',
+              enum: ['dom_snapshot', 'lightweight_exploration'],
+              description: 'Type of inspection: "dom_snapshot" for full enhanced POV with selectors, "lightweight_exploration" for LLM-analyzed summary'
+            },
+            instruction: {
+              type: 'string',
+              description: 'For lightweight_exploration: what to look for (e.g., "What login elements are visible? Are we in 2FA?")'
+            }
+          },
+          required: ['tabName', 'inspectionType']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'expand_dom_selector',
+        description: 'Get detailed DOM selector information for a specific element from an inspected tab. Use this for surgical investigation of specific elements without flooding context.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Name of the tab containing the element (e.g., "main")'
+            },
+            elementId: {
+              type: 'string',
+              description: 'Element ID from inspect_tab output (e.g., "1115" from "[1115] link: Support")'
+            }
+          },
+          required: ['tabName', 'elementId']
+        }
+      }
     }
   ];
 }

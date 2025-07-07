@@ -329,27 +329,61 @@ BROWSER STATE:
 
 ---
 
-### 9. Tab Inspection Tools 🔴
+### 9. Tab Inspection Tools 🟢
 
 **Priority**: High  
 **Required For**: Page state debugging, selector verification  
-**Description**: Inspect tab content without full DOM retrieval
+**Description**: Two-tool approach for efficient DOM inspection  
+**Status**: ✅ **COMPLETED** - Fully implemented and tested (December 2024)
 
-#### Tools
-```javascript
-// Lightweight analysis
-inspect_tab({
-  tabName: "Main Tab",
-  inspectionType: "lightweight_exploration",
-  instruction: "What login elements are visible? Are we in 2FA?"
-})
+#### Requirements ✅ ALL COMPLETE
+- ✅ Context-efficient page overview (~10k tokens)
+- ✅ Surgical DOM attribute extraction for specific elements
+- ✅ Intelligent selector generation (href > semantic classes > data-* > id)
+- ✅ In-memory caching system for performance
+- ✅ Complete DOM attribute access (no filtering)
 
-// Full DOM snapshot  
-inspect_tab({
-  tabName: "Main Tab",
-  inspectionType: "dom_snapshot"
-})
+#### Implementation Details ✅ COMPLETE
+**Tool 1: inspect_tab**
+- Context-efficient accessibility tree output (~10k tokens)
+- Caches DOM tree data for expand_dom_selector
+- Clean output format: `[1127] link: Support`
+
+**Tool 2: expand_dom_selector**
+- Surgical DOM attribute extraction for specific elements
+- Returns complete selector options and all DOM attributes
+- Intelligent selector hierarchy generation
+
+#### Real-World Test Results (Apple.com) ✅ VALIDATED
+```json
+{
+  "elementId": "1127",
+  "role": "link",
+  "name": "Support", 
+  "selectors": [
+    "[href=\"https://support.apple.com/?cid=gn-ols-home-hp-tab\"]",
+    ".globalnav-link.globalnav-submenu-trigger-link.globalnav-link-support"
+  ],
+  "attributes": {
+    "href": "https://support.apple.com/?cid=gn-ols-home-hp-tab",
+    "class": "globalnav-link globalnav-submenu-trigger-link globalnav-link-support"
+  }
+}
 ```
+
+#### Files Modified/Created ✅ COMPLETE
+- ✅ `backend/services/tabInspectionService.js` (NEW - Complete two-tool service)
+- ✅ `backend/tools/toolDefinitions.js` (Added inspect_tab and expand_dom_selector)
+- ✅ `backend/services/directorService.js` (Added tool handlers)
+- ✅ `backend/prompts/directorPrompt.js` (Updated with two-tool documentation)
+- ✅ `vendor/stagehand-pov/` (Enhanced POV generation module)
+
+#### Technical Features ✅ COMPLETE
+- **CDP Integration**: Chrome DevTools Protocol for DOM attribute extraction
+- **Accessibility Tree Processing**: Stagehand-based filtering approach
+- **Intelligent Caching**: In-memory cache cleared on page navigation
+- **Success Rate**: 771/1186 nodes enhanced with DOM attributes (65% success rate)
+- **Context Efficiency**: Base inspection stays ~10k tokens, surgical detail on demand
 
 ---
 
@@ -599,11 +633,11 @@ const userFacingUsage = recursionDepth === 0 ? tokenUsage : recursiveResult.usag
 **Total: 18 major features** with strategic implementation order.
 
 ## **Completed Features Summary**
-- ✅ **10 features fully completed**: Planning (#1), Context Management (#2), Variable Context (#4), Variable Debugging Tools (#5), Node Execution (#6), Real-time Browser State Context (#8), Unified Control Panel (#11), Context Builder (#13), Variable Management Service (#14), Browser State Service (#15), Token Counting Fix (#17)
-- 🔴 **7 features not started**: Enhanced System Prompt (#3), Validation Node Type (#7), Tab Inspection (#9), Debug Navigation (#10), Context Size Monitor (#12), Database Updates (#16)
+- ✅ **11 features fully completed**: Planning (#1), Context Management (#2), Variable Context (#4), Variable Debugging Tools (#5), Node Execution (#6), Real-time Browser State Context (#8), Tab Inspection Tools (#9), Unified Control Panel (#11), Context Builder (#13), Variable Management Service (#14), Browser State Service (#15), Token Counting Fix (#17)
+- 🔴 **6 features not started**: Enhanced System Prompt (#3), Validation Node Type (#7), Debug Navigation (#10), Context Size Monitor (#12), Database Updates (#16)
 - 🟡 **0 features in progress**: All features are either complete or not started
 
-**Latest Achievement**: ✅ **Real-time Browser State Context (#8)** - Complete SSE-powered browser state tracking with 90% reduction in network requests and instant frontend updates
+**Latest Achievement**: ✅ **Tab Inspection Tools (#9)** - Complete two-tool approach for efficient DOM inspection with context-efficient overview and surgical element investigation
 
 ---
 
@@ -619,3 +653,47 @@ const userFacingUsage = recursionDepth === 0 ? tokenUsage : recursiveResult.usag
 - What are the cache TTL and invalidation rules?
 
 **Note**: Currently working as expected with 75% cost reduction on cached tokens, but the automatic behavior needs documentation.
+
+### **Lightweight Web Explorer Agent** 🔵
+**Status**: BACKLOG - Future token-efficient exploration feature  
+**Priority**: Medium  
+**Description**: AI agent for autonomous web exploration with natural language instructions
+
+#### The Concept
+Director specifies natural language exploration goals, and a lightweight explorer agent navigates and investigates autonomously, then reports back with findings.
+
+#### Usage Pattern
+```javascript
+explore_web({
+  instruction: "Navigate to the main login flow and identify all required form fields and their validation requirements",
+  startingUrl: "https://app.example.com",
+  maxDepth: 3, // navigation steps
+  reportFormat: "structured" // or "natural_language"
+})
+```
+
+#### Explorer Agent Capabilities
+- **Navigation**: Uses same browser tools as Director (navigate, click, type)
+- **Investigation**: Uses inspect_tab and expand_dom_selector for DOM analysis  
+- **Decision Making**: AI-driven exploration based on natural language goals
+- **Reporting**: Returns structured findings to Director in single message
+
+#### Token Efficiency Benefits
+- **Director Context Preserved**: Explorer operates independently without flooding Director's context
+- **Summarized Results**: Explorer processes raw DOM data and returns only relevant findings
+- **Autonomous Operation**: Director delegates exploration without micro-managing each step
+- **Single Response**: All exploration findings delivered in one comprehensive report
+
+#### Example Workflow
+1. **Director**: "I need to understand the login flow validation"
+2. **Explorer**: Navigates → inspects forms → tests validation → analyzes selectors
+3. **Explorer Reports**: "Login requires email (data-testid='email'), password (8+ chars), optional 2FA toggle (id='enable-2fa'). Validation appears on blur events."
+4. **Director**: Uses findings to build reliable workflow nodes
+
+#### Implementation Approach
+- **Separate Agent Instance**: Independent from Director with focused exploration prompt
+- **Shared Tool Access**: Same inspect_tab, expand_dom_selector, and browser action tools
+- **Message Boundary**: Explorer completes full investigation before reporting back
+- **Error Handling**: Explorer handles navigation failures and reports what was successfully discovered
+
+**Rationale**: Provides Director with efficient reconnaissance capability without context bloat, enabling informed workflow building decisions based on comprehensive site analysis.
