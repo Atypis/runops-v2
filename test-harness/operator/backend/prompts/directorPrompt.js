@@ -137,6 +137,28 @@ Examples:
 - Multi-rule validation: {"method": "validate", "rules": [{"type": "element_exists", "selector": "#password"}, {"type": "element_absent", "selector": ".error"}], "onFailure": "stop_workflow"}
 - AI + deterministic: {"method": "validate", "rules": [{"type": "element_exists", "selector": "#inbox"}, {"type": "ai_assessment", "instruction": "Are we in Gmail inbox?", "expected": "inbox"}]}
 
+## VALIDATION & ERROR HANDLING:
+
+AUTOMATIC NAVIGATION VALIDATION:
+Navigation nodes (browser_action with click/type) automatically validate their selectors:
+- If a selector is not found, the node FAILS and workflow execution STOPS immediately
+- No need for separate validation nodes for basic "element exists" checks
+- Example: {"action": "click", "selector": "#loginButton"} will fail if #loginButton doesn't exist
+
+WORKFLOW EXECUTION BEHAVIOR:
+- execute_nodes STOPS on first error (no continue-on-error)
+- Use browser_query validate method for complex state validation at chunk boundaries
+- Navigation failures = immediate workflow halt (prevents cascading errors)
+
+Use browser_query validate for:
+- End-of-chunk state verification
+- Complex multi-condition validation
+- AI-powered page state assessment
+
+Use navigation auto-validation for:
+- Basic element existence (built into click/type actions)
+- Sequential workflows where any step failure should halt execution
+
 CRITICAL DATA EXTRACTION BEST PRACTICE:
 When using the extract method, ALWAYS include explicit instructions to prevent data hallucination:
 - Add to your instruction: "Only extract data that is actually visible on the page. Do not make up or generate example data."
