@@ -504,6 +504,7 @@ Note: Node 1 stores env vars, node 5 references node 4's result, and the login a
 
 ### Testing & Debugging Tools:
 - **execute_nodes**: Execute specific nodes or ranges (e.g., "3-5,15,20,30") for testing
+- **send_scout**: Deploy a Scout agent for intelligent page exploration (uses reasoning)
 - **inspect_tab**: Get context-efficient overview of browser tab content (~10k tokens)
 - **expand_dom_selector**: Get detailed DOM attributes for specific elements (surgical inspection)
 - **get_workflow_variable**: Get full variable content (bypasses chunked display)
@@ -511,15 +512,42 @@ Note: Node 1 stores env vars, node 5 references node 4's result, and the login a
 - **clear_variable**: Delete specific variable
 - **clear_all_variables**: Reset entire workflow state
 
-## Tab Inspection Tools:
+## Tab Inspection & Scout Tools:
 
 Use these tools to give yourself "eyes" to see what's on the page. This is CRITICAL for building reliable workflows.
 
-### Two-Tool Strategy:
-1. **inspect_tab**: Get clean overview of page structure (context-efficient)
-2. **expand_dom_selector**: Get detailed selectors for specific elements (surgical)
+### Three-Tool Strategy:
+1. **send_scout**: Deploy Scout for natural language exploration (when you need intelligent reconnaissance)
+2. **inspect_tab**: Get clean overview of page structure (context-efficient direct inspection)
+3. **expand_dom_selector**: Get detailed selectors for specific elements (surgical inspection)
 
-### Tool 1: inspect_tab
+### Tool 1: send_scout
+**Purpose**: Deploy a Scout agent for intelligent, natural language exploration of pages
+
+The Scout is a lightweight reconnaissance agent that uses o4-mini reasoning to explore pages based on your mission instructions. It can make multiple tool calls within its reasoning chain to thoroughly investigate the page.
+
+Usage:
+send_scout({
+  instruction: "Find all login form elements and their stable selectors",
+  tabName: "main"  // Optional, defaults to active tab
+})
+
+Returns:
+{
+  "success": true,
+  "summary": "Found login form with email and password fields. The email field has id='email' and data-testid='email-input'. The password field has id='password'. Submit button has data-testid='login-submit'.",
+  "token_usage": { "input_tokens": 5234, "output_tokens": 892, "reasoning_tokens": 450 },
+  "tools_executed": 5,  // Scout made 5 tool calls during exploration
+  "exploration_depth": 4  // Scout investigated 4 elements in detail
+}
+
+**When to Use Scout vs Direct Inspection:**
+- Use Scout when you need intelligent exploration (e.g., "Find all form validation patterns")
+- Use Scout for complex reconnaissance missions requiring reasoning
+- Use direct inspect_tab when you just need raw DOM structure
+- Scout is token-efficient because it operates in isolated context
+
+### Tool 2: inspect_tab
 **Purpose**: Get context-efficient page overview without flooding tokens
 
 Usage:
@@ -534,7 +562,7 @@ Returns: Clean accessibility tree (~10k tokens):
 [1478] textbox: Email
 [2334] button: Next
 
-### Tool 2: expand_dom_selector  
+### Tool 3: expand_dom_selector  
 **Purpose**: Get detailed DOM attributes for specific elements
 
 Usage:
@@ -562,11 +590,12 @@ Returns: Full DOM details for element 1116:
 }
 
 ### Best Practices:
-1. **Scout First**: Call inspect_tab to get page overview
-2. **Selective Investigation**: Use expand_dom_selector for elements you plan to interact with
-3. **Use Stable Selectors**: Prefer ID and data-* attributes from the selectors array
-4. **Verify Navigation**: Inspect after navigation to confirm you reached the right page
-5. **Debug Failures**: When interactions fail, expand the specific element to see current state
+1. **Scout for Complex Missions**: Use send_scout for intelligent exploration requiring reasoning
+2. **Direct Inspection for Simple Needs**: Use inspect_tab when you just need DOM structure
+3. **Selective Investigation**: Use expand_dom_selector for elements you plan to interact with
+4. **Use Stable Selectors**: Prefer ID and data-* attributes from the selectors array
+5. **Verify Navigation**: Inspect after navigation to confirm you reached the right page
+6. **Debug Failures**: When interactions fail, expand the specific element to see current state
 
 ### Example Workflow:
 // 1. Navigate to page

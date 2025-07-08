@@ -560,6 +560,27 @@ export function createToolDefinitions() {
           required: ['tabName', 'elementId']
         }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'send_scout',
+        description: 'Deploy a Scout to explore the current page and report back with findings. Token-efficient alternative to inspect_tab for natural language exploration. The Scout uses reasoning to thoroughly investigate the page through multiple tool calls.',
+        parameters: {
+          type: 'object',
+          properties: {
+            instruction: {
+              type: 'string',
+              description: 'Natural language instruction for what to explore/find (e.g., "Find all login form elements and their selectors", "Identify the main navigation menu structure")'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Tab to scout (defaults to active tab)'
+            }
+          },
+          required: ['instruction']
+        }
+      }
     }
   ];
 }

@@ -385,6 +385,9 @@ export class DirectorService {
           case 'expand_dom_selector':
             result = await this.expandDomSelector(args, workflowId);
             break;
+          case 'send_scout':
+            result = await this.sendScout(args, workflowId);
+            break;
           default:
             result = { error: `Unknown tool: ${toolName}` };
         }
@@ -1310,6 +1313,48 @@ export class DirectorService {
     }
   }
 
+  async sendScout(args, workflowId) {
+    try {
+      const { instruction, tabName } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+      
+      if (!instruction) {
+        throw new Error('Scout instruction is required');
+      }
+      
+      console.log(`[DIRECTOR] Deploying Scout with mission: ${instruction}`);
+      
+      // Lazy load Scout service
+      if (!this.scoutService) {
+        const ScoutService = (await import('./scoutService.js')).default;
+        this.scoutService = new ScoutService();
+      }
+      
+      // Deploy scout with node executor for browser access
+      const findings = await this.scoutService.deployScout({
+        instruction,
+        tabName: tabName || 'main',
+        workflowId,
+        nodeExecutor: this.nodeExecutor
+      });
+      
+      console.log(`[DIRECTOR] Scout mission complete. Token usage:`, findings.token_usage);
+      
+      return findings;
+      
+    } catch (error) {
+      console.error('Failed to deploy scout:', error);
+      return {
+        success: false,
+        error: error.message,
+        findings: 'Scout deployment failed'
+      };
+    }
+  }
+
   /**
    * Parse node selection string into array of positions
    * Supports: "5", "3-5", "1-3,10,15-17,25", "all"
@@ -1898,6 +1943,9 @@ export class DirectorService {
           break;
         case 'expand_dom_selector':
           result = await this.expandDomSelector(args, workflowId);
+          break;
+        case 'send_scout':
+          result = await this.sendScout(args, workflowId);
           break;
         default:
           throw new Error(`Unknown tool: ${toolName}`);
