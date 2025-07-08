@@ -4,6 +4,7 @@ import { DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPrompt.js';
 import { createToolDefinitions } from '../tools/toolDefinitions.js';
 import { NodeExecutor } from './nodeExecutor.js';
 import { PlanService } from './planService.js';
+import { WorkflowDescriptionService } from './workflowDescriptionService.js';
 import { VariableManagementService } from './variableManagementService.js';
 import { TokenCounterService } from './tokenCounterService.js';
 import BrowserStateService from './browserStateService.js';
@@ -22,6 +23,7 @@ export class DirectorService {
     });
     this.nodeExecutor = new NodeExecutor();
     this.planService = new PlanService();
+    this.workflowDescriptionService = new WorkflowDescriptionService();
     this.variableManagementService = new VariableManagementService();
     this.tokenCounter = new TokenCounterService();
     this.browserStateService = new BrowserStateService();
@@ -316,6 +318,9 @@ export class DirectorService {
             break;
           case 'update_plan':
             result = await this.updatePlan(args, workflowId);
+            break;
+          case 'update_workflow_description':
+            result = await this.updateWorkflowDescription(args, workflowId);
             break;
           case 'get_workflow_variable':
             result = await this.getWorkflowVariable(args, workflowId);
@@ -895,7 +900,7 @@ export class DirectorService {
   }
 
   /**
-   * Director 2.0: Build 6-part context structure
+   * Director 2.0: Build 7-part context structure
    */
   async buildDirector2Context(workflowId) {
     const parts = [];
@@ -903,36 +908,50 @@ export class DirectorService {
     try {
       // Part 1: System Prompt - already included in messages, skip here
       
-      // Part 2: Current Plan
-      const currentPlan = await this.planService.getCurrentPlan(workflowId);
-      if (currentPlan) {
-        parts.push(`(2) CURRENT PLAN\n${this.planService.getPlanSummary(currentPlan.plan_data)}`);
+      // Part 2: Workflow Description (NEW)
+      const currentDescription = await this.workflowDescriptionService.getCurrentDescription(workflowId);
+      if (currentDescription) {
+        parts.push(`(2) WORKFLOW DESCRIPTION\n${this.workflowDescriptionService.getDescriptionSummary(currentDescription.description_data)}`);
+        
+        // Check for missing elements and add suggestions
+        const suggestions = this.workflowDescriptionService.suggestMissingElements(currentDescription.description_data);
+        if (suggestions.length > 0) {
+          parts[parts.length - 1] += `\n\nSuggested additions:\n${suggestions.map(s => `• ${s}`).join('\n')}`;
+        }
       } else {
-        parts.push(`(2) CURRENT PLAN\nNo plan created yet. Use update_plan tool to create structured plan.`);
+        parts.push(`(2) WORKFLOW DESCRIPTION\nNo description created yet. Use update_workflow_description to capture comprehensive requirements before building.`);
       }
       
-      // Part 3: Workflow Snapshot
+      // Part 3: Current Plan
+      const currentPlan = await this.planService.getCurrentPlan(workflowId);
+      if (currentPlan) {
+        parts.push(`(3) CURRENT PLAN\n${this.planService.getPlanSummary(currentPlan.plan_data)}`);
+      } else {
+        parts.push(`(3) CURRENT PLAN\nNo plan created yet. Use update_plan tool to create structured plan.`);
+      }
+      
+      // Part 4: Workflow Snapshot
       const workflowContext = await this.getWorkflowContext(workflowId);
       if (workflowContext && workflowContext.nodes && workflowContext.nodes.length > 0) {
         const nodesSummary = workflowContext.nodes.map(node => 
           `  ${node.position}. ${node.type} - ${node.description || 'No description'} (${node.status})`
         ).join('\n');
-        parts.push(`(3) WORKFLOW SNAPSHOT\nWorkflow: ${workflowContext.goal}\nNodes:\n${nodesSummary}`);
+        parts.push(`(4) WORKFLOW SNAPSHOT\nWorkflow: ${workflowContext.goal}\nNodes:\n${nodesSummary}`);
       } else {
-        parts.push(`(3) WORKFLOW SNAPSHOT\nNo nodes created yet.`);
+        parts.push(`(4) WORKFLOW SNAPSHOT\nNo nodes created yet.`);
       }
       
-      // Part 4: Workflow Variables
+      // Part 5: Workflow Variables
       const variableDisplay = await this.variableManagementService.getFormattedVariables(workflowId);
-      parts.push(`(4) WORKFLOW VARIABLES\n${variableDisplay}`);
+      parts.push(`(5) WORKFLOW VARIABLES\n${variableDisplay}`);
       
-      // Part 5: Browser State
+      // Part 6: Browser State
       console.log(`[DIRECTOR_CONTEXT] Fetching browser state context for workflow: ${workflowId}`);
       const browserStateContext = await this.browserStateService.getBrowserStateContext(workflowId);
       console.log(`[DIRECTOR_CONTEXT] Browser state context result: ${browserStateContext?.substring(0, 100)}...`);
-      parts.push(`(5) ${browserStateContext}`);
+      parts.push(`(6) ${browserStateContext}`);
       
-      // Part 6: Conversation History - already filtered in main flow, skip here
+      // Part 7: Conversation History - already filtered in main flow, skip here
       
       return parts.join('\n\n');
       
@@ -970,6 +989,46 @@ export class DirectorService {
       
     } catch (error) {
       console.error('Failed to update plan:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Handle update_workflow_description tool calls
+   */
+  async updateWorkflowDescription(args, workflowId) {
+    try {
+      const { description, reason } = args;
+      
+      if (!description) {
+        throw new Error('Description data is required');
+      }
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required for description updates');
+      }
+      
+      // Update description through WorkflowDescriptionService
+      const updatedDescription = await this.workflowDescriptionService.updateDescription(
+        workflowId, 
+        description, 
+        reason
+      );
+      
+      return {
+        success: true,
+        message: `Workflow description updated successfully (version ${updatedDescription.description_version})`,
+        description_id: updatedDescription.id,
+        version: updatedDescription.description_version,
+        updated_at: updatedDescription.updated_at,
+        suggestions: this.workflowDescriptionService.suggestMissingElements(description)
+      };
+      
+    } catch (error) {
+      console.error('Failed to update workflow description:', error);
       return {
         success: false,
         error: error.message
@@ -1770,6 +1829,9 @@ export class DirectorService {
           break;
         case 'update_plan':
           result = await this.updatePlan(args, workflowId);
+          break;
+        case 'update_workflow_description':
+          result = await this.updateWorkflowDescription(args, workflowId);
           break;
         case 'execute_nodes':
           result = await this.executeNodes(args, workflowId);
