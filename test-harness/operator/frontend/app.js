@@ -314,11 +314,52 @@ function App() {
     }
   }, [mockMode]);
 
-  // Load nodes, plan, and description when workflow changes
+  // Load conversation history
+  const loadConversationHistory = async (workflowId) => {
+    if (!workflowId) {
+      setMessages([]);
+      return;
+    }
+    
+    // Skip loading if we're currently sending a message
+    if (isLoading) {
+      console.log('Skipping conversation history load while sending message');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_BASE}/workflows/${workflowId}/conversations`);
+      if (response.ok) {
+        const history = await response.json();
+        
+        // Preserve any temporary messages that might be in progress
+        setMessages(prev => {
+          const tempMessages = prev.filter(msg => msg.isTemporary);
+          if (tempMessages.length > 0) {
+            // If we have temporary messages, append history before them
+            const lastNonTemp = prev.findLastIndex(msg => !msg.isTemporary);
+            return [...history, ...prev.slice(lastNonTemp + 1)];
+          }
+          return history;
+        });
+        
+        console.log(`Loaded ${history.length} messages from conversation history`);
+      } else {
+        console.error('Failed to load conversation history:', response.status);
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error('Error loading conversation history:', error);
+      setMessages([]);
+    }
+  };
+
+  // Load nodes, plan, description, and conversation history when workflow changes
   useEffect(() => {
     loadWorkflowNodes(currentWorkflow?.id);
     loadCurrentPlan(currentWorkflow?.id);
     loadCurrentDescription(currentWorkflow?.id);
+    loadConversationHistory(currentWorkflow?.id);
   }, [currentWorkflow]);
 
   // Load node values only when needed
@@ -1604,14 +1645,20 @@ function App() {
               <div key={category} className="mb-4">
                 <h5 className="font-medium text-gray-700 mb-1">{category}</h5>
                 <div className="ml-4 space-y-1">
-                  {Object.entries(rules).map(([condition, action]) => (
-                    <div key={condition} className="text-sm">
-                      <span className="font-medium text-gray-600">{condition}:</span>
-                      <span className="ml-2 text-gray-700">
-                        {typeof action === 'object' ? JSON.stringify(action, null, 2) : action}
-                      </span>
-                    </div>
-                  ))}
+                  {typeof rules === 'string' ? (
+                    <p className="text-sm text-gray-700">{rules}</p>
+                  ) : typeof rules === 'object' && rules !== null ? (
+                    Object.entries(rules).map(([condition, action]) => (
+                      <div key={condition} className="text-sm">
+                        <span className="font-medium text-gray-600">{condition}:</span>
+                        <span className="ml-2 text-gray-700">
+                          {typeof action === 'object' ? JSON.stringify(action, null, 2) : action}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500">Invalid format</p>
+                  )}
                 </div>
               </div>
             ))}
@@ -1626,15 +1673,31 @@ function App() {
               <div key={contract} className="mb-3">
                 <h5 className="font-medium text-gray-700 mb-1">{contract}</h5>
                 <div className="ml-4 text-sm text-gray-600">
-                  {fields.required && (
-                    <div>
-                      <span className="font-medium">Required:</span> {Array.isArray(fields.required) ? fields.required.join(', ') : fields.required}
-                    </div>
-                  )}
-                  {fields.optional && (
-                    <div>
-                      <span className="font-medium">Optional:</span> {Array.isArray(fields.optional) ? fields.optional.join(', ') : fields.optional}
-                    </div>
+                  {typeof fields === 'string' ? (
+                    <p>{fields}</p>
+                  ) : typeof fields === 'object' && fields !== null ? (
+                    <>
+                      {fields.required && (
+                        <div>
+                          <span className="font-medium">Required:</span> {
+                            Array.isArray(fields.required) ? fields.required.join(', ') : 
+                            typeof fields.required === 'object' ? JSON.stringify(fields.required) :
+                            fields.required
+                          }
+                        </div>
+                      )}
+                      {fields.optional && (
+                        <div>
+                          <span className="font-medium">Optional:</span> {
+                            Array.isArray(fields.optional) ? fields.optional.join(', ') : 
+                            typeof fields.optional === 'object' ? JSON.stringify(fields.optional) :
+                            fields.optional
+                          }
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-gray-500">Invalid data format</p>
                   )}
                 </div>
               </div>
@@ -1650,7 +1713,7 @@ function App() {
               {data.business_rules.map((rule, i) => (
                 <li key={i} className="text-sm text-gray-700 flex items-start">
                   <span className="text-gray-400 mr-2">•</span>
-                  {rule}
+                  {typeof rule === 'object' ? (rule.rule || JSON.stringify(rule)) : rule}
                 </li>
               ))}
             </ul>
@@ -3445,6 +3508,29 @@ function App() {
           >
             {showLogs ? 'Hide Logs' : 'Show Logs'}
           </button>
+          {currentWorkflow?.id && messages.length > 0 && (
+            <button
+              onClick={async () => {
+                if (confirm('Clear all conversation history for this workflow?')) {
+                  try {
+                    const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/conversations`, {
+                      method: 'DELETE'
+                    });
+                    if (response.ok) {
+                      setMessages([]);
+                      console.log('Conversation history cleared');
+                    }
+                  } catch (error) {
+                    console.error('Failed to clear conversation history:', error);
+                  }
+                }
+              }}
+              className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+              title="Clear conversation history"
+            >
+              Clear Chat
+            </button>
+          )}
         </div>
       </div>
 
