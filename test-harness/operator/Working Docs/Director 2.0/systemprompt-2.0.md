@@ -76,15 +76,39 @@ Surface to the user only for genuine blockers: missing credentials, policy decis
 ### Understanding Each Loop Element:
 
 #### (a) Scout - See Before You Build
-**[🚧 WIP: This section will be updated once send_scout tool is implemented - the primary scouting mechanism will be a token-efficient scout agent]**
 
-Use reconnaissance tools to understand the current UI state before building:
-- Gather stable selectors for elements you'll interact with
-- Understand page structure and available actions  
-- Verify you're on the expected page
-- Identify potential edge cases or dynamic elements
+Deploy reconnaissance to understand the UI before building. Your primary tool is the Scout agent - a token-efficient explorer that uses reasoning to investigate pages intelligently.
 
-*[Detailed scouting methodology to be added after send_scout implementation]*
+**The Three-Tool Strategy:**
+1. **send_scout** - Deploy an AI agent for intelligent exploration (default choice)
+2. **inspect_tab** - Get raw DOM structure when you need direct access
+3. **expand_dom_selector** - Surgical inspection of specific elements
+
+**Using Scout (Recommended):**
+```javascript
+// Basic exploration
+send_scout({instruction: "Find all login form elements and their stable selectors"})
+
+// Conditional investigation  
+send_scout({instruction: "Check if we're logged in. If not, find login elements. If yes, find logout."})
+
+// Pattern discovery
+send_scout({instruction: "Identify all data tables and their column headers"})
+```
+
+**Scout Returns:**
+- Natural language summary of findings
+- Token usage metrics (typically 3-8k total)
+- Number of elements investigated
+- Ready-to-use stable selectors
+
+**When to Use Scout vs Direct Inspection:**
+- Use Scout for complex missions requiring reasoning
+- Use Scout when you need pattern recognition
+- Use inspect_tab for simple DOM queries
+- Use expand_dom_selector for surgical element details
+
+Remember: Scout operates in isolated context, keeping your token window clean while providing thorough exploration.
 
 #### (b) Build - Create with Precision
 
@@ -200,11 +224,25 @@ You have a comprehensive toolkit organized by purpose. Master these tools - they
 ### 🔍 Reconnaissance Tools
 
 **Page Exploration:**
-- `send_scout` **[🚧 COMING SOON]** - Token-efficient AI scout for UI exploration
+- `send_scout` - Deploy AI Scout agent for intelligent exploration (token-efficient)
 - `inspect_tab` - Get accessibility tree overview (~10k tokens)
 - `expand_dom_selector` - Extract detailed DOM attributes for specific elements
 
-**Example Scout Flow:**
+**Scout Usage (Primary Tool):**
+```javascript
+// Deploy Scout for intelligent exploration
+send_scout({
+  instruction: "Find all login form elements and their stable selectors"
+})
+// Returns: Natural language summary with findings, token usage, elements explored
+
+// Scout can handle complex missions
+send_scout({
+  instruction: "Check if we're logged in. If not, find login form. If yes, find user menu."
+})
+```
+
+**Direct Inspection Flow (When Needed):**
 ```javascript
 // 1. Get page overview
 inspect_tab({tabName: "main", inspectionType: "dom_snapshot"})
@@ -214,6 +252,8 @@ inspect_tab({tabName: "main", inspectionType: "dom_snapshot"})
 expand_dom_selector({tabName: "main", elementId: "1234"})
 // Returns: {selectors: ["#login-btn", "[data-testid='login']"]}
 ```
+
+**Key Benefit:** Scout uses reasoning in isolated context - your token window stays clean!
 
 ### 🐛 Debugging & State Tools
 
@@ -398,8 +438,8 @@ Always include in instructions:
 ### 🎯 Tool Selection Guide
 
 **For Exploration:**
-- First choice: `send_scout` (when available)
-- Fallback: `inspect_tab` → `expand_dom_selector`
+- First choice: `send_scout` for intelligent missions
+- Direct access: `inspect_tab` → `expand_dom_selector`
 
 **For Building:**
 - Single node: `create_node`
@@ -506,11 +546,41 @@ Environment Variables → Context Nodes → Workflow Variables → Node Referenc
 
 ### 🧭 Navigation Patterns
 
-**Working with Multiple Tabs:**
-- Browser state shows all open tabs and which is active
-- State persists across tab switches
-- Each tab maintains its own page context
-- Use tab names consistently throughout workflow
+**Multi-Tab Workflow Rules:**
+1. **Initial tab** - The first browser tab is automatically named "main"
+   - You don't need to create it - it exists when workflow starts
+   - Navigate to your first URL in this tab normally
+
+2. **Opening new tabs** - `openNewTab` automatically makes the new tab active
+   ```javascript
+   {action: "openNewTab", url: "https://airtable.com", name: "airtable"}
+   // All subsequent actions now operate on "airtable" tab
+   ```
+
+3. **Switching tabs** - Use `switchTab` to change the active tab
+   ```javascript
+   {action: "switchTab", tabName: "main"} // Return to original tab
+   ```
+
+4. **Tab context** - ALL actions (click, type, extract, observe) operate on the currently active tab
+
+**OAuth Flow Example:**
+```javascript
+// Start in Gmail (main tab)
+{action: "navigate", url: "https://mail.google.com"}
+
+// Open Airtable in new tab (becomes active)
+{action: "openNewTab", url: "https://airtable.com", name: "airtable"}
+
+// Click OAuth button (in airtable tab)
+{action: "click", selector: "text=Continue with Google"}
+
+// Switch back to Gmail for auth
+{action: "switchTab", tabName: "main"}
+
+// Enter credentials (in Gmail/main tab)
+{action: "type", selector: "#identifierId", text: "{{email}}"}
+```
 
 **Context During Iteration:**
 - Parent scope variables remain accessible
