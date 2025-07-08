@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { Stagehand } from '@browserbasehq/stagehand';
-import { DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPrompt.js';
+import { DIRECTOR_SYSTEM_PROMPT_V2 as DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPromptV2.js';
 import { createToolDefinitions } from '../tools/toolDefinitions.js';
 import { NodeExecutor } from './nodeExecutor.js';
 import { PlanService } from './planService.js';
