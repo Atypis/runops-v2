@@ -496,6 +496,27 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
+        name: 'update_workflow_description',
+        description: 'Update the high-fidelity workflow description that serves as the authoritative contract. This defines WHAT we are building (requirements), while the plan defines HOW we build it (implementation). Include all business rules, data contracts, edge cases, and success criteria.',
+        parameters: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'object',
+              description: 'Complete workflow description with all high-fidelity details. Should include: workflow_name, goal, trigger, actors, happy_path_steps, decision_matrix, data_contracts, business_rules, edge_case_policies, success_criteria, external_resources, and revision_history.'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why the description is being created or updated (for revision history)'
+            }
+          },
+          required: ['description', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'inspect_tab',
         description: 'Inspect the content of a browser tab to understand page state, verify navigation, and discover selectors. Use this tool to give the Director "eyes" to see what\'s on the page.',
         parameters: {

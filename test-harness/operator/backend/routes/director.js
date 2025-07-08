@@ -2,11 +2,15 @@ import express from 'express';
 import { DirectorService } from '../services/directorService.js';
 import { WorkflowService } from '../services/workflowService.js';
 import { PlanService } from '../services/planService.js';
+import { WorkflowDescriptionService } from '../services/workflowDescriptionService.js';
+import { ConversationService } from '../services/conversationService.js';
 
 const router = express.Router();
 const directorService = new DirectorService();
 const workflowService = new WorkflowService();
 const planService = new PlanService();
+const workflowDescriptionService = new WorkflowDescriptionService();
+const conversationService = new ConversationService();
 
 // Chat endpoint - main conversation with director
 router.post('/chat', async (req, res, next) => {
@@ -463,6 +467,28 @@ router.get('/workflows/:id/plan/history', async (req, res, next) => {
   }
 });
 
+// Workflow description endpoints
+router.get('/workflows/:id/description', async (req, res, next) => {
+  try {
+    const description = await workflowDescriptionService.getCurrentDescription(req.params.id);
+    if (!description) {
+      return res.status(404).json({ message: 'No description found' });
+    }
+    res.json(description);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/workflows/:id/description/history', async (req, res, next) => {
+  try {
+    const history = await workflowDescriptionService.getDescriptionHistory(req.params.id);
+    res.json(history);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Variable management endpoints
 router.get('/workflows/:id/variables', async (req, res, next) => {
   try {
@@ -667,6 +693,46 @@ router.get('/workflows/:id/token-stats', async (req, res, next) => {
     });
   } catch (error) {
     console.error('[API] Error getting token stats:', error);
+    next(error);
+  }
+});
+
+// Conversation history endpoints
+router.get('/workflows/:id/conversations', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    const { limit = 100 } = req.query;
+    
+    const history = await conversationService.getConversationHistory(workflowId, parseInt(limit));
+    const formatted = conversationService.formatMessagesForDisplay(history);
+    
+    res.json(formatted);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/workflows/:id/conversations/recent', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    const { count = 10 } = req.query;
+    
+    const messages = await conversationService.getRecentMessages(workflowId, parseInt(count));
+    const formatted = conversationService.formatMessagesForDisplay(messages);
+    
+    res.json(formatted);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/workflows/:id/conversations', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    
+    const result = await conversationService.clearConversationHistory(workflowId);
+    res.json(result);
+  } catch (error) {
     next(error);
   }
 });

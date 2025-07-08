@@ -261,8 +261,9 @@ function App() {
   const [sessionName, setSessionName] = useState('');
   const [sessionDescription, setSessionDescription] = useState('');
   const [currentPlan, setCurrentPlan] = useState(null);
+  const [currentDescription, setCurrentDescription] = useState(null);
   const [planExpanded, setPlanExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState('plan'); // 'plan', 'variables', 'browser', 'reasoning', 'tokens'
+  const [activeTab, setActiveTab] = useState('description'); // 'description', 'plan', 'variables', 'browser', 'reasoning', 'tokens'
   const [variables, setVariables] = useState([]);
   const [reasoningText, setReasoningText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -313,10 +314,11 @@ function App() {
     }
   }, [mockMode]);
 
-  // Load nodes and plan when workflow changes
+  // Load nodes, plan, and description when workflow changes
   useEffect(() => {
     loadWorkflowNodes(currentWorkflow?.id);
     loadCurrentPlan(currentWorkflow?.id);
+    loadCurrentDescription(currentWorkflow?.id);
   }, [currentWorkflow]);
 
   // Load node values only when needed
@@ -462,6 +464,8 @@ function App() {
     const interval = setInterval(() => {
       loadNodeValues();
       loadVariables(); // Variables only (browser state via SSE)
+      loadCurrentPlan(currentWorkflow?.id);
+      loadCurrentDescription(currentWorkflow?.id);
       loadTokenStats(); // Token stats
     }, 10000); // Poll every 10 seconds (less frequent)
     
@@ -779,6 +783,34 @@ function App() {
     } catch (error) {
       console.error('Failed to load current plan:', error);
       setCurrentPlan(null);
+    }
+  };
+
+  const loadCurrentDescription = async (workflowId) => {
+    if (!workflowId) {
+      setCurrentDescription(null);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_BASE}/workflows/${workflowId}/description`);
+      if (response.ok) {
+        const description = await response.json();
+        if (description && description.description_data) {
+          setCurrentDescription(description);
+        } else {
+          setCurrentDescription(null);
+        }
+      } else if (response.status === 404) {
+        // No description yet - this is normal
+        setCurrentDescription(null);
+      } else {
+        console.error('Failed to load description:', response.status);
+        setCurrentDescription(null);
+      }
+    } catch (error) {
+      console.error('Failed to load current description:', error);
+      setCurrentDescription(null);
     }
   };
 
@@ -1495,6 +1527,209 @@ function App() {
         </div>
       </div>
     );
+  };
+
+  // DescriptionViewer Component - Displays high-fidelity workflow description
+  const DescriptionViewer = ({ description, workflowId }) => {
+    if (!description || !description.description_data) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <p className="text-sm">No workflow description created yet</p>
+          <p className="text-xs mt-1">The Director will create a high-fidelity description before building</p>
+        </div>
+      );
+    }
+
+    const data = description.description_data;
+    
+    // Add error boundary
+    try {
+    
+    return (
+      <div className="space-y-6">
+        {/* Description Header */}
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-200">
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h3 className="font-bold text-xl text-gray-800">{data.workflow_name || 'Unnamed Workflow'}</h3>
+              <p className="text-sm text-gray-600 mt-2">{data.goal}</p>
+              {data.trigger && (
+                <p className="text-xs text-gray-500 mt-1">
+                  <span className="font-medium">Trigger:</span> {data.trigger}
+                </p>
+              )}
+            </div>
+            <div className="text-xs text-gray-500">
+              v{description.description_version}
+            </div>
+          </div>
+        </div>
+
+        {/* Actors */}
+        {data.actors && data.actors.length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Actors & Integrations</h4>
+            <ul className="space-y-1">
+              {data.actors.map((actor, i) => (
+                <li key={i} className="text-sm text-gray-700 flex items-start">
+                  <span className="text-gray-400 mr-2">•</span>
+                  {typeof actor === 'object' ? JSON.stringify(actor) : actor}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Happy Path */}
+        {data.happy_path_steps && data.happy_path_steps.length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Happy Path</h4>
+            <ol className="space-y-2">
+              {data.happy_path_steps.map((step, i) => (
+                <li key={i} className="text-sm text-gray-700 leading-relaxed">
+                  {typeof step === 'object' ? 
+                    (step.description || step.step || JSON.stringify(step)) : 
+                    step}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {/* Decision Matrix */}
+        {data.decision_matrix && Object.keys(data.decision_matrix).length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Decision Matrix</h4>
+            {Object.entries(data.decision_matrix).map(([category, rules]) => (
+              <div key={category} className="mb-4">
+                <h5 className="font-medium text-gray-700 mb-1">{category}</h5>
+                <div className="ml-4 space-y-1">
+                  {Object.entries(rules).map(([condition, action]) => (
+                    <div key={condition} className="text-sm">
+                      <span className="font-medium text-gray-600">{condition}:</span>
+                      <span className="ml-2 text-gray-700">
+                        {typeof action === 'object' ? JSON.stringify(action, null, 2) : action}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Data Contracts */}
+        {data.data_contracts && Object.keys(data.data_contracts).length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Data Contracts</h4>
+            {Object.entries(data.data_contracts).map(([contract, fields]) => (
+              <div key={contract} className="mb-3">
+                <h5 className="font-medium text-gray-700 mb-1">{contract}</h5>
+                <div className="ml-4 text-sm text-gray-600">
+                  {fields.required && (
+                    <div>
+                      <span className="font-medium">Required:</span> {Array.isArray(fields.required) ? fields.required.join(', ') : fields.required}
+                    </div>
+                  )}
+                  {fields.optional && (
+                    <div>
+                      <span className="font-medium">Optional:</span> {Array.isArray(fields.optional) ? fields.optional.join(', ') : fields.optional}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Business Rules */}
+        {data.business_rules && data.business_rules.length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Business Rules</h4>
+            <ul className="space-y-1">
+              {data.business_rules.map((rule, i) => (
+                <li key={i} className="text-sm text-gray-700 flex items-start">
+                  <span className="text-gray-400 mr-2">•</span>
+                  {rule}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Edge Cases */}
+        {data.edge_case_policies && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Edge Case Policies</h4>
+            {typeof data.edge_case_policies === 'string' ? (
+              <p className="text-sm text-gray-700">{data.edge_case_policies}</p>
+            ) : (
+              Object.entries(data.edge_case_policies).map(([category, policies]) => (
+                <div key={category} className="mb-3">
+                  <h5 className="font-medium text-gray-700 mb-1">{category}</h5>
+                  <div className="ml-4 space-y-1">
+                    {typeof policies === 'string' ? (
+                      <p className="text-sm text-gray-700">{policies}</p>
+                    ) : (
+                      Object.entries(policies).map(([scenario, policy]) => (
+                        <div key={scenario} className="text-sm">
+                          <span className="font-medium text-gray-600">{scenario}:</span>
+                          <span className="ml-2 text-gray-700">
+                            {typeof policy === 'object' ? JSON.stringify(policy) : policy}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Success Criteria */}
+        {data.success_criteria && data.success_criteria.length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Success Criteria</h4>
+            <ul className="space-y-1">
+              {data.success_criteria.map((criterion, i) => (
+                <li key={i} className="text-sm text-gray-700 flex items-start">
+                  <span className="text-green-500 mr-2">✓</span>
+                  {typeof criterion === 'object' ? JSON.stringify(criterion) : criterion}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Revision History */}
+        {data.revision_history && data.revision_history.length > 0 && (
+          <div className="bg-gray-50 rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Revision History</h4>
+            <div className="space-y-2">
+              {data.revision_history.map((rev, i) => (
+                <div key={i} className="text-sm">
+                  <span className="font-medium text-gray-600">v{rev.version}</span>
+                  <span className="text-gray-500 mx-2">•</span>
+                  <span className="text-gray-600">{new Date(rev.date).toLocaleString()}</span>
+                  <span className="text-gray-500 mx-2">•</span>
+                  <span className="text-gray-700">{typeof rev.changes === 'object' ? JSON.stringify(rev.changes) : rev.changes}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+    } catch (error) {
+      console.error('Error rendering description:', error);
+      return (
+        <div className="text-center text-red-500 py-8">
+          <p className="text-sm">Error displaying workflow description</p>
+          <p className="text-xs mt-1">{error.message}</p>
+        </div>
+      );
+    }
   };
 
   // PlanViewer Component - Displays structured plan as interactive to-do list
@@ -3002,6 +3237,11 @@ function App() {
         if (data.toolCalls.some(tc => tc.toolName === 'update_plan')) {
           await loadCurrentPlan(workflowId);
         }
+        
+        // Refresh description if update_workflow_description was called
+        if (data.toolCalls.some(tc => tc.toolName === 'update_workflow_description')) {
+          await loadCurrentDescription(workflowId);
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -3413,6 +3653,16 @@ function App() {
               {/* Tab Headers */}
               <div className="flex border-b bg-gray-50">
                 <button
+                  onClick={() => setActiveTab('description')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'description'
+                      ? 'text-purple-700 border-b-2 border-purple-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Description
+                </button>
+                <button
                   onClick={() => setActiveTab('plan')}
                   className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
                     activeTab === 'plan'
@@ -3482,6 +3732,9 @@ function App() {
               
               {/* Tab Content */}
               <div className="p-4 max-h-96 overflow-y-auto">
+                {activeTab === 'description' && (
+                  <DescriptionViewer description={currentDescription} workflowId={currentWorkflow?.id} />
+                )}
                 {activeTab === 'plan' && (
                   <PlanViewer plan={currentPlan} workflowId={currentWorkflow?.id} />
                 )}

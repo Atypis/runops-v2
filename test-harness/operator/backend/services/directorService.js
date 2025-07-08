@@ -8,6 +8,7 @@ import { WorkflowDescriptionService } from './workflowDescriptionService.js';
 import { VariableManagementService } from './variableManagementService.js';
 import { TokenCounterService } from './tokenCounterService.js';
 import BrowserStateService from './browserStateService.js';
+import { ConversationService } from './conversationService.js';
 import { supabase } from '../config/supabase.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -27,7 +28,41 @@ export class DirectorService {
     this.variableManagementService = new VariableManagementService();
     this.tokenCounter = new TokenCounterService();
     this.browserStateService = new BrowserStateService();
+    this.conversationService = new ConversationService();
     this.supabase = supabase;
+  }
+
+  async saveConversationMessages(workflowId, userMessage, assistantResponse) {
+    try {
+      // Save user message
+      if (userMessage) {
+        await this.conversationService.saveMessage(workflowId, 'user', userMessage);
+      }
+      
+      // Save assistant response with metadata
+      if (assistantResponse) {
+        const metadata = {};
+        if (assistantResponse.toolCalls) metadata.toolCalls = assistantResponse.toolCalls;
+        if (assistantResponse.reasoning_summary) metadata.reasoning = assistantResponse.reasoning_summary;
+        if (assistantResponse.input_tokens || assistantResponse.output_tokens) {
+          metadata.tokenUsage = {
+            input_tokens: assistantResponse.input_tokens,
+            output_tokens: assistantResponse.output_tokens
+          };
+        }
+        if (assistantResponse.debug_input) metadata.debug_input = assistantResponse.debug_input;
+        
+        await this.conversationService.saveMessage(
+          workflowId, 
+          'assistant', 
+          assistantResponse.message,
+          metadata
+        );
+      }
+    } catch (error) {
+      console.error('Error saving conversation messages:', error);
+      // Don't throw - we don't want to break the chat flow
+    }
   }
 
   async processMessage({ message, workflowId, conversationHistory = [], mockMode = false }) {
@@ -68,19 +103,23 @@ export class DirectorService {
               workflowId
             );
             
-            return {
+            const response = {
               message: mockResponse.message || 'Mock operator response',
               toolCalls: processedToolCalls,
               workflowId,
               mockMode: true
             };
+            await this.saveConversationMessages(workflowId, message, response);
+            return response;
           }
           
-          return {
+          const response = {
             message: mockResponse.message || 'Mock operator response',
             workflowId,
             mockMode: true
           };
+          await this.saveConversationMessages(workflowId, message, response);
+          return response;
         } catch (error) {
           console.error('[MOCK OPERATOR] Error reading mock response:', error);
           return {
@@ -201,7 +240,7 @@ export class DirectorService {
       if (responseMessage.tool_calls) {
         const toolResults = await this.processToolCalls(responseMessage.tool_calls, workflowId);
         
-        return {
+        const response = {
           message: responseMessage.content || '',  // Default to empty string if null
           toolCalls: toolResults,
           workflowId,
@@ -209,6 +248,8 @@ export class DirectorService {
           output_tokens: completion.usage?.output_tokens || 0,
           debug_input: debugInput
         };
+        await this.saveConversationMessages(workflowId, message, response);
+        return response;
       }
       
       // Handle tools executed during reasoning (from Responses API)
@@ -230,7 +271,7 @@ export class DirectorService {
                         (responseMessage.content || "Check the workflow for updates.");
         }
         
-        return {
+        const response = {
           message: finalMessage,
           toolCalls: toolResults,
           workflowId,
@@ -239,6 +280,8 @@ export class DirectorService {
           output_tokens: completion.usage?.output_tokens || 0,
           debug_input: debugInput
         };
+        await this.saveConversationMessages(workflowId, message, response);
+        return response;
       }
 
       // For reasoning models, provide better feedback when no visible content
@@ -251,7 +294,7 @@ export class DirectorService {
         }
       }
 
-      return {
+      const response = {
         message: finalMessage,
         workflowId,
         reasoning_summary: completion.reasoning_summary,
@@ -260,6 +303,8 @@ export class DirectorService {
         output_tokens: completion.usage?.output_tokens || 0,
         debug_input: debugInput
       };
+      await this.saveConversationMessages(workflowId, message, response);
+      return response;
     } catch (error) {
       console.error('Error processing message:', error);
       throw error;
