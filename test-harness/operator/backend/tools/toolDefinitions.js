@@ -581,6 +581,161 @@ export function createToolDefinitions() {
           required: ['instruction']
         }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_navigate',
+        description: 'Navigate to a URL for debugging/exploration without creating a workflow node. Use this for testing and reconnaissance.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: 'URL to navigate to'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Tab to navigate in (defaults to "main")'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why navigating (for audit trail)'
+            }
+          },
+          required: ['url', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_click',
+        description: 'Click an element for debugging/exploration without creating a workflow node. Use this for testing selectors and interactions.',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector, text: prefix for text matching, or natural language'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Tab to click in (defaults to "main")'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why clicking (for audit trail)'
+            }
+          },
+          required: ['selector', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_type',
+        description: 'Type text into an element for debugging/exploration without creating a workflow node. Use this for testing form inputs.',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector of the input element'
+            },
+            text: {
+              type: 'string',
+              description: 'Text to type'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Tab to type in (defaults to "main")'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why typing (for audit trail)'
+            }
+          },
+          required: ['selector', 'text', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_wait',
+        description: 'Wait for an element or time for debugging/exploration without creating a workflow node. Use this to ensure page loads.',
+        parameters: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['time', 'selector'],
+              description: 'Wait for time (ms) or element selector'
+            },
+            value: {
+              type: 'string',
+              description: 'Milliseconds to wait or selector to wait for'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Tab to wait in (defaults to "main")'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why waiting (for audit trail)'
+            }
+          },
+          required: ['type', 'value', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_open_tab',
+        description: 'Open a new tab for debugging/exploration without creating a workflow node.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: 'URL to open in new tab'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Name for the new tab'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why opening new tab (for audit trail)'
+            }
+          },
+          required: ['url', 'tabName', 'reason']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_close_tab',
+        description: 'Close a tab for debugging/exploration without creating a workflow node.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Name of the tab to close'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why closing tab (for audit trail)'
+            }
+          },
+          required: ['tabName', 'reason']
+        }
+      }
     }
   ];
 }

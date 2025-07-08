@@ -118,7 +118,7 @@ export class ScoutService {
       tools: scoutTools,
       reasoning: { 
         effort: 'low',  // Scout uses lower effort for efficiency
-        summary: 'concise'
+        summary: 'detailed'  // o4-mini only supports 'detailed'
       },
       include: [],  // Scout doesn't need encrypted content
       store: false,
@@ -258,6 +258,18 @@ export class ScoutService {
           args.elementId
         );
         
+      case 'debug_navigate':
+        // Scout can navigate during exploration
+        return await nodeExecutor.page.goto(args.url, { waitUntil: 'domcontentloaded' })
+          .then(() => ({ success: true, navigated_to: args.url }))
+          .catch(err => ({ success: false, error: err.message }));
+        
+      case 'debug_click':
+        // Scout can click during exploration
+        return await nodeExecutor.page.click(args.selector, { timeout: 10000 })
+          .then(() => ({ success: true, clicked: args.selector }))
+          .catch(err => ({ success: false, error: err.message }));
+        
       default:
         throw new Error(`Unknown scout tool: ${toolName}`);
     }
@@ -298,6 +310,36 @@ export class ScoutService {
           },
           required: ['elementId']
         }
+      },
+      {
+        type: 'function',
+        name: 'debug_navigate',
+        description: 'Navigate to explore multi-page flows during reconnaissance',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { 
+              type: 'string',
+              description: 'URL to navigate to'
+            }
+          },
+          required: ['url']
+        }
+      },
+      {
+        type: 'function',
+        name: 'debug_click',
+        description: 'Click elements to test interactions and explore flows',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: { 
+              type: 'string',
+              description: 'CSS selector or element to click'
+            }
+          },
+          required: ['selector']
+        }
       }
     ];
   }
@@ -313,8 +355,9 @@ Your mission is to gather specific intelligence requested by the Director throug
 RECONNAISSANCE METHODOLOGY:
 1. Always start with inspect_tab to see the page structure
 2. Use expand_dom_selector multiple times to investigate relevant elements
-3. Focus on the specific mission objectives
-4. Build comprehensive understanding through multiple tool calls
+3. Use debug_navigate and debug_click to explore multi-page flows if needed
+4. Focus on the specific mission objectives
+5. Build comprehensive understanding through multiple tool calls
 
 WHAT TO LOOK FOR:
 - Stable selectors (IDs, data-testid, data-qa, aria-label)

@@ -388,6 +388,24 @@ export class DirectorService {
           case 'send_scout':
             result = await this.sendScout(args, workflowId);
             break;
+          case 'debug_navigate':
+            result = await this.debugNavigate(args, workflowId);
+            break;
+          case 'debug_click':
+            result = await this.debugClick(args, workflowId);
+            break;
+          case 'debug_type':
+            result = await this.debugType(args, workflowId);
+            break;
+          case 'debug_wait':
+            result = await this.debugWait(args, workflowId);
+            break;
+          case 'debug_open_tab':
+            result = await this.debugOpenTab(args, workflowId);
+            break;
+          case 'debug_close_tab':
+            result = await this.debugCloseTab(args, workflowId);
+            break;
           default:
             result = { error: `Unknown tool: ${toolName}` };
         }
@@ -1356,6 +1374,310 @@ export class DirectorService {
   }
 
   /**
+   * Debug navigation methods - for exploration without creating workflow nodes
+   */
+  
+  async debugNavigate(args, workflowId) {
+    try {
+      const { url, tabName = 'main', reason } = args;
+      
+      console.log(`[DEBUG_NAV] ${reason}: Navigating to ${url} in tab "${tabName}"`);
+      
+      // Get stagehand instance
+      const stagehand = await this.nodeExecutor.getStagehand();
+      
+      // Get the appropriate page
+      let page;
+      if (tabName === 'main') {
+        page = this.nodeExecutor.mainPage || stagehand.page;
+      } else {
+        // Check if tab exists
+        if (!this.nodeExecutor.stagehandPages || !this.nodeExecutor.stagehandPages[tabName]) {
+          throw new Error(`Tab "${tabName}" does not exist. Use debug_open_tab first.`);
+        }
+        page = this.nodeExecutor.stagehandPages[tabName];
+      }
+      
+      // Navigate
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      
+      // Update browser state
+      const browserState = await this.browserStateService.getBrowserState(workflowId);
+      const tabs = browserState?.tabs || [];
+      
+      // Update or add tab
+      const tabIndex = tabs.findIndex(t => t.name === tabName);
+      if (tabIndex >= 0) {
+        tabs[tabIndex].url = url;
+      } else {
+        tabs.push({ name: tabName, url });
+      }
+      
+      await this.browserStateService.updateBrowserState(workflowId, {
+        tabs,
+        activeTabName: tabName
+      });
+      
+      return { 
+        success: true, 
+        navigated_to: url,
+        tab: tabName,
+        reason 
+      };
+      
+    } catch (error) {
+      console.error('[DEBUG_NAV] Navigation failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async debugClick(args, workflowId) {
+    try {
+      const { selector, tabName = 'main', reason } = args;
+      
+      console.log(`[DEBUG_CLICK] ${reason}: Clicking "${selector}" in tab "${tabName}"`);
+      
+      // Get the appropriate page
+      const stagehand = await this.nodeExecutor.getStagehand();
+      let page;
+      if (tabName === 'main') {
+        page = this.nodeExecutor.mainPage || stagehand.page;
+      } else {
+        if (!this.nodeExecutor.stagehandPages || !this.nodeExecutor.stagehandPages[tabName]) {
+          throw new Error(`Tab "${tabName}" does not exist.`);
+        }
+        page = this.nodeExecutor.stagehandPages[tabName];
+      }
+      
+      // Perform click based on selector type
+      if (selector.startsWith('text:')) {
+        // Text-based click
+        const text = selector.substring(5).trim();
+        await stagehand.act({ action: `click on "${text}"` });
+      } else if (selector.startsWith('act:')) {
+        // Natural language click
+        const instruction = selector.substring(4).trim();
+        await stagehand.act({ action: instruction });
+      } else {
+        // CSS selector click
+        await page.click(selector, { timeout: 10000 });
+      }
+      
+      return {
+        success: true,
+        clicked: selector,
+        tab: tabName,
+        reason
+      };
+      
+    } catch (error) {
+      console.error('[DEBUG_CLICK] Click failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async debugType(args, workflowId) {
+    try {
+      const { selector, text, tabName = 'main', reason } = args;
+      
+      console.log(`[DEBUG_TYPE] ${reason}: Typing into "${selector}" in tab "${tabName}"`);
+      
+      // Get the appropriate page
+      const stagehand = await this.nodeExecutor.getStagehand();
+      let page;
+      if (tabName === 'main') {
+        page = this.nodeExecutor.mainPage || stagehand.page;
+      } else {
+        if (!this.nodeExecutor.stagehandPages || !this.nodeExecutor.stagehandPages[tabName]) {
+          throw new Error(`Tab "${tabName}" does not exist.`);
+        }
+        page = this.nodeExecutor.stagehandPages[tabName];
+      }
+      
+      // Clear and type
+      await page.fill(selector, text);
+      
+      return {
+        success: true,
+        typed_into: selector,
+        text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+        tab: tabName,
+        reason
+      };
+      
+    } catch (error) {
+      console.error('[DEBUG_TYPE] Type failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async debugWait(args, workflowId) {
+    try {
+      const { type, value, tabName = 'main', reason } = args;
+      
+      console.log(`[DEBUG_WAIT] ${reason}: Waiting for ${type} "${value}" in tab "${tabName}"`);
+      
+      // Get the appropriate page
+      const stagehand = await this.nodeExecutor.getStagehand();
+      let page;
+      if (tabName === 'main') {
+        page = this.nodeExecutor.mainPage || stagehand.page;
+      } else {
+        if (!this.nodeExecutor.stagehandPages || !this.nodeExecutor.stagehandPages[tabName]) {
+          throw new Error(`Tab "${tabName}" does not exist.`);
+        }
+        page = this.nodeExecutor.stagehandPages[tabName];
+      }
+      
+      if (type === 'time') {
+        // Wait for specified time
+        const ms = parseInt(value);
+        await page.waitForTimeout(ms);
+        return {
+          success: true,
+          waited_for: `${ms}ms`,
+          tab: tabName,
+          reason
+        };
+      } else if (type === 'selector') {
+        // Wait for selector
+        await page.waitForSelector(value, { timeout: 30000 });
+        return {
+          success: true,
+          waited_for: `selector "${value}"`,
+          tab: tabName,
+          reason
+        };
+      } else {
+        throw new Error(`Unknown wait type: ${type}`);
+      }
+      
+    } catch (error) {
+      console.error('[DEBUG_WAIT] Wait failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async debugOpenTab(args, workflowId) {
+    try {
+      const { url, tabName, reason } = args;
+      
+      console.log(`[DEBUG_OPEN_TAB] ${reason}: Opening new tab "${tabName}" with URL ${url}`);
+      
+      // Initialize stagehandPages if needed
+      if (!this.nodeExecutor.stagehandPages) {
+        this.nodeExecutor.stagehandPages = {};
+      }
+      
+      // Check if tab already exists
+      if (this.nodeExecutor.stagehandPages[tabName]) {
+        throw new Error(`Tab "${tabName}" already exists`);
+      }
+      
+      // Get browser context
+      const stagehand = await this.nodeExecutor.getStagehand();
+      const context = stagehand.context;
+      
+      // Create new page
+      const newPage = await context.newPage();
+      this.nodeExecutor.stagehandPages[tabName] = newPage;
+      
+      // Navigate if URL provided
+      if (url && url !== 'about:blank') {
+        await newPage.goto(url, { waitUntil: 'domcontentloaded' });
+      }
+      
+      // Update browser state
+      const browserState = await this.browserStateService.getBrowserState(workflowId);
+      const tabs = browserState?.tabs || [];
+      tabs.push({ name: tabName, url: url || 'about:blank' });
+      
+      await this.browserStateService.updateBrowserState(workflowId, {
+        tabs,
+        activeTabName: tabName
+      });
+      
+      return {
+        success: true,
+        opened_tab: tabName,
+        url: url || 'about:blank',
+        reason
+      };
+      
+    } catch (error) {
+      console.error('[DEBUG_OPEN_TAB] Open tab failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async debugCloseTab(args, workflowId) {
+    try {
+      const { tabName, reason } = args;
+      
+      console.log(`[DEBUG_CLOSE_TAB] ${reason}: Closing tab "${tabName}"`);
+      
+      if (tabName === 'main') {
+        throw new Error('Cannot close the main tab');
+      }
+      
+      if (!this.nodeExecutor.stagehandPages || !this.nodeExecutor.stagehandPages[tabName]) {
+        throw new Error(`Tab "${tabName}" does not exist`);
+      }
+      
+      // Close the page
+      const page = this.nodeExecutor.stagehandPages[tabName];
+      await page.close();
+      delete this.nodeExecutor.stagehandPages[tabName];
+      
+      // Update browser state
+      const browserState = await this.browserStateService.getBrowserState(workflowId);
+      const tabs = (browserState?.tabs || []).filter(t => t.name !== tabName);
+      
+      // Switch to main tab if we closed the active tab
+      const activeTabName = browserState?.active_tab_name === tabName ? 'main' : browserState?.active_tab_name;
+      
+      await this.browserStateService.updateBrowserState(workflowId, {
+        tabs,
+        activeTabName
+      });
+      
+      // Clear tab inspection cache
+      if (this.tabInspectionService) {
+        const tabInspectionService = (await import('./tabInspectionService.js')).default;
+        tabInspectionService.clearCache(workflowId, tabName);
+      }
+      
+      return {
+        success: true,
+        closed_tab: tabName,
+        reason
+      };
+      
+    } catch (error) {
+      console.error('[DEBUG_CLOSE_TAB] Close tab failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Parse node selection string into array of positions
    * Supports: "5", "3-5", "1-3,10,15-17,25", "all"
    */
@@ -1946,6 +2268,24 @@ export class DirectorService {
           break;
         case 'send_scout':
           result = await this.sendScout(args, workflowId);
+          break;
+        case 'debug_navigate':
+          result = await this.debugNavigate(args, workflowId);
+          break;
+        case 'debug_click':
+          result = await this.debugClick(args, workflowId);
+          break;
+        case 'debug_type':
+          result = await this.debugType(args, workflowId);
+          break;
+        case 'debug_wait':
+          result = await this.debugWait(args, workflowId);
+          break;
+        case 'debug_open_tab':
+          result = await this.debugOpenTab(args, workflowId);
+          break;
+        case 'debug_close_tab':
+          result = await this.debugCloseTab(args, workflowId);
           break;
         default:
           throw new Error(`Unknown tool: ${toolName}`);

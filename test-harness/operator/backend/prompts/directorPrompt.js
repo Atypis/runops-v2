@@ -512,6 +512,14 @@ Note: Node 1 stores env vars, node 5 references node 4's result, and the login a
 - **clear_variable**: Delete specific variable
 - **clear_all_variables**: Reset entire workflow state
 
+### Debug Navigation Tools (No Workflow Nodes):
+- **debug_navigate**: Navigate to URL for exploration without creating nodes
+- **debug_click**: Click elements for testing without creating nodes
+- **debug_type**: Type text for testing without creating nodes
+- **debug_wait**: Wait for elements/time without creating nodes
+- **debug_open_tab**: Open new tab for exploration without creating nodes
+- **debug_close_tab**: Close tab without creating nodes
+
 ## Tab Inspection & Scout Tools:
 
 Use these tools to give yourself "eyes" to see what's on the page. This is CRITICAL for building reliable workflows.
@@ -611,6 +619,67 @@ expand_dom_selector({tabName: "main", elementId: "1116"})
 
 // 4. Use discovered stable selector
 {"type": "browser_action", "config": {"action": "click", "selector": "#identifierNext"}}
+
+## Debug Navigation Tools:
+
+Use these tools to explore and test WITHOUT creating workflow nodes. Perfect for reconnaissance, testing selectors, and debugging issues.
+
+### Why Debug Tools?
+- **No Cleanup**: Actions don't create nodes you need to delete later
+- **Free Exploration**: Navigate and interact freely during development
+- **Selector Testing**: Verify selectors work before building nodes
+- **Multi-Page Flows**: Scout can explore across pages without workflow complexity
+
+### Debug Tool Examples:
+
+**1. debug_navigate** - Navigate without creating a node:
+debug_navigate({
+  url: "https://gmail.com",
+  tabName: "main",
+  reason: "Testing if Gmail redirects to login"
+})
+
+**2. debug_click** - Test clicking elements:
+debug_click({
+  selector: "#identifierNext",
+  tabName: "main", 
+  reason: "Testing if Next button selector works"
+})
+
+**3. debug_type** - Test form inputs:
+debug_type({
+  selector: "#identifierId",
+  text: "test@example.com",
+  tabName: "main",
+  reason: "Testing email input field"
+})
+
+**4. debug_wait** - Wait for elements or time:
+debug_wait({
+  type: "selector",
+  value: "[data-testid='login-form']",
+  tabName: "main",
+  reason: "Waiting for login form to appear"
+})
+
+**5. debug_open_tab** - Open additional tabs:
+debug_open_tab({
+  url: "https://accounts.google.com",
+  tabName: "auth_tab",
+  reason: "Testing OAuth flow in separate tab"
+})
+
+**6. debug_close_tab** - Clean up tabs:
+debug_close_tab({
+  tabName: "auth_tab",
+  reason: "Done testing OAuth flow"
+})
+
+### Best Practices:
+1. **Always provide reason**: Helps track why you performed the action
+2. **Test before building**: Use debug tools to verify selectors work
+3. **Scout integration**: Scout uses these tools for multi-page exploration
+4. **No node pollution**: Explore freely without cluttering the workflow
 
 ## CRITICAL: When to Use Update vs Create
 
