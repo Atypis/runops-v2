@@ -7,7 +7,7 @@ import { BasePrimitive } from './base-primitive.js';
  * Features: Schema validation, automatic retries, robust JSON parsing
  */
 export class CognitionPrimitive extends BasePrimitive {
-  async execute({ prompt, input, output, model = 'gpt-4o-mini', schema }) {
+  async execute({ prompt, input, output, model = 'o4-mini', schema }) {
     const inputData = this.resolveVariable(input);
     
     // Build system prompt with schema if provided

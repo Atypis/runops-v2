@@ -42,7 +42,7 @@ async function initialize() {
   const stagehand = new Stagehand({
     env: 'LOCAL',
     apiKey: process.env.OPENAI_API_KEY,
-    modelName: 'gpt-4o-mini',
+    modelName: 'o4-mini',
     headless: false,
     verbose: 1,
     debugDom: true
