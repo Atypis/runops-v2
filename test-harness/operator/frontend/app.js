@@ -3434,6 +3434,23 @@ function App() {
       </button>
     );
 
+    // Render page observation in a nice format
+    const renderPageObservation = (observation) => {
+      if (!observation) return null;
+      
+      return (
+        <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+          <div className="flex items-start space-x-2">
+            <span className="text-amber-600">🔍</span>
+            <div className="flex-1">
+              <div className="font-medium text-amber-700 mb-1">Page State:</div>
+              <div className="text-gray-700 whitespace-pre-wrap">{observation}</div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div className="mt-2 p-2 bg-blue-50 rounded text-sm">
         <div className="flex justify-between items-start">
@@ -3442,6 +3459,51 @@ function App() {
             renderRunButton(toolCall.result.id)
           )}
         </div>
+        
+        {/* Handle execute_nodes with execution results and page observations */}
+        {toolCall.toolName === 'execute_nodes' && toolCall.result?.execution_results && (
+          <div className="mt-2 space-y-2">
+            {toolCall.result.execution_results.map((result, index) => (
+              <div key={index} className="p-2 bg-white rounded border">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <span className="font-medium text-xs">
+                      Node {result.node_position}: 
+                    </span>
+                    <span className={`text-xs ml-2 ${
+                      result.status === 'success' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {result.status === 'success' ? '✓ Success' : '✗ Failed'}
+                    </span>
+                    <span className="text-xs text-gray-500 ml-2">
+                      ({result.execution_time})
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Show the page observation if available */}
+                {result.page_observation && renderPageObservation(result.page_observation)}
+                
+                {/* Show error details if failed */}
+                {result.status === 'error' && result.error_details && (
+                  <div className="mt-1 text-xs text-red-600">
+                    Error: {result.error_details}
+                  </div>
+                )}
+                
+                {/* Show result if available and not too large */}
+                {result.result && Object.keys(result.result).length > 0 && (
+                  <div className="mt-1 text-xs text-gray-600">
+                    <pre className="overflow-x-auto">
+                      {JSON.stringify(result.result, null, 2).substring(0, 200)}
+                      {JSON.stringify(result.result).length > 200 ? '...' : ''}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         
         {/* Handle create_workflow_sequence with multiple nodes */}
         {toolCall.toolName === 'create_workflow_sequence' && toolCall.result?.nodes && (
@@ -3458,7 +3520,8 @@ function App() {
           </div>
         )}
         
-        {toolCall.result && (
+        {/* Default display for other tools */}
+        {toolCall.result && toolCall.toolName !== 'execute_nodes' && (
           <pre className="mt-1 text-xs overflow-x-auto">
             {JSON.stringify(toolCall.result, null, 2)}
           </pre>

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { supabase } from '../config/supabase.js';
 import { dirname, join } from 'path';
 import BrowserStateService from './browserStateService.js';
+import visualObservationService from './visualObservationService.js';
 
 export class NodeExecutor {
   constructor() {
@@ -471,6 +472,38 @@ export class NodeExecutor {
 
       // Log successful execution
       await this.logExecution(nodeId, workflowId, 'success', 'Node executed successfully', result);
+      
+      // Add visual observation for UI-affecting nodes
+      if (visualObservationService.shouldObserveNode(node.type, this.getNodeDescription(node)) && 
+          visualObservationService.isEnabled()) {
+        try {
+          console.log(`[EXECUTE] Capturing visual observation for node ${node.position}`);
+          
+          // Get the current page
+          const stagehand = await this.getStagehand();
+          const activePage = this.activeTabName === 'main' ? this.mainPage : 
+                           (this.stagehandPages?.[this.activeTabName] || this.mainPage);
+          
+          const visualObservation = await visualObservationService.captureAndAnalyze(
+            activePage,
+            node.type,
+            this.getNodeDescription(node),
+            result
+          );
+          
+          // Embed observation in the result
+          if (visualObservation.success && visualObservation.observation) {
+            result = {
+              ...(typeof result === 'object' ? result : { value: result }),
+              _page_observation: visualObservation.observation
+            };
+            console.log(`[EXECUTE] Visual observation captured: ${visualObservation.observation.substring(0, 100)}...`);
+          }
+        } catch (obsError) {
+          console.error('[EXECUTE] Failed to capture visual observation:', obsError);
+          // Don't fail the node execution
+        }
+      }
       
       // Update node status AND result
       const { data: updatedNode, error: updateError } = await supabase
@@ -2421,5 +2454,47 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     console.log(`[AGENT] ensure() with task:`, JSON.stringify(config, null, 2));
     const ok = await agent.ensure(config);
     return { ok };
+  }
+
+  // Helper to generate human-readable node description for visual observation
+  getNodeDescription(node) {
+    const { type, params } = node;
+    
+    switch (type) {
+      case 'browser_action':
+        if (params?.action === 'click') {
+          return `Click on ${params.selector}`;
+        } else if (params?.action === 'type') {
+          return `Type text into ${params.selector}`;
+        } else if (params?.action === 'navigate') {
+          return `Navigate to ${params.url}`;
+        } else if (params?.action === 'wait') {
+          return `Wait for ${params.duration}ms`;
+        } else if (params?.action === 'openNewTab') {
+          return `Open new tab: ${params.name}`;
+        } else if (params?.action === 'switchTab') {
+          return `Switch to tab: ${params.tabName}`;
+        }
+        return `Browser action: ${params?.action}`;
+        
+      case 'browser_query':
+        if (params?.method === 'extract') {
+          return `Extract data: ${params?.instruction?.substring(0, 50)}...`;
+        } else if (params?.method === 'observe') {
+          return `Observe page: ${params?.instruction?.substring(0, 50)}...`;
+        } else if (params?.method === 'validate') {
+          return `Validate page state`;
+        }
+        return `Browser query: ${params?.method}`;
+        
+      case 'iterate':
+        return `Iterate over ${params?.over || 'items'}`;
+        
+      case 'route':
+        return `Conditional routing based on ${params?.value || 'conditions'}`;
+        
+      default:
+        return `Execute ${type} node`;
+    }
   }
 }

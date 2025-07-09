@@ -1794,12 +1794,24 @@ export class DirectorService {
         try {
           const result = await this.nodeExecutor.execute(node.id, workflowId);
           
+          // Extract page observation if present
+          let pageObservation = null;
+          let cleanResult = result.data;
+          
+          if (result.data && typeof result.data === 'object' && result.data._page_observation) {
+            pageObservation = result.data._page_observation;
+            // Remove the _page_observation from the result to keep it clean
+            const { _page_observation, ...restOfResult } = result.data;
+            cleanResult = restOfResult;
+          }
+          
           results.push({
             node_position: node.position,
             node_id: node.id,
             status: 'success',
-            result: result.data,
-            execution_time: `${((Date.now() - nodeStartTime) / 1000).toFixed(1)}s`
+            result: cleanResult,
+            execution_time: `${((Date.now() - nodeStartTime) / 1000).toFixed(1)}s`,
+            page_observation: pageObservation
           });
           
           console.log(`[EXECUTE_NODES] ✅ Node ${node.position} executed successfully`);
