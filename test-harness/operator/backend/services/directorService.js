@@ -332,6 +332,9 @@ export class DirectorService {
           case 'create_node':
             result = await this.createNode(args, workflowId);
             break;
+          case 'insert_node_at':
+            result = await this.insertNodeAt(args, workflowId);
+            break;
           case 'update_node':
             result = await this.updateNode(args);
             break;
@@ -548,7 +551,59 @@ export class DirectorService {
     };
   }
 
-  async createNode({ type, config, position, description, parent_position }, workflowId) {
+  generateNodeAlias(text) {
+    // Convert to lowercase and replace non-alphanumeric with underscores
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
+      .substring(0, 50); // Limit length
+  }
+
+  async insertNodeAt({ position, node }, workflowId) {
+    console.log(`[INSERT_NODE_AT] Inserting node at position ${position}`);
+    
+    // First, get all nodes at or after the target position
+    const { data: nodesToShift, error: fetchError } = await supabase
+      .from('nodes')
+      .select('id, position')
+      .eq('workflow_id', workflowId)
+      .gte('position', position)
+      .order('position', { ascending: false }); // Start from highest position
+    
+    if (fetchError) {
+      console.error('[INSERT_NODE_AT] Error fetching nodes:', fetchError);
+      throw fetchError;
+    }
+    
+    console.log(`[INSERT_NODE_AT] Found ${nodesToShift?.length || 0} nodes to shift`);
+    
+    // Shift each node up by 1
+    for (const nodeToShift of nodesToShift || []) {
+      const { error: updateError } = await supabase
+        .from('nodes')
+        .update({ position: nodeToShift.position + 1 })
+        .eq('id', nodeToShift.id);
+      
+      if (updateError) {
+        console.error(`[INSERT_NODE_AT] Error shifting node ${nodeToShift.id}:`, updateError);
+        throw updateError;
+      }
+    }
+    
+    console.log(`[INSERT_NODE_AT] Successfully shifted ${nodesToShift?.length || 0} nodes`);
+    
+    // Create the new node at the specified position
+    const result = await this.createNode({
+      ...node,
+      position
+    }, workflowId);
+    
+    console.log(`[INSERT_NODE_AT] Created new node at position ${position}`);
+    return result;
+  }
+
+  async createNode({ type, config, position, description, parent_position, alias }, workflowId) {
     // Validate config based on node type
     if (!config || Object.keys(config).length === 0) {
       console.error(`Empty config provided for ${type} node`);
@@ -591,13 +646,42 @@ export class DirectorService {
       nodePosition = (maxPositionNode?.position || 0) + 1;
     }
     
+    // Generate alias if not provided
+    let nodeAlias = alias;
+    if (!nodeAlias) {
+      // Generate from description or type
+      const baseText = description || `${type}_node`;
+      nodeAlias = this.generateNodeAlias(baseText);
+      
+      // Ensure uniqueness within workflow
+      const { data: existingAliases } = await supabase
+        .from('nodes')
+        .select('alias')
+        .eq('workflow_id', workflowId)
+        .like('alias', `${nodeAlias}%`);
+      
+      if (existingAliases && existingAliases.length > 0) {
+        // Find next available number suffix
+        const usedNumbers = existingAliases
+          .map(n => {
+            const match = n.alias.match(new RegExp(`^${nodeAlias}_(\\d+)$`));
+            return match ? parseInt(match[1]) : 0;
+          })
+          .filter(n => n > 0);
+        
+        const nextNumber = usedNumbers.length > 0 ? Math.max(...usedNumbers) + 1 : 2;
+        nodeAlias = `${nodeAlias}_${nextNumber}`;
+      }
+    }
+    
     const nodeData = {
       workflow_id: workflowId,
       position: nodePosition,
       type,
       params: config || {},  // Ensure params is never null
       description: description || `${type} node`,
-      status: 'pending'
+      status: 'pending',
+      alias: nodeAlias
     };
     
     // Add parent_position to params if provided (since we don't have a DB column for it)
@@ -638,7 +722,7 @@ export class DirectorService {
     }
     
     // Validate that only valid fields are being updated
-    const validFields = ['type', 'params', 'description', 'status', 'result', 'position'];
+    const validFields = ['type', 'params', 'description', 'status', 'result', 'position', 'alias'];
     const updateFields = Object.keys(mappedUpdates);
     const invalidFields = updateFields.filter(field => !validFields.includes(field));
     
@@ -2049,11 +2133,6 @@ export class DirectorService {
    * Radically simplified approach - single blocking call per step with accurate token counts
    */
   async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0) {
-    // Prevent infinite recursion
-    if (recursionDepth > 10) {
-      throw new Error('Maximum recursion depth reached in Director control loop');
-    }
-
     console.log(`[CONTROL_LOOP] Starting blocking loop (depth ${recursionDepth}) with ${initialInput.length} input items`);
     
     // Convert tools from Chat Completions format to Responses API format
@@ -2287,6 +2366,9 @@ export class DirectorService {
           break;
         case 'create_node':
           result = await this.createNode(args, workflowId);
+          break;
+        case 'insert_node_at':
+          result = await this.insertNodeAt(args, workflowId);
           break;
         case 'update_node':
           result = await this.updateNode(args, workflowId);
