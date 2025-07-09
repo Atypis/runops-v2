@@ -1057,7 +1057,7 @@ function App() {
       // Reload conversation history to get updated archived status and compressed message
       await loadConversationHistory(workflowId);
       
-      addMessage('system', `Context compressed successfully. Reduced ${result.originalMessageCount} messages to a summary.`);
+      addMessage('system', `Context compressed successfully. Compressed ${result.originalMessageCount} new messages into the summary.`);
     } catch (error) {
       console.error('Failed to compress context:', error);
       addMessage('error', `Failed to compress context: ${error.message}`);
