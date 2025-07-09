@@ -374,16 +374,36 @@ Always include in instructions:
 #### Control Layer
 
 ##### 6. **iterate** - Loop over arrays
-**Required:** \`over\` and \`variable\`
+**Required:** \`over\` and \`variable\` (BOTH fields are mandatory!)
 \`\`\`javascript
 {
-  over: "state.items" or "node4.emails",
-  variable: "currentItem",
-  body: node or [array of nodes],
+  over: "state.items" or "node4.emails",    // REQUIRED: Path to array
+  variable: "currentItem",                   // REQUIRED: Variable name for each item
+  body: [16, 17, 18] or 16,                 // Node positions to execute per item
   index: "itemIndex" (optional - defaults to variableIndex),
   continueOnError: true (optional - default true),
   limit: 10 (optional - process only first N)
 }
+\`\`\`
+
+**Complete Example - Process Gmail messages:**
+\`\`\`javascript
+// Node 14: Extract messages
+{type: "browser_query", config: {method: "extract", instruction: "Extract all email rows", schema: {messages: [{row_id: "string", sender: "string", subject: "string"}]}}}
+
+// Node 15: Iterate over messages
+{
+  type: "iterate",
+  config: {
+    over: "node14.messages",        // REQUIRED: Array from node 14
+    variable: "message",            // REQUIRED: Each item is "message"
+    body: [16, 17, 18],            // Execute nodes 16-18 for each message
+    continueOnError: true
+  },
+  description: "Process each email message"
+}
+
+// Nodes 16-18 would then have access to {{message.sender}}, {{message.subject}}, etc.
 \`\`\`
 
 ##### 7. **route** - Conditional branching

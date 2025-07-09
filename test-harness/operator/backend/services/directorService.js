@@ -569,6 +569,10 @@ export class DirectorService {
       case 'group':
         if (!config.nodeRange) throw new Error('group requires "nodeRange" field (e.g., "1-25" or [1, 25])');
         break;
+      case 'iterate':
+        if (!config.over) throw new Error('iterate node requires "over" field - the path to the array to iterate over (e.g., "state.items" or "node4.emails")');
+        if (!config.variable) throw new Error('iterate node requires "variable" field - the name for the current item in each iteration (e.g., "currentItem")');
+        break;
     }
     
     // If position is provided, use it; otherwise get the next available position

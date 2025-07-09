@@ -48,7 +48,7 @@ export function createToolDefinitions() {
             },
             config: {
               type: 'object',
-              description: 'Configuration specific to the node type'
+              description: 'Configuration specific to the node type. For iterate nodes: requires "over" (array path) and "variable" (item name)'
             },
             description: {
               type: 'string',

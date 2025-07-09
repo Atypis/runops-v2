@@ -333,7 +333,13 @@ export class NodeExecutor {
         resolved[key] = await this.resolveTemplateVariables(value, workflowId);
       } else if (Array.isArray(value)) {
         resolved[key] = await Promise.all(
-          value.map(item => this.resolveTemplateVariables(item, workflowId))
+          value.map(item => {
+            // Skip null/undefined items in arrays
+            if (item === null || item === undefined) {
+              return item;
+            }
+            return this.resolveTemplateVariables(item, workflowId);
+          })
         );
       } else if (typeof value === 'object' && value !== null) {
         resolved[key] = await this.resolveNodeParams(value, workflowId);
@@ -1736,6 +1742,15 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
 
   async executeIterate(config, workflowId, iterateNodePosition, options = {}) {
+    // Validate required fields
+    if (!config.over) {
+      throw new Error('Iterate node missing required "over" field. Please specify the path to the array to iterate over (e.g., "state.items" or "node4.emails")');
+    }
+    
+    if (!config.variable) {
+      throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
+    }
+    
     console.log(`[ITERATE] Starting iteration over: ${config.over}`);
     
     // Get the collection to iterate over
