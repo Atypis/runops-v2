@@ -435,6 +435,8 @@ Always include in instructions:
 }
 \`\`\`
 
+**Important:** Context nodes must be executed for their values to be available to subsequent nodes. If you store credentials in node 1, you must include node 1 when executing nodes that reference those credentials.
+
 ### 🎯 Tool Selection Guide
 
 **For Exploration:**
