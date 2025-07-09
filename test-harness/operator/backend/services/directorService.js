@@ -65,7 +65,7 @@ export class DirectorService {
     }
   }
 
-  async processMessage({ message, workflowId, conversationHistory = [], mockMode = false }) {
+  async processMessage({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false }) {
     try {
       // Set workflow ID in node executor for browser state tracking
       this.nodeExecutor.setWorkflowId(workflowId);
@@ -132,27 +132,31 @@ export class DirectorService {
       }
 
       // Normal operation - Build Director 2.0 context if workflowId provided
+      // Skip for compression requests as context is already in the prompt
       let director2Context = '';
-      if (workflowId) {
+      if (workflowId && !isCompressionRequest) {
         director2Context = await this.buildDirector2Context(workflowId);
       }
 
       // Clean conversation history to only include essential fields for AI
       // This prevents exponential token growth from debug_input and other UI-only fields
-      const cleanHistory = conversationHistory.map((msg, idx) => {
-        // Log if we find director2Context in historical messages
-        if (msg.content && msg.content.includes('(2) CURRENT PLAN')) {
-          console.log(`[🔍 CONTEXT_STRIP] Found director2Context in history at index ${idx} (${msg.role}), stripping it...`);
-          console.log(`[🔍 CONTEXT_STRIP] Original length: ${msg.content.length}, After strip: ${msg.content.split('\n\n(2) CURRENT PLAN')[0].trim().length}`);
-        }
-        
-        return {
-          role: msg.role,
-          // CRITICAL: Strip any existing director2Context from historical messages to prevent duplication
-          content: msg.content ? msg.content.split('\n\n(2) CURRENT PLAN')[0].trim() : msg.content
-          // Intentionally exclude: toolCalls, reasoning, tokenUsage, debug_input
-        };
-      }).filter(msg => msg.content !== null && msg.content !== undefined);
+      const cleanHistory = conversationHistory
+        .filter(msg => !msg.isArchived) // Filter out archived messages
+        .map((msg, idx) => {
+          // Log if we find director2Context in historical messages
+          if (msg.content && msg.content.includes('(2) CURRENT PLAN')) {
+            console.log(`[🔍 CONTEXT_STRIP] Found director2Context in history at index ${idx} (${msg.role}), stripping it...`);
+            console.log(`[🔍 CONTEXT_STRIP] Original length: ${msg.content.length}, After strip: ${msg.content.split('\n\n(2) CURRENT PLAN')[0].trim().length}`);
+          }
+          
+          return {
+            role: msg.role,
+            // CRITICAL: Strip any existing director2Context from historical messages to prevent duplication
+            content: msg.content ? msg.content.split('\n\n(2) CURRENT PLAN')[0].trim() : msg.content
+            // Intentionally exclude: toolCalls, reasoning, tokenUsage, debug_input
+          };
+        })
+        .filter(msg => msg.content !== null && msg.content !== undefined);
 
       // Check if the current message already has director2Context
       if (message && message.includes('(2) CURRENT PLAN')) {
@@ -968,6 +972,24 @@ export class DirectorService {
   /**
    * Director 2.0: Build 7-part context structure
    */
+  async buildCompressionContext(workflowId) {
+    // Similar to buildDirector2Context but formatted for compression
+    const parts = [];
+    
+    try {
+      // Get all the persistent context
+      const context = await this.buildDirector2Context(workflowId);
+      parts.push("PERSISTENT CONTEXT (will remain after compression):");
+      parts.push(context);
+      parts.push("\n" + "=".repeat(80) + "\n");
+      
+      return parts.join('\n');
+    } catch (error) {
+      console.error('Error building compression context:', error);
+      return `Compression Context Error: ${error.message}`;
+    }
+  }
+
   async buildDirector2Context(workflowId) {
     const parts = [];
     
@@ -1017,7 +1039,21 @@ export class DirectorService {
       console.log(`[DIRECTOR_CONTEXT] Browser state context result: ${browserStateContext?.substring(0, 100)}...`);
       parts.push(`(6) ${browserStateContext}`);
       
-      // Part 7: Conversation History - already filtered in main flow, skip here
+      // Part 7: Compressed Context History
+      // Load the latest compressed context if exists
+      const { data: compressedContext } = await this.supabase
+        .from('compressed_contexts')
+        .select('summary, original_message_count, created_at')
+        .eq('workflow_id', workflowId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (compressedContext) {
+        parts.push(`(7) COMPRESSED CONVERSATION HISTORY\n[Context compressed on ${new Date(compressedContext.created_at).toISOString()} - ${compressedContext.original_message_count} messages summarized]\n\n${compressedContext.summary}`);
+      } else {
+        parts.push(`(7) CONVERSATION HISTORY\nNo compressed context found. Recent messages will be included in the conversation flow.`);
+      }
       
       return parts.join('\n\n');
       

@@ -262,6 +262,7 @@ function App() {
   const [sessionDescription, setSessionDescription] = useState('');
   const [currentPlan, setCurrentPlan] = useState(null);
   const [currentDescription, setCurrentDescription] = useState(null);
+  const [showCompressConfirmation, setShowCompressConfirmation] = useState(false);
   const [planExpanded, setPlanExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('description'); // 'description', 'plan', 'variables', 'browser', 'reasoning', 'tokens'
   const [variables, setVariables] = useState([]);
@@ -909,6 +910,7 @@ function App() {
     setMessages(prev => [...prev, message]);
   };
 
+
   // Browser session management functions
   const loadBrowserSessions = async () => {
     try {
@@ -1021,6 +1023,46 @@ function App() {
     } catch (error) {
       console.error('Failed to delete browser session:', error);
       addMessage('error', `Failed to delete session: ${error.message}`);
+    }
+  };
+
+  const compressContext = async () => {
+    setShowCompressConfirmation(false);
+    setIsLoading(true);
+
+    try {
+      const workflowId = currentWorkflow?.id;
+      if (!workflowId) {
+        addMessage('error', 'No workflow selected');
+        setIsLoading(false);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/compress-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId,
+          messageCount: messages.filter(m => m.role === 'user' || m.role === 'assistant').length
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to compress context');
+      }
+
+      const result = await response.json();
+      
+      // Reload conversation history to get updated archived status and compressed message
+      await loadConversationHistory(workflowId);
+      
+      addMessage('system', `Context compressed successfully. Reduced ${result.originalMessageCount} messages to a summary.`);
+    } catch (error) {
+      console.error('Failed to compress context:', error);
+      addMessage('error', `Failed to compress context: ${error.message}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -3199,7 +3241,16 @@ function App() {
       setMessages(prev => [...prev, tempAssistantMessage]);
 
       // Filter out debug_input and other large fields from conversation history
-      const cleanConversationHistory = messages.map(msg => {
+      // Also filter out archived messages - only send active messages to Director
+      const cleanConversationHistory = messages
+        .filter(msg => {
+          // Exclude archived messages
+          if (msg.isArchived) return false;
+          // Exclude the compressed context message itself (it's in Part 7)
+          if (msg.isCompressed) return false;
+          return true;
+        })
+        .map(msg => {
         let content = msg.content;
         
         // For assistant messages, include reasoning and tool calls in the content
@@ -3619,17 +3670,66 @@ function App() {
           )}
           
           {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-3xl px-4 py-2 rounded-lg ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-800'
-                }`}
-              >
+            <div key={index}>
+              {/* Show archived messages separator */}
+              {index === 0 && message.isArchived && (
+                <div className="mx-4 my-4 text-center text-xs text-gray-500">
+                  <div className="flex items-center justify-center">
+                    <div className="flex-1 border-t border-gray-300"></div>
+                    <span className="px-3 bg-white">📚 Archived Messages (Read-Only)</span>
+                    <div className="flex-1 border-t border-gray-300"></div>
+                  </div>
+                </div>
+              )}
+              {/* Show separator between archived and new messages */}
+              {index > 0 && messages[index - 1].isArchived && !message.isArchived && (
+                <div className="mx-4 my-4 text-center text-xs text-gray-500">
+                  <div className="flex items-center justify-center">
+                    <div className="flex-1 border-t border-gray-300"></div>
+                    <span className="px-3 bg-white">✨ New Messages</span>
+                    <div className="flex-1 border-t border-gray-300"></div>
+                  </div>
+                </div>
+              )}
+              {/* Special rendering for compressed context messages */}
+              {message.isCompressed ? (
+                <div className="mx-4 my-4">
+                  <div className="border border-gray-300 rounded-lg bg-gray-50 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center">
+                        <span className="text-lg mr-2">📦</span>
+                        <span className="font-semibold text-gray-700">Context Compressed</span>
+                      </div>
+                      {message.compressionStats && (
+                        <span className="text-sm text-gray-500">
+                          Reduced {message.compressionStats.originalMessageCount} messages to summary
+                        </span>
+                      )}
+                    </div>
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+                        ▶ Show Summary
+                      </summary>
+                      <div className="mt-2 p-3 bg-white rounded border border-gray-200">
+                        <div className="text-sm text-gray-700 whitespace-pre-wrap">{message.content}</div>
+                      </div>
+                    </details>
+                    <div className="mt-2 text-xs text-gray-500 text-center">
+                      ─── Conversation compressed at {new Date(message.timestamp).toLocaleTimeString()} ───
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} ${message.isArchived ? 'opacity-50' : ''}`}>
+                  <div
+                    className={`max-w-3xl px-4 py-2 rounded-lg ${
+                      message.role === 'user'
+                        ? message.isArchived ? 'bg-blue-400 text-white' : 'bg-blue-600 text-white'
+                        : message.role === 'system'
+                        ? 'bg-yellow-100 text-gray-800 border border-yellow-300'
+                        : message.isArchived ? 'bg-gray-100 text-gray-700' : 'bg-gray-200 text-gray-800'
+                    } ${message.isArchived ? 'border border-gray-300' : ''}`}
+                  >
                 {/* Reasoning component for assistant messages */}
                 {message.role === 'assistant' && (message.reasoning || message.isTemporary) && (
                   <ReasoningComponent reasoning={message.reasoning || { text: '', isThinking: false }} />
@@ -3671,7 +3771,9 @@ function App() {
                     🔍 Examine Input ({message.debug_input.total_chars.toLocaleString()} chars)
                   </button>
                 )}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           
@@ -3689,6 +3791,20 @@ function App() {
           
           <div ref={messagesEndRef} />
         </div>
+
+          {/* Compress Context Button */}
+          {messages.length > 0 && (
+            <div className="bg-gray-50 border-t px-4 py-2">
+              <button
+                onClick={() => setShowCompressConfirmation(true)}
+                disabled={isLoading}
+                className="px-4 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 text-sm font-medium flex items-center"
+              >
+                <span className="mr-2">⚡</span>
+                Compress Context
+              </button>
+            </div>
+          )}
 
           {/* Input */}
           <div className="bg-white border-t p-4">
@@ -4066,6 +4182,48 @@ function App() {
               </div>
             ))}
             <div ref={logsEndRef} />
+          </div>
+        </div>
+      )}
+      
+      {/* Compress Context Confirmation Dialog */}
+      {showCompressConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 flex items-center">
+              <span className="mr-2">⚡</span>
+              Compress Conversation History?
+            </h3>
+            
+            <div className="mb-6 text-sm text-gray-700 space-y-2">
+              <p>This will:</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li>Compress {messages.filter(m => !m.isArchived && !m.isCompressed && (m.role === 'user' || m.role === 'assistant')).length} new messages since last compression</li>
+                <li>Preserve all workflow progress and context</li>
+                <li>Keep previous messages visible but archived</li>
+                <li>Cannot be undone</li>
+              </ul>
+              {messages.some(m => m.isCompressed) && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Previous compression found - will build on existing summary
+                </p>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowCompressConfirmation(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={compressContext}
+                className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Compress
+              </button>
+            </div>
           </div>
         </div>
       )}

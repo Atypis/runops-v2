@@ -147,7 +147,8 @@ export class ConversationService {
       const formatted = {
         role: msg.role,
         content: msg.content,
-        timestamp: msg.timestamp
+        timestamp: msg.timestamp,
+        isArchived: msg.is_archived || false
       };
 
       // Include metadata if present
@@ -163,6 +164,12 @@ export class ConversationService {
         }
         if (msg.metadata.debug_input) {
           formatted.debug_input = msg.metadata.debug_input;
+        }
+        if (msg.metadata.isCompressed) {
+          formatted.isCompressed = msg.metadata.isCompressed;
+        }
+        if (msg.metadata.compressionStats) {
+          formatted.compressionStats = msg.metadata.compressionStats;
         }
       }
 

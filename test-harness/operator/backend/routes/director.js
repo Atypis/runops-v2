@@ -737,4 +737,181 @@ router.delete('/workflows/:id/conversations', async (req, res, next) => {
   }
 });
 
+// Compress context endpoint
+router.post('/compress-context', async (req, res, next) => {
+  try {
+    const { workflowId, messageCount } = req.body;
+    
+    if (!workflowId) {
+      return res.status(400).json({ error: 'Workflow ID is required' });
+    }
+    
+    // Get only non-archived messages (messages since last compression)
+    const { data: conversationHistory, error: historyError } = await directorService.supabase
+      .from('conversations')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .eq('is_archived', false)
+      .order('timestamp', { ascending: true });
+    
+    if (historyError) {
+      console.error('Failed to load conversation history:', historyError);
+      return res.status(500).json({ error: 'Failed to load conversation history' });
+    }
+    
+    // Check if there's anything to compress
+    if (!conversationHistory || conversationHistory.length === 0) {
+      return res.status(400).json({ 
+        error: 'No new messages to compress. All messages are already archived.' 
+      });
+    }
+    
+    // Get the last compressed context to include in the prompt for continuity
+    const { data: lastCompression } = await directorService.supabase
+      .from('compressed_contexts')
+      .select('summary, created_at')
+      .eq('workflow_id', workflowId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    // Build compression context
+    const compressionContext = await directorService.buildCompressionContext(workflowId);
+    
+    // Create compression prompt
+    const compressionPrompt = `You are the Director, an AI Workflow Automation Engineer who has been working with the user to build browser automations. 
+
+You've been asked to compress the recent conversation history to manage token usage while preserving continuity. A future instance of yourself will take over from here.
+
+${lastCompression ? `PREVIOUS COMPRESSION SUMMARY (for context):
+================================================================================
+${lastCompression.summary}
+================================================================================
+
+` : ''}
+YOUR CRITICAL TASK:
+1. **READ THE CONVERSATION HISTORY BELOW (messages since last compression)**
+2. **CREATE A UNIFIED SUMMARY** that combines the previous summary with new developments
+3. Create a comprehensive summary that captures:
+   - What the user originally asked for
+   - What has been built/attempted so far
+   - Key decisions and their rationale
+   - Problems encountered and solutions found
+   - The current state of the work
+   - What remains to be done
+
+IMPORTANT: The following context will persist and be shown to the next Director (so DON'T repeat these):
+1. System Prompt (your core instructions)
+2. Workflow Description (the requirements)
+3. Current Plan (implementation roadmap)  
+4. Workflow Snapshot (all created nodes)
+5. Workflow Variables (current state)
+6. Browser State (active tabs)
+
+WHAT TO EXTRACT FROM THE CONVERSATION:
+- The user's initial request and how it evolved
+- Attempted approaches that failed and why
+- UI quirks or discoveries not reflected in nodes
+- User preferences or clarifications about requirements
+- Debugging insights or patterns discovered
+- Context about WHY certain decisions were made
+- Any promises or commitments made to the user
+- Unresolved questions or next steps
+- Key technical details discovered during implementation
+
+Write your summary as if briefing your replacement who needs to understand the FULL context of what transpired. Be comprehensive but concise.
+
+================================================================================
+RECENT CONVERSATION HISTORY TO COMPRESS (${conversationHistory.length} messages since last compression):
+================================================================================
+
+${conversationService.formatMessagesForDisplay(conversationHistory).map(msg => `${msg.role.toUpperCase()}: ${msg.content}`).join('\n\n')}
+
+================================================================================
+PERSISTENT CONTEXT (FYI - this will remain available):
+================================================================================
+
+${compressionContext}`;
+    
+    // Process with Director
+    const compressionResponse = await directorService.processMessage({
+      message: compressionPrompt,
+      workflowId,
+      conversationHistory: [],
+      isCompressionRequest: true
+    });
+    
+    // Save compressed context to database
+    console.log('Attempting to save compressed context for workflow:', workflowId);
+    console.log('Summary length:', compressionResponse.message?.length);
+    
+    const insertData = {
+      workflow_id: workflowId,
+      summary: compressionResponse.message || 'No summary generated',
+      original_message_count: messageCount || conversationHistory.length,
+      compression_ratio: conversationHistory.length > 0 
+        ? (compressionResponse.message.length / JSON.stringify(conversationHistory).length) 
+        : 0,
+      created_by: 'manual'
+    };
+    
+    console.log('Insert data:', insertData);
+    
+    const { data: compressedContext, error: saveError } = await directorService.supabase
+      .from('compressed_contexts')
+      .insert(insertData)
+      .select()
+      .single();
+    
+    if (saveError) {
+      console.error('Failed to save compressed context:', saveError);
+      console.error('Save error details:', JSON.stringify(saveError, null, 2));
+      throw new Error(`Database error: ${saveError.message || saveError.code || 'Unknown error'}`);
+    }
+    
+    // Mark only the compressed messages as archived (not ALL messages)
+    const messageIds = conversationHistory.map(msg => msg.id);
+    if (messageIds.length > 0) {
+      await directorService.supabase
+        .from('conversations')
+        .update({ is_archived: true })
+        .in('id', messageIds);
+    }
+    
+    // Save the compressed summary as a special message
+    await conversationService.saveMessage(
+      workflowId,
+      'system',
+      compressionResponse.message,
+      {
+        isCompressed: true,
+        compressionStats: {
+          originalMessageCount: messageCount || conversationHistory.length,
+          compressionRatio: compressedContext.compression_ratio
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      summary: compressionResponse.message,
+      originalMessageCount: messageCount || conversationHistory.length,
+      compressionRatio: compressedContext.compression_ratio,
+      compressedContextId: compressedContext.id
+    });
+  } catch (error) {
+    console.error('Failed to compress context:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      workflowId,
+      messageCount
+    });
+    res.status(500).json({ 
+      error: error.message || 'Failed to compress context',
+      details: error.toString() 
+    });
+  }
+});
+
 export default router;
