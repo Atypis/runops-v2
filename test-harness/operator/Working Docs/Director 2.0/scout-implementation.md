@@ -178,3 +178,154 @@ The Scout is optimized for:
 ## Conclusion
 
 The Scout implementation provides Director 2.0 with a powerful, token-efficient reconnaissance capability. By leveraging the same Responses API infrastructure as the Director but in an isolated context, Scout can perform complex, reasoning-driven exploration without impacting the Director's token budget. This enables more intelligent and adaptive workflow building while maintaining the system's efficiency.
+
+## Scout 2.0 - Enhanced Capabilities
+
+### Overview
+
+Scout 2.0 represents a significant upgrade that brings Scout to feature parity with Director's debugging capabilities while maintaining its token-efficient design. The enhancements focus on three key areas:
+1. **Full Debug Tool Access** - Scout gains all Director's debugging tools
+2. **Multi-Tab Exploration** - Complete tab management capabilities  
+3. **Smart Reporting** - Enhanced visibility without token bloat
+
+### New Tool Capabilities
+
+Scout 2.0 gains access to the complete debugging toolkit:
+
+**Previously Available:**
+- `inspect_tab` - DOM inspection
+- `expand_dom_selector` - Element detail extraction
+- `debug_navigate` - Navigation
+- `debug_click` - Click interactions
+
+**New in Scout 2.0:**
+- `debug_type` - Form input testing
+- `debug_wait` - Dynamic content handling
+- `debug_open_tab` - Multi-tab exploration
+- `debug_close_tab` - Tab cleanup
+- `debug_switch_tab` - Tab switching (new for both Director and Scout)
+
+### Enhanced System Prompt
+
+The Scout's system prompt is updated to reflect its expanded capabilities:
+
+```
+AVAILABLE TOOLS:
+- inspect_tab: Get DOM snapshot of current page
+- expand_dom_selector: Get detailed selector info for elements
+- debug_navigate: Navigate to URLs during exploration
+- debug_click: Click elements to test interactions
+- debug_type: Type text into forms to test inputs
+- debug_wait: Wait for elements or time
+- debug_open_tab: Open new tabs for multi-tab flows
+- debug_close_tab: Close tabs when done
+- debug_switch_tab: Switch between open tabs
+
+MULTI-TAB EXPLORATION:
+- Start in 'main' tab by default
+- Use debug_open_tab to create named tabs
+- Use debug_switch_tab to move between tabs
+- Track which tab you're in for context
+
+IMPORTANT: Base ALL findings on actual page inspection through tools - NEVER rely on assumptions or general knowledge. Only report elements and selectors that you have actually verified exist on the page.
+```
+
+### Smart Reporting Architecture
+
+Scout 2.0 implements a dual-track reporting system that maintains token efficiency while providing visibility:
+
+#### What Director Receives (Lightweight):
+```javascript
+{
+  success: true,
+  summary: "Found login form: email=#email-input, password=#password, submit=#submit-btn",
+  key_findings: {
+    selectors_found: ["#email-input", "#password", "#submit-btn"],
+    pages_explored: ["login", "form-validation"],
+    warnings: ["Password field has dynamic ID"]
+  },
+  token_usage: {
+    input_tokens: 5234,
+    output_tokens: 892,
+    total_tokens: 6126,
+    reasoning_tokens: 450
+  },
+  mission_id: "scout_20250109_120000" // For frontend correlation
+}
+```
+
+#### What Gets Stored for Frontend (Detailed):
+```javascript
+{
+  mission_id: "scout_20250109_120000",
+  execution_flow: [
+    {step: 1, action: "Inspected page structure", finding: "45 interactive elements"},
+    {step: 2, action: "Investigated submit button", finding: "Stable selector: #submit-btn"},
+    {step: 3, action: "Typed test email", finding: "Field accepts email format"},
+    {step: 4, action: "Switched to validation tab", finding: "Error messages appeared"}
+  ],
+  detailed_execution_log: [...], // Full tool execution details
+  screenshots: [...] // If captured during exploration
+}
+```
+
+### Implementation Architecture
+
+#### Tool Execution Summary Generation:
+```javascript
+generateToolSummary(toolName, args, result) {
+  switch(toolName) {
+    case 'inspect_tab':
+      const elementCount = result.elements?.length || 0;
+      return `Found ${elementCount} elements`;
+    
+    case 'debug_type':
+      return `Typed into ${args.selector}`;
+    
+    case 'debug_switch_tab':
+      return `Switched to ${args.tabName} tab`;
+    
+    case 'debug_wait':
+      return args.type === 'time' ? 
+        `Waited ${args.value}ms` : 
+        `Waited for ${args.value}`;
+    // etc...
+  }
+}
+```
+
+### Benefits of Scout 2.0
+
+1. **Complete Exploration Capability**: Scout can now handle any exploration scenario including multi-tab OAuth flows, form testing, and dynamic content
+2. **Token Efficiency Preserved**: Director still receives only essential findings, not raw DOM data
+3. **Enhanced User Visibility**: Frontend can display Scout's exploration process without impacting Director's context
+4. **Debugging Support**: Full execution logs available when needed without cluttering normal operation
+5. **Seamless Integration**: Uses same infrastructure as Director for consistency
+
+### Usage Examples - New Capabilities
+
+```javascript
+// Multi-tab OAuth flow exploration
+send_scout({
+  instruction: "Test the Google OAuth login flow. Start on main site, click 'Login with Google', handle the auth in new tab, and verify return to logged-in state"
+})
+
+// Form validation testing
+send_scout({
+  instruction: "Test the registration form. Try invalid emails, short passwords, and verify all error messages appear correctly"
+})
+
+// Dynamic content exploration
+send_scout({
+  instruction: "Search for 'laptop' and wait for results to load. Then identify the product listing structure and pagination controls"
+})
+```
+
+### Technical Considerations
+
+1. **Tab State Management**: Scout maintains access to `nodeExecutor.stagehandPages` for proper tab tracking
+2. **Error Resilience**: Each debug tool includes graceful error handling for missing elements or tabs
+3. **Consistent State**: The stagehand.page reference is properly updated when switching tabs
+4. **Performance**: Tool summaries are generated inline to avoid post-processing overhead
+
+Scout 2.0 transforms the reconnaissance agent from a simple page explorer into a full-featured browser automation investigator, while maintaining the token efficiency that makes it valuable for Director 2.0's incremental workflow building approach.
