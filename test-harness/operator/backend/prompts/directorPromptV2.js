@@ -117,8 +117,14 @@ Transform your scouting intelligence into concrete nodes. Remember: you're build
 **Node Creation Guidelines:**
 - Use exact selectors from scouting - never guess or use vague descriptions
 - Every node must have complete config (no empty {} configs)
-- Reference previous nodes by position (node4.result, not node104)
+- Reference previous nodes by their alias (extract_emails.result, not position numbers)
 - Build incrementally - complexity determines chunk size
+
+**Variable Reference Quick Guide:**
+- Node results: \`{{extract_emails.result}}\` - Use the node's alias
+- Environment vars: \`{{env:GMAIL_EMAIL}}\` - Always prefix with env:
+- Stored variables: \`{{user_credentials.email}}\` - No prefix needed
+- Iterator variables: \`{{current_email.subject}}\` - Available inside loops
 
 **Choose the right node type:**
 - \`browser_action\`: For UI interactions (click, type, navigate)
@@ -377,7 +383,7 @@ Always include in instructions:
 **Required:** \`over\` and \`variable\` (BOTH fields are mandatory!)
 \`\`\`javascript
 {
-  over: "state.items" or "node4.emails",    // REQUIRED: Path to array
+  over: "state.items" or "extract_emails.emails",    // REQUIRED: Path to array
   variable: "currentItem",                   // REQUIRED: Variable name for each item
   body: [16, 17, 18] or 16,                 // Node positions to execute per item
   index: "itemIndex" (optional - defaults to variableIndex),
@@ -388,14 +394,14 @@ Always include in instructions:
 
 **Complete Example - Process Gmail messages:**
 \`\`\`javascript
-// Node 14: Extract messages
-{type: "browser_query", config: {method: "extract", instruction: "Extract all email rows", schema: {messages: [{row_id: "string", sender: "string", subject: "string"}]}}}
+// Extract messages (will have alias: extract_messages)
+{type: "browser_query", config: {method: "extract", instruction: "Extract all email rows", schema: {messages: [{row_id: "string", sender: "string", subject: "string"}]}}, description: "Extract messages"}
 
-// Node 15: Iterate over messages
+// Iterate over messages
 {
   type: "iterate",
   config: {
-    over: "node14.messages",        // REQUIRED: Array from node 14
+    over: "extract_messages.messages",        // REQUIRED: Array from extract_messages node
     variable: "message",            // REQUIRED: Each item is "message"
     body: [16, 17, 18],            // Execute nodes 16-18 for each message
     continueOnError: true
@@ -410,7 +416,7 @@ Always include in instructions:
 **Option 1 - Value routing:**
 \`\`\`javascript
 {
-  value: "state.emailType" or "node4.needsLogin",
+  value: "state.emailType" or "check_login.needsLogin",
   paths: {
     "investor": [/*nodes*/],
     "customer": [/*nodes*/],
@@ -516,28 +522,50 @@ This structure ensures you always have the information needed to make informed d
 **How State Moves:**
 \`\`\`
 Environment Variables → Context Nodes → Workflow Variables → Node References
-      {{EMAIL}}     →  store as "creds" → state.creds.email → node4.result
+      {{env:EMAIL}} →  store as "creds" → {{creds.email}} → {{n:extract_emails.result}}
 \`\`\`
 
-**Variable Storage Patterns:**
+**Variable Reference System:**
+
+1. **Node References** (always use the node's alias):
+   \`\`\`javascript
+   {{extract_emails.result}}      // Access node result by alias
+   {{validate_login.success}}     // Access specific field from node
+   {{extract_emails.emails[0]}}   // Access array elements
+   \`\`\`
+
+2. **Environment Variables** (use env: prefix):
+   \`\`\`javascript
+   {{env:EMAIL}}                  // Environment variable
+   {{env:GMAIL_PASSWORD}}         // All env vars use env: prefix
+   \`\`\`
+
+3. **Context/Workflow Variables** (no prefix needed):
+   \`\`\`javascript
+   {{credentials.email}}          // Stored variable
+   {{current_user.name}}          // Nested access
+   \`\`\`
+
+4. **Iterator Variables** (no prefix needed):
+   \`\`\`javascript
+   {{email.subject}}              // Current item in loop
+   {{emailIndex}}                 // Current index
+   {{emailTotal}}                 // Total count
+   \`\`\`
+
+**Storage Examples:**
 1. **From Environment:**
    \`\`\`javascript
-   {operation: "set", key: "creds", value: {email: "{{EMAIL}}"}}
+   {operation: "set", key: "creds", value: {email: "{{env:EMAIL}}", password: "{{env:PASSWORD}}"}}
    \`\`\`
 
 2. **From Node Results (automatic):**
-   - Query results: \`node4.emails\`
-   - Validation results: \`node7.isLoggedIn\`
-   - Extracted data: \`node10.products\`
+   - Every node automatically stores its result by alias
+   - Access via: \`{{extract_emails.emails}}\` or \`{{validate_login.isLoggedIn}}\`
 
 3. **In Iterations:**
-   - Loop variable: \`{{email.subject}}\`
-   - Index variable: \`{{emailIndex}}\`
-
-**Variable Access Formats:**
-- Template syntax: \`{{variableName}}\` or \`{{nested.field}}\`
-- Node references: \`node4.result\` (use position, not ID)
-- Never include "state." prefix - it's automatic
+   - Loop variable: \`{{current_email.subject}}\`
+   - Index variable: \`{{current_emailIndex}}\`
 
 ### 🎯 Best Practices
 
@@ -562,7 +590,7 @@ Environment Variables → Context Nodes → Workflow Variables → Node Referenc
 ### 🚨 Common Pitfalls to Avoid
 
 1. **Don't prefix with "state."** - Wrong: \`{{state.email}}\`, Right: \`{{email}}\`
-2. **Reference nodes by position** - Wrong: \`node4a5b2c3.result\`, Right: \`node4.result\`
+2. **Always use aliases for nodes** - Wrong: \`{{node4.result}}\`, Right: \`{{extract_emails.result}}\`
 3. **Don't store huge datasets** - Extract only what you need
 4. **Don't fight the chunking** - Use tools to see full content when needed
 

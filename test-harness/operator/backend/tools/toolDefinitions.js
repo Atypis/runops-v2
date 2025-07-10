@@ -53,9 +53,49 @@ export function createToolDefinitions() {
             description: {
               type: 'string',
               description: 'Human-readable description of what this node does'
+            },
+            alias: {
+              type: 'string',
+              description: 'Optional alias for the node (auto-generated from description if not provided)'
             }
           },
           required: ['type', 'config']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'insert_node_at',
+        description: 'Insert a new node at a specific position, shifting existing nodes',
+        parameters: {
+          type: 'object',
+          properties: {
+            position: {
+              type: 'number',
+              description: 'The position where the node should be inserted'
+            },
+            node: {
+              type: 'object',
+              properties: {
+                type: {
+                  type: 'string',
+                  enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
+                },
+                config: {
+                  type: 'object'
+                },
+                description: {
+                  type: 'string'
+                },
+                alias: {
+                  type: 'string'
+                }
+              },
+              required: ['type', 'config']
+            }
+          },
+          required: ['position', 'node']
         }
       }
     },

@@ -530,23 +530,42 @@ export class NodeExecutor {
       }
       
       // Also store the result in workflow memory for easy access by subsequent nodes
-      // This allows referencing via state.node[position] or direct node[position]
-      if (result !== null && result !== undefined && node.position) {
+      // Store by both position (legacy) and alias (new)
+      if (result !== null && result !== undefined) {
         try {
-          // Use iteration-aware storage key
-          const storageKey = this.getStorageKey(`node${node.position}`);
+          const upserts = [];
           
-          await supabase
-            .from('workflow_memory')
-            .upsert({
+          // Store by position for backward compatibility
+          if (node.position) {
+            const positionKey = this.getStorageKey(`node${node.position}`);
+            upserts.push({
               workflow_id: workflowId,
-              key: storageKey,
+              key: positionKey,
               value: result
             });
-          console.log(`[EXECUTE] Stored node position ${node.position} (id: ${nodeId}) result in workflow memory with key: ${storageKey}`);
+            console.log(`[EXECUTE] Storing by position key: ${positionKey}`);
+          }
+          
+          // Store by alias for new reference system
+          if (node.alias) {
+            const aliasKey = this.getStorageKey(node.alias);
+            upserts.push({
+              workflow_id: workflowId,
+              key: aliasKey,
+              value: result
+            });
+            console.log(`[EXECUTE] Storing by alias key: ${aliasKey}`);
+          }
+          
+          if (upserts.length > 0) {
+            await supabase
+              .from('workflow_memory')
+              .upsert(upserts);
+            console.log(`[EXECUTE] Stored node ${node.alias || `position ${node.position}`} result in workflow memory`);
+          }
           
           // Send real-time update to frontend
-          this.sendNodeValueUpdate(nodeId, node.position, result, storageKey);
+          this.sendNodeValueUpdate(nodeId, node.position, result, node.alias || `node${node.position}`);
         } catch (memError) {
           console.error(`[EXECUTE] Failed to store node result in memory:`, memError);
           // Don't fail the execution if memory storage fails
@@ -1498,6 +1517,25 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
           .eq('key', storageKey)
           .single();
           
+        if (!memoryData) {
+          // If not found in memory, look up node by alias
+          console.log(`[STATE] Not found in memory, looking up node by alias: ${nodeRef}`);
+          const { data: nodeByAlias } = await supabase
+            .from('nodes')
+            .select('id, position, result')
+            .eq('workflow_id', workflowId)
+            .eq('alias', nodeRef)
+            .single();
+          
+          if (nodeByAlias) {
+            // Store in memory for future reference
+            if (nodeByAlias.result) {
+              await this.storeNodeResult(nodeByAlias.id, workflowId, nodeByAlias.result);
+            }
+            memoryData = { value: nodeByAlias.result };
+          }
+        }
+        
         if (memoryData && memoryData.value !== null) {
           // Log a summary instead of the full value to avoid spam
           const valueType = Array.isArray(memoryData.value) ? `array[${memoryData.value.length}]` : typeof memoryData.value;
