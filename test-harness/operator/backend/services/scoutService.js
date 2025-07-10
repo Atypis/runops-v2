@@ -368,22 +368,25 @@ export class ScoutService {
         }
         
         try {
-          const browser = nodeExecutor.browser || nodeExecutor.page?.browser();
-          if (!browser) {
+          // Get browser context from stagehand
+          const stagehand = await nodeExecutor.getStagehand();
+          const context = stagehand.context;
+          
+          if (!context) {
             return {
               success: false,
-              error: 'No browser instance available'
+              error: 'No browser context available. The Director needs to create a browser session first.'
             };
           }
           
-          const newPage = await browser.newPage();
+          // Create new page
+          const newPage = await context.newPage();
           await newPage.goto(args.url, { waitUntil: 'domcontentloaded' });
           
           // Store the new page
           nodeExecutor.stagehandPages[args.tabName] = newPage;
           
           // Update stagehand's current page to the new tab
-          const stagehand = await nodeExecutor.getStagehand();
           stagehand.page = newPage;
           
           return {
