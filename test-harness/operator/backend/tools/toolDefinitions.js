@@ -776,6 +776,27 @@ export function createToolDefinitions() {
           required: ['tabName', 'reason']
         }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'debug_switch_tab',
+        description: 'Switch to a different tab for debugging/exploration without creating a workflow node.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Name of the tab to switch to'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why switching tabs (for audit trail)'
+            }
+          },
+          required: ['tabName', 'reason']
+        }
+      }
     }
   ];
 }

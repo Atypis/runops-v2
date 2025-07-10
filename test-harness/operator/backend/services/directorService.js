@@ -413,6 +413,9 @@ export class DirectorService {
           case 'debug_close_tab':
             result = await this.debugCloseTab(args, workflowId);
             break;
+          case 'debug_switch_tab':
+            result = await this.debugSwitchTab(args, workflowId);
+            break;
           default:
             result = { error: `Unknown tool: ${toolName}` };
         }
@@ -1475,12 +1478,35 @@ export class DirectorService {
         this.scoutService = new ScoutService();
       }
       
-      // Deploy scout with node executor for browser access
+      // Lazy load BrowserStateService if needed
+      if (!this.browserStateService) {
+        const BrowserStateService = (await import('./browserStateService.js')).default;
+        this.browserStateService = new BrowserStateService();
+      }
+      
+      // Get current browser state
+      let browserState = await this.browserStateService.getBrowserState(workflowId);
+      
+      if (!browserState || !browserState.tabs || browserState.tabs.length === 0) {
+        // Initialize browser state if it doesn't exist
+        const stagehand = await this.nodeExecutor.getStagehand();
+        if (stagehand && stagehand.page) {
+          // Update browser state to reflect current reality
+          await this.browserStateService.updateBrowserState(workflowId, {
+            tabs: [{ name: 'main', url: stagehand.page.url() || 'about:blank' }],
+            active_tab_name: 'main'
+          });
+          browserState = await this.browserStateService.getBrowserState(workflowId);
+        }
+      }
+      
+      // Deploy scout with node executor and browser state
       const findings = await this.scoutService.deployScout({
         instruction,
         tabName: tabName || 'main',
         workflowId,
-        nodeExecutor: this.nodeExecutor
+        nodeExecutor: this.nodeExecutor,
+        browserState: browserState || { tabs: [] }
       });
       
       console.log(`[DIRECTOR] Scout mission complete. Token usage:`, findings.token_usage);
@@ -1794,6 +1820,57 @@ export class DirectorService {
       
     } catch (error) {
       console.error('[DEBUG_CLOSE_TAB] Close tab failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async debugSwitchTab(args, workflowId) {
+    try {
+      const { tabName, reason } = args;
+      
+      console.log(`[DEBUG_SWITCH_TAB] ${reason}: Switching to tab "${tabName}"`);
+      
+      // Get the appropriate page
+      const stagehand = await this.nodeExecutor.getStagehand();
+      let targetPage;
+      
+      if (tabName === 'main') {
+        targetPage = this.nodeExecutor.mainPage || stagehand.page;
+      } else {
+        if (!this.nodeExecutor.stagehandPages || !this.nodeExecutor.stagehandPages[tabName]) {
+          throw new Error(`Tab "${tabName}" does not exist.`);
+        }
+        targetPage = this.nodeExecutor.stagehandPages[tabName];
+      }
+      
+      // Bring the page to front
+      await targetPage.bringToFront();
+      
+      // Update stagehand's current page
+      stagehand.page = targetPage;
+      
+      // Update browser state to reflect the active tab
+      const browserState = await this.browserStateService.getBrowserState(workflowId);
+      if (browserState) {
+        await this.browserStateService.updateBrowserState(workflowId, {
+          ...browserState,
+          active_tab_name: tabName
+        });
+      }
+      
+      console.log(`[DEBUG_SWITCH_TAB] Successfully switched to tab "${tabName}"`);
+      
+      return {
+        success: true,
+        switched_to: tabName,
+        reason
+      };
+      
+    } catch (error) {
+      console.error('[DEBUG_SWITCH_TAB] Switch tab failed:', error);
       return {
         success: false,
         error: error.message
@@ -2420,6 +2497,9 @@ export class DirectorService {
           break;
         case 'debug_close_tab':
           result = await this.debugCloseTab(args, workflowId);
+          break;
+        case 'debug_switch_tab':
+          result = await this.debugSwitchTab(args, workflowId);
           break;
         default:
           throw new Error(`Unknown tool: ${toolName}`);
