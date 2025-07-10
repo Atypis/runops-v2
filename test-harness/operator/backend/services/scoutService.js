@@ -386,8 +386,9 @@ export class ScoutService {
           // Store the new page
           nodeExecutor.stagehandPages[args.tabName] = newPage;
           
-          // Update stagehand's current page to the new tab
-          stagehand.page = newPage;
+          // Make the new tab active
+          await newPage.bringToFront();
+          nodeExecutor.activeTabName = args.tabName;
           
           return {
             success: true,
@@ -421,8 +422,10 @@ export class ScoutService {
           delete nodeExecutor.stagehandPages[args.tabName];
           
           // Switch back to main tab
-          const stagehand = await nodeExecutor.getStagehand();
-          stagehand.page = nodeExecutor.mainPage || nodeExecutor.page;
+          if (nodeExecutor.mainPage) {
+            await nodeExecutor.mainPage.bringToFront();
+            nodeExecutor.activeTabName = 'main';
+          }
           
           return {
             success: true,
@@ -454,9 +457,8 @@ export class ScoutService {
           // Bring tab to front
           await pageToSwitch.bringToFront();
           
-          // Update stagehand's current page
-          const stagehand = await nodeExecutor.getStagehand();
-          stagehand.page = pageToSwitch;
+          // Update the active tab name
+          nodeExecutor.activeTabName = targetTab;
           
           return {
             success: true,
