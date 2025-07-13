@@ -921,4 +921,47 @@ ${compressionContext}`;
   }
 });
 
+// List all groups for a workflow
+router.get('/groups/:workflowId', async (req, res, next) => {
+  try {
+    const { workflowId } = req.params;
+    const result = await directorService.listGroups(workflowId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Use a group (instantiate it)
+router.post('/groups/use', async (req, res, next) => {
+  try {
+    const { workflowId, groupId, params, description } = req.body;
+    
+    if (!workflowId || !groupId) {
+      return res.status(400).json({ error: 'Missing workflowId or groupId' });
+    }
+    
+    const result = await directorService.useGroup({ groupId, params, description }, workflowId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get a specific group definition
+router.get('/groups/:workflowId/:groupId', async (req, res, next) => {
+  try {
+    const { workflowId, groupId } = req.params;
+    const definition = await directorService.nodeExecutor.getGroupDefinition(groupId, workflowId);
+    
+    if (!definition) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    
+    res.json(definition);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

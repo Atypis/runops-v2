@@ -268,8 +268,9 @@ function App() {
   const [currentDescription, setCurrentDescription] = useState(null);
   const [showCompressConfirmation, setShowCompressConfirmation] = useState(false);
   const [planExpanded, setPlanExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState('description'); // 'description', 'plan', 'variables', 'browser', 'reasoning', 'tokens'
+  const [activeTab, setActiveTab] = useState('description'); // 'description', 'plan', 'variables', 'browser', 'reasoning', 'tokens', 'groups'
   const [variables, setVariables] = useState([]);
+  const [groups, setGroups] = useState([]); // Reusable workflow groups
   const [reasoningText, setReasoningText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [reasoningConnected, setReasoningConnected] = useState(false);
@@ -281,6 +282,7 @@ function App() {
   const [browserState, setBrowserState] = useState(null); // Browser state for Director 2.0
   const [debugModalOpen, setDebugModalOpen] = useState(false); // Debug modal state
   const [debugModalData, setDebugModalData] = useState(null); // Debug modal data
+  const [showSuccessMessage, setShowSuccessMessage] = useState(''); // Success message for UI feedback
   const messagesEndRef = useRef(null);
   const logsEndRef = useRef(null);
   const nodesPanelRef = useRef(null); // Reference to the nodes panel scroll container
@@ -471,6 +473,21 @@ function App() {
     }
   };
 
+  // Load groups for the Groups tab
+  const loadGroups = async () => {
+    if (!currentWorkflow?.id) return;
+    
+    try {
+      const response = await fetch(`${API_BASE}/director/groups/${currentWorkflow.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setGroups(data.groups || []);
+      }
+    } catch (error) {
+      console.error('Failed to load groups:', error);
+    }
+  };
+
   // Real-time browser state updates via Server-Sent Events
   useEffect(() => {
     if (!currentWorkflow?.id) return;
@@ -552,6 +569,13 @@ function App() {
       };
     }
   }, [isResizing]);
+
+  // Load groups when tab is selected or workflow changes
+  useEffect(() => {
+    if (activeTab === 'groups' && currentWorkflow?.id) {
+      loadGroups();
+    }
+  }, [activeTab, currentWorkflow]);
 
   // WebSocket connection for reasoning stream
   useEffect(() => {
@@ -1215,6 +1239,133 @@ function App() {
   };
 
   // VariablesViewer Component
+  const GroupsViewer = ({ groups, workflowId, onUseGroup, onRefresh }) => {
+    const [selectedGroup, setSelectedGroup] = useState(null);
+    const [groupParams, setGroupParams] = useState({});
+    const [showParamsModal, setShowParamsModal] = useState(false);
+
+    if (!groups || groups.length === 0) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <p className="text-sm">No groups defined yet</p>
+          <p className="text-xs mt-1">The Director can create reusable groups with define_group</p>
+          <button 
+            onClick={onRefresh}
+            className="mt-4 text-teal-600 hover:text-teal-700 text-sm font-medium"
+          >
+            Refresh Groups
+          </button>
+        </div>
+      );
+    }
+
+    const handleUseGroup = (group) => {
+      setSelectedGroup(group);
+      setGroupParams({});
+      setShowParamsModal(true);
+    };
+
+    const submitGroupUsage = () => {
+      if (selectedGroup) {
+        onUseGroup(selectedGroup.groupId, groupParams);
+        setShowParamsModal(false);
+        setSelectedGroup(null);
+        setGroupParams({});
+      }
+    };
+
+    return (
+      <>
+        <div className="space-y-3">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-sm font-semibold text-gray-700">Reusable Workflow Groups</h3>
+            <button 
+              onClick={onRefresh}
+              className="text-teal-600 hover:text-teal-700 text-sm"
+            >
+              Refresh
+            </button>
+          </div>
+          
+          {groups.map(group => (
+            <div key={group.groupId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <h4 className="font-semibold text-gray-800">{group.name}</h4>
+                  <p className="text-sm text-gray-600 mt-1">{group.description}</p>
+                  <div className="mt-2 text-xs text-gray-500">
+                    <span className="bg-teal-100 text-teal-700 px-2 py-0.5 rounded">
+                      {group.nodeCount} nodes
+                    </span>
+                    {group.parameters && group.parameters.length > 0 && (
+                      <span className="ml-2">
+                        Parameters: {group.parameters.join(', ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleUseGroup(group)}
+                  className="ml-4 px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded"
+                >
+                  Use Group
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Parameters Modal */}
+        {showParamsModal && selectedGroup && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <h3 className="text-lg font-semibold mb-4">Use Group: {selectedGroup.name}</h3>
+              
+              {selectedGroup.parameters && selectedGroup.parameters.length > 0 ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">Enter values for the group parameters:</p>
+                  {selectedGroup.parameters.map(param => (
+                    <div key={param}>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {param}
+                      </label>
+                      <input
+                        type="text"
+                        value={groupParams[param] || ''}
+                        onChange={(e) => setGroupParams({...groupParams, [param]: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder={`Enter ${param}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-600 mb-4">
+                  This group has no parameters. Click submit to instantiate it.
+                </p>
+              )}
+              
+              <div className="mt-6 flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowParamsModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitGroupUsage}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded"
+                >
+                  Use Group
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   const VariablesViewer = ({ variables, workflowId }) => {
     if (!variables || variables.length === 0) {
       return (
@@ -3596,6 +3747,23 @@ function App() {
 
   return (
     <div className={`flex flex-col h-screen bg-gray-50 ${isResizing ? 'no-select' : ''}`}>
+      {/* Success Message */}
+      {showSuccessMessage && (
+        <div className="bg-green-100 border-b border-green-400 text-green-700 px-4 py-3 flex items-center justify-between">
+          <span className="flex items-center">
+            <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            {showSuccessMessage}
+          </span>
+          <button onClick={() => setShowSuccessMessage('')} className="text-green-700 hover:text-green-800">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}
+      
       {/* Top Bar */}
       <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">
@@ -4051,6 +4219,21 @@ function App() {
                     <span className="ml-2 inline-block w-2 h-2 bg-orange-500 rounded-full" />
                   )}
                 </button>
+                <button
+                  onClick={() => setActiveTab('groups')}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === 'groups'
+                      ? 'text-teal-700 border-b-2 border-teal-700 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Groups
+                  {groups.length > 0 && (
+                    <span className="ml-1 inline-block bg-teal-100 text-teal-800 text-xs px-2 py-0.5 rounded-full">
+                      {groups.length}
+                    </span>
+                  )}
+                </button>
               </div>
               
               {/* Tab Content */}
@@ -4147,6 +4330,41 @@ function App() {
                 )}
                 {activeTab === 'tokens' && (
                   <TokenViewer tokenStats={tokenStats} />
+                )}
+                {activeTab === 'groups' && (
+                  <GroupsViewer 
+                    groups={groups} 
+                    workflowId={currentWorkflow?.id} 
+                    onUseGroup={async (groupId, params) => {
+                      try {
+                        const response = await fetch(`${API_BASE}/director/groups/use`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            workflowId: currentWorkflow.id,
+                            groupId,
+                            params
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          const result = await response.json();
+                          console.log('Group instantiated:', result);
+                          // Reload nodes to show the new ones
+                          loadWorkflowNodes(currentWorkflow.id);
+                          setShowSuccessMessage(`Group "${groupId}" instantiated successfully! Created ${result.nodesCreated} nodes.`);
+                          setTimeout(() => setShowSuccessMessage(''), 5000);
+                        } else {
+                          const error = await response.json();
+                          alert(`Failed to use group: ${error.error || 'Unknown error'}`);
+                        }
+                      } catch (error) {
+                        console.error('Error using group:', error);
+                        alert('Failed to use group: ' + error.message);
+                      }
+                    }}
+                    onRefresh={loadGroups}
+                  />
                 )}
               </div>
             </div>
