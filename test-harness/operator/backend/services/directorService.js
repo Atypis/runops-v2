@@ -2668,13 +2668,15 @@ export class DirectorService {
         summary: 'detailed'
       },
       include: ['reasoning.encrypted_content'],
-      store: false,  // Fine - usage is still complete without streaming
+      store: false,  // Default to false for non-background mode
       stream: false  // KEY CHANGE: No streaming = accurate token counts immediately
     };
 
-    // Add background flag for o3
+    // Configure for background mode (o3 only)
     if (useBackgroundMode) {
       requestParams.background = true;
+      requestParams.store = true;  // Required by OpenAI for background mode
+      console.log(`[BACKGROUND MODE] Enabling store=true for background job processing`);
     }
 
     const response = await this.openai.responses.create(requestParams);
