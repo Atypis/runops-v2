@@ -9,7 +9,7 @@ The `send_scout` tool is a token-efficient exploration mechanism that allows the
 ### Technology Stack:
 - **Language**: JavaScript/Node.js (native to Director ecosystem)
 - **AI Model**: OpenAI Responses API with o4-mini (same as Director)
-- **Browser Access**: Via existing TabInspectionService
+- **Browser Access**: Via existing TabInspectionService and nodeExecutor
 - **Context Management**: Isolated from Director's context for token efficiency
 
 ### Flow:
@@ -17,7 +17,8 @@ The `send_scout` tool is a token-efficient exploration mechanism that allows the
 2. **ScoutService** creates isolated context with Scout-specific system prompt
 3. **Scout Agent** (o4-mini with reasoning) receives:
    - Mission instructions
-   - Access to `inspect_tab` and `expand_dom_selector` tools
+   - Current browser state (tabs, active tab, URLs)
+   - Access to all debug tools and inspection capabilities
    - Ability to make multiple tool calls within reasoning chain
 4. **Scout** explores page through reasoning-driven tool calls
 5. **Director** receives consolidated findings without context pollution
@@ -29,6 +30,7 @@ The `send_scout` tool is a token-efficient exploration mechanism that allows the
 - Implements recursive control loop pattern (same as Director)
 - Handles tool execution within reasoning chains
 - Returns structured findings with token usage metrics
+- Receives and formats browser state for Scout's awareness
 
 ### Tool Definition (`backend/tools/toolDefinitions.js`)
 
@@ -58,8 +60,135 @@ The `send_scout` tool is a token-efficient exploration mechanism that allows the
 
 ### Director Integration (`backend/services/directorService.js`)
 - Lazy loads ScoutService on first use
-- Passes `nodeExecutor` for browser access
+- Passes `nodeExecutor` and browser state for Scout's browser access
+- Retrieves current browser state before Scout deployment
 - Handles both Chat Completions and Responses API tool execution paths
+
+## Scout 2.0 - Full Feature Parity
+
+### Overview
+
+Scout 2.0 brings Scout to complete feature parity with Director's debugging capabilities. The enhancements addressed critical issues discovered during testing:
+
+1. **Browser State Awareness** - Scout now knows what tabs are open
+2. **Proper Page Access** - Fixed undefined page errors
+3. **Complete Debug Toolkit** - All Director tools available
+4. **Truthful Reporting** - No more hallucinated findings
+
+### Issues Addressed
+
+#### 1. Browser State Awareness
+**Problem**: Scout was attempting to inspect tabs without knowing if any pages were loaded, resulting in "No browser state available" errors.
+
+**Solution**: 
+- Scout now receives the current browser state when deployed
+- Browser state is formatted and included in Scout's initial context
+- Scout can make informed decisions about whether to navigate first or inspect existing pages
+
+#### 2. Browser Page Access
+**Problem**: Scout was trying to access `nodeExecutor.page` directly, which was often undefined, causing "Cannot read properties of undefined" errors.
+
+**Solution**:
+- Implemented proper page access pattern checking `mainPage` and `stagehandPages`
+- Added graceful error handling when no page is available
+- Each debug tool now properly retrieves the appropriate page object
+
+#### 3. Error Handling and Truthful Reporting
+**Problem**: Scout was hallucinating results even when all tools failed, reporting success with made-up selectors.
+
+**Solution**:
+- Enhanced error tracking in `extractScoutFindings`
+- Added execution log with success/failure status for each tool
+- Scout now reports failures honestly and includes error details
+- Success status accurately reflects whether any tools executed successfully
+
+#### 4. Missing Debug Tools
+**Problem**: Scout only had access to 4 debug tools while Director had 6+ tools.
+
+**Solution**:
+- Implemented all missing debug tools in Scout
+- Added `debug_switch_tab` as a new tool for both Director and Scout
+- Scout now has complete parity with Director's debugging capabilities
+
+### Complete Tool Set
+
+Scout 2.0 has access to all debugging tools:
+
+```javascript
+// Inspection Tools
+- inspect_tab         // Get DOM snapshot (requires loaded page)
+- expand_dom_selector // Get detailed selector info
+
+// Navigation Tools  
+- debug_navigate      // Navigate to URLs
+- debug_click         // Click elements
+- debug_type          // Type into forms
+- debug_wait          // Wait for elements/time
+
+// Tab Management Tools
+- debug_open_tab      // Create new tabs
+- debug_close_tab     // Close tabs
+- debug_switch_tab    // Switch between tabs
+```
+
+### Enhanced System Prompt
+
+Scout's system prompt now includes:
+
+```
+BROWSER STATE AWARENESS:
+- You'll receive the current browser state at the start of your mission
+- If no tabs are open, you MUST navigate somewhere first using debug_navigate
+- If tabs are open, you can start with inspect_tab
+- Always be aware of which tab you're working in
+
+ERROR HANDLING:
+- If a tool fails, report the failure - don't guess
+- If you can't inspect because no page is loaded, navigate first
+- Include all errors in your final report
+- NEVER hallucinate or make up findings
+
+TRUTHFUL REPORTING:
+- ONLY report elements and selectors you've actually found
+- Base ALL findings on successful tool executions
+- If you couldn't complete the mission, explain why
+- Include tool failures in your report
+```
+
+### Smart Reporting System
+
+Scout 2.0 implements a dual-track reporting system:
+
+#### Lightweight Summary for Director:
+```javascript
+{
+  success: true,
+  summary: "Found login form with email and password fields...",
+  errors: [],           // Any tool failures
+  execution_log: [],    // Summary of all tool executions
+  tools_executed: 14,
+  exploration_depth: 7, // Number of expand_dom_selector calls
+  token_usage: {...}
+}
+```
+
+#### Execution Log Format:
+```javascript
+execution_log: [
+  {
+    tool: "inspect_tab",
+    args: { inspectionType: "dom_snapshot" },
+    success: true,
+    result_summary: "Found 1451 elements"
+  },
+  {
+    tool: "debug_navigate",
+    args: { url: "https://example.com" },
+    success: false,
+    result_summary: "Error: Navigation timeout"
+  }
+]
+```
 
 ## Usage Examples
 
@@ -69,242 +198,6 @@ send_scout({
   instruction: "Find all login form elements and their stable selectors"
 })
 
-// Complex conditional investigation
-send_scout({
-  instruction: "Check if we're logged in. If not, find the login form elements. If yes, find the logout button"
-})
-
-// Pattern discovery
-send_scout({
-  instruction: "Identify all data tables on this page and their column headers"
-})
-
-// Navigation analysis
-send_scout({
-  instruction: "Find the main navigation menu and list all top-level links with their selectors"
-})
-```
-
-## Scout Agent Behavior
-
-The Scout uses o4-mini reasoning to:
-1. Call `inspect_tab` to get initial page structure
-2. Analyze the DOM to identify relevant elements
-3. Call `expand_dom_selector` multiple times on interesting elements
-4. Build comprehensive understanding through iterative exploration
-5. Compile findings into a structured report
-
-### Scout System Prompt
-The Scout is optimized for:
-- Systematic exploration using available tools
-- Finding stable selectors (IDs, data-testid, aria-label)
-- Identifying patterns across similar elements
-- Testing selector reliability
-- Reporting ready-to-use selector strategies
-
-## Response Format
-
-```javascript
-{
-  "success": true,
-  "summary": "Found login form with email and password fields. The email field has id='email' and data-testid='email-input'. The password field has id='password'. Submit button has data-testid='login-submit'.",
-  "elements": [],  // Can be extended to include structured element data
-  "patterns": [],   // Can be extended to include discovered patterns
-  "warnings": [],   // Can be extended to include potential issues
-  "reasoning_summary": "Inspected page, found form at..., investigated 4 input elements...",
-  "token_usage": {
-    "input_tokens": 5234,
-    "output_tokens": 892,
-    "total_tokens": 6126,
-    "reasoning_tokens": 450
-  },
-  "tools_executed": 5,      // Total tool calls made
-  "exploration_depth": 4    // Number of elements investigated with expand_dom_selector
-}
-```
-
-## Benefits
-
-1. **Token Efficiency**: Scout operates in isolated context, Director only sees findings
-2. **Reasoning Power**: Uses o4-mini's reasoning for intelligent, adaptive exploration
-3. **Multiple Tool Calls**: Scout can thoroughly investigate through reasoning chains
-4. **Natural Language**: Director gives missions, not specific inspection commands
-5. **Stable Selectors**: Scout prioritizes automation-friendly selectors
-6. **Pattern Recognition**: Scout can identify patterns across multiple elements
-
-## Integration with Director 2.0 Workflow
-
-### Three-Tool Strategy:
-1. **send_scout**: For intelligent exploration requiring reasoning
-2. **inspect_tab**: For direct DOM structure access
-3. **expand_dom_selector**: For surgical element inspection
-
-### When to Use Scout:
-- Complex exploration missions (e.g., "Find all form validation patterns")
-- Conditional investigations (e.g., "Check login state and find appropriate elements")
-- Pattern discovery across multiple elements
-- When you need intelligent interpretation of the page
-
-### When to Use Direct Inspection:
-- Simple DOM structure queries
-- When you know exactly what element to inspect
-- Debugging specific selector issues
-- When raw DOM data is needed
-
-## Technical Architecture
-
-### Key Design Decisions:
-1. **JavaScript Native**: Seamless integration with existing Director ecosystem
-2. **Responses API**: Enables complex reasoning chains with multiple tool calls
-3. **Isolated Context**: Prevents Director context pollution
-4. **Reuses Infrastructure**: Leverages existing TabInspectionService
-5. **Non-streaming**: Ensures accurate token counting
-
-### Performance Characteristics:
-- **Model**: o4-mini (same as Director)
-- **Reasoning Effort**: 'low' (vs Director's 'medium')
-- **Typical Token Usage**: 3-8k input, 500-2k output
-- **Tool Calls**: Usually 3-10 per mission
-- **Response Time**: 5-15 seconds depending on complexity
-
-## Future Enhancements
-
-1. **Structured Element Extraction**: Return detailed element arrays
-2. **Pattern Library**: Build reusable selector patterns
-3. **Multi-Page Exploration**: Scout across navigation flows
-4. **Visual Analysis**: Integration with screenshot analysis
-5. **Learning System**: Remember successful selector strategies
-
-## Conclusion
-
-The Scout implementation provides Director 2.0 with a powerful, token-efficient reconnaissance capability. By leveraging the same Responses API infrastructure as the Director but in an isolated context, Scout can perform complex, reasoning-driven exploration without impacting the Director's token budget. This enables more intelligent and adaptive workflow building while maintaining the system's efficiency.
-
-## Scout 2.0 - Enhanced Capabilities
-
-### Overview
-
-Scout 2.0 represents a significant upgrade that brings Scout to feature parity with Director's debugging capabilities while maintaining its token-efficient design. The enhancements focus on three key areas:
-1. **Full Debug Tool Access** - Scout gains all Director's debugging tools
-2. **Multi-Tab Exploration** - Complete tab management capabilities  
-3. **Smart Reporting** - Enhanced visibility without token bloat
-
-### New Tool Capabilities
-
-Scout 2.0 gains access to the complete debugging toolkit:
-
-**Previously Available:**
-- `inspect_tab` - DOM inspection
-- `expand_dom_selector` - Element detail extraction
-- `debug_navigate` - Navigation
-- `debug_click` - Click interactions
-
-**New in Scout 2.0:**
-- `debug_type` - Form input testing
-- `debug_wait` - Dynamic content handling
-- `debug_open_tab` - Multi-tab exploration
-- `debug_close_tab` - Tab cleanup
-- `debug_switch_tab` - Tab switching (new for both Director and Scout)
-
-### Enhanced System Prompt
-
-The Scout's system prompt is updated to reflect its expanded capabilities:
-
-```
-AVAILABLE TOOLS:
-- inspect_tab: Get DOM snapshot of current page
-- expand_dom_selector: Get detailed selector info for elements
-- debug_navigate: Navigate to URLs during exploration
-- debug_click: Click elements to test interactions
-- debug_type: Type text into forms to test inputs
-- debug_wait: Wait for elements or time
-- debug_open_tab: Open new tabs for multi-tab flows
-- debug_close_tab: Close tabs when done
-- debug_switch_tab: Switch between open tabs
-
-MULTI-TAB EXPLORATION:
-- Start in 'main' tab by default
-- Use debug_open_tab to create named tabs
-- Use debug_switch_tab to move between tabs
-- Track which tab you're in for context
-
-IMPORTANT: Base ALL findings on actual page inspection through tools - NEVER rely on assumptions or general knowledge. Only report elements and selectors that you have actually verified exist on the page.
-```
-
-### Smart Reporting Architecture
-
-Scout 2.0 implements a dual-track reporting system that maintains token efficiency while providing visibility:
-
-#### What Director Receives (Lightweight):
-```javascript
-{
-  success: true,
-  summary: "Found login form: email=#email-input, password=#password, submit=#submit-btn",
-  key_findings: {
-    selectors_found: ["#email-input", "#password", "#submit-btn"],
-    pages_explored: ["login", "form-validation"],
-    warnings: ["Password field has dynamic ID"]
-  },
-  token_usage: {
-    input_tokens: 5234,
-    output_tokens: 892,
-    total_tokens: 6126,
-    reasoning_tokens: 450
-  },
-  mission_id: "scout_20250109_120000" // For frontend correlation
-}
-```
-
-#### What Gets Stored for Frontend (Detailed):
-```javascript
-{
-  mission_id: "scout_20250109_120000",
-  execution_flow: [
-    {step: 1, action: "Inspected page structure", finding: "45 interactive elements"},
-    {step: 2, action: "Investigated submit button", finding: "Stable selector: #submit-btn"},
-    {step: 3, action: "Typed test email", finding: "Field accepts email format"},
-    {step: 4, action: "Switched to validation tab", finding: "Error messages appeared"}
-  ],
-  detailed_execution_log: [...], // Full tool execution details
-  screenshots: [...] // If captured during exploration
-}
-```
-
-### Implementation Architecture
-
-#### Tool Execution Summary Generation:
-```javascript
-generateToolSummary(toolName, args, result) {
-  switch(toolName) {
-    case 'inspect_tab':
-      const elementCount = result.elements?.length || 0;
-      return `Found ${elementCount} elements`;
-    
-    case 'debug_type':
-      return `Typed into ${args.selector}`;
-    
-    case 'debug_switch_tab':
-      return `Switched to ${args.tabName} tab`;
-    
-    case 'debug_wait':
-      return args.type === 'time' ? 
-        `Waited ${args.value}ms` : 
-        `Waited for ${args.value}`;
-    // etc...
-  }
-}
-```
-
-### Benefits of Scout 2.0
-
-1. **Complete Exploration Capability**: Scout can now handle any exploration scenario including multi-tab OAuth flows, form testing, and dynamic content
-2. **Token Efficiency Preserved**: Director still receives only essential findings, not raw DOM data
-3. **Enhanced User Visibility**: Frontend can display Scout's exploration process without impacting Director's context
-4. **Debugging Support**: Full execution logs available when needed without cluttering normal operation
-5. **Seamless Integration**: Uses same infrastructure as Director for consistency
-
-### Usage Examples - New Capabilities
-
-```javascript
 // Multi-tab OAuth flow exploration
 send_scout({
   instruction: "Test the Google OAuth login flow. Start on main site, click 'Login with Google', handle the auth in new tab, and verify return to logged-in state"
@@ -321,11 +214,72 @@ send_scout({
 })
 ```
 
-### Technical Considerations
+## Token Usage Considerations
 
-1. **Tab State Management**: Scout maintains access to `nodeExecutor.stagehandPages` for proper tab tracking
-2. **Error Resilience**: Each debug tool includes graceful error handling for missing elements or tabs
-3. **Consistent State**: The stagehand.page reference is properly updated when switching tabs
-4. **Performance**: Tool summaries are generated inline to avoid post-processing overhead
+### The Challenge: Recursive Context Accumulation
 
-Scout 2.0 transforms the reconnaissance agent from a simple page explorer into a full-featured browser automation investigator, while maintaining the token efficiency that makes it valuable for Director 2.0's incremental workflow building approach.
+Scout uses the same Responses API pattern as Director, which means each tool call adds its result to the context for subsequent calls. With DOM snapshots containing 1000+ elements, this creates exponential token growth:
+
+- Initial request: ~1k tokens
+- After first `inspect_tab`: ~10k tokens (includes 5k token DOM)
+- After multiple tool calls: 20k-22k tokens
+
+### Why This Happens:
+
+1. **Recursive Pattern**: Each tool result is added to `initialInput.concat(followUps)`
+2. **Large DOM Snapshots**: Each inspection can add 5-10k tokens
+3. **No Context Management**: Unlike Director, Scout doesn't strip or compress context
+4. **Multiple Inspections**: Scout often needs to inspect multiple tabs/states
+
+### Future Optimization Opportunities:
+
+1. **Selective Context**: Only pass relevant tool results forward
+2. **DOM Truncation**: Limit snapshot size or use targeted inspection
+3. **Context Compression**: Summarize previous findings instead of keeping raw data
+4. **Streaming Mode**: Trade token accuracy for reduced context accumulation
+
+## Benefits
+
+1. **Token Efficiency**: Scout operates in isolated context, Director only sees findings
+2. **Complete Capability**: Full access to all debugging and tab management tools
+3. **Browser Awareness**: Scout knows current browser state and adapts accordingly
+4. **Truthful Reporting**: Only reports what was actually found, includes errors
+5. **Natural Language**: Director gives missions, not specific inspection commands
+6. **Pattern Recognition**: Scout can identify patterns across multiple elements
+
+## Integration with Director 2.0 Workflow
+
+### When to Use Scout:
+- Complex exploration missions (e.g., "Find all form validation patterns")
+- Multi-tab workflows (e.g., OAuth flows, payment processes)
+- Conditional investigations (e.g., "Check login state and find appropriate elements")
+- Pattern discovery across multiple elements
+- When you need intelligent interpretation of the page
+
+### When to Use Direct Inspection:
+- Simple DOM structure queries
+- When you know exactly what element to inspect
+- Debugging specific selector issues
+- When raw DOM data is needed
+
+## Technical Architecture
+
+### Key Design Decisions:
+1. **JavaScript Native**: Seamless integration with existing Director ecosystem
+2. **Responses API**: Enables complex reasoning chains with multiple tool calls
+3. **Browser State Passing**: Scout receives current state on deployment
+4. **Error Resilience**: Graceful handling of missing pages or elements
+5. **Execution Logging**: Detailed tracking without token bloat
+
+### Performance Characteristics:
+- **Model**: o4-mini (same as Director)
+- **Reasoning Effort**: 'low' (vs Director's 'medium')
+- **Typical Token Usage**: 10-22k (due to DOM snapshots)
+- **Tool Calls**: Usually 5-15 per mission
+- **Response Time**: 10-30 seconds depending on complexity
+
+## Conclusion
+
+Scout 2.0 transforms the reconnaissance agent from a limited page explorer into a full-featured browser automation investigator. With complete tool parity, browser state awareness, and honest error reporting, Scout provides Director 2.0 with reliable, intelligent exploration capabilities while maintaining its token-efficient design philosophy for the Director's context.
+
+The main trade-off is Scout's own token usage due to recursive context accumulation with large DOM snapshots, but this is isolated from the Director's context, preserving the primary goal of keeping the Director's working memory clean and focused.

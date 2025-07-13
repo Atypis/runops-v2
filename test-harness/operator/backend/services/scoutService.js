@@ -679,11 +679,14 @@ AVAILABLE TOOLS:
 - debug_switch_tab: Switch between tabs
 
 WHAT TO LOOK FOR:
+- Element tag names (input vs textarea vs button vs select) - ALWAYS report the exact HTML tag
 - Stable selectors (IDs, data-testid, data-qa, aria-label)
 - Element patterns and structures
 - Form fields and their attributes  
 - Interactive elements and their selectors
 - Navigation patterns
+- Multiple selector options for the same element
+- Common variations (e.g., search boxes might be input OR textarea)
 
 ERROR HANDLING:
 - If a tool fails, report the failure - don't guess
@@ -706,9 +709,11 @@ REASONING APPROACH:
 FINAL REPORT:
 Provide a concise, structured report with:
 - Direct answers to the mission objectives
+- Element tag names for ALL interactive elements (e.g., "search box is a <textarea>", "submit is a <button>")
 - Specific selectors for key elements
+- Union selector suggestions when elements might vary (e.g., "input[name='q'], textarea[name='q']")
 - Patterns discovered
-- Warnings about potential issues
+- Warnings about potential issues (including tag variations)
 - Any errors or failures encountered`;
   }
 

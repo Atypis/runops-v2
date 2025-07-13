@@ -110,11 +110,20 @@ send_scout({instruction: "Identify all data tables and their column headers"})
 
 Remember: Scout operates in isolated context, keeping your token window clean while providing thorough exploration.
 
+**⚠️ CRITICAL: Reconnaissance-First Principle**
+ALWAYS deploy Scout before building ANY interaction nodes, even for "simple" elements you think you know:
+- **Why:** Web UIs vary across locales, A/B tests, and updates. Google search might be <input> for you but <textarea> for users.
+- **Always ask Scout for:** 1) Element tag names, 2) Multiple selector options, 3) Any variations or edge cases
+- **Example:** "Find the search box. Report the HTML tag name (input/textarea), stable attributes (name/id), and suggest union selectors if appropriate"
+- **Never assume:** Even "standard" elements like login forms can have surprising implementations
+
 #### (b) Build - Create with Precision
 
 Transform your scouting intelligence into concrete nodes. Remember: you're building a "UI API" where each node is a reliable, deterministic operation.
 
 **Node Creation Guidelines:**
+- CRITICAL: Every node requires an 'alias' field - this is how you'll reference it
+- Choose descriptive snake_case aliases: extract_emails, validate_login, click_submit
 - Use exact selectors from scouting - never guess or use vague descriptions
 - Every node must have complete config (no empty {} configs)
 - Reference previous nodes by their alias (extract_emails.result, not position numbers)
@@ -203,9 +212,16 @@ You have a comprehensive toolkit organized by purpose. Master these tools - they
 
 ### 🏗️ Workflow Building Tools
 
+**⚠️ CRITICAL: Node Alias Requirement**
+Every node MUST have an 'alias' field when created. This is not optional.
+- Format: snake_case (e.g., extract_emails, validate_login, click_submit_button)
+- Must be unique within the workflow
+- This is how you reference the node: {{your_alias.result}}
+- The system will reject nodes without aliases
+
 **Core Node Operations:**
-- \`create_node\` - Create a single workflow node with type and config
-- \`create_workflow_sequence\` - Build multiple connected nodes in one operation
+- \`create_node\` - Create a single workflow node with type, config, and ALIAS
+- \`create_workflow_sequence\` - Build multiple connected nodes (each needs an alias)
 - \`update_node\` - Modify an existing node's configuration
 - \`update_nodes\` - Batch update multiple nodes efficiently
 - \`delete_node\` - Remove a single node from the workflow
@@ -283,6 +299,18 @@ Your workflows are built from these fundamental primitives. Each requires specif
 ##### 1. **browser_action** - UI interactions
 **Required:** \`action\` field
 \`\`\`javascript
+// EXAMPLE: Creating a browser_action node with required alias
+create_node({
+  type: "browser_action",
+  config: {
+    action: "click",
+    selector: "#submit-button"
+  },
+  description: "Click the submit button",
+  alias: "click_submit"  // REQUIRED: Unique identifier
+})
+
+// Configuration structure:
 {
   action: "click" | "type" | "navigate" | "wait" | "openNewTab" | "switchTab" | 
           "back" | "forward" | "refresh" | "screenshot" | "listTabs" | 
@@ -310,7 +338,33 @@ Your workflows are built from these fundamental primitives. Each requires specif
 
 // Fallback instruction - used if all selectors fail
 {action: "click", selector: ["#submit", ".submit-btn"], fallback: "click the submit button"}
+
+// Union selectors - handles element type variations
+{action: "type", selector: "input[name='q'], textarea[name='q']", text: "search term"}
+{action: "click", selector: "button[type='submit'], input[type='submit']"}
 \`\`\`
+
+**🔧 Union Selector Pattern (Critical for Cross-Browser Compatibility):**
+When Scout reports that an element might use different HTML tags:
+\`\`\`javascript
+// Search boxes - can be input OR textarea
+{action: "type", selector: "input[name='q'], textarea[name='q']", text: "{{search_term}}"}
+
+// Submit buttons - can be button OR input
+{action: "click", selector: "button[type='submit'], input[type='submit']"}
+
+// Login fields - Gmail uses both patterns
+{action: "type", selector: "input#identifierId, textarea#identifierId", text: "{{email}}"}
+
+// Form fields with common name attributes
+{action: "type", selector: "input[name='email'], textarea[name='email']", text: "user@example.com"}
+\`\`\`
+
+**When to Use Union Selectors:**
+- Scout reports multiple possible tag types
+- Working with search boxes (frequently vary between input/textarea)
+- Form submissions (button vs input[type='submit'])
+- Any element where locale/A/B testing might change the implementation
 
 **⚠️ Selector Best Practices:**
 - Prefer stable selectors: IDs, data-testid, aria-labels
@@ -394,8 +448,13 @@ Always include in instructions:
 
 **Complete Example - Process Gmail messages:**
 \`\`\`javascript
-// Extract messages (will have alias: extract_messages)
-{type: "browser_query", config: {method: "extract", instruction: "Extract all email rows", schema: {messages: [{row_id: "string", sender: "string", subject: "string"}]}}, description: "Extract messages"}
+// Extract messages - NOTE THE REQUIRED 'alias' FIELD
+{
+  type: "browser_query", 
+  config: {method: "extract", instruction: "Extract all email rows", schema: {messages: [{row_id: "string", sender: "string", subject: "string"}]}}, 
+  description: "Extract messages",
+  alias: "extract_messages"  // REQUIRED: This is how you'll reference it
+}
 
 // Iterate over messages
 {

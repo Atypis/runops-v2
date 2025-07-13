@@ -537,6 +537,7 @@ export class DirectorService {
           config: nodeData.config,
           position: nodeData.position,
           description: nodeData.description,
+          alias: nodeData.alias,
           parent_position: nodeData.parent_position,
           group_id: nodeData.group_id,
           group_position: nodeData.group_position
@@ -649,33 +650,30 @@ export class DirectorService {
       nodePosition = (maxPositionNode?.position || 0) + 1;
     }
     
-    // Generate alias if not provided
-    let nodeAlias = alias;
-    if (!nodeAlias) {
-      // Generate from description or type
-      const baseText = description || `${type}_node`;
-      nodeAlias = this.generateNodeAlias(baseText);
-      
-      // Ensure uniqueness within workflow
-      const { data: existingAliases } = await supabase
-        .from('nodes')
-        .select('alias')
-        .eq('workflow_id', workflowId)
-        .like('alias', `${nodeAlias}%`);
-      
-      if (existingAliases && existingAliases.length > 0) {
-        // Find next available number suffix
-        const usedNumbers = existingAliases
-          .map(n => {
-            const match = n.alias.match(new RegExp(`^${nodeAlias}_(\\d+)$`));
-            return match ? parseInt(match[1]) : 0;
-          })
-          .filter(n => n > 0);
-        
-        const nextNumber = usedNumbers.length > 0 ? Math.max(...usedNumbers) + 1 : 2;
-        nodeAlias = `${nodeAlias}_${nextNumber}`;
-      }
+    // Validate alias is provided and valid
+    if (!alias) {
+      throw new Error('Alias is required for all nodes. Please provide a unique snake_case identifier (e.g. extract_emails, validate_login)');
     }
+    
+    // Validate alias format
+    const aliasPattern = /^[a-z][a-z0-9_]*$/;
+    if (!aliasPattern.test(alias)) {
+      throw new Error(`Invalid alias format: '${alias}'. Alias must be snake_case starting with a letter (e.g. extract_emails, validate_login)`);
+    }
+    
+    // Check for uniqueness within workflow
+    const { data: existingNode } = await supabase
+      .from('nodes')
+      .select('id, alias')
+      .eq('workflow_id', workflowId)
+      .eq('alias', alias)
+      .single();
+    
+    if (existingNode) {
+      throw new Error(`Alias '${alias}' already exists in this workflow. Please choose a unique alias.`);
+    }
+    
+    const nodeAlias = alias;
     
     const nodeData = {
       workflow_id: workflowId,

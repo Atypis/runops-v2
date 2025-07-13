@@ -23,9 +23,14 @@ export function createToolDefinitions() {
                   },
                   description: {
                     type: 'string'
+                  },
+                  alias: {
+                    type: 'string',
+                    description: 'Required unique identifier for the node (snake_case format)',
+                    pattern: '^[a-z][a-z0-9_]*$'
                   }
                 },
-                required: ['type', 'config']
+                required: ['type', 'config', 'alias']
               }
             }
           },
@@ -56,10 +61,11 @@ export function createToolDefinitions() {
             },
             alias: {
               type: 'string',
-              description: 'Optional alias for the node (auto-generated from description if not provided)'
+              description: 'Required unique identifier for the node (snake_case format, e.g. extract_emails, validate_login)',
+              pattern: '^[a-z][a-z0-9_]*$'
             }
           },
-          required: ['type', 'config']
+          required: ['type', 'config', 'alias']
         }
       }
     },
@@ -89,10 +95,12 @@ export function createToolDefinitions() {
                   type: 'string'
                 },
                 alias: {
-                  type: 'string'
+                  type: 'string',
+                  description: 'Required unique identifier for the node (snake_case format)',
+                  pattern: '^[a-z][a-z0-9_]*$'
                 }
               },
-              required: ['type', 'config']
+              required: ['type', 'config', 'alias']
             }
           },
           required: ['position', 'node']

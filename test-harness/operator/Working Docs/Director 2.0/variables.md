@@ -6,9 +6,9 @@ The Director 2.0 variable system uses a single, consistent approach: **always re
 
 ## The One Rule
 
-**Every node has an alias. Use that alias to reference it.**
+**Every node MUST have an alias. You provide it. You reference it.**
 
-When you create a node with a description, the system automatically generates an alias from that description. This alias becomes your handle for referencing that node's results anywhere in your workflow.
+When creating a node, you MUST provide an 'alias' field. This is not optional - the system will reject nodes without aliases. This alias becomes your handle for referencing that node's results anywhere in your workflow.
 
 ## Variable Types & Syntax
 
@@ -24,9 +24,10 @@ Reference the output of any node using its alias:
 ```
 
 **How it works:**
-- Node description: "Extract email addresses" → alias: `extract_email_addresses`
-- Node description: "Validate login state" → alias: `validate_login_state`
-- Node description: "Click submit button" → alias: `click_submit_button`
+- You decide the alias when creating the node
+- Must be snake_case format: `extract_emails`, `validate_login`, `click_submit`
+- Must be unique within the workflow
+- System will error if alias is missing or duplicate
 
 ### 2. Environment Variables
 Always use the `env:` prefix for environment variables:
@@ -64,11 +65,12 @@ Inside loops, access the current item and metadata:
 
 ### Basic Workflow
 ```javascript
-// 1. Navigate to site (alias: navigate_to_gmail)
+// 1. Navigate to site - NOTE THE REQUIRED ALIAS
 {
   type: "browser_action",
   config: {action: "navigate", url: "{{env:GMAIL_URL}}"},
-  description: "Navigate to Gmail"
+  description: "Navigate to Gmail",
+  alias: "navigate_to_gmail"  // REQUIRED: You must provide this
 }
 
 // 2. Extract emails (alias: extract_emails)
@@ -192,9 +194,9 @@ If you're updating from position-based references:
 
 ## Best Practices
 
-1. **Descriptive Node Descriptions**: Your descriptions become aliases, so make them clear
-   - Good: "Extract product prices"
-   - Bad: "Get data"
+1. **Choose Clear Aliases**: Pick aliases that describe what the node does
+   - Good: `extract_product_prices`, `validate_user_login`
+   - Bad: `node1`, `temp`, `data`
 
 2. **Consistent Naming**: Use similar patterns for similar operations
    - `extract_emails`, `extract_products`, `extract_prices`
