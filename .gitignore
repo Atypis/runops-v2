@@ -46,3 +46,4 @@ sop_orchestrator/screenshots/*/timeline_export_*.json
 *.tmp
 *.temp
 app_frontend/tsconfig.tsbuildinfo
+test-harness/operator/temp/screenshots/

@@ -216,6 +216,9 @@ export class DirectorService {
       let completion;
       if (this.isReasoningModel(model)) {
         console.log(`[DIRECTOR] Using Responses API for reasoning model: ${model}`);
+        if (model === 'o3') {
+          console.log(`[DIRECTOR] Background mode will be enabled for o3 to handle rate limits gracefully`);
+        }
         completion = await this.processWithResponsesAPI(model, messages, workflowId);
       } else {
         console.log(`[DIRECTOR] Using Chat Completions API for model: ${model}`);
@@ -2459,6 +2462,65 @@ export class DirectorService {
   }
 
   /**
+   * Poll background job until completion
+   * @param {string} jobId - The background job ID to poll
+   * @returns {Promise<Object>} The completed job response
+   */
+  async pollBackgroundJob(jobId) {
+    let pollInterval = 2000; // Start with 2 seconds
+    const maxInterval = 30000; // Max 30 seconds between polls
+    let attempts = 0;
+    const maxAttempts = 300; // 5 minutes worth of 1-second polls initially
+    
+    console.log(`[BACKGROUND MODE] Starting to poll job ${jobId}`);
+    
+    while (attempts < maxAttempts) {
+      try {
+        // Retrieve job status
+        const job = await this.openai.responses.retrieve(jobId);
+        
+        console.log(`[BACKGROUND MODE] Job ${jobId} status: ${job.status} (attempt ${attempts + 1})`);
+        
+        if (job.status === 'completed') {
+          console.log(`[BACKGROUND MODE] Job ${jobId} completed successfully after ${attempts + 1} polls`);
+          return job;
+        }
+        
+        if (job.status === 'failed') {
+          const errorMsg = job.error?.message || 'Unknown error';
+          const errorCode = job.error?.code || 'unknown';
+          
+          console.error(`[BACKGROUND MODE] Job ${jobId} failed: ${errorMsg} (code: ${errorCode})`);
+          
+          // Check if it's a rate limit error that we should retry
+          if (errorCode === 'rate_limit_exceeded') {
+            console.log(`[BACKGROUND MODE] Rate limit hit, but job failed. Consider retrying with a new job.`);
+          }
+          
+          throw new Error(`Background job failed: ${errorMsg}`);
+        }
+        
+        if (job.status === 'cancelled') {
+          throw new Error(`Background job was cancelled`);
+        }
+        
+        // Wait before next poll with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        
+        // Increase interval with exponential backoff (1.5x each time, capped at maxInterval)
+        pollInterval = Math.min(pollInterval * 1.5, maxInterval);
+        attempts++;
+        
+      } catch (error) {
+        console.error(`[BACKGROUND MODE] Error polling job ${jobId}:`, error);
+        throw error;
+      }
+    }
+    
+    throw new Error(`Background job ${jobId} timed out after ${attempts} attempts`);
+  }
+
+  /**
    * Broadcast reasoning updates to WebSocket clients via API (with fallback)
    */
   async broadcastReasoningUpdate(workflowId, data) {
@@ -2588,8 +2650,15 @@ export class DirectorService {
     const chatTools = createToolDefinitions();
     const responsesTools = this.convertToolsForResponsesAPI(chatTools);
 
-    // Make blocking request - no streaming!
-    const response = await this.openai.responses.create({
+    // Check if we should use background mode for o3
+    const useBackgroundMode = model === 'o3';
+    
+    if (useBackgroundMode) {
+      console.log(`[BACKGROUND MODE] Using background mode for ${model} to handle rate limits`);
+    }
+
+    // Make request with conditional background mode
+    const requestParams = {
       model,
       instructions,
       input: initialInput,
@@ -2601,19 +2670,35 @@ export class DirectorService {
       include: ['reasoning.encrypted_content'],
       store: false,  // Fine - usage is still complete without streaming
       stream: false  // KEY CHANGE: No streaming = accurate token counts immediately
-    });
+    };
 
-    console.log(`[CONTROL_LOOP] Blocking response received. Processing...`);
+    // Add background flag for o3
+    if (useBackgroundMode) {
+      requestParams.background = true;
+    }
+
+    const response = await this.openai.responses.create(requestParams);
+
+    // Handle background job polling for o3
+    let finalResponse;
+    if (useBackgroundMode && response.id && response.status) {
+      console.log(`[BACKGROUND MODE] Job queued with ID: ${response.id}, status: ${response.status}`);
+      finalResponse = await this.pollBackgroundJob(response.id);
+    } else {
+      finalResponse = response;
+    }
+
+    console.log(`[CONTROL_LOOP] ${useBackgroundMode ? 'Background job completed' : 'Blocking response received'}. Processing...`);
     
     // Debug: Log response output types
-    const outputTypes = response.output.map(item => item.type);
+    const outputTypes = finalResponse.output.map(item => item.type);
     console.log(`[RESPONSE_DEBUG] Output types in response:`, outputTypes);
-    console.log(`[RESPONSE_DEBUG] Total output items:`, response.output.length);
+    console.log(`[RESPONSE_DEBUG] Total output items:`, finalResponse.output.length);
 
     // Extract data from blocking response
-    const assistantMessages = response.output.filter(item => item.type === 'message' && item.role === 'assistant');
-    const functionCalls = response.output.filter(item => item.type === 'function_call');
-    const encryptedBlobs = response.output.filter(item => item.type === 'reasoning' && item.encrypted_content);
+    const assistantMessages = finalResponse.output.filter(item => item.type === 'message' && item.role === 'assistant');
+    const functionCalls = finalResponse.output.filter(item => item.type === 'function_call');
+    const encryptedBlobs = finalResponse.output.filter(item => item.type === 'reasoning' && item.encrypted_content);
     
     console.log(`[ENCRYPTED_BLOBS] Found ${encryptedBlobs.length} encrypted reasoning blobs in response`);
     if (encryptedBlobs.length > 0) {
@@ -2627,7 +2712,7 @@ export class DirectorService {
       .join('');
     
     // Extract reasoning summary from reasoning output items (available immediately with blocking response)
-    const reasoningItems = response.output.filter(item => item.type === 'reasoning' && item.summary);
+    const reasoningItems = finalResponse.output.filter(item => item.type === 'reasoning' && item.summary);
     const reasoningSummary = reasoningItems.length > 0 ? 
       reasoningItems.map(item => item.summary.map(s => s.text).join('\n')).join('\n\n') : 
       null;
@@ -2638,16 +2723,16 @@ export class DirectorService {
     // - cached_tokens = subset of input_tokens that were cached (75% discount)
     // - uncached tokens = input_tokens - cached_tokens (full price)
     const tokenUsage = {
-      input_tokens: response.usage.input_tokens,  // <-- THIS IS THE TOTAL YOU WANT!
-      output_tokens: response.usage.output_tokens,
-      total_tokens: response.usage.total_tokens,
+      input_tokens: finalResponse.usage.input_tokens,  // <-- THIS IS THE TOTAL YOU WANT!
+      output_tokens: finalResponse.usage.output_tokens,
+      total_tokens: finalResponse.usage.total_tokens,
       output_tokens_details: {
-        reasoning_tokens: response.usage.output_tokens_details?.reasoning_tokens || 0
+        reasoning_tokens: finalResponse.usage.output_tokens_details?.reasoning_tokens || 0
       },
       // Cached tokens are a SUBSET of input_tokens, not additional
-      cached_tokens: response.usage.input_tokens_details?.cached_tokens || 0,
+      cached_tokens: finalResponse.usage.input_tokens_details?.cached_tokens || 0,
       // For backwards compatibility, actual_input_tokens = input_tokens (the total)
-      actual_input_tokens: response.usage.input_tokens
+      actual_input_tokens: finalResponse.usage.input_tokens
     };
     
     console.log('[RESPONSES_API] Accurate token usage (no streaming):', {
@@ -2663,7 +2748,7 @@ export class DirectorService {
     
     // Debug: Log full usage details to understand caching
     if (tokenUsage.cached_tokens > 0) {
-      console.log('[CACHE_DEBUG] Full usage object:', JSON.stringify(response.usage, null, 2));
+      console.log('[CACHE_DEBUG] Full usage object:', JSON.stringify(finalResponse.usage, null, 2));
       console.log('[CACHE_DEBUG] Unexpected caching at depth', recursionDepth, '- investigating...');
     }
 

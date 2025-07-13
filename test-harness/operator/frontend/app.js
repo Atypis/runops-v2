@@ -3307,6 +3307,9 @@ function App() {
       
       // Log the model being used
       console.log(`[UI] Sending message with model: ${!mockMode ? selectedModel : 'N/A (mock mode)'}`);
+      if (!mockMode && selectedModel === 'o3') {
+        console.log(`[UI] Note: o3 model uses background mode to handle rate limits`);
+      }
       
 
       const data = await response.json();
