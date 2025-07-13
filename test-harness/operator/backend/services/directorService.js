@@ -2448,6 +2448,33 @@ export class DirectorService {
         case 'update_node':
           result = await this.updateNode(args, workflowId);
           break;
+        case 'update_nodes':
+          result = await this.updateNodes(args);
+          break;
+        case 'delete_node':
+          result = await this.deleteNode(args);
+          break;
+        case 'delete_nodes':
+          result = await this.deleteNodes(args);
+          break;
+        case 'connect_nodes':
+          result = await this.connectNodes(args);
+          break;
+        case 'execute_workflow':
+          result = await this.executeWorkflow(workflowId);
+          break;
+        case 'test_node':
+          result = await this.testNode(args);
+          break;
+        case 'define_group':
+          result = await this.defineGroup(args, workflowId);
+          break;
+        case 'use_group':
+          result = await this.useGroup(args, workflowId);
+          break;
+        case 'list_groups':
+          result = await this.listGroups(workflowId);
+          break;
         case 'update_plan':
           result = await this.updatePlan(args, workflowId);
           break;

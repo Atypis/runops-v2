@@ -428,10 +428,10 @@ export class NodeExecutor {
     try {
       let result;
       
-      // Resolve template variables in params if we're in an iteration or group context
+      // Always resolve template variables in params
       let resolvedParams = node.params;
-      if (this.iterationContext.length > 0 || this.groupContext.length > 0) {
-        console.log(`[EXECUTE] Resolving template variables in context`);
+      if (node.params) {
+        console.log(`[EXECUTE] Resolving template variables`);
         resolvedParams = await this.resolveNodeParams(node.params, workflowId);
         console.log(`[EXECUTE] Resolved params:`, JSON.stringify(resolvedParams, null, 2));
       }
@@ -1618,13 +1618,54 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     console.log(`[STATE] Found in memory:`, data?.value);
     
     if (!data) {
-      // Fallback to global key if iteration-specific not found
+      // Try to resolve nested paths for any variable (not just nodes)
+      if (normalizedPath.includes('.')) {
+        const parts = normalizedPath.split('.');
+        const baseKey = parts[0];
+        
+        // Try to get the base variable
+        const baseStorageKey = this.getStorageKey(baseKey);
+        console.log(`[STATE] Trying to resolve nested path. Base key: ${baseStorageKey}`);
+        
+        const { data: baseData } = await supabase
+          .from('workflow_memory')
+          .select('value')
+          .eq('workflow_id', workflowId)
+          .eq('key', baseStorageKey)
+          .single();
+          
+        if (baseData && baseData.value !== null) {
+          console.log(`[STATE] Found base variable ${baseKey}`);
+          
+          // Navigate through the nested path
+          let value = baseData.value;
+          const propertyPath = parts.slice(1);
+          
+          // Skip "result" in the path if present (for consistency with node references)
+          if (propertyPath[0] === 'result' && propertyPath.length > 1) {
+            propertyPath.shift();
+          }
+          
+          // Navigate through each property
+          for (const prop of propertyPath) {
+            if (value === null || value === undefined) {
+              console.log(`[STATE] Cannot access property '${prop}' of null/undefined`);
+              return undefined;
+            }
+            value = value[prop];
+          }
+          
+          const resolvedType = Array.isArray(value) ? `array[${value.length}]` : typeof value;
+          console.log(`[STATE] Resolved nested path to value of type: ${resolvedType}`);
+          return value;
+        }
+      }
+      
+      // Original fallback logic for iteration-specific keys
       if (storageKey.includes('@iter:')) {
-        // Re-parse the path to handle node references like "node3.first_product_name"
         const parts = normalizedPath.split('.');
         const nodeRef = parts[0];
         
-        // For node references, try just the node key "node3" instead of the full path
         const globalKey = nodeRef.startsWith('node') ? nodeRef : path;
         console.log(`[STATE] Iteration-specific key not found, trying global key: ${globalKey}`);
         const { data: globalData } = await supabase
@@ -1635,24 +1676,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
           .single();
         if (globalData) {
           console.log(`[STATE] Fallback found global key ${globalKey}`);
-          
-          // If this was a node reference, navigate to the nested property
-          if (nodeRef.startsWith('node') && parts.length > 1) {
-            let value = globalData.value;
-            const propertyPath = parts.slice(1);
-            if (propertyPath[0] === 'result' && propertyPath.length > 1) {
-              propertyPath.shift();
-            }
-            for (const prop of propertyPath) {
-              value = value?.[prop];
-            }
-            const resolvedType = Array.isArray(value) ? `array[${value.length}]` : typeof value;
-            console.log(`[STATE] Resolved to value of type: ${resolvedType}`);
-            return value;
-          } else {
-            // For non-node references, return the value directly
-            return globalData.value;
-          }
+          return globalData.value;
         }
       }
     }

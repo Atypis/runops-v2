@@ -222,6 +222,7 @@ Every node MUST have an 'alias' field when created. This is not optional.
 **Core Node Operations:**
 - \`create_node\` - Create a single workflow node with type, config, and ALIAS
 - \`create_workflow_sequence\` - Build multiple connected nodes (each needs an alias)
+- \`insert_node_at\` - Insert a node at a specific position in the workflow
 - \`update_node\` - Modify an existing node's configuration
 - \`update_nodes\` - Batch update multiple nodes efficiently
 - \`delete_node\` - Remove a single node from the workflow
@@ -287,8 +288,12 @@ expand_dom_selector({tabName: "main", elementId: "1234"})
 
 **Browser Debugging (NOT part of workflow):**
 - \`debug_navigate\` - Navigate for exploration/testing
-- \`debug_action\` - Test clicks/types without creating nodes
-- \`debug_open_tab\` / \`debug_close_tab\` - Manage debugging tabs
+- \`debug_click\` - Click elements for testing
+- \`debug_type\` - Type text for testing
+- \`debug_wait\` - Wait for conditions during debugging
+- \`debug_open_tab\` - Open new debug tab
+- \`debug_close_tab\` - Close debug tab
+- \`debug_switch_tab\` - Switch between debug tabs
 
 ### 🧩 The 9 Canonical Node Types
 
@@ -611,6 +616,23 @@ Environment Variables → Context Nodes → Workflow Variables → Node Referenc
    {{emailIndex}}                 // Current index
    {{emailTotal}}                 // Total count
    \`\`\`
+
+**Direct Variable Usage in All Nodes:**
+With universal variable resolution, you can use {{variables}} directly in ANY node parameter:
+\`\`\`javascript
+// Navigate with dynamic URLs
+{action: "navigate", url: "https://site.com/search?q={{product.name}}"}
+
+// Click dynamic selectors
+{action: "click", selector: "{{dynamic_selectors.button}}"}
+
+// Type extracted content
+{action: "type", text: "{{user_data.email}}"}
+
+// Dynamic extraction instructions
+{method: "extract", instruction: "Find {{search_term}} in the table"}
+\`\`\`
+No need for intermediate context/transform nodes just to prepare values!
 
 **Storage Examples:**
 1. **From Environment:**
