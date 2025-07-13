@@ -2793,6 +2793,14 @@ export class DirectorService {
       const executedTools = [];
       const followUps = [];
       
+      // For background mode, we need to include ALL output items (including reasoning)
+      // to maintain the required associations between function_calls and reasoning items
+      if (useBackgroundMode) {
+        console.log(`[BACKGROUND MODE] Including all output items for stateful context`);
+        // Add all output items from the response (reasoning + function_calls)
+        followUps.push(...finalResponse.output);
+      }
+      
       // Execute all tool calls
       for (const call of functionCalls) {
         try {
@@ -2807,7 +2815,10 @@ export class DirectorService {
           });
           
           // Add to follow-up input
-          followUps.push(call);
+          if (!useBackgroundMode) {
+            // For non-background mode, only add the function call
+            followUps.push(call);
+          }
           followUps.push({
             type: 'function_call_output',
             call_id: call.call_id,
@@ -2825,7 +2836,10 @@ export class DirectorService {
           });
           
           // Add error to follow-up input
-          followUps.push(call);
+          if (!useBackgroundMode) {
+            // For non-background mode, only add the function call
+            followUps.push(call);
+          }
           followUps.push({
             type: 'function_call_output',
             call_id: call.call_id,
