@@ -2585,17 +2585,34 @@ export class DirectorService {
    */
   async processWithResponsesAPI(model, messages, workflowId) {
     try {
-      // Load previous encrypted reasoning context
-      const encryptedContext = await this.loadReasoningContext(workflowId);
-      console.log(`[🔍 ENCRYPTED_CONTEXT] Loaded ${encryptedContext.length} encrypted reasoning blobs from previous turns`);
+      // Check if we're using background mode for o3
+      const useBackgroundMode = model === 'o3';
+      
+      // Load context based on mode
+      let encryptedContext = [];
+      let previousResponseId = null;
+      
+      if (useBackgroundMode) {
+        // For background mode, try to get the last response ID for this workflow
+        previousResponseId = await this.getLastResponseId(workflowId);
+        if (previousResponseId) {
+          console.log(`[BACKGROUND MODE] Using previous_response_id: ${previousResponseId} for context`);
+        } else {
+          console.log(`[BACKGROUND MODE] No previous response found, starting fresh conversation`);
+        }
+      } else {
+        // For non-background mode, load encrypted reasoning context
+        encryptedContext = await this.loadReasoningContext(workflowId);
+        console.log(`[🔍 ENCRYPTED_CONTEXT] Loaded ${encryptedContext.length} encrypted reasoning blobs from previous turns`);
+      }
       
       // Convert messages to Responses API format
       const systemMessage = messages.find(m => m.role === 'system');
       const userMessages = messages.filter(m => m.role === 'user' || m.role === 'assistant');
       
-      // Build initial input array
+      // Build initial input array - exclude encrypted context for background mode
       const initialInput = [
-        ...encryptedContext,
+        ...(useBackgroundMode ? [] : encryptedContext),
         ...userMessages.map(msg => ({
           type: 'message',
           role: msg.role,
@@ -2663,20 +2680,32 @@ export class DirectorService {
       instructions,
       input: initialInput,
       tools: responsesTools,
-      reasoning: { 
-        effort: 'medium', 
-        summary: 'detailed'
-      },
-      include: ['reasoning.encrypted_content'],
-      store: false,  // Default to false for non-background mode
       stream: false  // KEY CHANGE: No streaming = accurate token counts immediately
     };
 
     // Configure for background mode (o3 only)
     if (useBackgroundMode) {
+      // Background mode configuration
       requestParams.background = true;
       requestParams.store = true;  // Required by OpenAI for background mode
+      
+      // Add previous_response_id if available for context continuity
+      if (previousResponseId) {
+        requestParams.previous_response_id = previousResponseId;
+      }
+      
+      // Add reasoning summary for debugging
+      requestParams.reasoning = { 
+        effort: 'medium', 
+        summary: 'detailed'  // Get human-readable summaries
+      };
+      
       console.log(`[BACKGROUND MODE] Enabling store=true for background job processing`);
+      console.log(`[BACKGROUND MODE] Using stateful context via previous_response_id instead of encrypted blobs`);
+    } else {
+      // Non-background mode can use encrypted content
+      requestParams.include = ['reasoning.encrypted_content'];
+      requestParams.store = false;  // Required for encrypted content
     }
 
     const response = await this.openai.responses.create(requestParams);
@@ -2826,8 +2855,13 @@ export class DirectorService {
         console.log(`[TOKEN_DEBUG] Initial message tokens: ${tokenUsage.input_tokens} in, ${tokenUsage.output_tokens} out`);
         console.log(`[TOKEN_DEBUG] Total with ${executedTools.length} tool executions: ${totalUsage.input_tokens} in, ${totalUsage.output_tokens} out`);
         
-        // Store encrypted reasoning context at depth 0 (initial call)
-        if (encryptedBlobs.length > 0 && tokenUsage) {
+        // Store context based on mode
+        if (useBackgroundMode && finalResponse.id) {
+          // For background mode, store the response ID for next conversation
+          console.log(`[BACKGROUND MODE] Storing response ID for future context: ${finalResponse.id}`);
+          await this.saveResponseId(workflowId, finalResponse.id);
+        } else if (encryptedBlobs.length > 0 && tokenUsage) {
+          // For non-background mode, store encrypted reasoning context
           console.log(`[REASONING_STORAGE] Storing ${encryptedBlobs.length} encrypted blobs from initial call`);
           await this.storeReasoningContextFromBlobs(workflowId, encryptedBlobs, tokenUsage);
         }
@@ -2841,8 +2875,13 @@ export class DirectorService {
       };
     }
     
-    // Store encrypted reasoning context
-    if (encryptedBlobs.length > 0 && tokenUsage) {
+    // Store context based on mode
+    if (useBackgroundMode && finalResponse.id) {
+      // For background mode, store the response ID for next conversation
+      console.log(`[BACKGROUND MODE] Storing response ID for future context: ${finalResponse.id}`);
+      await this.saveResponseId(workflowId, finalResponse.id);
+    } else if (encryptedBlobs.length > 0 && tokenUsage) {
+      // For non-background mode, store encrypted reasoning context
       await this.storeReasoningContextFromBlobs(workflowId, encryptedBlobs, tokenUsage);
     }
 
@@ -3079,6 +3118,58 @@ export class DirectorService {
     } catch (error) {
       console.error('[REASONING_CONTEXT] Error loading context:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get the last response ID for a workflow (used for background mode context)
+   */
+  async getLastResponseId(workflowId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('workflow_response_ids')
+        .select('response_id')
+        .eq('workflow_id', workflowId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows found - this is expected for new conversations
+          return null;
+        }
+        console.error('[BACKGROUND MODE] Error loading last response ID:', error);
+        return null;
+      }
+
+      return data?.response_id || null;
+    } catch (error) {
+      console.error('[BACKGROUND MODE] Error getting last response ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save response ID for future context (used for background mode)
+   */
+  async saveResponseId(workflowId, responseId) {
+    try {
+      const { error } = await this.supabase
+        .from('workflow_response_ids')
+        .insert({
+          workflow_id: workflowId,
+          response_id: responseId,
+          created_at: new Date().toISOString()
+        });
+
+      if (error) {
+        console.error('[BACKGROUND MODE] Error saving response ID:', error);
+      } else {
+        console.log(`[BACKGROUND MODE] Saved response ID ${responseId} for workflow ${workflowId}`);
+      }
+    } catch (error) {
+      console.error('[BACKGROUND MODE] Error saving response ID:', error);
     }
   }
 
