@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Groups API</title>
+</head>
+<body>
+    <h1>Test Groups API</h1>
+    <button onclick="testGroupsAPI()">Test Groups API</button>
+    <pre id="output"></pre>
+
+    <script>
+        async function testGroupsAPI() {
+            const workflowId = 'a433cadd-2a38-4561-b092-49c751d17457';
+            const output = document.getElementById('output');
+            
+            try {
+                output.textContent = 'Fetching groups...\n';
+                
+                const response = await fetch(`http://localhost:3001/api/director/groups/${workflowId}`);
+                output.textContent += `Status: ${response.status}\n`;
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    output.textContent += `\nGroups found: ${data.count}\n\n`;
+                    output.textContent += JSON.stringify(data, null, 2);
+                } else {
+                    output.textContent += `Error: ${response.statusText}\n`;
+                    const error = await response.text();
+                    output.textContent += error;
+                }
+            } catch (error) {
+                output.textContent += `\nError: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

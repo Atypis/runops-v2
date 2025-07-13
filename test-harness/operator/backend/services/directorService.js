@@ -1481,6 +1481,8 @@ export class DirectorService {
         workflow_id: workflowId,
         key: `group_def_${groupId}`,
         value: definition
+      }, {
+        onConflict: 'workflow_id,key'  // Update if exists
       })
       .select();
     
