@@ -1320,8 +1320,23 @@ export class DirectorService {
     for (const nodeTemplate of definition.nodes) {
       console.log(`[USE_GROUP] Creating node: ${nodeTemplate.type} - ${nodeTemplate.description}`);
       
-      // Deep clone the config to avoid mutations
-      let nodeConfig = JSON.parse(JSON.stringify(nodeTemplate.config || {}));
+      // Handle both formats: nodes with config object and nodes with config at root level
+      let nodeConfig;
+      if (nodeTemplate.config) {
+        // Already has a config object
+        nodeConfig = JSON.parse(JSON.stringify(nodeTemplate.config));
+      } else {
+        // Config properties are at root level - extract them
+        const configKeys = Object.keys(nodeTemplate).filter(key => 
+          !['type', 'description', 'alias', 'id'].includes(key)
+        );
+        nodeConfig = {};
+        configKeys.forEach(key => {
+          nodeConfig[key] = nodeTemplate[key];
+        });
+      }
+      
+      console.log(`[USE_GROUP] Node config:`, nodeConfig);
       
       // Replace parameter placeholders with actual values
       if (params && definition.parameters) {
