@@ -2648,7 +2648,7 @@ export class DirectorService {
       });
 
       // Run the full control loop
-      return await this.runDirectorControlLoop(model, systemMessage?.content || DIRECTOR_SYSTEM_PROMPT, initialInput, workflowId);
+      return await this.runDirectorControlLoop(model, systemMessage?.content || DIRECTOR_SYSTEM_PROMPT, initialInput, workflowId, 0, previousResponseId);
 
     } catch (error) {
       console.error('[RESPONSES_API] Error:', error);
@@ -2660,7 +2660,7 @@ export class DirectorService {
    * Simplified non-streaming control loop for reasoning models with tool calling
    * Radically simplified approach - single blocking call per step with accurate token counts
    */
-  async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0) {
+  async runDirectorControlLoop(model, instructions, initialInput, workflowId, recursionDepth = 0, previousResponseId = null) {
     console.log(`[CONTROL_LOOP] Starting blocking loop (depth ${recursionDepth}) with ${initialInput.length} input items`);
     
     // Convert tools from Chat Completions format to Responses API format
@@ -2692,6 +2692,9 @@ export class DirectorService {
       // Add previous_response_id if available for context continuity
       if (previousResponseId) {
         requestParams.previous_response_id = previousResponseId;
+        console.log(`[BACKGROUND MODE] Including previous_response_id: ${previousResponseId}`);
+      } else {
+        console.log(`[BACKGROUND MODE] No previous response ID available - starting fresh context`);
       }
       
       // Add reasoning summary for debugging
@@ -2837,7 +2840,8 @@ export class DirectorService {
         instructions, 
         initialInput.concat(followUps), 
         workflowId, 
-        recursionDepth + 1
+        recursionDepth + 1,
+        previousResponseId  // Pass through for consistency
       );
       
       // Merge executed tools from recursive call
