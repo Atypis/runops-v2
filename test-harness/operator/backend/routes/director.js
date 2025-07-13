@@ -15,13 +15,20 @@ const conversationService = new ConversationService();
 // Chat endpoint - main conversation with director
 router.post('/chat', async (req, res, next) => {
   try {
-    const { message, workflowId, conversationHistory, mockMode } = req.body;
+    const { message, workflowId, conversationHistory, mockMode, selectedModel } = req.body;
+    
+    // Log incoming request details
+    console.log('[DIRECTOR ROUTE] Incoming chat request:');
+    console.log(`[DIRECTOR ROUTE] Workflow: ${workflowId}`);
+    console.log(`[DIRECTOR ROUTE] Mock Mode: ${mockMode}`);
+    console.log(`[DIRECTOR ROUTE] Selected Model: ${selectedModel || 'not specified'}`);
     
     const response = await directorService.processMessage({
       message,
       workflowId,
       conversationHistory,
-      mockMode
+      mockMode,
+      selectedModel
     });
     
     console.log('Director response:', JSON.stringify(response, null, 2));

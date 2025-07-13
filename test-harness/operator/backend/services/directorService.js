@@ -65,7 +65,7 @@ export class DirectorService {
     }
   }
 
-  async processMessage({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false }) {
+  async processMessage({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
     try {
       // Set workflow ID in node executor for browser state tracking
       this.nodeExecutor.setWorkflowId(workflowId);
@@ -184,12 +184,13 @@ export class DirectorService {
       }
 
       // Get model for this workflow - default to o4-mini for reasoning capabilities
-      const model = process.env.DIRECTOR_MODEL || 'o4-mini';
+      const model = this.getSelectedModel(selectedModel);
       
       // 🔍 INTERCEPTOR: Log exact OpenAI input for debugging
       const debugInput = {
         messages: messages,
         model: model,
+        modelSource: selectedModel ? 'ui' : (process.env.DIRECTOR_MODEL ? 'env' : 'default'),
         total_chars: JSON.stringify(messages).length,
         total_messages: messages.length,
         message_breakdown: messages.map((m, i) => ({
@@ -203,6 +204,7 @@ export class DirectorService {
       
       console.log('[🔍 OPENAI_INTERCEPTOR] Exact input being sent:');
       console.log('[🔍 OPENAI_INTERCEPTOR] Model:', model);
+      console.log('[🔍 OPENAI_INTERCEPTOR] Model Source:', debugInput.modelSource);
       console.log('[🔍 OPENAI_INTERCEPTOR] Message count:', messages.length);
       console.log('[🔍 OPENAI_INTERCEPTOR] Total characters:', JSON.stringify(messages).length);
       console.log('[🔍 OPENAI_INTERCEPTOR] Message breakdown:');
@@ -2426,6 +2428,34 @@ export class DirectorService {
   isReasoningModel(model) {
     const reasoningModels = ['o4-mini', 'o3', 'o4-mini-2025-04-16', 'o3-2025-04-16'];
     return reasoningModels.includes(model);
+  }
+
+  /**
+   * Get the selected model with validation and fallback logic
+   */
+  getSelectedModel(requestedModel) {
+    const allowedModels = ['o4-mini', 'o3'];
+    
+    // Priority order:
+    // 1. Valid requested model from UI
+    // 2. Environment variable
+    // 3. Default to o4-mini
+    if (requestedModel && allowedModels.includes(requestedModel)) {
+      console.log(`[DIRECTOR MODEL] Using UI-selected model: ${requestedModel}`);
+      console.log(`[DIRECTOR MODEL] Source: Frontend UI Toggle`);
+      return requestedModel;
+    }
+    
+    const envModel = process.env.DIRECTOR_MODEL;
+    if (envModel && this.isReasoningModel(envModel)) {
+      console.log(`[DIRECTOR MODEL] Using environment variable model: ${envModel}`);
+      console.log(`[DIRECTOR MODEL] Source: DIRECTOR_MODEL environment variable`);
+      return envModel;
+    }
+    
+    console.log(`[DIRECTOR MODEL] Using default model: o4-mini`);
+    console.log(`[DIRECTOR MODEL] Source: Default fallback`);
+    return 'o4-mini';
   }
 
   /**

@@ -254,6 +254,10 @@ function App() {
   const [workflowNodes, setWorkflowNodes] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
   const [mockMode, setMockMode] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(() => {
+    const savedModel = localStorage.getItem('director-selected-model');
+    return (savedModel && ['o4-mini', 'o3'].includes(savedModel)) ? savedModel : 'o4-mini';
+  });
   const [nodeValues, setNodeValues] = useState({}); // Storage key -> value mapping
   const [expandedNodes, setExpandedNodes] = useState(new Set()); // Track expanded iterate nodes
   const [browserSessions, setBrowserSessions] = useState([]);
@@ -3296,9 +3300,14 @@ function App() {
           message: input,
           workflowId,
           conversationHistory: cleanConversationHistory,
-          mockMode
+          mockMode,
+          selectedModel: !mockMode ? selectedModel : undefined
         })
       });
+      
+      // Log the model being used
+      console.log(`[UI] Sending message with model: ${!mockMode ? selectedModel : 'N/A (mock mode)'}`);
+      
 
       const data = await response.json();
       
@@ -3312,6 +3321,7 @@ function App() {
             content: data.message,
             toolCalls: data.toolCalls,
             isTemporary: false,
+            model: !mockMode ? selectedModel : 'mock',
             // Include reasoning summary if available (blocking response)
             reasoning: data.reasoning_summary ? {
               text: data.reasoning_summary,
@@ -3601,6 +3611,42 @@ function App() {
           >
             {mockMode ? '🤖 Mock Mode' : '✨ Real Director'}
           </button>
+          
+          {/* Model Toggle - Only show when not in mock mode */}
+          {!mockMode && (
+            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => {
+                  setSelectedModel('o4-mini');
+                  localStorage.setItem('director-selected-model', 'o4-mini');
+                  console.log('[UI] Model switched to: o4-mini');
+                }}
+                className={`px-3 py-1 text-sm rounded transition-all ${
+                  selectedModel === 'o4-mini'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+                title="Use o4-mini model (default)"
+              >
+                o4-mini
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedModel('o3');
+                  localStorage.setItem('director-selected-model', 'o3');
+                  console.log('[UI] Model switched to: o3');
+                }}
+                className={`px-3 py-1 text-sm rounded transition-all ${
+                  selectedModel === 'o3'
+                    ? 'bg-green-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+                title="Use o3 model"
+              >
+                o3
+              </button>
+            </div>
+          )}
           <select
             value={currentWorkflow?.id || ''}
             onChange={(e) => {
@@ -3733,6 +3779,15 @@ function App() {
                 {/* Reasoning component for assistant messages */}
                 {message.role === 'assistant' && (message.reasoning || message.isTemporary) && (
                   <ReasoningComponent reasoning={message.reasoning || { text: '', isThinking: false }} />
+                )}
+                
+                {/* Model indicator for assistant messages */}
+                {message.role === 'assistant' && message.model && (
+                  <div className="text-xs text-gray-500 mb-1">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100">
+                      {message.model === 'o3' ? '🟢' : '🔵'} {message.model}
+                    </span>
+                  </div>
                 )}
                 
                 <div className="whitespace-pre-wrap">{message.content || '(No message - tool calls only)'}</div>
