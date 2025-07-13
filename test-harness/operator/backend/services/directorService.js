@@ -1285,21 +1285,117 @@ export class DirectorService {
   }
 
   async useGroup({ groupId, params, description }, workflowId) {
-    console.log(`[USE_GROUP] Creating group node for: ${groupId}`);
+    console.log(`[USE_GROUP] Instantiating group: ${groupId}`);
+    console.log(`[USE_GROUP] Params:`, params);
+    console.log(`[USE_GROUP] WorkflowId:`, workflowId);
     
-    // Create a group node
-    const node = await this.createNode({
-      type: 'group',
-      config: {
-        groupId,
-        params: params || {}
-      },
-      description: description || `Use group: ${groupId}`
-    }, workflowId);
+    // Get the group definition
+    const definition = await this.nodeExecutor.getGroupDefinition(groupId, workflowId);
+    if (!definition) {
+      console.error(`[USE_GROUP] Group definition '${groupId}' not found`);
+      console.log(`[USE_GROUP] Available in-memory groups:`, Array.from(this.nodeExecutor.groupDefinitions.keys()));
+      throw new Error(`Group definition '${groupId}' not found. Make sure to define the group first using define_group.`);
+    }
+    
+    console.log(`[USE_GROUP] Found group definition with ${definition.nodes.length} nodes`);
+    
+    // Get the current max position to know where to insert the group
+    const { data: maxPositionNode } = await supabase
+      .from('nodes')
+      .select('position')
+      .eq('workflow_id', workflowId)
+      .order('position', { ascending: false })
+      .limit(1)
+      .single();
+    
+    let currentPosition = (maxPositionNode?.position || 0) + 1;
+    const createdNodes = [];
+    const nodeIdMap = {}; // Map old node IDs to new ones for reference updates
+    
+    // Create each node from the group definition
+    for (const nodeTemplate of definition.nodes) {
+      console.log(`[USE_GROUP] Creating node: ${nodeTemplate.type} - ${nodeTemplate.description}`);
+      
+      // Deep clone the config to avoid mutations
+      let nodeConfig = JSON.parse(JSON.stringify(nodeTemplate.config || {}));
+      
+      // Replace parameter placeholders with actual values
+      if (params && definition.parameters) {
+        const configStr = JSON.stringify(nodeConfig);
+        let updatedConfigStr = configStr;
+        
+        // Replace each parameter
+        for (const paramName of definition.parameters) {
+          if (params[paramName] !== undefined) {
+            // Replace {{paramName}} with the actual value
+            const placeholder = `{{${paramName}}}`;
+            updatedConfigStr = updatedConfigStr.replace(
+              new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+              JSON.stringify(params[paramName]).slice(1, -1) // Remove quotes from JSON string
+            );
+          }
+        }
+        
+        nodeConfig = JSON.parse(updatedConfigStr);
+      }
+      
+      // Create the node
+      const createdNode = await this.createNode({
+        type: nodeTemplate.type,
+        config: nodeConfig,
+        description: nodeTemplate.description || `${nodeTemplate.type} from group ${groupId}`,
+        alias: nodeTemplate.alias || `${groupId}_${nodeTemplate.type}_${currentPosition}`,
+        position: currentPosition
+      }, workflowId);
+      
+      createdNodes.push(createdNode);
+      
+      // Store ID mapping if the template had an ID (for internal references)
+      if (nodeTemplate.id) {
+        nodeIdMap[nodeTemplate.id] = createdNode.node.id;
+      }
+      
+      currentPosition++;
+    }
+    
+    // Update any internal references in the created nodes
+    // This handles cases where nodes in the group reference each other
+    for (const createdNode of createdNodes) {
+      let configUpdated = false;
+      const nodeConfig = createdNode.node.params;
+      
+      // Check for references to other nodes in the group
+      const configStr = JSON.stringify(nodeConfig);
+      let updatedConfigStr = configStr;
+      
+      for (const [oldId, newId] of Object.entries(nodeIdMap)) {
+        if (configStr.includes(oldId)) {
+          updatedConfigStr = updatedConfigStr.replace(
+            new RegExp(oldId, 'g'),
+            newId
+          );
+          configUpdated = true;
+        }
+      }
+      
+      if (configUpdated) {
+        // Update the node with the new references
+        await this.updateNode({
+          nodeId: createdNode.node.id,
+          updates: {
+            config: JSON.parse(updatedConfigStr)
+          }
+        }, workflowId);
+      }
+    }
     
     return {
-      message: `Group node created`,
-      node
+      message: `Group '${definition.name}' instantiated successfully`,
+      groupId,
+      nodesCreated: createdNodes.length,
+      startPosition: (maxPositionNode?.position || 0) + 1,
+      endPosition: currentPosition - 1,
+      nodeIds: createdNodes.map(n => n.node.id)
     };
   }
 

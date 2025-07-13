@@ -234,10 +234,39 @@ Every node MUST have an 'alias' field when created. This is not optional.
 - \`execute_nodes\` - Test specific nodes or ranges (e.g., "3-5,15,20")
 - \`test_node\` - Execute a single node to see its output
 
-**Group Management:**
+**Group Management (Reusable Patterns):**
 - \`define_group\` - Create reusable node patterns with parameters
-- \`use_group\` - Instantiate a defined group in your workflow
+- \`use_group\` - Instantiate a defined group in your workflow (expands nodes into workflow)
 - \`list_groups\` - See all available reusable groups
+
+Example:
+\`\`\`javascript
+// Define a reusable login pattern
+define_group({
+  groupId: "gmail_login",
+  name: "Gmail Login Flow",
+  description: "Reusable login flow for Gmail",
+  parameters: ["email", "password"],
+  nodes: [
+    {type: "browser_action", config: {action: "navigate", url: "https://gmail.com"}, alias: "go_to_gmail"},
+    {type: "browser_action", config: {action: "type", selector: "#identifierId", text: "{{email}}"}, alias: "enter_email"},
+    {type: "browser_action", config: {action: "click", selector: "#identifierNext"}, alias: "click_next"},
+    {type: "browser_action", config: {action: "wait", duration: 2000}, alias: "wait_for_password"},
+    {type: "browser_action", config: {action: "type", selector: "input[type='password']", text: "{{password}}"}, alias: "enter_password"},
+    {type: "browser_action", config: {action: "click", selector: "#passwordNext"}, alias: "submit_login"}
+  ]
+})
+
+// Use the group with specific parameters
+use_group({
+  groupId: "gmail_login",
+  params: {
+    email: "{{env:GMAIL_EMAIL}}",
+    password: "{{env:GMAIL_PASSWORD}}"
+  }
+})
+// This creates 6 new nodes at the current position
+\`\`\`
 
 ### 📋 Planning & Documentation Tools
 
