@@ -1404,40 +1404,52 @@ export class DirectorService {
   }
 
   async listGroups(workflowId) {
+    console.log(`[LIST_GROUPS] Fetching groups for workflow: ${workflowId}`);
+    
     // Get all group definitions from workflow memory
-    const { data: groups } = await supabase
+    const { data: groups, error } = await supabase
       .from('workflow_memory')
       .select('key, value')
       .eq('workflow_id', workflowId)
       .like('key', 'group_def_%');
+    
+    if (error) {
+      console.error('[LIST_GROUPS] Database error:', error);
+    }
+    
+    console.log(`[LIST_GROUPS] Found ${groups?.length || 0} groups in database`);
       
     const groupList = [];
     if (groups) {
       for (const group of groups) {
         const def = group.value;
+        console.log(`[LIST_GROUPS] Processing group: ${def.groupId} with ${def.nodes?.length || 0} nodes`);
         groupList.push({
           groupId: def.groupId,
           name: def.name,
           description: def.description,
           parameters: def.parameters,
-          nodeCount: def.nodes.length
+          nodeCount: def.nodes?.length || 0
         });
       }
     }
     
     // Also include in-memory definitions
+    console.log(`[LIST_GROUPS] Checking in-memory definitions. Count: ${this.nodeExecutor.groupDefinitions.size}`);
     for (const [groupId, def] of this.nodeExecutor.groupDefinitions) {
       if (!groupList.find(g => g.groupId === groupId)) {
+        console.log(`[LIST_GROUPS] Adding in-memory group: ${groupId}`);
         groupList.push({
           groupId: def.groupId,
           name: def.name,
           description: def.description,
           parameters: def.parameters,
-          nodeCount: def.nodes.length
+          nodeCount: def.nodes?.length || 0
         });
       }
     }
     
+    console.log(`[LIST_GROUPS] Returning ${groupList.length} groups`);
     return {
       groups: groupList,
       count: groupList.length
@@ -1445,14 +1457,24 @@ export class DirectorService {
   }
 
   async storeGroupDefinition(groupId, definition, workflowId) {
-    await supabase
+    console.log(`[STORE_GROUP] Storing group ${groupId} for workflow ${workflowId}`);
+    console.log(`[STORE_GROUP] Definition:`, JSON.stringify(definition, null, 2));
+    
+    const { data, error } = await supabase
       .from('workflow_memory')
       .upsert({
         workflow_id: workflowId,
         key: `group_def_${groupId}`,
         value: definition
-      });
-    console.log(`[GROUP] Stored group definition: ${groupId}`);
+      })
+      .select();
+    
+    if (error) {
+      console.error(`[STORE_GROUP] Error storing group:`, error);
+      throw error;
+    }
+    
+    console.log(`[STORE_GROUP] Successfully stored group definition: ${groupId}`, data);
   }
 
   async getGroupDefinition(groupId, workflowId) {

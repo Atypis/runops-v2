@@ -477,14 +477,21 @@ function App() {
   const loadGroups = async () => {
     if (!currentWorkflow?.id) return;
     
+    console.log('[Frontend] Loading groups for workflow:', currentWorkflow.id);
+    
     try {
       const response = await fetch(`${API_BASE}/director/groups/${currentWorkflow.id}`);
+      console.log('[Frontend] Groups API response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('[Frontend] Groups data received:', data);
         setGroups(data.groups || []);
+      } else {
+        console.error('[Frontend] Groups API error:', response.status, response.statusText);
       }
     } catch (error) {
-      console.error('Failed to load groups:', error);
+      console.error('[Frontend] Failed to load groups:', error);
     }
   };
 
