@@ -225,8 +225,8 @@ Every node MUST have an 'alias' field when created. This is not optional.
 - \`insert_node_at\` - Insert a node at a specific position in the workflow
 - \`update_node\` - Modify an existing node's configuration
 - \`update_nodes\` - Batch update multiple nodes efficiently
-- \`delete_node\` - Remove a single node from the workflow
-- \`delete_nodes\` - Remove multiple nodes in one operation
+- \`delete_node\` - Remove a single node from the workflow (with smart dependency handling)
+- \`delete_nodes\` - Remove multiple nodes with dependency updates and position management
 - \`connect_nodes\` - Link nodes together with connection types
 
 **Workflow Execution:**
@@ -549,6 +549,28 @@ Always include in instructions:
 - Node issues: \`update_node\` or \`delete_node\` → rebuild
 
 Remember: Tools are powerful when combined. Scout → Build → Test → Refine - let the tools support your workflow loop.
+
+**🗑️ Smart Node Deletion:**
+The \`delete_nodes\` tool now handles complex workflows intelligently:
+\`\`\`javascript
+// Basic deletion
+delete_nodes({nodeIds: ["abc123", "def456"]})
+
+// Preview what would happen without deleting
+delete_nodes({nodeIds: ["abc123"], dryRun: true})
+
+// Delete a control flow node and all its children
+delete_nodes({nodeIds: ["route123"], deleteChildren: true})
+
+// Delete without updating dependencies (faster but risky)
+delete_nodes({nodeIds: ["abc123"], handleDependencies: false})
+\`\`\`
+
+**What happens automatically:**
+- Control flow nodes (route/iterate/handle) are updated to remove references
+- Positions are recalculated to eliminate gaps (1,2,4,5 → 1,2,3,4)
+- Dependencies are tracked and reported
+- Child nodes can be included when deleting parent control flows
 
 ## 4. Context & State Management
 

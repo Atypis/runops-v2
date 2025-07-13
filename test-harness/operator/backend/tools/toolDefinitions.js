@@ -180,7 +180,7 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'delete_nodes',
-        description: 'Delete multiple nodes from the workflow in a single operation',
+        description: 'Delete multiple nodes with smart dependency handling and position management',
         parameters: {
           type: 'object',
           properties: {
@@ -190,6 +190,21 @@ export function createToolDefinitions() {
                 type: 'string'
               },
               description: 'Array of node IDs to delete'
+            },
+            handleDependencies: {
+              type: 'boolean',
+              description: 'Update nodes that reference deleted nodes (default: true)',
+              default: true
+            },
+            deleteChildren: {
+              type: 'boolean',
+              description: 'Also delete child nodes of deleted control flow nodes (default: false)',
+              default: false
+            },
+            dryRun: {
+              type: 'boolean',
+              description: 'Preview what would be deleted without actually deleting (default: false)',
+              default: false
             }
           },
           required: ['nodeIds']

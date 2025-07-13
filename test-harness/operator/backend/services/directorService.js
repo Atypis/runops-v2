@@ -754,24 +754,368 @@ export class DirectorService {
   }
 
   async deleteNode({ nodeId }) {
-    const { error } = await supabase
-      .from('nodes')
-      .delete()
-      .eq('id', nodeId);
-      
-    if (error) throw error;
-    return { success: true };
+    // Use the enhanced deleteNodes for consistency
+    return await this.deleteNodes({ 
+      nodeIds: [nodeId],
+      handleDependencies: true,
+      deleteChildren: false,
+      dryRun: false
+    });
   }
 
-  async deleteNodes({ nodeIds }) {
-    // Delete multiple nodes in a single operation
-    const { error } = await supabase
-      .from('nodes')
-      .delete()
-      .in('id', nodeIds);
+  async deleteNodes({ nodeIds, handleDependencies = true, deleteChildren = false, dryRun = false }) {
+    console.log(`[DELETE_NODES] Starting deletion:`, {
+      nodeIds,
+      handleDependencies,
+      deleteChildren,
+      dryRun
+    });
+
+    try {
+      // Step 1: Validate all nodes exist and get their details
+      const { data: nodesToDelete, error: fetchError } = await supabase
+        .from('nodes')
+        .select('*')
+        .in('id', nodeIds);
+
+      if (fetchError) throw fetchError;
       
-    if (error) throw error;
-    return { success: true, deletedCount: nodeIds.length };
+      if (!nodesToDelete || nodesToDelete.length !== nodeIds.length) {
+        const foundIds = nodesToDelete?.map(n => n.id) || [];
+        const missingIds = nodeIds.filter(id => !foundIds.includes(id));
+        throw new Error(`Some nodes not found: ${missingIds.join(', ')}`);
+      }
+
+      // Get workflow ID from first node (all should be in same workflow)
+      const workflowId = nodesToDelete[0].workflow_id;
+      
+      // Step 2: Get all nodes in the workflow for dependency analysis
+      const { data: allNodes, error: allNodesError } = await supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .order('position');
+
+      if (allNodesError) throw allNodesError;
+
+      // Step 3: Find nodes that depend on the ones being deleted
+      const deletedPositions = nodesToDelete.map(n => n.position);
+      const affectedNodes = [];
+      const childNodesToDelete = new Set();
+
+      for (const node of allNodes) {
+        // Skip if this node is being deleted
+        if (nodeIds.includes(node.id)) continue;
+
+        let needsUpdate = false;
+        const updatedConfig = { ...node.config };
+
+        // Check route nodes
+        if (node.type === 'route' && node.config?.paths) {
+          for (const [pathName, positions] of Object.entries(node.config.paths)) {
+            if (Array.isArray(positions)) {
+              const filteredPositions = positions.filter(pos => !deletedPositions.includes(pos));
+              if (filteredPositions.length !== positions.length) {
+                updatedConfig.paths[pathName] = filteredPositions;
+                needsUpdate = true;
+              }
+            }
+          }
+        }
+
+        // Check iterate nodes
+        if (node.type === 'iterate' && node.config?.body) {
+          if (Array.isArray(node.config.body)) {
+            const filteredBody = node.config.body.filter(pos => !deletedPositions.includes(pos));
+            if (filteredBody.length !== node.config.body.length) {
+              updatedConfig.body = filteredBody;
+              needsUpdate = true;
+            }
+          } else if (typeof node.config.body === 'number' && deletedPositions.includes(node.config.body)) {
+            updatedConfig.body = [];
+            needsUpdate = true;
+          }
+        }
+
+        // Check handle nodes
+        if (node.type === 'handle') {
+          if (node.config?.try && Array.isArray(node.config.try)) {
+            const filteredTry = node.config.try.filter(pos => !deletedPositions.includes(pos));
+            if (filteredTry.length !== node.config.try.length) {
+              updatedConfig.try = filteredTry;
+              needsUpdate = true;
+            }
+          }
+          if (node.config?.catch && Array.isArray(node.config.catch)) {
+            const filteredCatch = node.config.catch.filter(pos => !deletedPositions.includes(pos));
+            if (filteredCatch.length !== node.config.catch.length) {
+              updatedConfig.catch = filteredCatch;
+              needsUpdate = true;
+            }
+          }
+          if (node.config?.finally && Array.isArray(node.config.finally)) {
+            const filteredFinally = node.config.finally.filter(pos => !deletedPositions.includes(pos));
+            if (filteredFinally.length !== node.config.finally.length) {
+              updatedConfig.finally = filteredFinally;
+              needsUpdate = true;
+            }
+          }
+        }
+
+        if (needsUpdate) {
+          affectedNodes.push({
+            id: node.id,
+            position: node.position,
+            type: node.type,
+            oldConfig: node.config,
+            newConfig: updatedConfig
+          });
+        }
+
+        // Check if this node is a child of a deleted control flow node
+        if (deleteChildren && node.parent_position) {
+          if (deletedPositions.includes(node.parent_position)) {
+            childNodesToDelete.add(node.id);
+          }
+        }
+      }
+
+      // Step 4: Build comprehensive result for dry run
+      if (dryRun) {
+        return {
+          success: true,
+          dryRun: true,
+          wouldDelete: {
+            direct: nodesToDelete.map(n => ({
+              id: n.id,
+              position: n.position,
+              type: n.type,
+              description: n.description
+            })),
+            children: deleteChildren ? Array.from(childNodesToDelete).map(id => {
+              const node = allNodes.find(n => n.id === id);
+              return {
+                id: node.id,
+                position: node.position,
+                type: node.type,
+                description: node.description
+              };
+            }) : []
+          },
+          wouldUpdate: affectedNodes,
+          totalDeleted: nodesToDelete.length + (deleteChildren ? childNodesToDelete.size : 0),
+          totalUpdated: affectedNodes.length
+        };
+      }
+
+      // Step 5: Execute the deletion and updates in a transaction-like manner
+      const allIdsToDelete = [...nodeIds];
+      if (deleteChildren) {
+        allIdsToDelete.push(...Array.from(childNodesToDelete));
+      }
+
+      // Update affected nodes first (before deletion)
+      if (handleDependencies && affectedNodes.length > 0) {
+        console.log(`[DELETE_NODES] Updating ${affectedNodes.length} dependent nodes`);
+        
+        for (const affected of affectedNodes) {
+          const { error: updateError } = await supabase
+            .from('nodes')
+            .update({ config: affected.newConfig })
+            .eq('id', affected.id);
+            
+          if (updateError) {
+            throw new Error(`Failed to update dependent node ${affected.id}: ${updateError.message}`);
+          }
+        }
+      }
+
+      // Delete the nodes
+      const { error: deleteError } = await supabase
+        .from('nodes')
+        .delete()
+        .in('id', allIdsToDelete);
+
+      if (deleteError) throw deleteError;
+
+      // Step 6: Recalculate positions to eliminate gaps
+      // Convert IDs to strings for comparison (database returns numbers, but nodeIds are strings)
+      const allIdsToDeleteStr = allIdsToDelete.map(id => String(id));
+      const remainingNodes = allNodes
+        .filter(n => !allIdsToDeleteStr.includes(String(n.id)))
+        .sort((a, b) => a.position - b.position);
+      
+      console.log(`[DELETE_NODES] Remaining nodes after deletion: ${remainingNodes.length} (from ${allNodes.length} total)`);
+
+      const positionUpdates = [];
+      let newPosition = 1;
+
+      for (const node of remainingNodes) {
+        if (node.position !== newPosition) {
+          console.log(`[DELETE_NODES] Node ${node.id} needs position update: ${node.position} → ${newPosition}`);
+          positionUpdates.push({
+            id: node.id,
+            oldPosition: node.position,
+            newPosition: newPosition
+          });
+        }
+        newPosition++;
+      }
+
+      // Apply position updates
+      if (positionUpdates.length > 0) {
+        console.log(`[DELETE_NODES] Recalculating ${positionUpdates.length} node positions`);
+        
+        for (const update of positionUpdates) {
+          const { error: posUpdateError } = await supabase
+            .from('nodes')
+            .update({ position: update.newPosition })
+            .eq('id', update.id);
+            
+          if (posUpdateError) {
+            console.error(`[DELETE_NODES] Warning: Failed to update position for node ${update.id}`);
+          }
+        }
+
+        // Update control flow references with new positions
+        if (handleDependencies) {
+          await this.updateControlFlowPositions(workflowId, positionUpdates);
+        }
+      }
+
+      // Step 7: Return comprehensive result with refresh flag
+      return {
+        success: true,
+        deleted: {
+          direct: nodesToDelete.map(n => ({
+            id: n.id,
+            position: n.position,
+            type: n.type,
+            description: n.description
+          })),
+          children: deleteChildren ? Array.from(childNodesToDelete).map(id => {
+            const node = allNodes.find(n => n.id === id);
+            return {
+              id: node.id,
+              position: node.position,
+              type: node.type,
+              description: node.description
+            };
+          }) : []
+        },
+        updated: {
+          dependencies: affectedNodes.map(n => ({
+            id: n.id,
+            position: n.position,
+            type: n.type,
+            changes: 'Updated references to deleted nodes'
+          })),
+          positions: positionUpdates
+        },
+        summary: {
+          totalDeleted: allIdsToDelete.length,
+          totalUpdated: affectedNodes.length + positionUpdates.length,
+          gapsEliminated: positionUpdates.length > 0
+        },
+        // Add refresh hint for Director to communicate to user
+        refreshRequired: true,
+        message: `Successfully deleted ${allIdsToDelete.length} node(s) and updated ${affectedNodes.length + positionUpdates.length} references. The workflow has been reorganized with positions ${positionUpdates.length > 0 ? 'recalculated to eliminate gaps.' : 'maintained.'}`
+      };
+
+    } catch (error) {
+      console.error('[DELETE_NODES] Error:', error);
+      throw error;
+    }
+  }
+
+  async updateControlFlowPositions(workflowId, positionUpdates) {
+    console.log(`[UPDATE_CONTROL_FLOW] Updating control flow references with new positions`);
+    
+    // Create a map of old position to new position
+    const positionMap = {};
+    positionUpdates.forEach(update => {
+      positionMap[update.oldPosition] = update.newPosition;
+    });
+    
+    // Get all nodes that might have position references
+    const { data: controlFlowNodes, error } = await supabase
+      .from('nodes')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .in('type', ['route', 'iterate', 'handle']);
+    
+    if (error) {
+      console.error('[UPDATE_CONTROL_FLOW] Error fetching control flow nodes:', error);
+      return;
+    }
+    
+    for (const node of controlFlowNodes) {
+      let needsUpdate = false;
+      const updatedConfig = { ...node.config };
+      
+      // Update route paths
+      if (node.type === 'route' && node.config?.paths) {
+        for (const [pathName, positions] of Object.entries(node.config.paths)) {
+          if (Array.isArray(positions)) {
+            updatedConfig.paths[pathName] = positions.map(pos => 
+              positionMap[pos] !== undefined ? positionMap[pos] : pos
+            );
+            needsUpdate = true;
+          }
+        }
+      }
+      
+      // Update iterate body
+      if (node.type === 'iterate' && node.config?.body) {
+        if (Array.isArray(node.config.body)) {
+          updatedConfig.body = node.config.body.map(pos => 
+            positionMap[pos] !== undefined ? positionMap[pos] : pos
+          );
+          needsUpdate = true;
+        } else if (typeof node.config.body === 'number') {
+          const newPos = positionMap[node.config.body];
+          if (newPos !== undefined) {
+            updatedConfig.body = newPos;
+            needsUpdate = true;
+          }
+        }
+      }
+      
+      // Update handle blocks
+      if (node.type === 'handle') {
+        if (node.config?.try && Array.isArray(node.config.try)) {
+          updatedConfig.try = node.config.try.map(pos => 
+            positionMap[pos] !== undefined ? positionMap[pos] : pos
+          );
+          needsUpdate = true;
+        }
+        if (node.config?.catch && Array.isArray(node.config.catch)) {
+          updatedConfig.catch = node.config.catch.map(pos => 
+            positionMap[pos] !== undefined ? positionMap[pos] : pos
+          );
+          needsUpdate = true;
+        }
+        if (node.config?.finally && Array.isArray(node.config.finally)) {
+          updatedConfig.finally = node.config.finally.map(pos => 
+            positionMap[pos] !== undefined ? positionMap[pos] : pos
+          );
+          needsUpdate = true;
+        }
+      }
+      
+      if (needsUpdate) {
+        const { error: updateError } = await supabase
+          .from('nodes')
+          .update({ config: updatedConfig })
+          .eq('id', node.id);
+          
+        if (updateError) {
+          console.error(`[UPDATE_CONTROL_FLOW] Failed to update node ${node.id}:`, updateError);
+        } else {
+          console.log(`[UPDATE_CONTROL_FLOW] Updated position references in node ${node.id}`);
+        }
+      }
+    }
   }
 
   async updateNodes({ updates }) {
