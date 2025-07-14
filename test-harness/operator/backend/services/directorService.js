@@ -1322,7 +1322,13 @@ export class DirectorService {
       
       // Handle both formats: nodes with config object and nodes with config at root level
       let nodeConfig;
-      if (nodeTemplate.config) {
+      
+      // Check for malformed "config": key
+      const malformedConfigKey = Object.keys(nodeTemplate).find(key => key.includes('config'));
+      if (malformedConfigKey) {
+        console.log(`[USE_GROUP] Found config key: "${malformedConfigKey}"`);
+        nodeConfig = nodeTemplate[malformedConfigKey];
+      } else if (nodeTemplate.config) {
         // Already has a config object
         nodeConfig = JSON.parse(JSON.stringify(nodeTemplate.config));
       } else {
@@ -1336,7 +1342,7 @@ export class DirectorService {
         });
       }
       
-      console.log(`[USE_GROUP] Node config:`, nodeConfig);
+      console.log(`[USE_GROUP] Node config:`, JSON.stringify(nodeConfig));
       
       // Replace parameter placeholders with actual values
       if (params && definition.parameters) {
