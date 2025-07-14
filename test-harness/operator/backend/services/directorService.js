@@ -22,6 +22,20 @@ export class DirectorService {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
+    
+    // Initialize OpenRouter client for KIMI models
+    this.openRouterClient = null;
+    if (process.env.OPENROUTER_API_KEY) {
+      this.openRouterClient = new OpenAI({
+        baseURL: 'https://openrouter.ai/api/v1',
+        apiKey: process.env.OPENROUTER_API_KEY,
+        defaultHeaders: {
+          'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'http://localhost:5173',
+          'X-Title': process.env.OPENROUTER_SITE_NAME || 'Director 2.0'
+        }
+      });
+    }
+    
     this.nodeExecutor = new NodeExecutor();
     this.planService = new PlanService();
     this.workflowDescriptionService = new WorkflowDescriptionService();
@@ -206,7 +220,10 @@ export class DirectorService {
       
       // Route to appropriate API based on model type
       let completion;
-      if (this.isReasoningModel(model)) {
+      if (this.isKimiModel(model)) {
+        console.log(`[DIRECTOR] Using OpenRouter for KIMI model: ${model}`);
+        completion = await this.processWithKIMI(model, messages, workflowId);
+      } else if (this.isReasoningModel(model)) {
         console.log(`[DIRECTOR] Using Responses API for reasoning model: ${model}`);
         if (model === 'o3') {
           console.log(`[DIRECTOR] Background mode will be enabled for o3 to handle rate limits gracefully`);
@@ -2342,10 +2359,28 @@ export class DirectorService {
   }
 
   /**
+   * Check if a model is a KIMI model that requires OpenRouter
+   */
+  isKimiModel(model) {
+    const kimiModels = ['kimi-k2', 'moonshotai/kimi-k2'];
+    return kimiModels.some(kimiModel => 
+      model.toLowerCase().includes(kimiModel.toLowerCase())
+    );
+  }
+
+  /**
    * Get the selected model with validation and fallback logic
    */
   getSelectedModel(requestedModel) {
-    const allowedModels = ['o4-mini', 'o3'];
+    const allowedModels = [
+      'o4-mini', 
+      'o3',
+      'gpt-4',
+      'gpt-4-turbo',
+      'gpt-3.5-turbo',
+      'kimi-k2',
+      'moonshotai/kimi-k2'
+    ];
     
     // Priority order:
     // 1. Valid requested model from UI
@@ -2358,7 +2393,7 @@ export class DirectorService {
     }
     
     const envModel = process.env.DIRECTOR_MODEL;
-    if (envModel && this.isReasoningModel(envModel)) {
+    if (envModel && (this.isReasoningModel(envModel) || this.isKimiModel(envModel) || allowedModels.includes(envModel))) {
       console.log(`[DIRECTOR MODEL] Using environment variable model: ${envModel}`);
       console.log(`[DIRECTOR MODEL] Source: DIRECTOR_MODEL environment variable`);
       return envModel;
@@ -2486,6 +2521,131 @@ export class DirectorService {
       }
       return tool; // Return as-is if already in correct format
     });
+  }
+
+  /**
+   * Process message using OpenRouter for KIMI models
+   */
+  async processWithKIMI(model, messages, workflowId) {
+    try {
+      if (!this.openRouterClient) {
+        throw new Error('OpenRouter client not initialized. Please set OPENROUTER_API_KEY in environment variables.');
+      }
+
+      const tools = createToolDefinitions();
+      
+      console.log('[KIMI] Making initial request to KIMI K2 via OpenRouter');
+      console.log(`[KIMI] Messages: ${messages.length}, Tools: ${tools.length}`);
+      console.log('[KIMI] Using FREE tier - tool calling may be limited');
+      
+      // Try with tools first (may fail on free tier)
+      let response;
+      try {
+        response = await this.openRouterClient.chat.completions.create({
+          model: 'moonshotai/kimi-k2:free',
+          messages,
+          tools,
+          tool_choice: 'auto',
+          temperature: 0.6, // Recommended for KIMI
+          stream: false,
+          max_tokens: 4096
+        });
+      } catch (toolError) {
+        // If tool calling fails (503 error on free tier), try without tools
+        if (toolError.status === 503 || toolError.message?.includes('Provider returned error')) {
+          console.log('[KIMI] Tool calling not supported on free tier, falling back to text-only mode');
+          response = await this.openRouterClient.chat.completions.create({
+            model: 'moonshotai/kimi-k2:free',
+            messages,
+            temperature: 0.6,
+            stream: false,
+            max_tokens: 4096
+          });
+        } else {
+          throw toolError;
+        }
+      }
+
+      const assistantMessage = response.choices[0].message;
+      
+      // If KIMI wants to use tools, process them
+      if (assistantMessage.tool_calls?.length > 0) {
+        console.log(`[KIMI] Processing ${assistantMessage.tool_calls.length} tool calls`);
+        
+        // Execute tool calls
+        const toolResults = await this.processToolCalls(assistantMessage.tool_calls, workflowId);
+        
+        // Build messages for follow-up
+        const followUpMessages = [
+          ...messages,
+          assistantMessage,
+          {
+            role: 'tool',
+            content: JSON.stringify(toolResults),
+            tool_call_id: assistantMessage.tool_calls[0].id
+          }
+        ];
+        
+        // Make follow-up call to get final response
+        console.log('[KIMI] Making follow-up request after tool execution');
+        const finalResponse = await this.openRouterClient.chat.completions.create({
+          model: 'moonshotai/kimi-k2:free',
+          messages: followUpMessages,
+          temperature: 0.6,
+          stream: false,
+          max_tokens: 4096
+        });
+        
+        // Calculate total usage
+        const totalUsage = {
+          prompt_tokens: response.usage.prompt_tokens + finalResponse.usage.prompt_tokens,
+          completion_tokens: response.usage.completion_tokens + finalResponse.usage.completion_tokens,
+          total_tokens: response.usage.total_tokens + finalResponse.usage.total_tokens
+        };
+        
+        // Calculate cost (FREE during limited time offer!)
+        const inputCost = 0; // FREE
+        const outputCost = 0; // FREE
+        const totalCost = 0; // FREE
+        
+        console.log(`[KIMI] Total tokens used: ${totalUsage.total_tokens} (cost: FREE! 🎉)`);
+        
+        // Return in the format expected by processMessage
+        return {
+          id: finalResponse.id,
+          object: 'chat.completion',
+          created: finalResponse.created,
+          model: 'kimi-k2',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: finalResponse.choices[0].message.content,
+              tool_calls: assistantMessage.tool_calls // Include original tool calls
+            },
+            finish_reason: finalResponse.choices[0].finish_reason
+          }],
+          usage: totalUsage
+        };
+      }
+      
+      // No tool calls, return direct response
+      console.log('[KIMI] No tool calls requested, returning direct response');
+      return response;
+      
+    } catch (error) {
+      console.error('[KIMI] Error processing with KIMI:', error);
+      
+      // Fallback to GPT-4 if KIMI fails
+      console.log('[KIMI] Falling back to GPT-4 due to error');
+      return await this.openai.chat.completions.create({
+        model: 'gpt-4-turbo',
+        messages,
+        tools: createToolDefinitions(),
+        tool_choice: 'auto',
+        temperature: 1
+      });
+    }
   }
 
   /**

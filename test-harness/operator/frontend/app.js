@@ -256,7 +256,7 @@ function App() {
   const [mockMode, setMockMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
     const savedModel = localStorage.getItem('director-selected-model');
-    return (savedModel && ['o4-mini', 'o3'].includes(savedModel)) ? savedModel : 'o4-mini';
+    return (savedModel && ['o4-mini', 'o3', 'kimi-k2'].includes(savedModel)) ? savedModel : 'o4-mini';
   });
   const [nodeValues, setNodeValues] = useState({}); // Storage key -> value mapping
   const [expandedNodes, setExpandedNodes] = useState(new Set()); // Track expanded iterate nodes
@@ -3788,6 +3788,21 @@ function App() {
               >
                 o3
               </button>
+              <button
+                onClick={() => {
+                  setSelectedModel('kimi-k2');
+                  localStorage.setItem('director-selected-model', 'kimi-k2');
+                  console.log('[UI] Model switched to: kimi-k2');
+                }}
+                className={`px-3 py-1 text-sm rounded transition-all ${
+                  selectedModel === 'kimi-k2'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+                title="Use KIMI K2 model (FREE limited time! Excellent tool calling)"
+              >
+                KIMI K2
+              </button>
             </div>
           )}
           <select
@@ -3928,7 +3943,7 @@ function App() {
                 {message.role === 'assistant' && message.model && (
                   <div className="text-xs text-gray-500 mb-1">
                     <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100">
-                      {message.model === 'o3' ? '🟢' : '🔵'} {message.model}
+                      {message.model === 'o3' ? '🟢' : message.model === 'kimi-k2' ? '🟣' : '🔵'} {message.model}
                     </span>
                   </div>
                 )}
