@@ -921,17 +921,30 @@ ${compressionContext}`;
   }
 });
 
-// List all groups for a workflow
+// List all group nodes in a workflow
 router.get('/groups/:workflowId', async (req, res, next) => {
   try {
     const { workflowId } = req.params;
-    console.log(`[ROUTE /groups/:workflowId] Received request for workflow: ${workflowId}`);
+    console.log(`[ROUTE /groups/:workflowId] Fetching group nodes for workflow: ${workflowId}`);
     
-    const result = await directorService.listGroups(workflowId);
+    // Get all nodes of type 'group' from the workflow
+    const { data: nodes, error } = await directorService.supabase
+      .from('nodes')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .eq('type', 'group')
+      .order('position');
     
-    console.log(`[ROUTE /groups/:workflowId] Returning ${result.count} groups`);
-    console.log(`[ROUTE /groups/:workflowId] Response:`, JSON.stringify(result, null, 2));
+    if (error) {
+      throw error;
+    }
     
+    const result = {
+      groups: nodes || [],
+      count: nodes?.length || 0
+    };
+    
+    console.log(`[ROUTE /groups/:workflowId] Returning ${result.count} group nodes`);
     res.json(result);
   } catch (error) {
     console.error(`[ROUTE /groups/:workflowId] Error:`, error);
@@ -939,68 +952,6 @@ router.get('/groups/:workflowId', async (req, res, next) => {
   }
 });
 
-// Use a group (instantiate it)
-router.post('/groups/use', async (req, res, next) => {
-  try {
-    const { workflowId, groupId, params, description } = req.body;
-    
-    if (!workflowId || !groupId) {
-      return res.status(400).json({ error: 'Missing workflowId or groupId' });
-    }
-    
-    const result = await directorService.useGroup({ groupId, params, description }, workflowId);
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get a specific group definition
-router.get('/groups/:workflowId/:groupId', async (req, res, next) => {
-  try {
-    const { workflowId, groupId } = req.params;
-    const definition = await directorService.nodeExecutor.getGroupDefinition(groupId, workflowId);
-    
-    if (!definition) {
-      return res.status(404).json({ error: 'Group not found' });
-    }
-    
-    res.json(definition);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Delete a group definition
-router.delete('/groups/:workflowId/:groupId', async (req, res, next) => {
-  try {
-    const { workflowId, groupId } = req.params;
-    console.log(`[DELETE GROUP] Deleting group ${groupId} from workflow ${workflowId}`);
-    
-    // Delete from database
-    const { error } = await directorService.supabase
-      .from('workflow_memory')
-      .delete()
-      .eq('workflow_id', workflowId)
-      .eq('key', `group_def_${groupId}`);
-    
-    if (error) {
-      throw error;
-    }
-    
-    // Also remove from in-memory cache
-    if (directorService.nodeExecutor.groupDefinitions.has(groupId)) {
-      directorService.nodeExecutor.groupDefinitions.delete(groupId);
-    }
-    
-    res.json({ 
-      success: true, 
-      message: `Group '${groupId}' deleted successfully` 
-    });
-  } catch (error) {
-    console.error(`[DELETE GROUP] Error:`, error);
-    next(error);
-  }
-});
+// Old group endpoints removed - group functionality is now handled by the 'group' node type
 
 export default router;

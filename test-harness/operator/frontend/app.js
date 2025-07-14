@@ -270,12 +270,12 @@ function App() {
   const [planExpanded, setPlanExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('description'); // 'description', 'plan', 'variables', 'browser', 'reasoning', 'tokens', 'groups'
   const [variables, setVariables] = useState([]);
-  const [groups, setGroups] = useState([]); // Reusable workflow groups
   const [reasoningText, setReasoningText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [reasoningConnected, setReasoningConnected] = useState(false);
   const [reasoningVersion, setReasoningVersion] = useState(0); // Force re-renders
   const [currentReasoningMessageIndex, setCurrentReasoningMessageIndex] = useState(null); // Track which message is currently receiving reasoning
+  const [selectedNodes, setSelectedNodes] = useState([]); // For node selection
   const [reasoningSessions, setReasoningSessions] = useState([]); // Persistent reasoning sessions
   const [currentSessionId, setCurrentSessionId] = useState(null); // Track current session
   const [tokenStats, setTokenStats] = useState(null); // Token usage statistics
@@ -473,39 +473,6 @@ function App() {
     }
   };
 
-  // Load groups for the Groups tab
-  const loadGroups = async () => {
-    if (!currentWorkflow?.id) return;
-    
-    console.log('[Frontend] Loading groups for workflow:', currentWorkflow.id);
-    
-    const url = `${API_BASE}/groups/${currentWorkflow.id}`;
-    console.log('[Frontend] Fetching from URL:', url);
-    
-    try {
-      const response = await fetch(url);
-      console.log('[Frontend] Groups API response status:', response.status);
-      
-      if (response.ok) {
-        // Get response as text first to debug
-        const responseText = await response.text();
-        console.log('[Frontend] Raw response text:', responseText);
-        
-        try {
-          const data = JSON.parse(responseText);
-          console.log('[Frontend] Groups data received:', data);
-          setGroups(data.groups || []);
-        } catch (parseError) {
-          console.error('[Frontend] Failed to parse JSON:', parseError);
-          console.error('[Frontend] Response was:', responseText);
-        }
-      } else {
-        console.error('[Frontend] Groups API error:', response.status, response.statusText);
-      }
-    } catch (error) {
-      console.error('[Frontend] Failed to load groups:', error);
-    }
-  };
 
   // Real-time browser state updates via Server-Sent Events
   useEffect(() => {
@@ -592,10 +559,6 @@ function App() {
   // Load groups when tab is selected or workflow changes
   useEffect(() => {
     console.log('[Frontend useEffect] activeTab:', activeTab, 'currentWorkflow:', currentWorkflow);
-    if (activeTab === 'groups' && currentWorkflow?.id) {
-      console.log('[Frontend useEffect] Loading groups because tab is groups and workflow exists');
-      loadGroups();
-    }
   }, [activeTab, currentWorkflow]);
 
   // WebSocket connection for reasoning stream
@@ -1260,130 +1223,82 @@ function App() {
   };
 
   // VariablesViewer Component
-  const GroupsViewer = ({ groups, workflowId, onUseGroup, onRefresh }) => {
-    const [selectedGroup, setSelectedGroup] = useState(null);
-    const [groupParams, setGroupParams] = useState({});
-    const [showParamsModal, setShowParamsModal] = useState(false);
-
-    if (!groups || groups.length === 0) {
+  const GroupsViewer = ({ workflow, onDeleteGroup, onGoToNode, onRefresh }) => {
+    // Get all group nodes from the workflow
+    const groupNodes = workflow?.nodes?.filter(node => node.type === 'group') || [];
+    
+    if (groupNodes.length === 0) {
       return (
         <div className="text-center text-gray-500 py-8">
-          <p className="text-sm">No groups defined yet</p>
-          <p className="text-xs mt-1">The Director can create reusable groups with define_group</p>
+          <p className="text-sm">No groups in this workflow</p>
+          <p className="text-xs mt-1">Select nodes in the workflow and click "Group Selected" to create a group</p>
           <button 
             onClick={onRefresh}
             className="mt-4 text-teal-600 hover:text-teal-700 text-sm font-medium"
           >
-            Refresh Groups
+            Refresh
           </button>
         </div>
       );
     }
 
-    const handleUseGroup = (group) => {
-      setSelectedGroup(group);
-      setGroupParams({});
-      setShowParamsModal(true);
-    };
-
-    const submitGroupUsage = () => {
-      if (selectedGroup) {
-        onUseGroup(selectedGroup.groupId, groupParams);
-        setShowParamsModal(false);
-        setSelectedGroup(null);
-        setGroupParams({});
-      }
-    };
-
     return (
-      <>
-        <div className="space-y-3">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Reusable Workflow Groups</h3>
-            <button 
-              onClick={onRefresh}
-              className="text-teal-600 hover:text-teal-700 text-sm"
-            >
-              Refresh
-            </button>
-          </div>
-          
-          {groups.map(group => (
-            <div key={group.groupId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h4 className="font-semibold text-gray-800">{group.name}</h4>
-                  <p className="text-sm text-gray-600 mt-1">{group.description}</p>
-                  <div className="mt-2 text-xs text-gray-500">
-                    <span className="bg-teal-100 text-teal-700 px-2 py-0.5 rounded">
-                      {group.nodeCount} nodes
-                    </span>
-                    {group.parameters && group.parameters.length > 0 && (
-                      <span className="ml-2">
-                        Parameters: {group.parameters.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleUseGroup(group)}
-                  className="ml-4 px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded"
-                >
-                  Use Group
-                </button>
-              </div>
-            </div>
-          ))}
+      <div className="space-y-3">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">Workflow Groups</h3>
+          <button 
+            onClick={onRefresh}
+            className="text-teal-600 hover:text-teal-700 text-sm"
+          >
+            Refresh
+          </button>
         </div>
-
-        {/* Parameters Modal */}
-        {showParamsModal && selectedGroup && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-              <h3 className="text-lg font-semibold mb-4">Use Group: {selectedGroup.name}</h3>
-              
-              {selectedGroup.parameters && selectedGroup.parameters.length > 0 ? (
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">Enter values for the group parameters:</p>
-                  {selectedGroup.parameters.map(param => (
-                    <div key={param}>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {param}
-                      </label>
-                      <input
-                        type="text"
-                        value={groupParams[param] || ''}
-                        onChange={(e) => setGroupParams({...groupParams, [param]: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        placeholder={`Enter ${param}`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-600 mb-4">
-                  This group has no parameters. Click submit to instantiate it.
+        
+        {groupNodes.map(node => (
+          <div key={node.id} className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <div className="flex justify-between items-start">
+              <div className="flex-1">
+                <h4 className="font-semibold text-gray-800">
+                  {node.config?.name || node.alias || `Group at position ${node.position}`}
+                </h4>
+                <p className="text-sm text-gray-600 mt-1">
+                  {node.description || `Executes nodes ${node.config?.nodeRange}`}
                 </p>
-              )}
-              
-              <div className="mt-6 flex justify-end space-x-3">
+                <div className="mt-2 text-xs text-gray-500">
+                  <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                    Nodes: {node.config?.nodeRange}
+                  </span>
+                  <span className="ml-2">
+                    Position: {node.position}
+                  </span>
+                </div>
+                {node.result && (
+                  <div className="mt-2 text-xs">
+                    <span className={node.result.success ? "text-green-600" : "text-red-600"}>
+                      Last run: {node.result.executed}/{node.result.total} nodes
+                      {node.result.success ? " ✓" : " ✗"}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="flex space-x-2">
                 <button
-                  onClick={() => setShowParamsModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                  onClick={() => onGoToNode(node.position)}
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded"
                 >
-                  Cancel
+                  View
                 </button>
                 <button
-                  onClick={submitGroupUsage}
-                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded"
+                  onClick={() => onDeleteGroup(node.id)}
+                  className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded"
                 >
-                  Use Group
+                  Delete
                 </button>
               </div>
             </div>
           </div>
-        )}
-      </>
+        ))}
+      </div>
     );
   };
 
@@ -2150,7 +2065,7 @@ function App() {
   };
 
   // NodeCard Component - Handles display of nodes including complex route and iterate nodes
-  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, nodeValues, isIterationContext = false }) => {
+  const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, nodeValues, selectedNodes = [], setSelectedNodes, isIterationContext = false }) => {
     console.log(`[DEBUG] Rendering NodeCard for node ${node.position} (${node.type}):`, { 
       id: node.id, 
       result: node.result,
@@ -2283,10 +2198,37 @@ function App() {
         {depthStyles.verticalLine && <div style={depthStyles.verticalLine} />}
         
         <div 
-          className={`rounded-lg transition-all duration-300 ${isCompact ? 'p-2' : 'p-3'} ${depth > 0 ? 'shadow-sm hover:shadow-md' : 'shadow-md hover:shadow-lg'}`}
+          data-node-position={node.position}
+          className={`rounded-lg transition-all duration-300 ${isCompact ? 'p-2' : 'p-3'} ${depth > 0 ? 'shadow-sm hover:shadow-md' : 'shadow-md hover:shadow-lg'} ${
+            selectedNodes.some(n => n.id === node.id) ? 'ring-2 ring-purple-500' : ''
+          } cursor-pointer`}
           style={{
             ...depthStyles.card,
             borderLeftColor: nodeColor,
+          }}
+          onClick={(e) => {
+            if (setSelectedNodes && !isIterationContext && depth === 0) {
+              e.stopPropagation();
+              const isSelected = selectedNodes.some(n => n.id === node.id);
+              if (e.ctrlKey || e.metaKey) {
+                // Multi-select with Ctrl/Cmd
+                if (isSelected) {
+                  setSelectedNodes(selectedNodes.filter(n => n.id !== node.id));
+                } else {
+                  setSelectedNodes([...selectedNodes, node]);
+                }
+              } else if (e.shiftKey && selectedNodes.length > 0) {
+                // Range select with Shift
+                const lastSelected = selectedNodes[selectedNodes.length - 1];
+                const start = Math.min(lastSelected.position, node.position);
+                const end = Math.max(lastSelected.position, node.position);
+                const rangeNodes = currentWorkflow.nodes.filter(n => n.position >= start && n.position <= end);
+                setSelectedNodes(rangeNodes);
+              } else {
+                // Single select
+                setSelectedNodes([node]);
+              }
+            }
           }}
         >
         <div className="flex justify-between items-start">
@@ -2358,17 +2300,20 @@ function App() {
             )}
             
             {/* Special display for group nodes */}
-            {isGroup && node.params?.nodeRange && (
-              <div className="mt-2 p-2 bg-teal-50 border border-teal-200 rounded">
-                <div className="text-sm font-semibold text-teal-800 mb-1">
-                  Group: {node.params.name || 'Unnamed Group'}
+            {isGroup && (node.params?.nodeRange || node.config?.nodeRange) && (
+              <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded">
+                <div className="text-sm font-semibold text-purple-800 mb-1">
+                  Group: {node.params?.name || node.config?.name || 'Unnamed Group'}
                 </div>
-                <div className="text-xs text-teal-700">
+                <div className="text-xs text-purple-700">
                   Executes nodes: 
-                  <span className="font-mono bg-teal-100 px-1 ml-1 rounded text-teal-900">
-                    {Array.isArray(node.params.nodeRange) 
-                      ? `${node.params.nodeRange[0]}-${node.params.nodeRange[1]}` 
-                      : node.params.nodeRange}
+                  <span className="font-mono bg-purple-100 px-1 ml-1 rounded text-purple-900">
+                    {(() => {
+                      const nodeRange = node.params?.nodeRange || node.config?.nodeRange;
+                      return Array.isArray(nodeRange) 
+                        ? `${nodeRange[0]}-${nodeRange[1]}` 
+                        : nodeRange;
+                    })()}
                   </span>
                 </div>
               </div>
@@ -2739,6 +2684,9 @@ function App() {
             setExpandedNodes={setExpandedNodes}
             loadNodeValues={loadNodeValues}
             currentWorkflow={currentWorkflow}
+            nodeValues={nodeValues}
+            selectedNodes={selectedNodes}
+            setSelectedNodes={setSelectedNodes}
             isIterationContext={isIterationContext}
           />
         ))}
@@ -2829,6 +2777,9 @@ function App() {
               setExpandedNodes={setExpandedNodes}
               loadNodeValues={loadNodeValues}
               currentWorkflow={currentWorkflow}
+              nodeValues={nodeValues}
+              selectedNodes={selectedNodes}
+              setSelectedNodes={setSelectedNodes}
               isIterationContext={true}
             />
           </div>
@@ -4106,9 +4057,51 @@ function App() {
                     ? `${workflowNodes.length} nodes from response.json`
                     : currentWorkflow ? `${workflowNodes.length} nodes` : 'No workflow selected'
                   }
+                  {currentWorkflow && workflowNodes.length > 1 && (
+                    <span className="text-xs text-gray-500 ml-2">
+                      (Click to select • Ctrl/Cmd for multi • Shift for range)
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {selectedNodes.length > 1 && (
+                  <button
+                    onClick={async () => {
+                      const positions = selectedNodes.map(n => n.position).sort((a, b) => a - b);
+                      const rangeStart = positions[0];
+                      const rangeEnd = positions[positions.length - 1];
+                      
+                      const groupName = prompt(`Name for group (nodes ${rangeStart}-${rangeEnd}):`);
+                      if (!groupName && !confirm('Create unnamed group?')) return;
+                      
+                      try {
+                        const response = await fetch(`${API_BASE}/chat`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            message: `create_node({type: "group", config: {nodeRange: "${rangeStart}-${rangeEnd}", name: ${groupName ? `"${groupName}"` : 'undefined'}}, alias: "${groupName ? groupName.toLowerCase().replace(/\s+/g, '_') : `group_${rangeStart}_${rangeEnd}`}", description: "Groups nodes ${rangeStart} through ${rangeEnd}"})`,
+                            workflowId: currentWorkflow.id,
+                            conversationHistory: messages
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          await loadWorkflow(currentWorkflow.id);
+                          setSelectedNodes([]);
+                          setShowSuccessMessage(`Group created for nodes ${rangeStart}-${rangeEnd}`);
+                          setTimeout(() => setShowSuccessMessage(''), 3000);
+                        }
+                      } catch (error) {
+                        console.error('Error creating group:', error);
+                        alert('Failed to create group: ' + error.message);
+                      }
+                    }}
+                    className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                  >
+                    Group Selected ({selectedNodes.length})
+                  </button>
+                )}
                 <button
                   onClick={restartBrowser}
                   className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
@@ -4249,9 +4242,9 @@ function App() {
                   }`}
                 >
                   Groups
-                  {groups.length > 0 && (
+                  {currentWorkflow?.nodes?.filter(n => n.type === 'group').length > 0 && (
                     <span className="ml-1 inline-block bg-teal-100 text-teal-800 text-xs px-2 py-0.5 rounded-full">
-                      {groups.length}
+                      {currentWorkflow.nodes.filter(n => n.type === 'group').length}
                     </span>
                   )}
                 </button>
@@ -4354,48 +4347,33 @@ function App() {
                 )}
                 {activeTab === 'groups' && (
                   <GroupsViewer 
-                    groups={groups} 
-                    workflowId={currentWorkflow?.id} 
-                    onUseGroup={async (groupId, params) => {
-                      try {
-                        console.log('[Frontend] Using group:', groupId, 'with params:', params);
-                        const url = `${API_BASE}/groups/use`;
-                        console.log('[Frontend] POST to:', url);
-                        
-                        const response = await fetch(url, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            workflowId: currentWorkflow.id,
-                            groupId,
-                            params
-                          })
-                        });
-                        
-                        if (response.ok) {
-                          const result = await response.json();
-                          console.log('Group instantiated:', result);
-                          // Reload nodes to show the new ones
-                          loadWorkflowNodes(currentWorkflow.id);
-                          setShowSuccessMessage(`Group "${groupId}" instantiated successfully! Created ${result.nodesCreated} nodes.`);
-                          setTimeout(() => setShowSuccessMessage(''), 5000);
-                        } else {
-                          console.error('[Frontend] Use group failed. Status:', response.status);
-                          try {
-                            const error = await response.json();
-                            alert(`Failed to use group: ${error.error || 'Unknown error'}`);
-                          } catch (e) {
-                            const text = await response.text();
-                            console.error('[Frontend] Error response text:', text);
-                            alert(`Failed to use group: ${response.statusText}`);
-                          }
+                    workflow={currentWorkflow}
+                    onDeleteGroup={async (nodeId) => {
+                      if (confirm('Are you sure you want to delete this group node?')) {
+                        try {
+                          await deleteNode(nodeId);
+                          await loadWorkflow(currentWorkflow.id);
+                        } catch (error) {
+                          console.error('Error deleting group node:', error);
+                          alert('Failed to delete group node: ' + error.message);
                         }
-                      } catch (error) {
-                        console.error('Error using group:', error);
-                        alert('Failed to use group: ' + error.message);
                       }
                     }}
-                    onRefresh={loadGroups}
+                    onGoToNode={(position) => {
+                      // Scroll to the node in the workflow view
+                      setActiveTab('workflow');
+                      setTimeout(() => {
+                        const nodeElement = document.querySelector(`[data-node-position="${position}"]`);
+                        if (nodeElement) {
+                          nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          nodeElement.style.boxShadow = '0 0 20px rgba(147, 51, 234, 0.8)';
+                          setTimeout(() => {
+                            nodeElement.style.boxShadow = '';
+                          }, 2000);
+                        }
+                      }, 100);
+                    }}
+                    onRefresh={() => loadWorkflow(currentWorkflow.id)}
                   />
                 )}
               </div>
@@ -4448,6 +4426,8 @@ function App() {
                         loadNodeValues={loadNodeValues}
                         currentWorkflow={currentWorkflow}
                         nodeValues={nodeValues}
+                        selectedNodes={selectedNodes}
+                        setSelectedNodes={setSelectedNodes}
                       />
                     );
                   })}

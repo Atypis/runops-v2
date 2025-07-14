@@ -80,15 +80,7 @@ export class DirectorService {
           const mockResponseData = await fs.readFile(mockResponsePath, 'utf-8');
           const mockResponse = JSON.parse(mockResponseData);
           
-          // Process group definitions if present
-          if (mockResponse.groupDefinitions) {
-            console.log('[MOCK DIRECTOR] Processing group definitions');
-            for (const [groupId, definition] of Object.entries(mockResponse.groupDefinitions)) {
-              await this.storeGroupDefinition(groupId, definition, workflowId);
-              // Also set in memory for immediate use
-              this.nodeExecutor.setGroupDefinition(groupId, definition);
-            }
-          }
+          // Group definitions removed - using group node type instead
           
           // If there are tool calls in the mock response, process them
           if (mockResponse.toolCalls) {
@@ -364,15 +356,7 @@ export class DirectorService {
           case 'execute_nodes':
             result = await this.executeNodes(args, workflowId);
             break;
-          case 'define_group':
-            result = await this.defineGroup(args, workflowId);
-            break;
-          case 'use_group':
-            result = await this.useGroup(args, workflowId);
-            break;
-          case 'list_groups':
-            result = await this.listGroups(workflowId);
-            break;
+          // Group tools removed - using group node type instead
           case 'update_plan':
             result = await this.updatePlan(args, workflowId);
             break;
@@ -1264,313 +1248,72 @@ export class DirectorService {
     return workflow;
   }
 
-  async defineGroup({ groupId, name, description, parameters, nodes }, workflowId) {
-    console.log(`[DEFINE_GROUP] Defining group: ${groupId}`);
+  validateGroupNode(node, index) {
+    const errors = [];
     
-    const definition = {
-      groupId,
-      name,
-      description,
-      parameters: parameters || [],
-      nodes: nodes || []
-    };
-    
-    // Store in database
-    await this.storeGroupDefinition(groupId, definition, workflowId);
-    
-    // Also set in memory for immediate use
-    this.nodeExecutor.setGroupDefinition(groupId, definition);
-    
-    return {
-      message: `Group '${name}' defined successfully`,
-      groupId,
-      nodeCount: nodes.length
-    };
-  }
-
-  async useGroup({ groupId, params, description }, workflowId) {
-    console.log(`[USE_GROUP] Instantiating group: ${groupId}`);
-    console.log(`[USE_GROUP] Params:`, params);
-    console.log(`[USE_GROUP] WorkflowId:`, workflowId);
-    
-    // Get the group definition
-    const definition = await this.nodeExecutor.getGroupDefinition(groupId, workflowId);
-    if (!definition) {
-      console.error(`[USE_GROUP] Group definition '${groupId}' not found`);
-      console.log(`[USE_GROUP] Available in-memory groups:`, Array.from(this.nodeExecutor.groupDefinitions.keys()));
-      throw new Error(`Group definition '${groupId}' not found. Make sure to define the group first using define_group.`);
+    // Required fields
+    if (!node.type) {
+      errors.push(`Node at index ${index}: Missing required field 'type'`);
     }
     
-    console.log(`[USE_GROUP] Found group definition with ${definition.nodes.length} nodes`);
+    if (!node.alias) {
+      errors.push(`Node at index ${index}: Missing required field 'alias'`);
+    }
     
-    // Get the current max position to know where to insert the group
-    const { data: maxPositionNode } = await supabase
-      .from('nodes')
-      .select('position')
-      .eq('workflow_id', workflowId)
-      .order('position', { ascending: false })
-      .limit(1)
-      .single();
+    // Config validation
+    if (!node.config || typeof node.config !== 'object') {
+      errors.push(`Node at index ${index}: Missing or invalid 'config' object. Config must be an object.`);
+    }
     
-    let currentPosition = (maxPositionNode?.position || 0) + 1;
-    const createdNodes = [];
-    const nodeIdMap = {}; // Map old node IDs to new ones for reference updates
-    
-    // Generate a unique suffix for this group instance
-    const instanceId = Math.random().toString(36).substring(2, 8);
-    
-    // Create each node from the group definition
-    for (const nodeTemplate of definition.nodes) {
-      console.log(`[USE_GROUP] Creating node: ${nodeTemplate.type} - ${nodeTemplate.description}`);
-      
-      // Handle both formats: nodes with config object and nodes with config at root level
-      let nodeConfig;
-      
-      // Check for malformed "config": key
-      const malformedConfigKey = Object.keys(nodeTemplate).find(key => key.includes('config'));
-      if (malformedConfigKey) {
-        console.log(`[USE_GROUP] Found config key: "${malformedConfigKey}"`);
-        nodeConfig = nodeTemplate[malformedConfigKey];
-      } else if (nodeTemplate.config) {
-        // Already has a config object
-        nodeConfig = JSON.parse(JSON.stringify(nodeTemplate.config));
+    // Check for malformed config (properties at root level)
+    const knownFields = ['type', 'config', 'alias', 'description', 'id'];
+    const rootLevelConfigFields = Object.keys(node).filter(key => !knownFields.includes(key));
+    if (rootLevelConfigFields.length > 0) {
+      // Check if this is a quoted property name issue
+      const hasQuotedProperties = rootLevelConfigFields.some(key => key.includes('"'));
+      if (hasQuotedProperties) {
+        errors.push(`Node at index ${index}: Malformed property names detected. You have quotes in your property names (${rootLevelConfigFields.join(', ')}). Use JavaScript object literal syntax, not JSON string syntax. Property names should NOT have quotes.`);
       } else {
-        // Config properties are at root level - extract them
-        const configKeys = Object.keys(nodeTemplate).filter(key => 
-          !['type', 'description', 'alias', 'id'].includes(key)
-        );
-        nodeConfig = {};
-        configKeys.forEach(key => {
-          nodeConfig[key] = nodeTemplate[key];
-        });
+        errors.push(`Node at index ${index}: Config properties found at root level: ${rootLevelConfigFields.join(', ')}. These should be inside the 'config' object.`);
       }
-      
-      console.log(`[USE_GROUP] Node config:`, JSON.stringify(nodeConfig));
-      
-      // Replace parameter placeholders with actual values
-      if (params && definition.parameters) {
-        const configStr = JSON.stringify(nodeConfig);
-        let updatedConfigStr = configStr;
-        
-        // Replace each parameter
-        for (const paramName of definition.parameters) {
-          if (params[paramName] !== undefined) {
-            // Replace {{paramName}} with the actual value
-            const placeholder = `{{${paramName}}}`;
-            updatedConfigStr = updatedConfigStr.replace(
-              new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-              JSON.stringify(params[paramName]).slice(1, -1) // Remove quotes from JSON string
-            );
+    }
+    
+    // Check for quoted property names (indicates malformed JSON)
+    const nodeStr = JSON.stringify(node);
+    if (nodeStr.includes('"config":') && !node.config) {
+      errors.push(`Node at index ${index}: Malformed node structure detected. Property names should not be quoted.`);
+    }
+    
+    // Type-specific validation
+    if (node.type && node.config) {
+      switch (node.type) {
+        case 'browser_action':
+          if (!node.config.action) {
+            errors.push(`Node at index ${index}: browser_action requires 'action' field in config`);
           }
-        }
-        
-        nodeConfig = JSON.parse(updatedConfigStr);
-      }
-      
-      // Create the node
-      const createdNode = await this.createNode({
-        type: nodeTemplate.type,
-        config: nodeConfig,
-        description: nodeTemplate.description || `${nodeTemplate.type} from group ${groupId}`,
-        alias: nodeTemplate.alias ? `${nodeTemplate.alias}_${instanceId}` : `${groupId}_${nodeTemplate.type}_${currentPosition}_${instanceId}`,
-        position: currentPosition
-      }, workflowId);
-      
-      createdNodes.push(createdNode);
-      
-      // Store ID mapping if the template had an ID (for internal references)
-      if (nodeTemplate.id) {
-        nodeIdMap[nodeTemplate.id] = createdNode.node.id;
-      }
-      
-      currentPosition++;
-    }
-    
-    // Update any internal references in the created nodes
-    // This handles cases where nodes in the group reference each other
-    for (const createdNode of createdNodes) {
-      let configUpdated = false;
-      const nodeConfig = createdNode.node.params;
-      
-      // Check for references to other nodes in the group
-      const configStr = JSON.stringify(nodeConfig);
-      let updatedConfigStr = configStr;
-      
-      for (const [oldId, newId] of Object.entries(nodeIdMap)) {
-        if (configStr.includes(oldId)) {
-          updatedConfigStr = updatedConfigStr.replace(
-            new RegExp(oldId, 'g'),
-            newId
-          );
-          configUpdated = true;
-        }
-      }
-      
-      if (configUpdated) {
-        // Update the node with the new references
-        await this.updateNode({
-          nodeId: createdNode.node.id,
-          updates: {
-            config: JSON.parse(updatedConfigStr)
+          break;
+        case 'browser_query':
+          if (!node.config.method || !node.config.instruction) {
+            errors.push(`Node at index ${index}: browser_query requires 'method' and 'instruction' fields in config`);
           }
-        }, workflowId);
+          break;
+        case 'iterate':
+          if (!node.config.over || !node.config.variable) {
+            errors.push(`Node at index ${index}: iterate requires 'over' and 'variable' fields in config`);
+          }
+          break;
+        case 'context':
+          if (!node.config.operation) {
+            errors.push(`Node at index ${index}: context requires 'operation' field in config`);
+          }
+          break;
       }
     }
     
-    return {
-      message: `Group '${definition.name}' instantiated successfully`,
-      groupId,
-      nodesCreated: createdNodes.length,
-      startPosition: (maxPositionNode?.position || 0) + 1,
-      endPosition: currentPosition - 1,
-      nodeIds: createdNodes.map(n => n.node.id)
-    };
+    return errors;
   }
 
-  async listGroups(workflowId) {
-    console.log(`[LIST_GROUPS] Fetching groups for workflow: ${workflowId}`);
-    
-    // Build the query
-    const query = supabase
-      .from('workflow_memory')
-      .select('key, value')
-      .eq('workflow_id', workflowId)
-      .like('key', 'group_def_%');
-    
-    console.log(`[LIST_GROUPS] Query: SELECT key, value FROM workflow_memory WHERE workflow_id = '${workflowId}' AND key LIKE 'group_def_%'`);
-    
-    // Execute query
-    const { data: groups, error } = await query;
-    
-    if (error) {
-      console.error('[LIST_GROUPS] Database error:', error);
-      throw error;
-    }
-    
-    console.log(`[LIST_GROUPS] Raw database response:`, JSON.stringify(groups, null, 2));
-    console.log(`[LIST_GROUPS] Found ${groups?.length || 0} groups in database`);
-      
-    const groupList = [];
-    if (groups && groups.length > 0) {
-      for (const group of groups) {
-        console.log(`[LIST_GROUPS] Processing raw group data:`, group);
-        const def = group.value;
-        if (!def) {
-          console.warn(`[LIST_GROUPS] Group has no value field:`, group);
-          continue;
-        }
-        console.log(`[LIST_GROUPS] Processing group: ${def.groupId} with ${def.nodes?.length || 0} nodes`);
-        groupList.push({
-          groupId: def.groupId,
-          name: def.name,
-          description: def.description,
-          parameters: def.parameters,
-          nodeCount: def.nodes?.length || 0
-        });
-      }
-    }
-    
-    // Also include in-memory definitions
-    console.log(`[LIST_GROUPS] Checking in-memory definitions. Count: ${this.nodeExecutor.groupDefinitions.size}`);
-    for (const [groupId, def] of this.nodeExecutor.groupDefinitions) {
-      if (!groupList.find(g => g.groupId === groupId)) {
-        console.log(`[LIST_GROUPS] Adding in-memory group: ${groupId}`);
-        groupList.push({
-          groupId: def.groupId,
-          name: def.name,
-          description: def.description,
-          parameters: def.parameters,
-          nodeCount: def.nodes?.length || 0
-        });
-      }
-    }
-    
-    console.log(`[LIST_GROUPS] Final groupList:`, JSON.stringify(groupList, null, 2));
-    console.log(`[LIST_GROUPS] Returning ${groupList.length} groups`);
-    
-    const response = {
-      groups: groupList,
-      count: groupList.length
-    };
-    
-    console.log(`[LIST_GROUPS] Final response object:`, JSON.stringify(response, null, 2));
-    return response;
-  }
-
-  async storeGroupDefinition(groupId, definition, workflowId) {
-    console.log(`[STORE_GROUP] Storing group ${groupId} for workflow ${workflowId}`);
-    console.log(`[STORE_GROUP] Definition:`, JSON.stringify(definition, null, 2));
-    
-    const { data, error } = await supabase
-      .from('workflow_memory')
-      .upsert({
-        workflow_id: workflowId,
-        key: `group_def_${groupId}`,
-        value: definition
-      }, {
-        onConflict: 'workflow_id,key'  // Update if exists
-      })
-      .select();
-    
-    if (error) {
-      console.error(`[STORE_GROUP] Error storing group:`, error);
-      throw error;
-    }
-    
-    console.log(`[STORE_GROUP] Successfully stored group definition: ${groupId}`, data);
-  }
-
-  async getGroupDefinition(groupId, workflowId) {
-    // Check in-memory definitions first
-    if (this.nodeExecutor.groupDefinitions.has(groupId)) {
-      return this.nodeExecutor.groupDefinitions.get(groupId);
-    }
-    
-    // Check workflow memory
-    const { data: groupData } = await supabase
-      .from('workflow_memory')
-      .select('value')
-      .eq('workflow_id', workflowId)
-      .eq('key', `group_def_${groupId}`)
-      .single();
-      
-    if (groupData?.value) {
-      this.nodeExecutor.groupDefinitions.set(groupId, groupData.value);
-      return groupData.value;
-    }
-    
-    return null;
-  }
-
-  async substituteGroupParams(node, params) {
-    // Deep clone the node to avoid mutations
-    const substitutedNode = JSON.parse(JSON.stringify(node));
-    
-    // Recursively substitute {{param.xxx}} in the node
-    const substitute = (obj) => {
-      if (typeof obj === 'string') {
-        return obj.replace(/\{\{param\.([^}]+)\}\}/g, (match, paramName) => {
-          return params[paramName] !== undefined ? params[paramName] : match;
-        });
-      } else if (Array.isArray(obj)) {
-        return obj.map(item => substitute(item));
-      } else if (obj && typeof obj === 'object') {
-        const result = {};
-        for (const [key, value] of Object.entries(obj)) {
-          result[key] = substitute(value);
-        }
-        return result;
-      }
-      return obj;
-    };
-    
-    substitutedNode.config = substitute(substitutedNode.config);
-    if (substitutedNode.description) {
-      substitutedNode.description = substitute(substitutedNode.description);
-    }
-    
-    return substitutedNode;
-  }
+  // Group functionality is now handled by the 'group' node type which executes a range of nodes
 
   /**
    * Director 2.0: Build 7-part context structure
@@ -3114,6 +2857,7 @@ export class DirectorService {
     console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${call_id}`);
     
     try {
+      
       const args = JSON.parse(toolArgs);
       let result;
       
@@ -3149,15 +2893,7 @@ export class DirectorService {
         case 'test_node':
           result = await this.testNode(args);
           break;
-        case 'define_group':
-          result = await this.defineGroup(args, workflowId);
-          break;
-        case 'use_group':
-          result = await this.useGroup(args, workflowId);
-          break;
-        case 'list_groups':
-          result = await this.listGroups(workflowId);
-          break;
+        // Group tools removed - using group node type instead
         case 'update_plan':
           result = await this.updatePlan(args, workflowId);
           break;

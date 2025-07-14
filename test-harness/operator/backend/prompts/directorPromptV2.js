@@ -234,64 +234,6 @@ Every node MUST have an 'alias' field when created. This is not optional.
 - \`execute_nodes\` - Test specific nodes or ranges (e.g., "3-5,15,20")
 - \`test_node\` - Execute a single node to see its output
 
-**Group Management (Reusable Patterns):**
-- \`define_group\` - Create reusable node patterns with parameters
-- \`use_group\` - Instantiate a defined group in your workflow (expands nodes into workflow)
-- \`list_groups\` - See all available reusable groups
-
-⚠️ **CRITICAL: Correct Node Format for Groups**
-When defining nodes in a group, ALWAYS use this exact format:
-\`\`\`javascript
-{
-  type: "browser_action",
-  config: {              // <-- "config" is the property name (no quotes around colon!)
-    action: "click",
-    selector: "#button"
-  },
-  alias: "click_button",
-  description: "Click the button"
-}
-\`\`\`
-
-❌ **NEVER do this:**
-\`\`\`javascript
-{
-  type: "browser_action",
-  "config": {           // <-- WRONG: Don't put quotes around property names with colons
-    action: "click"
-  }
-}
-\`\`\`
-
-Example:
-\`\`\`javascript
-// Define a reusable login pattern
-define_group({
-  groupId: "gmail_login",
-  name: "Gmail Login Flow",
-  description: "Reusable login flow for Gmail",
-  parameters: ["email", "password"],
-  nodes: [
-    {type: "browser_action", config: {action: "navigate", url: "https://gmail.com"}, alias: "go_to_gmail"},
-    {type: "browser_action", config: {action: "type", selector: "#identifierId", text: "{{email}}"}, alias: "enter_email"},
-    {type: "browser_action", config: {action: "click", selector: "#identifierNext"}, alias: "click_next"},
-    {type: "browser_action", config: {action: "wait", duration: 2000}, alias: "wait_for_password"},
-    {type: "browser_action", config: {action: "type", selector: "input[type='password']", text: "{{password}}"}, alias: "enter_password"},
-    {type: "browser_action", config: {action: "click", selector: "#passwordNext"}, alias: "submit_login"}
-  ]
-})
-
-// Use the group with specific parameters
-use_group({
-  groupId: "gmail_login",
-  params: {
-    email: "{{env:GMAIL_EMAIL}}",
-    password: "{{env:GMAIL_PASSWORD}}"
-  }
-})
-// This creates 6 new nodes at the current position
-\`\`\`
-
 ### 📋 Planning & Documentation Tools
 
 - \`update_workflow_description\` - Create/update the high-fidelity requirements contract
@@ -348,7 +290,7 @@ expand_dom_selector({tabName: "main", elementId: "1234"})
 - \`debug_close_tab\` - Close debug tab
 - \`debug_switch_tab\` - Switch between debug tabs
 
-### 🧩 The 9 Canonical Node Types
+### 🧩 The 10 Canonical Node Types
 
 Your workflows are built from these fundamental primitives. Each requires specific configuration:
 
@@ -580,6 +522,52 @@ Always include in instructions:
 
 **Important:** Context nodes must be executed for their values to be available to subsequent nodes. If you store credentials in node 1, you must include node 1 when executing nodes that reference those credentials.
 
+##### 10. **group** - Execute a range of nodes
+**Required:** \`nodeRange\` field
+\`\`\`javascript
+{
+  nodeRange: "1-25" | [1, 25],        // Range of positions to execute
+  groupId: "setup_phase" (optional),  // Identifier for the group
+  name: "Setup Phase" (optional),     // Display name
+  continueOnError: false (optional)   // Continue if a node fails
+}
+\`\`\`
+
+**Purpose:** Groups execute nodes 1-25 in sequence as a single unit. Useful for organizing complex workflows into logical sections.
+
+**Example - Group login and data extraction:**
+\`\`\`javascript
+// After building nodes 1-10 for login flow
+create_node({
+  type: "group",
+  config: {
+    nodeRange: "1-10",
+    name: "Gmail Login Flow"
+  },
+  alias: "login_group",
+  description: "Execute entire login sequence"
+})
+
+// Access results: {{login_group.success}}, {{login_group.executed}}, {{login_group.results}}
+\`\`\`
+
+**Results structure:**
+\`\`\`javascript
+{
+  groupId: "optional_id",
+  nodeRange: "1-25",
+  executed: 10,        // How many actually ran
+  total: 12,          // How many were in range
+  skipped: 2,         // Nested/branch nodes skipped
+  results: [          // Array of individual node results
+    {nodeId, position, type, description, result},
+    ...
+  ],
+  errors: [],         // Any errors encountered
+  success: true       // Overall success status
+}
+\`\`\`
+
 ### 🎯 Tool Selection Guide
 
 **For Exploration:**
@@ -589,7 +577,7 @@ Always include in instructions:
 **For Building:**
 - Single node: \`create_node\`
 - Multiple related: \`create_workflow_sequence\`
-- Reusable patterns: \`define_group\` → \`use_group\`
+- Group ranges: Use the 'group' node type to execute node ranges
 
 **For Testing:**
 - Surgical: \`execute_nodes\` with specific ranges
