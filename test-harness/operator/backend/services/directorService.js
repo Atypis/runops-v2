@@ -2636,7 +2636,84 @@ export class DirectorService {
     } catch (error) {
       console.error('[KIMI] Error processing with KIMI:', error);
       
-      // Fallback to GPT-4 if KIMI fails
+      // If rate limit on free tier, try paid KIMI model
+      if (error.status === 429 && error.message?.includes('free-models-per-day')) {
+        console.log('[KIMI] Rate limit on free tier, switching to paid KIMI K2 model');
+        try {
+          const response = await this.openRouterClient.chat.completions.create({
+            model: 'moonshotai/kimi-k2', // Paid version
+            messages,
+            tools: createToolDefinitions(),
+            tool_choice: 'auto',
+            temperature: 0.6,
+            stream: false,
+            max_tokens: 4096
+          });
+          
+          // Process response same as before
+          const assistantMessage = response.choices[0].message;
+          
+          if (assistantMessage.tool_calls?.length > 0) {
+            console.log(`[KIMI-PAID] Processing ${assistantMessage.tool_calls.length} tool calls`);
+            const toolResults = await this.processToolCalls(assistantMessage.tool_calls, workflowId);
+            
+            const followUpMessages = [
+              ...messages,
+              assistantMessage,
+              {
+                role: 'tool',
+                content: JSON.stringify(toolResults),
+                tool_call_id: assistantMessage.tool_calls[0].id
+              }
+            ];
+            
+            const finalResponse = await this.openRouterClient.chat.completions.create({
+              model: 'moonshotai/kimi-k2',
+              messages: followUpMessages,
+              temperature: 0.6,
+              stream: false,
+              max_tokens: 4096
+            });
+            
+            const totalUsage = {
+              prompt_tokens: response.usage.prompt_tokens + finalResponse.usage.prompt_tokens,
+              completion_tokens: response.usage.completion_tokens + finalResponse.usage.completion_tokens,
+              total_tokens: response.usage.total_tokens + finalResponse.usage.total_tokens
+            };
+            
+            // Calculate actual cost for paid tier
+            const inputCost = (totalUsage.prompt_tokens / 1_000_000) * 0.15;
+            const outputCost = (totalUsage.completion_tokens / 1_000_000) * 2.50;
+            const totalCost = inputCost + outputCost;
+            
+            console.log(`[KIMI-PAID] Total tokens used: ${totalUsage.total_tokens} (cost: $${totalCost.toFixed(6)})`);
+            
+            return {
+              id: finalResponse.id,
+              object: 'chat.completion',
+              created: finalResponse.created,
+              model: 'kimi-k2',
+              choices: [{
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: finalResponse.choices[0].message.content,
+                  tool_calls: assistantMessage.tool_calls
+                },
+                finish_reason: finalResponse.choices[0].finish_reason
+              }],
+              usage: totalUsage
+            };
+          }
+          
+          return response;
+        } catch (paidError) {
+          console.error('[KIMI-PAID] Paid tier also failed:', paidError);
+          // Fall through to GPT-4 fallback
+        }
+      }
+      
+      // Final fallback to GPT-4 if both KIMI versions fail
       console.log('[KIMI] Falling back to GPT-4 due to error');
       return await this.openai.chat.completions.create({
         model: 'gpt-4-turbo',
