@@ -925,9 +925,16 @@ ${compressionContext}`;
 router.get('/groups/:workflowId', async (req, res, next) => {
   try {
     const { workflowId } = req.params;
+    console.log(`[ROUTE /groups/:workflowId] Received request for workflow: ${workflowId}`);
+    
     const result = await directorService.listGroups(workflowId);
+    
+    console.log(`[ROUTE /groups/:workflowId] Returning ${result.count} groups`);
+    console.log(`[ROUTE /groups/:workflowId] Response:`, JSON.stringify(result, null, 2));
+    
     res.json(result);
   } catch (error) {
+    console.error(`[ROUTE /groups/:workflowId] Error:`, error);
     next(error);
   }
 });

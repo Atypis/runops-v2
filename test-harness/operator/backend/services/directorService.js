@@ -1421,23 +1421,35 @@ export class DirectorService {
   async listGroups(workflowId) {
     console.log(`[LIST_GROUPS] Fetching groups for workflow: ${workflowId}`);
     
-    // Get all group definitions from workflow memory
-    const { data: groups, error } = await supabase
+    // Build the query
+    const query = supabase
       .from('workflow_memory')
       .select('key, value')
       .eq('workflow_id', workflowId)
       .like('key', 'group_def_%');
     
+    console.log(`[LIST_GROUPS] Query: SELECT key, value FROM workflow_memory WHERE workflow_id = '${workflowId}' AND key LIKE 'group_def_%'`);
+    
+    // Execute query
+    const { data: groups, error } = await query;
+    
     if (error) {
       console.error('[LIST_GROUPS] Database error:', error);
+      throw error;
     }
     
+    console.log(`[LIST_GROUPS] Raw database response:`, JSON.stringify(groups, null, 2));
     console.log(`[LIST_GROUPS] Found ${groups?.length || 0} groups in database`);
       
     const groupList = [];
-    if (groups) {
+    if (groups && groups.length > 0) {
       for (const group of groups) {
+        console.log(`[LIST_GROUPS] Processing raw group data:`, group);
         const def = group.value;
+        if (!def) {
+          console.warn(`[LIST_GROUPS] Group has no value field:`, group);
+          continue;
+        }
         console.log(`[LIST_GROUPS] Processing group: ${def.groupId} with ${def.nodes?.length || 0} nodes`);
         groupList.push({
           groupId: def.groupId,
@@ -1464,11 +1476,16 @@ export class DirectorService {
       }
     }
     
+    console.log(`[LIST_GROUPS] Final groupList:`, JSON.stringify(groupList, null, 2));
     console.log(`[LIST_GROUPS] Returning ${groupList.length} groups`);
-    return {
+    
+    const response = {
       groups: groupList,
       count: groupList.length
     };
+    
+    console.log(`[LIST_GROUPS] Final response object:`, JSON.stringify(response, null, 2));
+    return response;
   }
 
   async storeGroupDefinition(groupId, definition, workflowId) {

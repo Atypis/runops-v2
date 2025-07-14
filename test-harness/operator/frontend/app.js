@@ -579,7 +579,9 @@ function App() {
 
   // Load groups when tab is selected or workflow changes
   useEffect(() => {
+    console.log('[Frontend useEffect] activeTab:', activeTab, 'currentWorkflow:', currentWorkflow);
     if (activeTab === 'groups' && currentWorkflow?.id) {
+      console.log('[Frontend useEffect] Loading groups because tab is groups and workflow exists');
       loadGroups();
     }
   }, [activeTab, currentWorkflow]);
