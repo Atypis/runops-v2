@@ -2557,72 +2557,92 @@ export class DirectorService {
         max_tokens: 4096
       });
 
-      const assistantMessage = response.choices[0].message;
+      // Implement recursive tool execution loop (like Responses API)
+      let currentMessages = [...filteredMessages];
+      let currentResponse = response;
+      let allToolCalls = [];
+      let totalUsage = {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      };
+      let iterations = 0;
+      const MAX_ITERATIONS = 10; // Safety limit
       
-      // If KIMI wants to use tools, process them
-      if (assistantMessage.tool_calls?.length > 0) {
-        console.log(`[KIMI] Processing ${assistantMessage.tool_calls.length} tool calls`);
+      // Keep processing while KIMI wants to use tools
+      while (currentResponse.choices[0].message.tool_calls?.length > 0 && iterations < MAX_ITERATIONS) {
+        iterations++;
+        const assistantMessage = currentResponse.choices[0].message;
+        
+        console.log(`[KIMI] Iteration ${iterations}: Processing ${assistantMessage.tool_calls.length} tool calls`);
         
         // Execute tool calls
         const toolResults = await this.processToolCalls(assistantMessage.tool_calls, workflowId);
+        allToolCalls.push(...assistantMessage.tool_calls);
         
-        // Build messages for follow-up
-        const followUpMessages = [
-          ...filteredMessages,
-          assistantMessage,
-          {
-            role: 'tool',
-            content: JSON.stringify(toolResults),
-            tool_call_id: assistantMessage.tool_calls[0].id
-          }
-        ];
+        // Update usage
+        totalUsage.prompt_tokens += currentResponse.usage.prompt_tokens;
+        totalUsage.completion_tokens += currentResponse.usage.completion_tokens;
+        totalUsage.total_tokens += currentResponse.usage.total_tokens;
         
-        // Make follow-up call to get final response
-        console.log('[KIMI] Making follow-up request after tool execution');
-        const finalResponse = await this.openRouterClient.chat.completions.create({
-          model: 'moonshotai/kimi-k2', // Use paid model for follow-up too
-          messages: followUpMessages,
+        // Build messages for next iteration
+        currentMessages.push(assistantMessage);
+        currentMessages.push({
+          role: 'tool',
+          content: JSON.stringify(toolResults),
+          tool_call_id: assistantMessage.tool_calls[0].id
+        });
+        
+        // Make next request to see if KIMI wants to call more tools
+        console.log(`[KIMI] Checking if more tools needed (iteration ${iterations})`);
+        currentResponse = await this.openRouterClient.chat.completions.create({
+          model: 'moonshotai/kimi-k2',
+          messages: currentMessages,
+          tools,
+          tool_choice: 'auto',
           temperature: 0.6,
           stream: false,
           max_tokens: 4096
         });
-        
-        // Calculate total usage
-        const totalUsage = {
-          prompt_tokens: response.usage.prompt_tokens + finalResponse.usage.prompt_tokens,
-          completion_tokens: response.usage.completion_tokens + finalResponse.usage.completion_tokens,
-          total_tokens: response.usage.total_tokens + finalResponse.usage.total_tokens
-        };
-        
-        // Calculate cost for paid tier
-        const inputCost = (totalUsage.prompt_tokens / 1_000_000) * 0.15;
-        const outputCost = (totalUsage.completion_tokens / 1_000_000) * 2.50;
-        const totalCost = inputCost + outputCost;
-        
-        console.log(`[KIMI] Total tokens used: ${totalUsage.total_tokens} (cost: $${totalCost.toFixed(6)})`);
-        
-        // Return in the format expected by processMessage
-        return {
-          id: finalResponse.id,
-          object: 'chat.completion',
-          created: finalResponse.created,
-          model: 'kimi-k2',
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: finalResponse.choices[0].message.content,
-              tool_calls: assistantMessage.tool_calls // Include original tool calls
-            },
-            finish_reason: finalResponse.choices[0].finish_reason
-          }],
-          usage: totalUsage
-        };
       }
       
-      // No tool calls, return direct response
-      console.log('[KIMI] No tool calls requested, returning direct response');
-      return response;
+      // Final usage calculation
+      totalUsage.prompt_tokens += currentResponse.usage.prompt_tokens;
+      totalUsage.completion_tokens += currentResponse.usage.completion_tokens;
+      totalUsage.total_tokens += currentResponse.usage.total_tokens;
+      
+      // Calculate cost
+      const inputCost = (totalUsage.prompt_tokens / 1_000_000) * 0.15;
+      const outputCost = (totalUsage.completion_tokens / 1_000_000) * 2.50;
+      const totalCost = inputCost + outputCost;
+      
+      console.log(`[KIMI] Completed after ${iterations} iterations`);
+      console.log(`[KIMI] Total tool calls: ${allToolCalls.length}`);
+      console.log(`[KIMI] Total tokens used: ${totalUsage.total_tokens} (cost: $${totalCost.toFixed(6)})`);
+      
+      if (iterations === 0) {
+        console.log('[KIMI] No tool calls needed, returning direct response');
+      } else if (iterations === MAX_ITERATIONS) {
+        console.log('[KIMI] Warning: Hit maximum iteration limit');
+      }
+      
+      // Return final response with all tool calls
+      return {
+        id: currentResponse.id,
+        object: 'chat.completion',
+        created: currentResponse.created,
+        model: 'kimi-k2',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: currentResponse.choices[0].message.content,
+            tool_calls: allToolCalls.length > 0 ? allToolCalls : undefined
+          },
+          finish_reason: currentResponse.choices[0].finish_reason
+        }],
+        usage: totalUsage
+      };
       
     } catch (error) {
       console.error('[KIMI] Error processing with KIMI:', error);
