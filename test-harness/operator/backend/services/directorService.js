@@ -2534,8 +2534,16 @@ export class DirectorService {
 
       const tools = createToolDefinitions();
       
+      // Filter out any invalid message roles (like 'error')
+      const validRoles = ['system', 'assistant', 'user', 'function', 'tool'];
+      const filteredMessages = messages.filter(msg => validRoles.includes(msg.role));
+      
+      if (filteredMessages.length !== messages.length) {
+        console.log(`[KIMI] Filtered out ${messages.length - filteredMessages.length} invalid messages`);
+      }
+      
       console.log('[KIMI] Making initial request to KIMI K2 via OpenRouter');
-      console.log(`[KIMI] Messages: ${messages.length}, Tools: ${tools.length}`);
+      console.log(`[KIMI] Messages: ${filteredMessages.length}, Tools: ${tools.length}`);
       console.log('[KIMI] Using FREE tier - tool calling may be limited');
       
       // Try with tools first (may fail on free tier)
@@ -2543,7 +2551,7 @@ export class DirectorService {
       try {
         response = await this.openRouterClient.chat.completions.create({
           model: 'moonshotai/kimi-k2:free',
-          messages,
+          messages: filteredMessages,
           tools,
           tool_choice: 'auto',
           temperature: 0.6, // Recommended for KIMI
@@ -2556,7 +2564,7 @@ export class DirectorService {
           console.log('[KIMI] Tool calling not supported on free tier, falling back to text-only mode');
           response = await this.openRouterClient.chat.completions.create({
             model: 'moonshotai/kimi-k2:free',
-            messages,
+            messages: filteredMessages,
             temperature: 0.6,
             stream: false,
             max_tokens: 4096
@@ -2577,7 +2585,7 @@ export class DirectorService {
         
         // Build messages for follow-up
         const followUpMessages = [
-          ...messages,
+          ...filteredMessages,
           assistantMessage,
           {
             role: 'tool',
@@ -2642,7 +2650,7 @@ export class DirectorService {
         try {
           const response = await this.openRouterClient.chat.completions.create({
             model: 'moonshotai/kimi-k2', // Paid version
-            messages,
+            messages: filteredMessages,
             tools: createToolDefinitions(),
             tool_choice: 'auto',
             temperature: 0.6,
@@ -2658,7 +2666,7 @@ export class DirectorService {
             const toolResults = await this.processToolCalls(assistantMessage.tool_calls, workflowId);
             
             const followUpMessages = [
-              ...messages,
+              ...filteredMessages,
               assistantMessage,
               {
                 role: 'tool',
@@ -2709,19 +2717,13 @@ export class DirectorService {
           return response;
         } catch (paidError) {
           console.error('[KIMI-PAID] Paid tier also failed:', paidError);
-          // Fall through to GPT-4 fallback
+          // Will re-throw original error
         }
       }
       
-      // Final fallback to GPT-4 if both KIMI versions fail
-      console.log('[KIMI] Falling back to GPT-4 due to error');
-      return await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo',
-        messages,
-        tools: createToolDefinitions(),
-        tool_choice: 'auto',
-        temperature: 1
-      });
+      // Re-throw error if both KIMI versions fail
+      console.log('[KIMI] Both free and paid tiers failed, throwing error');
+      throw error;
     }
   }
 
