@@ -2544,35 +2544,18 @@ export class DirectorService {
       
       console.log('[KIMI] Making initial request to KIMI K2 via OpenRouter');
       console.log(`[KIMI] Messages: ${filteredMessages.length}, Tools: ${tools.length}`);
-      console.log('[KIMI] Using FREE tier - tool calling may be limited');
+      console.log('[KIMI] Using PAID tier as default');
       
-      // Try with tools first (may fail on free tier)
-      let response;
-      try {
-        response = await this.openRouterClient.chat.completions.create({
-          model: 'moonshotai/kimi-k2:free',
-          messages: filteredMessages,
-          tools,
-          tool_choice: 'auto',
-          temperature: 0.6, // Recommended for KIMI
-          stream: false,
-          max_tokens: 4096
-        });
-      } catch (toolError) {
-        // If tool calling fails (503 error on free tier), try without tools
-        if (toolError.status === 503 || toolError.message?.includes('Provider returned error')) {
-          console.log('[KIMI] Tool calling not supported on free tier, falling back to text-only mode');
-          response = await this.openRouterClient.chat.completions.create({
-            model: 'moonshotai/kimi-k2:free',
-            messages: filteredMessages,
-            temperature: 0.6,
-            stream: false,
-            max_tokens: 4096
-          });
-        } else {
-          throw toolError;
-        }
-      }
+      // Try paid tier first (full tool support)
+      const response = await this.openRouterClient.chat.completions.create({
+        model: 'moonshotai/kimi-k2', // Paid version as default
+        messages: filteredMessages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.6, // Recommended for KIMI
+        stream: false,
+        max_tokens: 4096
+      });
 
       const assistantMessage = response.choices[0].message;
       
@@ -2611,12 +2594,12 @@ export class DirectorService {
           total_tokens: response.usage.total_tokens + finalResponse.usage.total_tokens
         };
         
-        // Calculate cost (FREE during limited time offer!)
-        const inputCost = 0; // FREE
-        const outputCost = 0; // FREE
-        const totalCost = 0; // FREE
+        // Calculate cost for paid tier
+        const inputCost = (totalUsage.prompt_tokens / 1_000_000) * 0.15;
+        const outputCost = (totalUsage.completion_tokens / 1_000_000) * 2.50;
+        const totalCost = inputCost + outputCost;
         
-        console.log(`[KIMI] Total tokens used: ${totalUsage.total_tokens} (cost: FREE! 🎉)`);
+        console.log(`[KIMI] Total tokens used: ${totalUsage.total_tokens} (cost: $${totalCost.toFixed(6)})`);
         
         // Return in the format expected by processMessage
         return {
@@ -2644,85 +2627,29 @@ export class DirectorService {
     } catch (error) {
       console.error('[KIMI] Error processing with KIMI:', error);
       
-      // If rate limit on free tier, try paid KIMI model
-      if (error.status === 429 && error.message?.includes('free-models-per-day')) {
-        console.log('[KIMI] Rate limit on free tier, switching to paid KIMI K2 model');
+      // Try free tier as fallback if paid tier fails
+      if (error.status && error.status !== 429) {
+        console.log('[KIMI] Paid tier failed, trying free tier as fallback');
         try {
           const response = await this.openRouterClient.chat.completions.create({
-            model: 'moonshotai/kimi-k2', // Paid version
+            model: 'moonshotai/kimi-k2:free', // Free version as fallback
             messages: filteredMessages,
-            tools: createToolDefinitions(),
-            tool_choice: 'auto',
+            // Note: Free tier doesn't support tools
             temperature: 0.6,
             stream: false,
             max_tokens: 4096
           });
           
-          // Process response same as before
-          const assistantMessage = response.choices[0].message;
-          
-          if (assistantMessage.tool_calls?.length > 0) {
-            console.log(`[KIMI-PAID] Processing ${assistantMessage.tool_calls.length} tool calls`);
-            const toolResults = await this.processToolCalls(assistantMessage.tool_calls, workflowId);
-            
-            const followUpMessages = [
-              ...filteredMessages,
-              assistantMessage,
-              {
-                role: 'tool',
-                content: JSON.stringify(toolResults),
-                tool_call_id: assistantMessage.tool_calls[0].id
-              }
-            ];
-            
-            const finalResponse = await this.openRouterClient.chat.completions.create({
-              model: 'moonshotai/kimi-k2',
-              messages: followUpMessages,
-              temperature: 0.6,
-              stream: false,
-              max_tokens: 4096
-            });
-            
-            const totalUsage = {
-              prompt_tokens: response.usage.prompt_tokens + finalResponse.usage.prompt_tokens,
-              completion_tokens: response.usage.completion_tokens + finalResponse.usage.completion_tokens,
-              total_tokens: response.usage.total_tokens + finalResponse.usage.total_tokens
-            };
-            
-            // Calculate actual cost for paid tier
-            const inputCost = (totalUsage.prompt_tokens / 1_000_000) * 0.15;
-            const outputCost = (totalUsage.completion_tokens / 1_000_000) * 2.50;
-            const totalCost = inputCost + outputCost;
-            
-            console.log(`[KIMI-PAID] Total tokens used: ${totalUsage.total_tokens} (cost: $${totalCost.toFixed(6)})`);
-            
-            return {
-              id: finalResponse.id,
-              object: 'chat.completion',
-              created: finalResponse.created,
-              model: 'kimi-k2',
-              choices: [{
-                index: 0,
-                message: {
-                  role: 'assistant',
-                  content: finalResponse.choices[0].message.content,
-                  tool_calls: assistantMessage.tool_calls
-                },
-                finish_reason: finalResponse.choices[0].finish_reason
-              }],
-              usage: totalUsage
-            };
-          }
-          
+          console.log('[KIMI-FREE] Free tier response received (no tool support)');
           return response;
-        } catch (paidError) {
-          console.error('[KIMI-PAID] Paid tier also failed:', paidError);
+        } catch (freeError) {
+          console.error('[KIMI-FREE] Free tier also failed:', freeError);
           // Will re-throw original error
         }
       }
       
       // Re-throw error if both KIMI versions fail
-      console.log('[KIMI] Both free and paid tiers failed, throwing error');
+      console.log('[KIMI] Both paid and free tiers failed, throwing error');
       throw error;
     }
   }

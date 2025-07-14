@@ -3799,7 +3799,7 @@ function App() {
                     ? 'bg-purple-600 text-white shadow-sm'
                     : 'text-gray-600 hover:text-gray-800'
                 }`}
-                title="Use KIMI K2 model (FREE limited time! Excellent tool calling)"
+                title="Use KIMI K2 model (5x cheaper than GPT-4, excellent tool calling)"
               >
                 KIMI K2
               </button>
