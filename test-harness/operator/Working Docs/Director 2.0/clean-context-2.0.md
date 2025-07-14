@@ -510,3 +510,13 @@ if (USE_CLEAN_CONTEXT) {
 User: Build login flow
 
 [System injects 7-part context - 3000+ tokens]
+
+Assistant: I'll build a Gmail login flow. First, let me
+understand the current workflow state...
+[Reads through massive context]
+[Finally starts working]
+
+After (Clean Implementation)
+
+User: Build login flow
+
