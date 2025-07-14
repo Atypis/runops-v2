@@ -239,6 +239,30 @@ Every node MUST have an 'alias' field when created. This is not optional.
 - \`use_group\` - Instantiate a defined group in your workflow (expands nodes into workflow)
 - \`list_groups\` - See all available reusable groups
 
+⚠️ **CRITICAL: Correct Node Format for Groups**
+When defining nodes in a group, ALWAYS use this exact format:
+\`\`\`javascript
+{
+  type: "browser_action",
+  config: {              // <-- "config" is the property name (no quotes around colon!)
+    action: "click",
+    selector: "#button"
+  },
+  alias: "click_button",
+  description: "Click the button"
+}
+\`\`\`
+
+❌ **NEVER do this:**
+\`\`\`javascript
+{
+  type: "browser_action",
+  "config": {           // <-- WRONG: Don't put quotes around property names with colons
+    action: "click"
+  }
+}
+\`\`\`
+
 Example:
 \`\`\`javascript
 // Define a reusable login pattern
