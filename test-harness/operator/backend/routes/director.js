@@ -971,4 +971,36 @@ router.get('/groups/:workflowId/:groupId', async (req, res, next) => {
   }
 });
 
+// Delete a group definition
+router.delete('/groups/:workflowId/:groupId', async (req, res, next) => {
+  try {
+    const { workflowId, groupId } = req.params;
+    console.log(`[DELETE GROUP] Deleting group ${groupId} from workflow ${workflowId}`);
+    
+    // Delete from database
+    const { error } = await directorService.supabase
+      .from('workflow_memory')
+      .delete()
+      .eq('workflow_id', workflowId)
+      .eq('key', `group_def_${groupId}`);
+    
+    if (error) {
+      throw error;
+    }
+    
+    // Also remove from in-memory cache
+    if (directorService.nodeExecutor.groupDefinitions.has(groupId)) {
+      directorService.nodeExecutor.groupDefinitions.delete(groupId);
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `Group '${groupId}' deleted successfully` 
+    });
+  } catch (error) {
+    console.error(`[DELETE GROUP] Error:`, error);
+    next(error);
+  }
+});
+
 export default router;

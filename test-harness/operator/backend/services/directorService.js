@@ -1316,6 +1316,9 @@ export class DirectorService {
     const createdNodes = [];
     const nodeIdMap = {}; // Map old node IDs to new ones for reference updates
     
+    // Generate a unique suffix for this group instance
+    const instanceId = Math.random().toString(36).substring(2, 8);
+    
     // Create each node from the group definition
     for (const nodeTemplate of definition.nodes) {
       console.log(`[USE_GROUP] Creating node: ${nodeTemplate.type} - ${nodeTemplate.description}`);
@@ -1369,7 +1372,7 @@ export class DirectorService {
         type: nodeTemplate.type,
         config: nodeConfig,
         description: nodeTemplate.description || `${nodeTemplate.type} from group ${groupId}`,
-        alias: nodeTemplate.alias || `${groupId}_${nodeTemplate.type}_${currentPosition}`,
+        alias: nodeTemplate.alias ? `${nodeTemplate.alias}_${instanceId}` : `${groupId}_${nodeTemplate.type}_${currentPosition}_${instanceId}`,
         position: currentPosition
       }, workflowId);
       
