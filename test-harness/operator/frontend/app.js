@@ -479,14 +479,26 @@ function App() {
     
     console.log('[Frontend] Loading groups for workflow:', currentWorkflow.id);
     
+    const url = `${API_BASE}/groups/${currentWorkflow.id}`;
+    console.log('[Frontend] Fetching from URL:', url);
+    
     try {
-      const response = await fetch(`${API_BASE}/director/groups/${currentWorkflow.id}`);
+      const response = await fetch(url);
       console.log('[Frontend] Groups API response status:', response.status);
       
       if (response.ok) {
-        const data = await response.json();
-        console.log('[Frontend] Groups data received:', data);
-        setGroups(data.groups || []);
+        // Get response as text first to debug
+        const responseText = await response.text();
+        console.log('[Frontend] Raw response text:', responseText);
+        
+        try {
+          const data = JSON.parse(responseText);
+          console.log('[Frontend] Groups data received:', data);
+          setGroups(data.groups || []);
+        } catch (parseError) {
+          console.error('[Frontend] Failed to parse JSON:', parseError);
+          console.error('[Frontend] Response was:', responseText);
+        }
       } else {
         console.error('[Frontend] Groups API error:', response.status, response.statusText);
       }
