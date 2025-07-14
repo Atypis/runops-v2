@@ -2580,7 +2580,7 @@ export class DirectorService {
         // Make follow-up call to get final response
         console.log('[KIMI] Making follow-up request after tool execution');
         const finalResponse = await this.openRouterClient.chat.completions.create({
-          model: 'moonshotai/kimi-k2:free',
+          model: 'moonshotai/kimi-k2', // Use paid model for follow-up too
           messages: followUpMessages,
           temperature: 0.6,
           stream: false,
