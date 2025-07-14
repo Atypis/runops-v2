@@ -4358,7 +4358,11 @@ function App() {
                     workflowId={currentWorkflow?.id} 
                     onUseGroup={async (groupId, params) => {
                       try {
-                        const response = await fetch(`${API_BASE}/director/groups/use`, {
+                        console.log('[Frontend] Using group:', groupId, 'with params:', params);
+                        const url = `${API_BASE}/groups/use`;
+                        console.log('[Frontend] POST to:', url);
+                        
+                        const response = await fetch(url, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
@@ -4376,8 +4380,15 @@ function App() {
                           setShowSuccessMessage(`Group "${groupId}" instantiated successfully! Created ${result.nodesCreated} nodes.`);
                           setTimeout(() => setShowSuccessMessage(''), 5000);
                         } else {
-                          const error = await response.json();
-                          alert(`Failed to use group: ${error.error || 'Unknown error'}`);
+                          console.error('[Frontend] Use group failed. Status:', response.status);
+                          try {
+                            const error = await response.json();
+                            alert(`Failed to use group: ${error.error || 'Unknown error'}`);
+                          } catch (e) {
+                            const text = await response.text();
+                            console.error('[Frontend] Error response text:', text);
+                            alert(`Failed to use group: ${response.statusText}`);
+                          }
                         }
                       } catch (error) {
                         console.error('Error using group:', error);
