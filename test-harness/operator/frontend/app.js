@@ -351,6 +351,12 @@ function App() {
         });
         
         console.log(`Loaded ${history.length} messages from conversation history`);
+        console.log('[FRONTEND] Message history:', history.map(msg => ({
+          role: msg.role,
+          hasContent: !!msg.content,
+          hasToolCalls: !!msg.toolCalls,
+          toolCallCount: msg.toolCalls?.length || 0
+        })));
       } else {
         console.error('Failed to load conversation history:', response.status);
         setMessages([]);
@@ -3442,6 +3448,13 @@ function App() {
         const updated = [...prev];
         const lastMessage = updated[updated.length - 1];
         if (lastMessage && lastMessage.isTemporary) {
+          console.log('[FRONTEND] Received response:', {
+            hasMessage: !!data.message,
+            hasToolCalls: !!data.toolCalls,
+            toolCallCount: data.toolCalls?.length || 0,
+            toolCalls: data.toolCalls?.map(tc => ({ toolName: tc.toolName, success: tc.success }))
+          });
+          
           updated[updated.length - 1] = {
             ...lastMessage,
             content: data.message,

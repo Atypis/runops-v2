@@ -51,13 +51,18 @@ export class DirectorService {
     try {
       // Save user message
       if (userMessage) {
+        console.log('[SAVE_CONVERSATION] Saving user message');
         await this.conversationService.saveMessage(workflowId, 'user', userMessage);
       }
       
       // Save assistant response with metadata
       if (assistantResponse) {
         const metadata = {};
-        if (assistantResponse.toolCalls) metadata.toolCalls = assistantResponse.toolCalls;
+        if (assistantResponse.toolCalls) {
+          metadata.toolCalls = assistantResponse.toolCalls;
+          console.log(`[SAVE_CONVERSATION] Including ${assistantResponse.toolCalls.length} tool calls in metadata:`,
+            assistantResponse.toolCalls.map(tc => ({ toolName: tc.toolName, success: tc.success })));
+        }
         if (assistantResponse.reasoning_summary) metadata.reasoning = assistantResponse.reasoning_summary;
         if (assistantResponse.input_tokens || assistantResponse.output_tokens) {
           metadata.tokenUsage = {
@@ -66,6 +71,8 @@ export class DirectorService {
           };
         }
         if (assistantResponse.debug_input) metadata.debug_input = assistantResponse.debug_input;
+        
+        console.log('[SAVE_CONVERSATION] Saving assistant response with metadata keys:', Object.keys(metadata));
         
         await this.conversationService.saveMessage(
           workflowId, 
@@ -526,7 +533,17 @@ export class DirectorService {
     
     if (toolResults.length > 0) {
       finalResponse.toolCalls = toolResults;
+      console.log(`[CLEAN CONTEXT] Including ${toolResults.length} tool calls in response:`, 
+        toolResults.map(tc => ({ toolName: tc.toolName, success: tc.success })));
     }
+    
+    console.log('[CLEAN CONTEXT] Final response structure:', {
+      hasMessage: !!finalResponse.message,
+      messageLength: finalResponse.message?.length,
+      hasToolCalls: !!finalResponse.toolCalls,
+      toolCallCount: finalResponse.toolCalls?.length || 0,
+      hasReasoning: !!finalResponse.reasoning_summary
+    });
     
     return finalResponse;
   }
