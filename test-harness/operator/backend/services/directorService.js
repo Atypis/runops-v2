@@ -346,7 +346,7 @@ export class DirectorService {
     }
   }
 
-  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId) {
+  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId, accumulatedToolResults = []) {
     // Process the response from the Responses API
     const output = response.output || [];
     
@@ -512,14 +512,18 @@ export class DirectorService {
             console.log('[CLEAN CONTEXT] Saved tool response ID:', toolResponse.id);
           }
           
-          // Process the response recursively
-          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id);
+          // Process the response recursively, passing accumulated tool results
+          const allToolResults = [...accumulatedToolResults, ...toolResults];
+          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id, allToolResults);
         } catch (error) {
           console.error('[CLEAN CONTEXT] Error submitting tool outputs:', error);
           // Fall through to return current results
         }
       }
     }
+    
+    // Combine accumulated results with current results
+    const allToolResults = [...accumulatedToolResults, ...toolResults];
     
     // Prepare response
     const finalResponse = {
@@ -531,10 +535,10 @@ export class DirectorService {
       reasoning_tokens: tokenUsage.reasoning_tokens
     };
     
-    if (toolResults.length > 0) {
-      finalResponse.toolCalls = toolResults;
-      console.log(`[CLEAN CONTEXT] Including ${toolResults.length} tool calls in response:`, 
-        toolResults.map(tc => ({ toolName: tc.toolName, success: tc.success })));
+    if (allToolResults.length > 0) {
+      finalResponse.toolCalls = allToolResults;
+      console.log(`[CLEAN CONTEXT] Including ${allToolResults.length} tool calls in response:`, 
+        allToolResults.map(tc => ({ toolName: tc.toolName, success: tc.success })));
     }
     
     console.log('[CLEAN CONTEXT] Final response structure:', {
