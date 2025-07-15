@@ -350,8 +350,8 @@ export class DirectorService {
       .map(content => content.text || '')
       .join('');
     
-    // Extract function calls
-    const functionCalls = output.filter(item => item.type === 'function_call');
+    // Extract function calls with proper structure
+    const functionCallItems = output.filter(item => item.type === 'function_call');
     
     // Extract reasoning summary
     const reasoningItems = output.filter(item => item.type === 'reasoning' && item.summary);
@@ -369,30 +369,82 @@ export class DirectorService {
     
     // Process tool calls if any
     let toolResults = [];
-    if (functionCalls.length > 0) {
-      console.log(`[CLEAN CONTEXT] Processing ${functionCalls.length} tool calls`);
+    let toolOutputs = [];
+    
+    if (functionCallItems.length > 0) {
+      console.log(`[CLEAN CONTEXT] Processing ${functionCallItems.length} tool calls`);
       
-      // Execute tools
-      for (const call of functionCalls) {
+      // Execute tools and prepare outputs for Responses API
+      for (const callItem of functionCallItems) {
+        const callId = callItem.id;
+        const toolName = callItem.name;
+        
+        console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${callId}`);
+        
         try {
-          const toolName = call.name;
-          const toolArgs = JSON.parse(call.arguments || '{}');
+          const toolArgs = JSON.parse(callItem.arguments || '{}');
           
           // Use existing tool execution logic
           const result = await this.executeToolCall(toolName, toolArgs, workflowId);
           
+          // Add to results for our response
           toolResults.push({
             toolName,
             result,
             success: true
           });
+          
+          // Prepare tool output for Responses API
+          toolOutputs.push({
+            type: 'function_call_output',
+            id: callId,
+            output: JSON.stringify(result)
+          });
         } catch (error) {
-          console.error(`[CLEAN CONTEXT] Tool ${call.name} failed:`, error);
+          console.error(`[CLEAN CONTEXT] Tool ${toolName} failed:`, error);
+          
+          // Add to results for our response
           toolResults.push({
-            toolName: call.name,
+            toolName,
             error: error.message,
             success: false
           });
+          
+          // Still need to provide output to Responses API even on error
+          toolOutputs.push({
+            type: 'function_call_output',
+            id: callId,
+            output: JSON.stringify({ error: error.message })
+          });
+        }
+      }
+      
+      // If we have tool outputs, we need to continue the conversation with them
+      if (toolOutputs.length > 0 && response.id) {
+        try {
+          console.log(`[CLEAN CONTEXT] Submitting ${toolOutputs.length} tool outputs`);
+          
+          // Convert tools for Responses API
+          const responsesTools = this.convertToolsForResponsesAPI(createToolDefinitions());
+          
+          // Create a new request with tool outputs
+          const toolResponseParams = {
+            model: model || 'o4-mini',
+            instructions: CLEAN_DIRECTOR_SYSTEM_PROMPT,
+            input: toolOutputs,
+            tools: responsesTools,
+            store: true,
+            previous_response_id: response.id
+          };
+          
+          // Make the follow-up request with tool outputs
+          const toolResponse = await this.openai.responses.create(toolResponseParams);
+          
+          // Process the response recursively
+          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, response.id);
+        } catch (error) {
+          console.error('[CLEAN CONTEXT] Error submitting tool outputs:', error);
+          // Fall through to return current results
         }
       }
     }
