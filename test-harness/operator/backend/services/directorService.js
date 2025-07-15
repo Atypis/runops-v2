@@ -823,7 +823,39 @@ export class DirectorService {
     return node;
   }
 
-  async updateNode({ nodeId, updates }) {
+  async updateNode(args) {
+    // Handle multiple node updates passed in updates array
+    if (args.updates && Array.isArray(args.updates)) {
+      const results = [];
+      const errors = [];
+      
+      for (const update of args.updates) {
+        if (!update.nodeId) {
+          errors.push({ error: 'Missing nodeId in update object', update });
+          continue;
+        }
+        
+        try {
+          const result = await this.updateNode({
+            nodeId: update.nodeId,
+            updates: update.updates
+          });
+          results.push({ nodeId: update.nodeId, success: true, node: result });
+        } catch (error) {
+          console.error(`[UPDATE_NODE] Failed to update node ${update.nodeId}:`, error);
+          errors.push({ nodeId: update.nodeId, error: error.message });
+        }
+      }
+      
+      return {
+        message: `Updated ${results.length} nodes${errors.length > 0 ? `, ${errors.length} errors` : ''}`,
+        results,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    }
+    
+    // Single node update
+    const { nodeId, updates } = args;
     console.log(`[UPDATE_NODE] Called with:`, JSON.stringify({ nodeId, updates }, null, 2));
     
     // Validate inputs
@@ -875,8 +907,19 @@ export class DirectorService {
     return node;
   }
 
-  async deleteNode({ nodeId }) {
-    // Use the enhanced deleteNodes for consistency
+  async deleteNode(args) {
+    // Handle multiple node deletes passed in nodeIds array
+    if (args.nodeIds && Array.isArray(args.nodeIds)) {
+      return await this.deleteNodes({
+        nodeIds: args.nodeIds,
+        handleDependencies: args.handleDependencies ?? true,
+        deleteChildren: args.deleteChildren ?? false,
+        dryRun: args.dryRun ?? false
+      });
+    }
+    
+    // Single node delete
+    const { nodeId } = args;
     return await this.deleteNodes({ 
       nodeIds: [nodeId],
       handleDependencies: true,
@@ -885,6 +928,7 @@ export class DirectorService {
     });
   }
 
+  // Internal function used by deleteNode - not exposed as a tool
   async deleteNodes({ nodeIds, handleDependencies = true, deleteChildren = false, dryRun = false }) {
     console.log(`[DELETE_NODES] Starting deletion:`, {
       nodeIds,
@@ -1240,43 +1284,7 @@ export class DirectorService {
     }
   }
 
-  async updateNodes({ updates }) {
-    console.log(`[UPDATE_NODES] Called with:`, JSON.stringify({ updates }, null, 2));
-    
-    // Validate inputs
-    if (!updates || !Array.isArray(updates) || updates.length === 0) {
-      throw new Error('updates must be a non-empty array of {nodeId, updates} objects');
-    }
-    
-    const results = [];
-    const errors = [];
-    
-    // Process each update
-    for (const update of updates) {
-      if (!update.nodeId) {
-        errors.push({ error: 'Missing nodeId in update object', update });
-        continue;
-      }
-      
-      try {
-        const result = await this.updateNode({
-          nodeId: update.nodeId,
-          updates: update.updates
-        });
-        results.push({ nodeId: update.nodeId, success: true, node: result });
-      } catch (error) {
-        console.error(`[UPDATE_NODES] Failed to update node ${update.nodeId}:`, error);
-        errors.push({ nodeId: update.nodeId, error: error.message });
-      }
-    }
-    
-    return {
-      success: errors.length === 0,
-      updated: results.length,
-      results,
-      errors: errors.length > 0 ? errors : undefined
-    };
-  }
+  // Removed updateNodes - use update_node with array instead
 
   // Removed connectNodes - connections are implicit through position ordering
 
@@ -3162,14 +3170,8 @@ export class DirectorService {
         case 'update_node':
           result = await this.updateNode(args, workflowId);
           break;
-        case 'update_nodes':
-          result = await this.updateNodes(args);
-          break;
         case 'delete_node':
           result = await this.deleteNode(args);
-          break;
-        case 'delete_nodes':
-          result = await this.deleteNodes(args);
           break;
         case 'execute_workflow':
           result = await this.executeWorkflow(workflowId);

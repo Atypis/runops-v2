@@ -98,33 +98,19 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'update_node',
-        description: 'Update an existing node in the workflow',
+        description: 'Update one or more nodes in the workflow. For a single node, pass nodeId and updates directly. For multiple nodes, pass only an updates array.',
         parameters: {
           type: 'object',
           properties: {
+            // Single node properties
             nodeId: {
               type: 'string',
-              description: 'ID of the node to update'
+              description: 'ID of the node to update (for single node update)'
             },
+            // Updates - either object for single node or array for multiple
             updates: {
-              type: 'object',
-              description: 'Object containing fields to update. Valid fields: type, config (maps to params), description, status, result, position'
-            }
-          },
-          required: ['nodeId', 'updates']
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'update_nodes',
-        description: 'Update multiple nodes in the workflow in a single operation',
-        parameters: {
-          type: 'object',
-          properties: {
-            updates: {
-              type: 'array',
+              type: ['object', 'array'],
+              description: 'For single node: object with fields to update. For multiple nodes: array of {nodeId, updates} objects. Valid fields: type, config (maps to params), description, status, result, position',
               items: {
                 type: 'object',
                 properties: {
@@ -138,11 +124,9 @@ export function createToolDefinitions() {
                   }
                 },
                 required: ['nodeId', 'updates']
-              },
-              description: 'Array of update objects, each with nodeId and updates'
+              }
             }
-          },
-          required: ['updates']
+          }
         }
       }
     },
@@ -150,42 +134,32 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'delete_node',
-        description: 'Delete a node from the workflow',
+        description: 'Delete one or more nodes from the workflow. For a single node, pass nodeId. For multiple nodes, pass nodeIds array.',
         parameters: {
           type: 'object',
           properties: {
+            // Single node property
             nodeId: {
               type: 'string',
-              description: 'ID of the node to delete'
-            }
-          },
-          required: ['nodeId']
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'delete_nodes',
-        description: 'Delete multiple nodes with smart dependency handling and position management',
-        parameters: {
-          type: 'object',
-          properties: {
+              description: 'ID of the node to delete (for single node deletion)'
+            },
+            // Multiple nodes property
             nodeIds: {
               type: 'array',
               items: {
                 type: 'string'
               },
-              description: 'Array of node IDs to delete'
+              description: 'Array of node IDs to delete (for multiple node deletion)'
             },
+            // Options for multiple deletion
             handleDependencies: {
               type: 'boolean',
-              description: 'Update nodes that reference deleted nodes (default: true)',
+              description: 'Whether to handle dependent nodes (default: true)',
               default: true
             },
             deleteChildren: {
               type: 'boolean',
-              description: 'Also delete child nodes of deleted control flow nodes (default: false)',
+              description: 'Whether to delete child nodes (default: false)',
               default: false
             },
             dryRun: {
@@ -193,8 +167,7 @@ export function createToolDefinitions() {
               description: 'Preview what would be deleted without actually deleting (default: false)',
               default: false
             }
-          },
-          required: ['nodeIds']
+          }
         }
       }
     },

@@ -62,8 +62,8 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 ### 🏗️ Building
 - \`create_node\` - Create nodes (single or multiple)
 - \`insert_node_at\` - Insert node at specific position
-- \`update_node\`, \`update_nodes\` - Modify existing nodes
-- \`delete_node\`, \`delete_nodes\` - Remove nodes with dependency handling
+- \`update_node\` - Modify nodes (single or multiple)
+- \`delete_node\` - Remove nodes with dependency handling (single or multiple)
 - \`execute_workflow\` - Run entire workflow
 - \`execute_nodes\` - Test specific nodes or ranges
 
