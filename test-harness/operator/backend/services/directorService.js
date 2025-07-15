@@ -394,7 +394,8 @@ export class DirectorService {
       // Execute tools and prepare outputs for Responses API
       for (const callItem of functionCallItems) {
         // Extract the correct fields based on the structure
-        const callId = callItem.id;
+        // IMPORTANT: Use call_id, not id!
+        const callId = callItem.call_id;  // This is what OpenAI expects back
         const toolName = callItem.function?.name || callItem.name;
         const argumentsStr = callItem.function?.arguments || callItem.arguments;
         
@@ -421,8 +422,15 @@ export class DirectorService {
           
           console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${callId}`);
           
+          // Create tool call item in expected format for executeToolCall
+          const toolCallItem = {
+            name: toolName,
+            arguments: argumentsStr,  // Pass the string, executeToolCall will parse it
+            call_id: callId
+          };
+          
           // Use existing tool execution logic
-          const result = await this.executeToolCall(toolName, toolArgs, workflowId);
+          const result = await this.executeToolCall(toolCallItem, workflowId);
           
           // Add to results for our response
           toolResults.push({
@@ -431,11 +439,10 @@ export class DirectorService {
             success: true
           });
           
-          // Prepare tool output for Responses API - use tool_call_id as per spec
+          // Prepare tool output for Responses API
           toolOutputs.push({
             type: 'function_call_output',
-            call_id: callId,  // Some APIs might use call_id
-            tool_call_id: callId,  // Assistants API uses tool_call_id
+            call_id: callId,
             output: JSON.stringify(result)
           });
         } catch (error) {
@@ -451,8 +458,7 @@ export class DirectorService {
           // Still need to provide output to Responses API even on error
           toolOutputs.push({
             type: 'function_call_output',
-            call_id: callId,  // Some APIs might use call_id
-            tool_call_id: callId,  // Assistants API uses tool_call_id
+            call_id: callId,
             output: JSON.stringify({ error: error.message })
           });
         }
@@ -479,8 +485,14 @@ export class DirectorService {
           // Make the follow-up request with tool outputs
           const toolResponse = await this.openai.responses.create(toolResponseParams);
           
+          // Save the new response ID for future conversations
+          if (toolResponse.id) {
+            await this.saveResponseId(workflowId, toolResponse.id);
+            console.log('[CLEAN CONTEXT] Saved tool response ID:', toolResponse.id);
+          }
+          
           // Process the response recursively
-          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, response.id);
+          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id);
         } catch (error) {
           console.error('[CLEAN CONTEXT] Error submitting tool outputs:', error);
           // Fall through to return current results
