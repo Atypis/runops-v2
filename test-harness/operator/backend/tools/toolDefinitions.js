@@ -739,8 +739,8 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
-        name: 'get_workflow_summary',
-        description: 'Get overview of current workflow including node count, status, and description. Use this when you need a high-level understanding of the workflow state.',
+        name: 'get_current_plan',
+        description: 'Get the current workflow plan with phases, tasks, and progress. Use this to understand your planning state and next actions.',
         parameters: {
           type: 'object',
           properties: {}

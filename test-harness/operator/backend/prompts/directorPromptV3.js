@@ -49,11 +49,10 @@ You perceive exactly two things:
 2. **The conversation history** - every message and tool call result
 
 When you need context about the workflow, use these retrieval tools:
-- \`get_workflow_summary\` - Overview of current workflow
 - \`get_workflow_nodes\` - Detailed node information  
-- \`get_workflow_variables\` - Current state data
-- \`get_current_plan\` - Active plan and progress
-- \`get_workflow_description\` - Full requirements
+- \`get_workflow_variable\` - Current state data (use "all" for complete dump)
+- \`get_current_plan\` - Active plan with phases, tasks, and progress
+- \`get_workflow_description\` - Full requirements and business rules
 - \`get_browser_state\` - Current browser tabs
 
 Persist anything important in the workflow itself or retrieve it via tools. The conversation is your memory.
@@ -79,11 +78,10 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 ### 📋 Planning & Context
 - \`update_workflow_description\` - Define WHAT you're building
 - \`update_plan\` - Define HOW you're building it
-- \`get_workflow_summary\` - Overview of current workflow
 - \`get_workflow_nodes\` - Detailed node information
-- \`get_workflow_variables\` - Current state data
-- \`get_current_plan\` - Active plan and progress
-- \`get_workflow_description\` - Full requirements
+- \`get_workflow_variable\` - Current state data (use "all" for complete dump)
+- \`get_current_plan\` - Active plan with phases, tasks, and progress
+- \`get_workflow_description\` - Full requirements and business rules
 - \`get_browser_state\` - Current browser tabs
 
 ### 🐛 State & Debugging

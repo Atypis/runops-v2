@@ -577,20 +577,22 @@ export class DirectorService {
             break;
           
           // Clean Context 2.0 - Context Retrieval Tools
-          case 'get_workflow_summary': {
-            const workflowContext = await this.getWorkflowContext(workflowId);
+          case 'get_current_plan': {
             const plan = await this.planService.getCurrentPlan(workflowId);
-            const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
             
-            result = {
-              workflowId,
-              name: workflowContext?.name || 'Untitled Workflow',
-              description: description?.description_data?.goal || workflowContext?.description || 'No description',
-              nodeCount: workflowContext?.nodes?.length || 0,
-              currentPhase: plan?.plan_data?.current_phase || 'No plan',
-              lastExecuted: workflowContext?.last_executed_at || null,
-              status: workflowContext?.status || 'building'
-            };
+            if (!plan || !plan.plan_data) {
+              result = {
+                status: 'no_plan',
+                message: 'No plan exists yet. Use update_plan to create one.'
+              };
+            } else {
+              result = {
+                status: 'success',
+                plan: plan.plan_data,
+                lastUpdated: plan.updated_at,
+                updateReason: plan.reason
+              };
+            }
             break;
           }
           
