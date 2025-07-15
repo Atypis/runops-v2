@@ -538,6 +538,11 @@ export class DirectorService {
       // Set workflow ID in node executor for browser state tracking
       this.nodeExecutor.setWorkflowId(workflowId);
       
+      // Save the user message first (unless it's a compression request)
+      if (!isCompressionRequest) {
+        await this.saveConversationMessages(workflowId, message, null);
+      }
+      
       // Handle mock mode (same as legacy)
       if (mockMode || process.env.MOCK_DIRECTOR_MODE === 'true') {
         // ... mock mode handling (same as legacy)
@@ -592,7 +597,14 @@ export class DirectorService {
       }
       
       // Process response with control loop
-      return await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId);
+      const result = await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId);
+      
+      // Save the assistant response (unless it's a compression request)
+      if (!isCompressionRequest) {
+        await this.saveConversationMessages(workflowId, null, result);
+      }
+      
+      return result;
     } catch (error) {
       console.error('[CLEAN CONTEXT] Error in processMessageClean:', error);
       throw error;
