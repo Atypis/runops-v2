@@ -506,6 +506,151 @@ function App() {
     };
   }, [currentWorkflow?.id]);
 
+  // Tool call SSE connection for live updates
+  const [liveToolCalls, setLiveToolCalls] = useState({});
+  const toolCallEventSourceRef = useRef(null);
+  
+  useEffect(() => {
+    if (!currentWorkflow?.id) return;
+    
+    console.log(`[SSE] Connecting to tool call stream for workflow: ${currentWorkflow.id}`);
+    
+    const eventSource = new EventSource(`${API_BASE}/workflows/${currentWorkflow.id}/tool-calls/stream`);
+    
+    eventSource.onopen = () => {
+      console.log('[SSE] Tool call stream connected');
+    };
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleToolCallEvent(data);
+      } catch (error) {
+        console.error('[SSE] Error parsing tool call event:', error);
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error('[SSE] Tool call stream error:', error);
+    };
+    
+    toolCallEventSourceRef.current = eventSource;
+    
+    return () => {
+      console.log('[SSE] Closing tool call stream');
+      eventSource.close();
+    };
+  }, [currentWorkflow?.id]);
+
+  // Handle tool call events
+  const handleToolCallEvent = (event) => {
+    console.log('[SSE] Tool call event:', event);
+    
+    switch (event.type) {
+      case 'connected':
+        console.log('[SSE] Tool call stream connected to workflow:', event.workflowId);
+        break;
+        
+      case 'tool_call_start':
+        // Update live tool calls state
+        setLiveToolCalls(prev => ({
+          ...prev,
+          [event.callId]: {
+            toolName: event.toolName,
+            status: 'running',
+            startTime: event.timestamp,
+            arguments: event.arguments
+          }
+        }));
+        
+        // Update the latest assistant message to show pending tool
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMsg = updated[updated.length - 1];
+          if (lastMsg?.role === 'assistant' && lastMsg?.isTemporary) {
+            lastMsg.pendingToolCalls = lastMsg.pendingToolCalls || {};
+            lastMsg.pendingToolCalls[event.callId] = {
+              toolName: event.toolName,
+              status: 'running',
+              startTime: event.timestamp
+            };
+          }
+          return updated;
+        });
+        break;
+        
+      case 'tool_call_complete':
+        // Move from pending to completed
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMsg = updated[updated.length - 1];
+          if (lastMsg?.role === 'assistant') {
+            // Remove from pending
+            if (lastMsg.pendingToolCalls) {
+              delete lastMsg.pendingToolCalls[event.callId];
+              if (Object.keys(lastMsg.pendingToolCalls).length === 0) {
+                delete lastMsg.pendingToolCalls;
+              }
+            }
+            
+            // Add to completed only if not already there from the response
+            if (!lastMsg.toolCalls?.some(tc => tc.call_id === event.callId)) {
+              lastMsg.toolCalls = lastMsg.toolCalls || [];
+              lastMsg.toolCalls.push({
+                name: event.toolName,
+                result: event.result,
+                call_id: event.callId
+              });
+            }
+          }
+          return updated;
+        });
+        
+        // Clean up live tool calls
+        setLiveToolCalls(prev => {
+          const updated = { ...prev };
+          delete updated[event.callId];
+          return updated;
+        });
+        break;
+        
+      case 'tool_call_error':
+        // Move from pending to completed with error
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMsg = updated[updated.length - 1];
+          if (lastMsg?.role === 'assistant') {
+            // Remove from pending
+            if (lastMsg.pendingToolCalls) {
+              delete lastMsg.pendingToolCalls[event.callId];
+              if (Object.keys(lastMsg.pendingToolCalls).length === 0) {
+                delete lastMsg.pendingToolCalls;
+              }
+            }
+            
+            // Add error to tool calls
+            if (!lastMsg.toolCalls?.some(tc => tc.call_id === event.callId)) {
+              lastMsg.toolCalls = lastMsg.toolCalls || [];
+              lastMsg.toolCalls.push({
+                name: event.toolName,
+                error: event.error,
+                call_id: event.callId
+              });
+            }
+          }
+          return updated;
+        });
+        
+        // Clean up live tool calls
+        setLiveToolCalls(prev => {
+          const updated = { ...prev };
+          delete updated[event.callId];
+          return updated;
+        });
+        break;
+    }
+  };
+
   // Reduced polling for variables and token stats (no browser state)
   useEffect(() => {
     if (!currentWorkflow?.id) return;
@@ -3638,6 +3783,22 @@ function App() {
     }
   };
 
+  // Format pending tool call with animation
+  const formatPendingToolCall = (callId, toolCall) => {
+    return (
+      <div key={callId} className="mt-2 animate-pulse">
+        <div className="bg-gray-100 border border-gray-300 rounded-lg p-3">
+          <div className="flex items-center space-x-2">
+            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+            <span className="text-sm font-medium text-gray-700">
+              Executing: {toolCall.toolName}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const formatToolCall = (toolCall) => {
     const renderRunButton = (nodeId) => (
       <button
@@ -3976,6 +4137,13 @@ function App() {
                 )}
                 
                 <div className="whitespace-pre-wrap">{message.content || '(No message - tool calls only)'}</div>
+                
+                {/* Display pending tool calls with animation */}
+                {message.pendingToolCalls && Object.entries(message.pendingToolCalls).map(([callId, toolCall]) => 
+                  formatPendingToolCall(callId, toolCall)
+                )}
+                
+                {/* Display completed tool calls */}
                 {message.toolCalls && message.toolCalls.map((toolCall, i) => (
                   <div key={i}>{formatToolCall(toolCall)}</div>
                 ))}

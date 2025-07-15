@@ -45,24 +45,59 @@ export class DirectorService {
     this.browserStateService = new BrowserStateService();
     this.conversationService = new ConversationService();
     this.supabase = supabase;
+    
+    // SSE connections for live tool call streaming
+    this.toolCallSSEConnections = new Map(); // workflowId -> [response objects]
+  }
+
+  // SSE connection management methods for tool call streaming
+  addToolCallSSEConnection(workflowId, res) {
+    if (!this.toolCallSSEConnections.has(workflowId)) {
+      this.toolCallSSEConnections.set(workflowId, []);
+    }
+    this.toolCallSSEConnections.get(workflowId).push(res);
+  }
+
+  removeToolCallSSEConnection(workflowId, res) {
+    const connections = this.toolCallSSEConnections.get(workflowId);
+    if (connections) {
+      const index = connections.indexOf(res);
+      if (index > -1) {
+        connections.splice(index, 1);
+      }
+      if (connections.length === 0) {
+        this.toolCallSSEConnections.delete(workflowId);
+      }
+    }
+  }
+
+  async emitToolCallEvent(workflowId, event) {
+    const connections = this.toolCallSSEConnections.get(workflowId) || [];
+    const deadConnections = [];
+    
+    for (const res of connections) {
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (error) {
+        deadConnections.push(res);
+      }
+    }
+    
+    // Clean up dead connections
+    deadConnections.forEach(conn => this.removeToolCallSSEConnection(workflowId, conn));
   }
 
   async saveConversationMessages(workflowId, userMessage, assistantResponse) {
     try {
       // Save user message
       if (userMessage) {
-        console.log('[SAVE_CONVERSATION] Saving user message');
         await this.conversationService.saveMessage(workflowId, 'user', userMessage);
       }
       
       // Save assistant response with metadata
       if (assistantResponse) {
         const metadata = {};
-        if (assistantResponse.toolCalls) {
-          metadata.toolCalls = assistantResponse.toolCalls;
-          console.log(`[SAVE_CONVERSATION] Including ${assistantResponse.toolCalls.length} tool calls in metadata:`,
-            assistantResponse.toolCalls.map(tc => ({ toolName: tc.toolName, success: tc.success })));
-        }
+        if (assistantResponse.toolCalls) metadata.toolCalls = assistantResponse.toolCalls;
         if (assistantResponse.reasoning_summary) metadata.reasoning = assistantResponse.reasoning_summary;
         if (assistantResponse.input_tokens || assistantResponse.output_tokens) {
           metadata.tokenUsage = {
@@ -71,8 +106,6 @@ export class DirectorService {
           };
         }
         if (assistantResponse.debug_input) metadata.debug_input = assistantResponse.debug_input;
-        
-        console.log('[SAVE_CONVERSATION] Saving assistant response with metadata keys:', Object.keys(metadata));
         
         await this.conversationService.saveMessage(
           workflowId, 
@@ -537,17 +570,7 @@ export class DirectorService {
     
     if (allToolResults.length > 0) {
       finalResponse.toolCalls = allToolResults;
-      console.log(`[CLEAN CONTEXT] Including ${allToolResults.length} tool calls in response:`, 
-        allToolResults.map(tc => ({ toolName: tc.toolName, success: tc.success })));
     }
-    
-    console.log('[CLEAN CONTEXT] Final response structure:', {
-      hasMessage: !!finalResponse.message,
-      messageLength: finalResponse.message?.length,
-      hasToolCalls: !!finalResponse.toolCalls,
-      toolCallCount: finalResponse.toolCalls?.length || 0,
-      hasReasoning: !!finalResponse.reasoning_summary
-    });
     
     return finalResponse;
   }
@@ -3219,8 +3242,18 @@ export class DirectorService {
    */
   async executeToolCall(toolCallItem, workflowId) {
     const { name: toolName, arguments: toolArgs, call_id } = toolCallItem;
+    const startTime = Date.now();
     
     console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${call_id}`);
+    
+    // Emit tool call start event
+    await this.emitToolCallEvent(workflowId, {
+      type: 'tool_call_start',
+      callId: call_id,
+      toolName,
+      arguments: toolArgs,
+      timestamp: new Date().toISOString()
+    });
     
     try {
       
@@ -3382,10 +3415,32 @@ export class DirectorService {
       
       console.log(`[TOOL_EXECUTION] ${toolName} completed successfully`);
       console.log(`[TOOL_EXECUTION] Result:`, JSON.stringify(result, null, 2));
+      
+      // Emit tool call complete event
+      await this.emitToolCallEvent(workflowId, {
+        type: 'tool_call_complete',
+        callId: call_id,
+        toolName,
+        result,
+        duration: Date.now() - startTime,
+        timestamp: new Date().toISOString()
+      });
+      
       return result;
       
     } catch (error) {
       console.error(`[TOOL_EXECUTION] ${toolName} failed:`, error);
+      
+      // Emit tool call error event
+      await this.emitToolCallEvent(workflowId, {
+        type: 'tool_call_error',
+        callId: call_id,
+        toolName,
+        error: error.message,
+        duration: Date.now() - startTime,
+        timestamp: new Date().toISOString()
+      });
+      
       throw error;
     }
   }

@@ -579,6 +579,48 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
   }
 });
 
+// Real-time tool call updates via Server-Sent Events
+router.get('/workflows/:id/tool-calls/stream', async (req, res, next) => {
+  try {
+    const workflowId = req.params.id;
+    console.log(`[SSE] New tool call stream connection for workflow: ${workflowId}`);
+    
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Send initial connected event
+    res.write(`data: ${JSON.stringify({ type: 'connected', workflowId })}\n\n`);
+    
+    // Register this connection with the director service for tool call updates
+    directorService.addToolCallSSEConnection(workflowId, res);
+    
+    // Keep connection alive with heartbeat
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch (error) {
+        clearInterval(heartbeat);
+      }
+    }, 30000);
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      console.log(`[SSE] Tool call stream closed for workflow: ${workflowId}`);
+      clearInterval(heartbeat);
+      directorService.removeToolCallSSEConnection(workflowId, res);
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Reasoning token metrics endpoint
 router.get('/workflows/:id/reasoning-metrics', async (req, res, next) => {
   try {
