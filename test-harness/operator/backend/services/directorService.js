@@ -343,6 +343,9 @@ export class DirectorService {
     // Process the response from the Responses API
     const output = response.output || [];
     
+    // Debug log the raw response structure
+    console.log('[RESPONSES API] Raw output structure:', JSON.stringify(output, null, 2));
+    
     // Extract assistant messages
     const assistantMessages = output.filter(item => item.type === 'message' && item.role === 'assistant');
     const assistantContent = assistantMessages
@@ -350,8 +353,22 @@ export class DirectorService {
       .map(content => content.text || '')
       .join('');
     
-    // Extract function calls with proper structure
-    const functionCallItems = output.filter(item => item.type === 'function_call');
+    // Extract function calls - check for tool_calls in assistant messages
+    let functionCallItems = [];
+    
+    // First check if function calls are in the output array directly
+    functionCallItems = output.filter(item => item.type === 'function_call');
+    
+    // If not, check if they're nested in assistant messages
+    if (functionCallItems.length === 0) {
+      for (const msg of assistantMessages) {
+        if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
+          console.log('[RESPONSES API] Found tool_calls in assistant message:', JSON.stringify(msg.tool_calls, null, 2));
+          functionCallItems = msg.tool_calls;
+          break;
+        }
+      }
+    }
     
     // Extract reasoning summary
     const reasoningItems = output.filter(item => item.type === 'reasoning' && item.summary);
@@ -376,13 +393,33 @@ export class DirectorService {
       
       // Execute tools and prepare outputs for Responses API
       for (const callItem of functionCallItems) {
+        // Extract the correct fields based on the structure
         const callId = callItem.id;
-        const toolName = callItem.name;
+        const toolName = callItem.function?.name || callItem.name;
+        const argumentsStr = callItem.function?.arguments || callItem.arguments;
         
-        console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${callId}`);
+        console.log(`[TOOL_EXECUTION] Processing tool call:`, {
+          callId,
+          toolName,
+          argumentsStr,
+          callItemStructure: JSON.stringify(callItem, null, 2)
+        });
+        
+        // Guard against missing fields
+        if (!callId || !toolName) {
+          console.error(`[TOOL_EXECUTION] Missing required fields - callId: ${callId}, toolName: ${toolName}`);
+          continue;
+        }
         
         try {
-          const toolArgs = JSON.parse(callItem.arguments || '{}');
+          // Guard against undefined arguments
+          if (!argumentsStr || argumentsStr.trim() === 'undefined' || argumentsStr.trim() === '') {
+            throw new Error('Tool call has empty or undefined arguments');
+          }
+          
+          const toolArgs = JSON.parse(argumentsStr);
+          
+          console.log(`[TOOL_EXECUTION] Executing ${toolName} with call_id ${callId}`);
           
           // Use existing tool execution logic
           const result = await this.executeToolCall(toolName, toolArgs, workflowId);
@@ -394,10 +431,11 @@ export class DirectorService {
             success: true
           });
           
-          // Prepare tool output for Responses API
+          // Prepare tool output for Responses API - use tool_call_id as per spec
           toolOutputs.push({
             type: 'function_call_output',
-            id: callId,
+            call_id: callId,  // Some APIs might use call_id
+            tool_call_id: callId,  // Assistants API uses tool_call_id
             output: JSON.stringify(result)
           });
         } catch (error) {
@@ -413,7 +451,8 @@ export class DirectorService {
           // Still need to provide output to Responses API even on error
           toolOutputs.push({
             type: 'function_call_output',
-            id: callId,
+            call_id: callId,  // Some APIs might use call_id
+            tool_call_id: callId,  // Assistants API uses tool_call_id
             output: JSON.stringify({ error: error.message })
           });
         }
