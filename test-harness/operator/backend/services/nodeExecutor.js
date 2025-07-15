@@ -529,48 +529,30 @@ export class NodeExecutor {
         console.log(`[EXECUTE] Successfully updated node ${nodeId} with result:`, updatedNode?.result);
       }
       
-      // Also store the result in workflow memory for easy access by subsequent nodes
-      // Store by both position (legacy) and alias (new)
-      if (result !== null && result !== undefined) {
+      // Store result as variable ONLY if explicitly requested
+      if (result !== null && result !== undefined && node.store_variable) {
         try {
-          const upserts = [];
+          // Use alias as the storage key (with iteration context if applicable)
+          const storageKey = this.getStorageKey(node.alias);
           
-          // Store by position for backward compatibility
-          if (node.position) {
-            const positionKey = this.getStorageKey(`node${node.position}`);
-            upserts.push({
+          await supabase
+            .from('workflow_memory')
+            .upsert({
               workflow_id: workflowId,
-              key: positionKey,
+              key: storageKey,
               value: result
             });
-            console.log(`[EXECUTE] Storing by position key: ${positionKey}`);
-          }
+            
+          console.log(`[EXECUTE] Stored variable '${storageKey}' for node ${node.alias}`);
           
-          // Store by alias for new reference system
-          if (node.alias) {
-            const aliasKey = this.getStorageKey(node.alias);
-            upserts.push({
-              workflow_id: workflowId,
-              key: aliasKey,
-              value: result
-            });
-            console.log(`[EXECUTE] Storing by alias key: ${aliasKey}`);
-          }
-          
-          if (upserts.length > 0) {
-            await supabase
-              .from('workflow_memory')
-              .upsert(upserts);
-            console.log(`[EXECUTE] Stored node ${node.alias || `position ${node.position}`} result in workflow memory`);
-          }
-          
-          // Send real-time update to frontend
-          this.sendNodeValueUpdate(nodeId, node.position, result, node.alias || `node${node.position}`);
+          // Still send real-time update for UI
+          this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
         } catch (memError) {
-          console.error(`[EXECUTE] Failed to store node result in memory:`, memError);
+          console.error(`[EXECUTE] Failed to store variable for ${node.alias}:`, memError);
           // Don't fail the execution if memory storage fails
         }
       }
+      // If store_variable is false, result is NOT stored - only available in node.result column
       
       return { success: true, data: result };
     } catch (error) {
@@ -1490,126 +1472,40 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     // Get value from workflow memory or previous node results
     console.log(`[STATE] Getting value for path: ${path}`);
     
-    // Handle different path formats
-    let normalizedPath = path;
-    
-    // Convert "nodes.88.result" to "node88.result" for consistency
-    if (path.startsWith('nodes.')) {
-      normalizedPath = path.replace('nodes.', 'node');
+    // Remove legacy position-based support
+    if (path.startsWith('node') && /^node\d+/.test(path)) {
+      throw new Error(`Position-based references (${path}) are no longer supported. Use the node alias instead.`);
     }
     
-    // Check if it's a node result reference (e.g., node82.loginRequired or node88.result.needsLogin)
-    if (normalizedPath.includes('.')) {
-      const parts = normalizedPath.split('.');
-      const nodeRef = parts[0];
+    // Handle property access (e.g., search_results.emails)
+    if (path.includes('.')) {
+      const parts = path.split('.');
+      const aliasRef = parts[0];
       
-      // Try to get from node results
-      if (nodeRef.startsWith('node')) {
-        const nodeIdentifier = nodeRef.replace('node', '');
+      // Look up by alias with iteration context
+      const storageKey = this.getStorageKey(aliasRef);
+      
+      const { data: memoryData } = await supabase
+        .from('workflow_memory')
+        .select('value')
+        .eq('workflow_id', workflowId)
+        .eq('key', storageKey)
+        .single();
         
-        // First try to get from workflow memory (faster)
-        // This will work for position-based references (node1, node2, etc.)
-        // Use iteration-aware storage key
-        const storageKey = this.getStorageKey(`node${nodeIdentifier}`);
-        console.log(`[STATE] Looking for key: ${storageKey}`);
-        
-        const { data: memoryData, error: memError } = await supabase
-          .from('workflow_memory')
-          .select('value')
-          .eq('workflow_id', workflowId)
-          .eq('key', storageKey)
-          .single();
-          
-        if (!memoryData) {
-          // If not found in memory, look up node by alias
-          console.log(`[STATE] Not found in memory, looking up node by alias: ${nodeRef}`);
-          const { data: nodeByAlias } = await supabase
-            .from('nodes')
-            .select('id, position, result')
-            .eq('workflow_id', workflowId)
-            .eq('alias', nodeRef)
-            .single();
-          
-          if (nodeByAlias) {
-            // Store in memory for future reference
-            if (nodeByAlias.result) {
-              await this.storeNodeResult(nodeByAlias.id, workflowId, nodeByAlias.result);
-            }
-            memoryData = { value: nodeByAlias.result };
-          }
-        }
-        
-        if (memoryData && memoryData.value !== null) {
-          // Log a summary instead of the full value to avoid spam
-          const valueType = Array.isArray(memoryData.value) ? `array[${memoryData.value.length}]` : typeof memoryData.value;
-          console.log(`[STATE] Found node ${nodeIdentifier} result in memory with key ${storageKey} (type: ${valueType})`);
-          
-          // Navigate to the nested property
-          let value = memoryData.value;
-          
-          // Skip "result" in the path if present (node88.result.needsLogin -> just needsLogin)
-          const propertyPath = parts.slice(1);
-          if (propertyPath[0] === 'result' && propertyPath.length > 1) {
-            propertyPath.shift();
-          }
-          
-          for (const prop of propertyPath) {
-            value = value?.[prop];
-          }
-          
-          // Log summary of resolved value too
-          const resolvedType = Array.isArray(value) ? `array[${value.length}]` : typeof value;
-          console.log(`[STATE] Resolved to value of type: ${resolvedType}`);
-          return value;
-        }
-        
-        // Fall back to direct node lookup if not in memory
-        // Try by position first (if it's a number), then by ID
-        let node;
-        if (!isNaN(nodeIdentifier)) {
-          // It's a number, so try position first
-          const { data: nodeByPosition } = await supabase
-            .from('nodes')
-            .select('result')
-            .eq('position', parseInt(nodeIdentifier))
-            .eq('workflow_id', workflowId)
-            .single();
-          node = nodeByPosition;
-        }
-        
-        if (!node) {
-          // Try by ID as fallback
-          const { data: nodeById } = await supabase
-            .from('nodes')
-            .select('result')
-            .eq('id', nodeIdentifier)
-            .eq('workflow_id', workflowId)
-            .single();
-          node = nodeById;
-        }
-          
-        if (node && node.result) {
-          console.log(`[STATE] Found node ${nodeIdentifier} result from database:`, node.result);
-          
-          // Navigate to the nested property
-          let value = node.result;
-          
-          // Skip "result" in the path if present (node88.result.needsLogin -> just needsLogin)
-          const propertyPath = parts.slice(1);
-          if (propertyPath[0] === 'result' && propertyPath.length > 1) {
-            propertyPath.shift();
-          }
-          
-          for (const prop of propertyPath) {
-            value = value?.[prop];
-          }
-          console.log(`[STATE] Resolved to value:`, value);
-          return value;
-        }
+      if (!memoryData) {
+        throw new Error(`Variable '${aliasRef}' not found. Did you forget to set store_variable: true?`);
       }
+      
+      // Navigate nested properties
+      let value = memoryData.value;
+      for (let i = 1; i < parts.length; i++) {
+        value = value?.[parts[i]];
+      }
+      
+      return value;
     }
     
-    // Try workflow memory with iteration-aware key
+    // Simple variable lookup
     const storageKey = this.getStorageKey(path);
     const { data } = await supabase
       .from('workflow_memory')
@@ -1618,83 +1514,11 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       .eq('key', storageKey)
       .single();
       
-    console.log(`[STATE] Found in memory:`, data?.value);
-    
     if (!data) {
-      // Try to resolve nested paths for any variable (not just nodes)
-      if (normalizedPath.includes('.')) {
-        const parts = normalizedPath.split('.');
-        const baseKey = parts[0];
-        
-        // Try to get the base variable
-        const baseStorageKey = this.getStorageKey(baseKey);
-        console.log(`[STATE] Trying to resolve nested path. Base key: ${baseStorageKey}`);
-        
-        const { data: baseData } = await supabase
-          .from('workflow_memory')
-          .select('value')
-          .eq('workflow_id', workflowId)
-          .eq('key', baseStorageKey)
-          .single();
-          
-        if (baseData && baseData.value !== null) {
-          console.log(`[STATE] Found base variable ${baseKey}`);
-          
-          // Navigate through the nested path
-          let value = baseData.value;
-          const propertyPath = parts.slice(1);
-          
-          // Skip "result" in the path if present (for consistency with node references)
-          if (propertyPath[0] === 'result' && propertyPath.length > 1) {
-            propertyPath.shift();
-          }
-          
-          // Navigate through each property
-          for (const prop of propertyPath) {
-            if (value === null || value === undefined) {
-              console.log(`[STATE] Cannot access property '${prop}' of null/undefined`);
-              return undefined;
-            }
-            value = value[prop];
-          }
-          
-          const resolvedType = Array.isArray(value) ? `array[${value.length}]` : typeof value;
-          console.log(`[STATE] Resolved nested path to value of type: ${resolvedType}`);
-          return value;
-        }
-      }
-      
-      // Original fallback logic for iteration-specific keys
-      if (storageKey.includes('@iter:')) {
-        const parts = normalizedPath.split('.');
-        const nodeRef = parts[0];
-        
-        const globalKey = nodeRef.startsWith('node') ? nodeRef : path;
-        console.log(`[STATE] Iteration-specific key not found, trying global key: ${globalKey}`);
-        const { data: globalData } = await supabase
-          .from('workflow_memory')
-          .select('value')
-          .eq('workflow_id', workflowId)
-          .eq('key', globalKey)
-          .single();
-        if (globalData) {
-          console.log(`[STATE] Fallback found global key ${globalKey}`);
-          return globalData.value;
-        }
-      }
+      throw new Error(`Variable '${path}' not found. Did you forget to set store_variable: true?`);
     }
     
-    // If not found, log available keys for debugging
-    if (!data) {
-      const { data: allMemory } = await supabase
-        .from('workflow_memory')
-        .select('key')
-        .eq('workflow_id', workflowId);
-      
-      console.log(`[STATE] Variable '${path}' not found. Available variables:`, allMemory?.map(m => m.key) || []);
-    }
-    
-    return data?.value;
+    return data.value;
   }
   
   async evaluateCondition(condition, workflowId) {

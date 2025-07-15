@@ -16,7 +16,13 @@ export function createToolDefinitions() {
             },
             config: {
               type: 'object',
-              description: 'Configuration specific to the node type (for single node)'
+              description: 'Configuration specific to the node type (for single node)',
+              properties: {
+                store_variable: {
+                  type: 'boolean',
+                  description: 'Store this node\'s result as a reusable variable (default: false)'
+                }
+              }
             },
             description: {
               type: 'string',
@@ -39,7 +45,13 @@ export function createToolDefinitions() {
                     enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
                   },
                   config: {
-                    type: 'object'
+                    type: 'object',
+                    properties: {
+                      store_variable: {
+                        type: 'boolean',
+                        description: 'Store this node\'s result as a reusable variable (default: false)'
+                      }
+                    }
                   },
                   description: {
                     type: 'string'
@@ -103,7 +115,13 @@ export function createToolDefinitions() {
                     enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
                   },
                   config: {
-                    type: 'object'
+                    type: 'object',
+                    properties: {
+                      store_variable: {
+                        type: 'boolean',
+                        description: 'Store this node\'s result as a reusable variable (default: false)'
+                      }
+                    }
                   },
                   description: {
                     type: 'string'

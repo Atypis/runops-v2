@@ -852,14 +852,20 @@ export class DirectorService {
     
     const nodeAlias = alias;
     
+    // Extract store_variable from config before storing
+    const storeVariable = config?.store_variable === true;
+    const cleanConfig = { ...(config || {}) };
+    delete cleanConfig.store_variable;  // Remove from params to keep it clean
+    
     const nodeData = {
       workflow_id: workflowId,
       position: nodePosition,
       type,
-      params: config || {},  // Ensure params is never null
+      params: cleanConfig,  // Store config without store_variable
       description: description || `${type} node`,
       status: 'pending',
-      alias: nodeAlias
+      alias: nodeAlias,
+      store_variable: storeVariable  // Add as column value
     };
     
     // Add parent_position to params if provided (since we don't have a DB column for it)
