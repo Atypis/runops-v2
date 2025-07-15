@@ -734,6 +734,61 @@ export function createToolDefinitions() {
           required: ['tabName', 'reason']
         }
       }
+    },
+    // Clean Context 2.0 - Context Retrieval Tools
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_summary',
+        description: 'Get overview of current workflow including node count, status, and description. Use this when you need a high-level understanding of the workflow state.',
+        parameters: {
+          type: 'object',
+          properties: {}
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_nodes',
+        description: 'Get detailed information about workflow nodes. Use this to understand what has been built and the current state of nodes.',
+        parameters: {
+          type: 'object',
+          properties: {
+            range: {
+              type: 'string',
+              description: 'Node range to retrieve. Examples: "1-10", "all", "recent" (last 10)',
+              default: 'all'
+            },
+            type: {
+              type: 'string',
+              description: 'Filter by node type (e.g., "browser_action", "transform", "iterate")'
+            }
+          }
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_description',
+        description: 'Get the full workflow requirements and business rules. Use this to understand what the workflow is supposed to accomplish.',
+        parameters: {
+          type: 'object',
+          properties: {}
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_browser_state',
+        description: 'Get current browser tabs and state. Use this to understand what tabs are open and their current URLs.',
+        parameters: {
+          type: 'object',
+          properties: {}
+        }
+      }
     }
   ];
 }

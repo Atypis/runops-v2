@@ -17,6 +17,32 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Clean Context 2.0 System Prompt
+const CLEAN_SYSTEM_PROMPT = `You are the Director, an AI workflow automation engineer for the RunOps platform.
+
+Your role:
+- Design and build browser automation workflows by creating nodes
+- Test incrementally and validate each step
+- Use tools to retrieve context when needed
+
+Available node types: browser_action, browser_query, transform, cognition, iterate, route, handle, context, group, agent
+
+When building:
+1. Scout the UI first (use send_scout)
+2. Build nodes incrementally (use create_node)
+3. Test immediately (use execute_nodes)
+4. Validate results before proceeding
+
+When you need context about the workflow, use these tools:
+- get_workflow_summary - Overview of current workflow
+- get_workflow_nodes - Detailed node information
+- get_workflow_variables - Current state data
+- get_current_plan - Active plan and progress
+- get_workflow_description - Full requirements
+- get_browser_state - Current browser context
+
+Remember: Build small, test often, ask for context when needed.`;
+
 export class DirectorService {
   constructor() {
     this.openai = new OpenAI({
@@ -80,6 +106,15 @@ export class DirectorService {
   }
 
   async processMessage({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
+    // Check feature flag for Clean Context 2.0
+    if (process.env.CLEAN_CONTEXT_ENABLED === 'true') {
+      return this.processMessageClean({ message, workflowId, conversationHistory, mockMode, isCompressionRequest, selectedModel });
+    } else {
+      return this.legacyProcessMessage({ message, workflowId, conversationHistory, mockMode, isCompressionRequest, selectedModel });
+    }
+  }
+
+  async legacyProcessMessage({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
     try {
       // Set workflow ID in node executor for browser state tracking
       this.nodeExecutor.setWorkflowId(workflowId);
@@ -329,6 +364,74 @@ export class DirectorService {
     }
   }
 
+  async processMessageClean({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
+    try {
+      console.log('[CLEAN CONTEXT] Processing message with Clean Context 2.0');
+      
+      // Set workflow ID in node executor for browser state tracking
+      this.nodeExecutor.setWorkflowId(workflowId);
+      
+      // Handle mock mode (same as legacy)
+      if (mockMode || process.env.MOCK_DIRECTOR_MODE === 'true') {
+        // ... mock mode handling (same as legacy)
+        return this.legacyProcessMessage({ message, workflowId, conversationHistory, mockMode, isCompressionRequest, selectedModel });
+      }
+
+      // Determine if using background mode
+      const useBackgroundMode = selectedModel === 'o3';
+      
+      // Get previous response ID for stateful context
+      const previousResponseId = await this.getLastResponseId(workflowId);
+      console.log('[CLEAN CONTEXT] Previous response ID:', previousResponseId || 'None (fresh start)');
+      
+      // Convert tools to Responses API format
+      const responsesTools = this.convertToolsForResponsesAPI(createToolDefinitions());
+      
+      // Build request params
+      const requestParams = {
+        model: selectedModel || 'gpt-4o',
+        instructions: CLEAN_SYSTEM_PROMPT,
+        input: [{ type: 'message', role: 'user', content: message }],
+        tools: responsesTools,
+        stream: false,
+        store: true  // Always store for stateful context
+      };
+      
+      // Add previous response ID if available
+      if (previousResponseId) {
+        requestParams.previous_response_id = previousResponseId;
+      }
+      
+      // Add background mode config for o3
+      if (useBackgroundMode) {
+        requestParams.background = true;
+        console.log('[CLEAN CONTEXT] Using background mode for o3');
+      }
+      
+      // Make API request
+      const response = await this.openai.responses.create(requestParams);
+      
+      // Handle background job polling if needed
+      let finalResponse = response;
+      if (useBackgroundMode && response.id && response.status) {
+        console.log('[CLEAN CONTEXT] Polling background job:', response.id);
+        finalResponse = await this.pollBackgroundJob(response.id);
+      }
+      
+      // Save response ID for next conversation
+      if (finalResponse.id) {
+        await this.saveResponseId(workflowId, finalResponse.id);
+        console.log('[CLEAN CONTEXT] Saved response ID:', finalResponse.id);
+      }
+      
+      // Process response with existing logic
+      return await this.processResponsesAPIResponse(finalResponse, workflowId);
+    } catch (error) {
+      console.error('[CLEAN CONTEXT] Error in processMessageClean:', error);
+      throw error;
+    }
+  }
+
   async processToolCalls(toolCalls, workflowId) {
     const results = [];
     
@@ -422,6 +525,69 @@ export class DirectorService {
           case 'debug_switch_tab':
             result = await this.debugSwitchTab(args, workflowId);
             break;
+          
+          // Clean Context 2.0 - Context Retrieval Tools
+          case 'get_workflow_summary': {
+            const workflowContext = await this.getWorkflowContext(workflowId);
+            const plan = await this.planService.getCurrentPlan(workflowId);
+            const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
+            
+            result = {
+              workflowId,
+              name: workflowContext?.name || 'Untitled Workflow',
+              description: description?.description_data?.goal || workflowContext?.description || 'No description',
+              nodeCount: workflowContext?.nodes?.length || 0,
+              currentPhase: plan?.plan_data?.current_phase || 'No plan',
+              lastExecuted: workflowContext?.last_executed_at || null,
+              status: workflowContext?.status || 'building'
+            };
+            break;
+          }
+          
+          case 'get_workflow_nodes': {
+            const { range = 'all', type } = args;
+            const workflowContext = await this.getWorkflowContext(workflowId);
+            const nodes = workflowContext?.nodes || [];
+            
+            // Filter and format nodes
+            let filteredNodes = nodes;
+            if (type) {
+              filteredNodes = filteredNodes.filter(n => n.type === type);
+            }
+            
+            if (range !== 'all' && filteredNodes.length > 0) {
+              if (range === 'recent') {
+                filteredNodes = filteredNodes.slice(-10);
+              } else if (range.includes('-')) {
+                const [start, end] = range.split('-').map(Number);
+                filteredNodes = filteredNodes.filter(n => n.position >= start && n.position <= end);
+              }
+            }
+            
+            result = filteredNodes.map(node => ({
+              position: node.position,
+              type: node.type,
+              description: node.description || 'No description',
+              status: node.status,
+              alias: node.alias,
+              result: node.result ? 'Has result' : 'No result'
+            }));
+            break;
+          }
+          
+          case 'get_workflow_description': {
+            const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
+            result = description ? 
+              this.workflowDescriptionService.getDescriptionSummary(description.description_data) : 
+              'No workflow description created yet. Use update_workflow_description to capture comprehensive requirements.';
+            break;
+          }
+          
+          case 'get_browser_state': {
+            result = await this.browserStateService.getBrowserStateContext(workflowId);
+            break;
+          }
+          
           default:
             result = { error: `Unknown tool: ${toolName}` };
         }
