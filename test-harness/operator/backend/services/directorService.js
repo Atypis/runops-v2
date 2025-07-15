@@ -343,8 +343,13 @@ export class DirectorService {
     // Process the response from the Responses API
     const output = response.output || [];
     
-    // Debug log the raw response structure
-    console.log('[RESPONSES API] Raw output structure:', JSON.stringify(output, null, 2));
+    // Debug log the raw response structure (truncate if too long)
+    const outputStr = JSON.stringify(output, null, 2);
+    if (outputStr.length > 1000) {
+      console.log('[RESPONSES API] Raw output structure (truncated):', outputStr.substring(0, 1000) + '...');
+    } else {
+      console.log('[RESPONSES API] Raw output structure:', outputStr);
+    }
     
     // Extract assistant messages
     const assistantMessages = output.filter(item => item.type === 'message' && item.role === 'assistant');
@@ -440,10 +445,12 @@ export class DirectorService {
           });
           
           // Prepare tool output for Responses API
+          // The output must be a string, max 512 tokens
+          const outputString = JSON.stringify(result);
           toolOutputs.push({
             type: 'function_call_output',
             call_id: callId,
-            output: JSON.stringify(result)
+            output: outputString
           });
         } catch (error) {
           console.error(`[CLEAN CONTEXT] Tool ${toolName} failed:`, error);
@@ -468,6 +475,13 @@ export class DirectorService {
       if (toolOutputs.length > 0 && response.id) {
         try {
           console.log(`[CLEAN CONTEXT] Submitting ${toolOutputs.length} tool outputs`);
+          // Log tool outputs (truncate if too long)
+          const toolOutputsStr = JSON.stringify(toolOutputs, null, 2);
+          if (toolOutputsStr.length > 1000) {
+            console.log('[CLEAN CONTEXT] Tool outputs structure (truncated):', toolOutputsStr.substring(0, 1000) + '...');
+          } else {
+            console.log('[CLEAN CONTEXT] Tool outputs structure:', toolOutputsStr);
+          }
           
           // Convert tools for Responses API
           const responsesTools = this.convertToolsForResponsesAPI(createToolDefinitions());
@@ -585,195 +599,7 @@ export class DirectorService {
     }
   }
 
-  async processToolCalls(toolCalls, workflowId) {
-    const results = [];
-    
-    for (const toolCall of toolCalls) {
-      const { name: toolName, arguments: toolArgs } = toolCall.function;
-      const args = JSON.parse(toolArgs);
-      
-      try {
-        let result;
-        
-        switch (toolName) {
-          case 'create_workflow_sequence':
-            result = await this.createWorkflowSequence(args, workflowId);
-            break;
-          case 'create_node':
-            result = await this.createNode(args, workflowId);
-            break;
-          case 'insert_node_at':
-            result = await this.insertNodeAt(args, workflowId);
-            break;
-          case 'update_node':
-            result = await this.updateNode(args);
-            break;
-          case 'update_nodes':
-            result = await this.updateNodes(args);
-            break;
-          case 'delete_node':
-            result = await this.deleteNode(args);
-            break;
-          case 'delete_nodes':
-            result = await this.deleteNodes(args);
-            break;
-          case 'connect_nodes':
-            result = await this.connectNodes(args);
-            break;
-          case 'execute_workflow':
-            result = await this.executeWorkflow(workflowId);
-            break;
-          case 'test_node':
-            result = await this.testNode(args);
-            break;
-          case 'execute_nodes':
-            result = await this.executeNodes(args, workflowId);
-            break;
-          // Group tools removed - using group node type instead
-          case 'update_plan':
-            result = await this.updatePlan(args, workflowId);
-            break;
-          case 'update_workflow_description':
-            result = await this.updateWorkflowDescription(args, workflowId);
-            break;
-          case 'get_workflow_variables':
-            result = await this.getWorkflowVariable(args, workflowId);
-            break;
-          case 'set_variable':
-            result = await this.setVariable(args, workflowId);
-            break;
-          case 'clear_variable':
-            result = await this.clearVariable(args, workflowId);
-            break;
-          case 'clear_all_variables':
-            result = await this.clearAllVariables(args, workflowId);
-            break;
-          case 'inspect_tab':
-            result = await this.inspectTab(args, workflowId);
-            break;
-          case 'expand_dom_selector':
-            result = await this.expandDomSelector(args, workflowId);
-            break;
-          case 'send_scout':
-            result = await this.sendScout(args, workflowId);
-            break;
-          case 'debug_navigate':
-            result = await this.debugNavigate(args, workflowId);
-            break;
-          case 'debug_click':
-            result = await this.debugClick(args, workflowId);
-            break;
-          case 'debug_type':
-            result = await this.debugType(args, workflowId);
-            break;
-          case 'debug_wait':
-            result = await this.debugWait(args, workflowId);
-            break;
-          case 'debug_open_tab':
-            result = await this.debugOpenTab(args, workflowId);
-            break;
-          case 'debug_close_tab':
-            result = await this.debugCloseTab(args, workflowId);
-            break;
-          case 'debug_switch_tab':
-            result = await this.debugSwitchTab(args, workflowId);
-            break;
-          
-          // Clean Context 2.0 - Context Retrieval Tools
-          case 'get_current_plan': {
-            const plan = await this.planService.getCurrentPlan(workflowId);
-            
-            if (!plan || !plan.plan_data) {
-              result = {
-                status: 'no_plan',
-                message: 'No plan exists yet. Use update_plan to create one.'
-              };
-            } else {
-              result = {
-                status: 'success',
-                plan: plan.plan_data,
-                lastUpdated: plan.updated_at,
-                updateReason: plan.reason
-              };
-            }
-            break;
-          }
-          
-          case 'get_workflow_nodes': {
-            const { range = 'all', type } = args;
-            const workflowContext = await this.getWorkflowContext(workflowId);
-            const nodes = workflowContext?.nodes || [];
-            
-            // Filter and format nodes
-            let filteredNodes = nodes;
-            if (type) {
-              filteredNodes = filteredNodes.filter(n => n.type === type);
-            }
-            
-            if (range !== 'all' && filteredNodes.length > 0) {
-              if (range === 'recent') {
-                filteredNodes = filteredNodes.slice(-10);
-              } else if (range.includes('-')) {
-                const [start, end] = range.split('-').map(Number);
-                filteredNodes = filteredNodes.filter(n => n.position >= start && n.position <= end);
-              }
-            }
-            
-            result = filteredNodes.map(node => ({
-              position: node.position,
-              type: node.type,
-              description: node.description || 'No description',
-              status: node.status,
-              alias: node.alias,
-              result: node.result ? 'Has result' : 'No result'
-            }));
-            break;
-          }
-          
-          case 'get_workflow_description': {
-            const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
-            result = description ? 
-              this.workflowDescriptionService.getDescriptionSummary(description.description_data) : 
-              'No workflow description created yet. Use update_workflow_description to capture comprehensive requirements.';
-            break;
-          }
-          
-          case 'get_browser_state': {
-            result = await this.browserStateService.getBrowserStateContext(workflowId);
-            break;
-          }
-          
-          default:
-            result = { error: `Unknown tool: ${toolName}` };
-        }
-        
-        results.push({
-          toolCallId: toolCall.id,
-          toolName,
-          result
-        });
-        console.log('Tool call result:', { toolName, result });
-      } catch (error) {
-        console.error(`Tool ${toolName} failed:`, error);
-        results.push({
-          toolCallId: toolCall.id,
-          toolName,
-          error: error.message
-        });
-        
-        // If it's a config error, add a helpful message
-        if (error.message.includes('requires configuration parameters')) {
-          results.push({
-            toolCallId: 'system',
-            toolName: 'system_message',
-            result: `Please retry with proper config parameters. Each node needs specific config fields. For example: memory nodes need {"operation": "set", "key": "name", "value": "data"}`
-          });
-        }
-      }
-    }
-    
-    return results;
-  }
+  // Removed processToolCalls method - all tool handling is now in executeToolCall
 
   async createWorkflowSequence({ nodes }, workflowId) {
     console.log('Creating workflow sequence with nodes:', JSON.stringify(nodes, null, 2));
@@ -3410,7 +3236,7 @@ export class DirectorService {
         case 'execute_nodes':
           result = await this.executeNodes(args, workflowId);
           break;
-        case 'get_workflow_variable':
+        case 'get_workflow_variables':
           result = await this.getWorkflowVariable(args, workflowId);
           break;
         case 'set_variable':
@@ -3452,6 +3278,71 @@ export class DirectorService {
         case 'debug_switch_tab':
           result = await this.debugSwitchTab(args, workflowId);
           break;
+          
+        // Clean Context 2.0 - Context Retrieval Tools
+        case 'get_current_plan': {
+          const plan = await this.planService.getCurrentPlan(workflowId);
+          
+          if (!plan || !plan.plan_data) {
+            result = {
+              status: 'no_plan',
+              message: 'No plan exists yet. Use update_plan to create one.'
+            };
+          } else {
+            result = {
+              status: 'success',
+              plan: plan.plan_data,
+              lastUpdated: plan.updated_at,
+              updateReason: plan.reason
+            };
+          }
+          break;
+        }
+        
+        case 'get_workflow_nodes': {
+          const { range = 'all', type } = args;
+          const workflowContext = await this.getWorkflowContext(workflowId);
+          const nodes = workflowContext?.nodes || [];
+          
+          // Filter and format nodes
+          let filteredNodes = nodes;
+          if (type) {
+            filteredNodes = filteredNodes.filter(n => n.type === type);
+          }
+          
+          if (range !== 'all' && filteredNodes.length > 0) {
+            if (range === 'recent') {
+              filteredNodes = filteredNodes.slice(-10);
+            } else if (range.includes('-')) {
+              const [start, end] = range.split('-').map(Number);
+              filteredNodes = filteredNodes.filter(n => n.position >= start && n.position <= end);
+            }
+          }
+          
+          result = filteredNodes.map(node => ({
+            position: node.position,
+            type: node.type,
+            description: node.description || 'No description',
+            status: node.status,
+            alias: node.alias,
+            result: node.result ? 'Has result' : 'No result'
+          }));
+          break;
+        }
+        
+        case 'get_workflow_description': {
+          const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
+          result = description ? 
+            this.workflowDescriptionService.getDescriptionSummary(description.description_data) : 
+            'No workflow description created yet. Use update_workflow_description to capture comprehensive requirements.';
+          break;
+        }
+        
+        case 'get_browser_state': {
+          result = await this.browserStateService.getBrowserStateContext(workflowId);
+          break;
+        }
+          
         default:
           throw new Error(`Unknown tool: ${toolName}`);
       }

@@ -141,8 +141,10 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 **Multi-Tab Navigation:**
 - First tab is "main" (exists automatically)
-- \`openNewTab\` makes the new tab active
+- \`openNewTab\` REQUIRES a name: \`{action: "openNewTab", url: "https://example.com", name: "example"}\`
+- The new tab becomes active automatically
 - All actions operate on the active tab
-- Use \`switchTab\` to change active tab
+- Use \`switchTab\` with the tab name: \`{action: "switchTab", tabName: "example"}\`
+- Without a name, tabs cannot be tracked or switched to
 
 Remember: You're building robust automations that work reliably across different environments. Scout thoroughly, build precisely, test constantly.`;

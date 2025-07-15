@@ -825,6 +825,11 @@ export class NodeExecutor {
         return { waited: config.duration || 1000 };
         
       case 'openNewTab':
+        // Validate that name is provided - required for tab tracking
+        if (!config.name) {
+          throw new Error('openNewTab requires a "name" parameter. Example: {action: "openNewTab", url: "https://example.com", name: "example"}. This name is used to reference the tab in switchTab actions and browser state tracking.');
+        }
+        
         // Get StageHand instance to access its context
         const stagehandForNewTab = await this.getStagehand();
         
@@ -836,15 +841,13 @@ export class NodeExecutor {
           await newPage.goto(config.url);
         }
         
-        // Store the Page reference if a name is provided
-        if (config.name) {
-          if (!this.stagehandPages) {
-            this.stagehandPages = {};
-          }
-          this.stagehandPages[config.name] = newPage;
-          // Mark this tab as active
-          this.activeTabName = config.name;
+        // Store the Page reference with the provided name
+        if (!this.stagehandPages) {
+          this.stagehandPages = {};
         }
+        this.stagehandPages[config.name] = newPage;
+        // Mark this tab as active
+        this.activeTabName = config.name;
         
         // Make the new tab visually active
         // newPage is already a Page object with bringToFront method
