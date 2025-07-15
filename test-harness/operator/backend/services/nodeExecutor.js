@@ -827,22 +827,35 @@ export class NodeExecutor {
         if (!this.stagehandPages) {
           this.stagehandPages = {};
         }
-        this.stagehandPages[config.name] = newPage;
+        
+        // Check if tab name already exists and auto-suffix if needed
+        let finalTabName = config.name;
+        if (this.stagehandPages[finalTabName]) {
+          // Tab with this name already exists, find a unique suffix
+          let suffix = 2;
+          while (this.stagehandPages[`${config.name}_${suffix}`]) {
+            suffix++;
+          }
+          finalTabName = `${config.name}_${suffix}`;
+          console.log(`[OPEN NEW TAB] Tab name "${config.name}" already exists, using "${finalTabName}" instead`);
+        }
+        
+        this.stagehandPages[finalTabName] = newPage;
         // Mark this tab as active
-        this.activeTabName = config.name;
+        this.activeTabName = finalTabName;
         
         // Make the new tab visually active
         // newPage is already a Page object with bringToFront method
         await newPage.bringToFront();
         
-        console.log(`[OPEN NEW TAB] Created new tab: ${config.name || 'unnamed'}`);
+        console.log(`[OPEN NEW TAB] Created new tab: ${finalTabName}`);
         console.log(`[OPEN NEW TAB] StageHand automatically wrapped it with act/extract/observe capabilities`);
         console.log(`[OPEN NEW TAB] Tab is now active for subsequent operations`);
         
         // Update browser state for Director 2.0
         await this.updateBrowserStateInDB();
         
-        return { openedTab: config.name || 'unnamed', url: config.url, active: true };
+        return { openedTab: finalTabName, url: config.url, active: true, originalName: config.name };
         
       case 'switchTab':
         console.log(`[SWITCH TAB] Attempting to switch to tab: ${config.tabName}`);

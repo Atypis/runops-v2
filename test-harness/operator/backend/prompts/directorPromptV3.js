@@ -143,5 +143,6 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - All actions operate on the active tab
 - Use \`switchTab\` with the tab name: \`{action: "switchTab", tabName: "example"}\`
 - Without a name, tabs cannot be tracked or switched to
+- Note: Duplicate tab names are auto-suffixed (e.g., "facebook" → "facebook_2")
 
 Remember: You're building robust automations that work reliably across different environments. Scout thoroughly, build precisely, test constantly.`;
