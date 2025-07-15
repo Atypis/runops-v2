@@ -667,7 +667,62 @@ export class DirectorService {
       .substring(0, 50); // Limit length
   }
 
-  async insertNodeAt({ position, node }, workflowId) {
+  async insertNodeAt(args, workflowId) {
+    // Handle multiple nodes insertion
+    if (args.nodes && Array.isArray(args.nodes)) {
+      const { position, nodes } = args;
+      console.log(`[INSERT_NODE_AT] Inserting ${nodes.length} nodes starting at position ${position}`);
+      
+      // Calculate how many positions we need to shift
+      const shiftAmount = nodes.length;
+      
+      // Get all nodes at or after the target position
+      const { data: nodesToShift, error: fetchError } = await supabase
+        .from('nodes')
+        .select('id, position')
+        .eq('workflow_id', workflowId)
+        .gte('position', position)
+        .order('position', { ascending: false });
+      
+      if (fetchError) {
+        console.error('[INSERT_NODE_AT] Error fetching nodes:', fetchError);
+        throw fetchError;
+      }
+      
+      console.log(`[INSERT_NODE_AT] Found ${nodesToShift?.length || 0} nodes to shift by ${shiftAmount} positions`);
+      
+      // Shift each node up by the number of nodes we're inserting
+      for (const nodeToShift of nodesToShift || []) {
+        const { error: updateError } = await supabase
+          .from('nodes')
+          .update({ position: nodeToShift.position + shiftAmount })
+          .eq('id', nodeToShift.id);
+        
+        if (updateError) {
+          console.error(`[INSERT_NODE_AT] Error shifting node ${nodeToShift.id}:`, updateError);
+          throw updateError;
+        }
+      }
+      
+      // Create all new nodes at consecutive positions
+      const createdNodes = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const node = await this.createNode({
+          ...nodes[i],
+          position: position + i
+        }, workflowId);
+        createdNodes.push(node);
+      }
+      
+      console.log(`[INSERT_NODE_AT] Created ${createdNodes.length} nodes starting at position ${position}`);
+      return {
+        message: `Inserted ${createdNodes.length} nodes at position ${position}`,
+        nodes: createdNodes
+      };
+    }
+    
+    // Single node insertion (original behavior)
+    const { position, node } = args;
     console.log(`[INSERT_NODE_AT] Inserting node at position ${position}`);
     
     // First, get all nodes at or after the target position

@@ -61,7 +61,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 ### 🏗️ Building
 - \`create_node\` - Create nodes (single or multiple)
-- \`insert_node_at\` - Insert node at specific position
+- \`insert_node_at\` - Insert nodes at specific position (single or multiple)
 - \`update_node\` - Modify nodes (single or multiple)
 - \`delete_node\` - Remove nodes with dependency handling (single or multiple)
 - \`execute_workflow\` - Run entire workflow

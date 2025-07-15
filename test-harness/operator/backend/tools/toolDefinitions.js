@@ -60,16 +60,18 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'insert_node_at',
-        description: 'Insert a new node at a specific position, shifting existing nodes',
+        description: 'Insert one or more nodes at a specific position, shifting existing nodes. For a single node, use node property. For multiple nodes, use nodes array.',
         parameters: {
           type: 'object',
           properties: {
             position: {
               type: 'number',
-              description: 'The position where the node should be inserted'
+              description: 'The position where the node(s) should be inserted'
             },
+            // Single node property
             node: {
               type: 'object',
+              description: 'Single node to insert',
               properties: {
                 type: {
                   type: 'string',
@@ -88,9 +90,34 @@ export function createToolDefinitions() {
                 }
               },
               required: ['type', 'config', 'alias']
+            },
+            // Multiple nodes property
+            nodes: {
+              type: 'array',
+              description: 'Array of nodes to insert consecutively starting at position',
+              items: {
+                type: 'object',
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
+                  },
+                  config: {
+                    type: 'object'
+                  },
+                  description: {
+                    type: 'string'
+                  },
+                  alias: {
+                    type: 'string',
+                    pattern: '^[a-z][a-z0-9_]*$'
+                  }
+                },
+                required: ['type', 'config', 'alias']
+              }
             }
           },
-          required: ['position', 'node']
+          required: ['position']
         }
       }
     },
