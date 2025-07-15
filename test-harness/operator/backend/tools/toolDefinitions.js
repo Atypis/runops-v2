@@ -3,14 +3,34 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
-        name: 'create_workflow_sequence',
-        description: 'Create multiple connected nodes at once for a workflow sequence',
+        name: 'create_node',
+        description: 'Create one or more nodes in the workflow. For a single node, pass type/config/alias directly. For multiple nodes, pass a nodes array.',
         parameters: {
           type: 'object',
           properties: {
+            // Single node properties
+            type: {
+              type: 'string',
+              enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group'],
+              description: 'The type of node to create (for single node)'
+            },
+            config: {
+              type: 'object',
+              description: 'Configuration specific to the node type (for single node)'
+            },
+            description: {
+              type: 'string',
+              description: 'Human-readable description of what this node does (for single node)'
+            },
+            alias: {
+              type: 'string',
+              description: 'Required unique identifier for the node (snake_case format, for single node)',
+              pattern: '^[a-z][a-z0-9_]*$'
+            },
+            // Multiple nodes property
             nodes: {
               type: 'array',
-              description: 'Array of nodes to create in sequence',
+              description: 'Array of nodes to create (for multiple nodes)',
               items: {
                 type: 'object',
                 properties: {
@@ -26,46 +46,13 @@ export function createToolDefinitions() {
                   },
                   alias: {
                     type: 'string',
-                    description: 'Required unique identifier for the node (snake_case format)',
                     pattern: '^[a-z][a-z0-9_]*$'
                   }
                 },
                 required: ['type', 'config', 'alias']
               }
             }
-          },
-          required: ['nodes']
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'create_node',
-        description: 'Create a new node in the workflow',
-        parameters: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group'],
-              description: 'The type of node to create'
-            },
-            config: {
-              type: 'object',
-              description: 'Configuration specific to the node type. For iterate nodes: requires "over" (array path) and "variable" (item name)'
-            },
-            description: {
-              type: 'string',
-              description: 'Human-readable description of what this node does'
-            },
-            alias: {
-              type: 'string',
-              description: 'Required unique identifier for the node (snake_case format, e.g. extract_emails, validate_login)',
-              pattern: '^[a-z][a-z0-9_]*$'
-            }
-          },
-          required: ['type', 'config', 'alias']
+          }
         }
       }
     },
@@ -214,54 +201,11 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
-        name: 'connect_nodes',
-        description: 'Connect two nodes together',
-        parameters: {
-          type: 'object',
-          properties: {
-            sourceNodeId: {
-              type: 'string',
-              description: 'ID of the source node'
-            },
-            targetNodeId: {
-              type: 'string',
-              description: 'ID of the target node'
-            },
-            connectionType: {
-              type: 'string',
-              enum: ['default', 'success', 'error', 'condition'],
-              description: 'Type of connection'
-            }
-          },
-          required: ['sourceNodeId', 'targetNodeId']
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
         name: 'execute_workflow',
         description: 'Execute the entire workflow',
         parameters: {
           type: 'object',
           properties: {}
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'test_node',
-        description: 'Test a single node to see its output',
-        parameters: {
-          type: 'object',
-          properties: {
-            nodeId: {
-              type: 'string',
-              description: 'ID of the node to test'
-            }
-          },
-          required: ['nodeId']
         }
       }
     },

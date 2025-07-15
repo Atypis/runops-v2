@@ -656,113 +656,7 @@ export class DirectorService {
   }
 
   // Removed processToolCalls method - all tool handling is now in executeToolCall
-
-  async createWorkflowSequence({ nodes }, workflowId) {
-    console.log('Creating workflow sequence with nodes:', JSON.stringify(nodes, null, 2));
-    
-    // Flatten the node structure to include nested nodes
-    const flattenedNodes = [];
-    let currentPosition = 1;
-    
-    // Get the current max position in this workflow
-    const { data: maxPositionNode } = await supabase
-      .from('nodes')
-      .select('position')
-      .eq('workflow_id', workflowId)
-      .order('position', { ascending: false })
-      .limit(1)
-      .single();
-    
-    if (maxPositionNode?.position) {
-      currentPosition = maxPositionNode.position + 1;
-    }
-    
-    // Helper function to extract and flatten nested nodes
-    const extractNestedNodes = async (node, parentPosition) => {
-      // Create a copy of the node to avoid modifying the original
-      const nodeToCreate = { ...node };
-      nodeToCreate.position = currentPosition++;
-      nodeToCreate.parent_position = parentPosition; // Track parent for UI filtering
-      
-      // If it's a route, extract nodes from paths
-      if (node.type === 'route' && node.config?.paths) {
-        const updatedPaths = {};
-        
-        for (const [pathName, pathNodes] of Object.entries(node.config.paths)) {
-          const pathNodePositions = [];
-          
-          if (Array.isArray(pathNodes)) {
-            for (const nestedNode of pathNodes) {
-              const nestedPosition = currentPosition;
-              pathNodePositions.push(nestedPosition);
-              await extractNestedNodes(nestedNode, nodeToCreate.position);
-            }
-          }
-          
-          // Store the positions of nodes in this path for the route to reference
-          updatedPaths[pathName] = pathNodePositions;
-        }
-        
-        // Update the node config to reference positions instead of inline nodes
-        nodeToCreate.config = { ...nodeToCreate.config, paths: updatedPaths };
-      }
-      
-      // If it's an iterate, extract nodes from body
-      if (node.type === 'iterate' && node.config?.body) {
-        if (Array.isArray(node.config.body)) {
-          const bodyNodePositions = [];
-          for (const nestedNode of node.config.body) {
-            const nestedPosition = currentPosition;
-            bodyNodePositions.push(nestedPosition);
-            await extractNestedNodes(nestedNode, nodeToCreate.position);
-          }
-          // Update iterate to reference positions
-          nodeToCreate.config = { ...nodeToCreate.config, body: bodyNodePositions };
-        } else if (node.config.body && typeof node.config.body === 'object') {
-          const nestedPosition = currentPosition;
-          await extractNestedNodes(node.config.body, nodeToCreate.position);
-          nodeToCreate.config = { ...nodeToCreate.config, body: nestedPosition };
-        }
-      }
-      
-      
-      flattenedNodes.push(nodeToCreate);
-    };
-    
-    // Process all top-level nodes
-    for (const node of nodes) {
-      await extractNestedNodes(node, null);
-    }
-    
-    console.log(`Flattened ${nodes.length} nodes into ${flattenedNodes.length} nodes`);
-    
-    const createdNodes = [];
-    
-    // Create each flattened node in the database
-    for (const nodeData of flattenedNodes) {
-      try {
-        const node = await this.createNode({
-          type: nodeData.type,
-          config: nodeData.config,
-          position: nodeData.position,
-          description: nodeData.description,
-          alias: nodeData.alias,
-          parent_position: nodeData.parent_position,
-          group_id: nodeData.group_id,
-          group_position: nodeData.group_position
-        }, workflowId);
-        createdNodes.push(node);
-      } catch (error) {
-        console.error('Failed to create node:', nodeData, error);
-        throw error;
-      }
-    }
-    
-    return {
-      message: `Created ${createdNodes.length} nodes`,
-      nodes: createdNodes
-    };
-  }
+  // Removed createWorkflowSequence - use create_node with array instead
 
   generateNodeAlias(text) {
     // Convert to lowercase and replace non-alphanumeric with underscores
@@ -816,7 +710,22 @@ export class DirectorService {
     return result;
   }
 
-  async createNode({ type, config, position, description, parent_position, alias }, workflowId) {
+  async createNode(args, workflowId) {
+    // Handle multiple nodes passed in nodes array
+    if (args.nodes && Array.isArray(args.nodes)) {
+      const createdNodes = [];
+      for (const nodeData of args.nodes) {
+        const node = await this.createNode(nodeData, workflowId);
+        createdNodes.push(node);
+      }
+      return {
+        message: `Created ${createdNodes.length} nodes`,
+        nodes: createdNodes
+      };
+    }
+    
+    // Single node creation
+    const { type, config, position, description, parent_position, alias } = args;
     // Validate config based on node type
     if (!config || Object.keys(config).length === 0) {
       console.error(`Empty config provided for ${type} node`);
@@ -1369,14 +1278,7 @@ export class DirectorService {
     };
   }
 
-  async connectNodes({ sourceNodeId, targetNodeId }) {
-    // In the current schema, connections are implicit through position ordering
-    // This function can be a no-op or we can track connections separately
-    return { 
-      success: true, 
-      message: 'Nodes are connected by position order' 
-    };
-  }
+  // Removed connectNodes - connections are implicit through position ordering
 
   async executeNode(nodeId, workflowId) {
     return await this.nodeExecutor.execute(nodeId, workflowId);
@@ -1437,18 +1339,7 @@ export class DirectorService {
     };
   }
 
-  async testNode({ nodeId }) {
-    // Quick test execution for a single node
-    const { data: node, error } = await supabase
-      .from('nodes')
-      .select('*')
-      .eq('id', nodeId)
-      .single();
-      
-    if (error) throw error;
-    
-    return await this.nodeExecutor.execute(nodeId, node.workflow_id, { testMode: true });
-  }
+  // Removed testNode - use execute_nodes instead
 
   async getWorkflowContext(workflowId) {
     const { data: workflow } = await supabase
@@ -3262,9 +3153,6 @@ export class DirectorService {
       
       // Route to appropriate tool handler (same as existing processToolCalls)
       switch (toolName) {
-        case 'create_workflow_sequence':
-          result = await this.createWorkflowSequence(args, workflowId);
-          break;
         case 'create_node':
           result = await this.createNode(args, workflowId);
           break;
@@ -3283,14 +3171,8 @@ export class DirectorService {
         case 'delete_nodes':
           result = await this.deleteNodes(args);
           break;
-        case 'connect_nodes':
-          result = await this.connectNodes(args);
-          break;
         case 'execute_workflow':
           result = await this.executeWorkflow(workflowId);
-          break;
-        case 'test_node':
-          result = await this.testNode(args);
           break;
         // Group tools removed - using group node type instead
         case 'update_plan':

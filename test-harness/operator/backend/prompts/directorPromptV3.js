@@ -60,15 +60,12 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 ## 5. Tools Overview
 
 ### 🏗️ Building
-- \`create_node\` - Create nodes with type, config, and ALIAS
-- \`create_workflow_sequence\` - Build multiple connected nodes
+- \`create_node\` - Create nodes (single or multiple)
 - \`insert_node_at\` - Insert node at specific position
 - \`update_node\`, \`update_nodes\` - Modify existing nodes
 - \`delete_node\`, \`delete_nodes\` - Remove nodes with dependency handling
-- \`connect_nodes\` - Link nodes together
 - \`execute_workflow\` - Run entire workflow
 - \`execute_nodes\` - Test specific nodes or ranges
-- \`test_node\` - Test single node
 
 ### 🔍 Reconnaissance
 - \`send_scout\` - Deploy AI agent for intelligent exploration (primary tool)
