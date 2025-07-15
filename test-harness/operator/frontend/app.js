@@ -351,12 +351,6 @@ function App() {
         });
         
         console.log(`Loaded ${history.length} messages from conversation history`);
-        console.log('[FRONTEND] Message history:', history.map(msg => ({
-          role: msg.role,
-          hasContent: !!msg.content,
-          hasToolCalls: !!msg.toolCalls,
-          toolCallCount: msg.toolCalls?.length || 0
-        })));
       } else {
         console.error('Failed to load conversation history:', response.status);
         setMessages([]);
@@ -1746,32 +1740,45 @@ function App() {
         </div>
 
         {/* Actors */}
-        {data.actors && data.actors.length > 0 && (
+        {data.actors && (
           <div className="bg-white rounded-lg border p-4">
             <h4 className="font-semibold text-gray-800 mb-2">Actors & Integrations</h4>
             <ul className="space-y-1">
-              {data.actors.map((actor, i) => (
-                <li key={i} className="text-sm text-gray-700 flex items-start">
+              {Array.isArray(data.actors) ? (
+                data.actors.map((actor, i) => (
+                  <li key={i} className="text-sm text-gray-700 flex items-start">
+                    <span className="text-gray-400 mr-2">•</span>
+                    {typeof actor === 'object' ? JSON.stringify(actor) : actor}
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-gray-700 flex items-start">
                   <span className="text-gray-400 mr-2">•</span>
-                  {typeof actor === 'object' ? JSON.stringify(actor) : actor}
+                  {data.actors}
                 </li>
-              ))}
+              )}
             </ul>
           </div>
         )}
 
         {/* Happy Path */}
-        {data.happy_path_steps && data.happy_path_steps.length > 0 && (
+        {data.happy_path_steps && (
           <div className="bg-white rounded-lg border p-4">
             <h4 className="font-semibold text-gray-800 mb-2">Happy Path</h4>
             <ol className="space-y-2">
-              {data.happy_path_steps.map((step, i) => (
-                <li key={i} className="text-sm text-gray-700 leading-relaxed">
-                  {typeof step === 'object' ? 
-                    (step.description || step.step || JSON.stringify(step)) : 
-                    step}
+              {Array.isArray(data.happy_path_steps) ? (
+                data.happy_path_steps.map((step, i) => (
+                  <li key={i} className="text-sm text-gray-700 leading-relaxed">
+                    {typeof step === 'object' ? 
+                      (step.description || step.step || JSON.stringify(step)) : 
+                      step}
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-gray-700 leading-relaxed">
+                  {data.happy_path_steps}
                 </li>
-              ))}
+              )}
             </ol>
           </div>
         )}
@@ -1845,16 +1852,23 @@ function App() {
         )}
 
         {/* Business Rules */}
-        {data.business_rules && data.business_rules.length > 0 && (
+        {data.business_rules && (
           <div className="bg-white rounded-lg border p-4">
             <h4 className="font-semibold text-gray-800 mb-2">Business Rules</h4>
             <ul className="space-y-1">
-              {data.business_rules.map((rule, i) => (
-                <li key={i} className="text-sm text-gray-700 flex items-start">
+              {Array.isArray(data.business_rules) ? (
+                data.business_rules.map((rule, i) => (
+                  <li key={i} className="text-sm text-gray-700 flex items-start">
+                    <span className="text-gray-400 mr-2">•</span>
+                    {typeof rule === 'object' ? (rule.rule || JSON.stringify(rule)) : rule}
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-gray-700 flex items-start">
                   <span className="text-gray-400 mr-2">•</span>
-                  {typeof rule === 'object' ? (rule.rule || JSON.stringify(rule)) : rule}
+                  {data.business_rules}
                 </li>
-              ))}
+              )}
             </ul>
           </div>
         )}
@@ -1890,16 +1904,23 @@ function App() {
         )}
 
         {/* Success Criteria */}
-        {data.success_criteria && data.success_criteria.length > 0 && (
+        {data.success_criteria && (
           <div className="bg-white rounded-lg border p-4">
             <h4 className="font-semibold text-gray-800 mb-2">Success Criteria</h4>
             <ul className="space-y-1">
-              {data.success_criteria.map((criterion, i) => (
-                <li key={i} className="text-sm text-gray-700 flex items-start">
+              {Array.isArray(data.success_criteria) ? (
+                data.success_criteria.map((criterion, i) => (
+                  <li key={i} className="text-sm text-gray-700 flex items-start">
+                    <span className="text-green-500 mr-2">✓</span>
+                    {typeof criterion === 'object' ? JSON.stringify(criterion) : criterion}
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-gray-700 flex items-start">
                   <span className="text-green-500 mr-2">✓</span>
-                  {typeof criterion === 'object' ? JSON.stringify(criterion) : criterion}
+                  {data.success_criteria}
                 </li>
-              ))}
+              )}
             </ul>
           </div>
         )}
@@ -3448,13 +3469,6 @@ function App() {
         const updated = [...prev];
         const lastMessage = updated[updated.length - 1];
         if (lastMessage && lastMessage.isTemporary) {
-          console.log('[FRONTEND] Received response:', {
-            hasMessage: !!data.message,
-            hasToolCalls: !!data.toolCalls,
-            toolCallCount: data.toolCalls?.length || 0,
-            toolCalls: data.toolCalls?.map(tc => ({ toolName: tc.toolName, success: tc.success }))
-          });
-          
           updated[updated.length - 1] = {
             ...lastMessage,
             content: data.message,

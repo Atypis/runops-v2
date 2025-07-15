@@ -152,15 +152,25 @@ export class WorkflowDescriptionService {
     summary += `GOAL: ${goal || 'Not specified'}\n`;
     summary += `TRIGGER: ${trigger || 'Manual'}\n\n`;
     
-    if (actors && actors.length > 0) {
+    if (actors) {
       summary += `ACTORS:\n`;
-      actors.forEach(actor => summary += `• ${actor}\n`);
+      // Handle both string and array types
+      if (Array.isArray(actors)) {
+        actors.forEach(actor => summary += `• ${actor}\n`);
+      } else if (typeof actors === 'string') {
+        summary += `• ${actors}\n`;
+      }
       summary += '\n';
     }
     
-    if (happy_path_steps && happy_path_steps.length > 0) {
+    if (happy_path_steps) {
       summary += `HAPPY PATH:\n`;
-      happy_path_steps.forEach(step => summary += `${step}\n`);
+      // Handle both string and array types
+      if (Array.isArray(happy_path_steps)) {
+        happy_path_steps.forEach(step => summary += `${step}\n`);
+      } else if (typeof happy_path_steps === 'string') {
+        summary += `${happy_path_steps}\n`;
+      }
       summary += '\n';
     }
     
@@ -178,9 +188,14 @@ export class WorkflowDescriptionService {
       summary += `EDGE CASES: ${Object.keys(edge_case_policies).length} policies defined\n\n`;
     }
     
-    if (success_criteria && success_criteria.length > 0) {
+    if (success_criteria) {
       summary += `SUCCESS CRITERIA:\n`;
-      success_criteria.forEach(criterion => summary += `✓ ${criterion}\n`);
+      // Handle both string and array types
+      if (Array.isArray(success_criteria)) {
+        success_criteria.forEach(criterion => summary += `✓ ${criterion}\n`);
+      } else if (typeof success_criteria === 'string') {
+        summary += `✓ ${success_criteria}\n`;
+      }
     }
     
     return summary;
