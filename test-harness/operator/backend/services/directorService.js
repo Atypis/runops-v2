@@ -533,7 +533,7 @@ export class DirectorService {
           case 'update_workflow_description':
             result = await this.updateWorkflowDescription(args, workflowId);
             break;
-          case 'get_workflow_variable':
+          case 'get_workflow_variables':
             result = await this.getWorkflowVariable(args, workflowId);
             break;
           case 'set_variable':

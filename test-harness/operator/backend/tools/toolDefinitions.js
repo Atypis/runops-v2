@@ -387,8 +387,8 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
-        name: 'get_workflow_variable',
-        description: 'Get full variable content (bypasses chunked display). Use this tool when you need to see the complete content of a variable that appears truncated in the WORKFLOW VARIABLES section.',
+        name: 'get_workflow_variables',
+        description: 'Get workflow variables (bypasses chunked display). Use this tool when you need to see the complete content of variables.',
         parameters: {
           type: 'object',
           properties: {

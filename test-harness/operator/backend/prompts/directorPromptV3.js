@@ -50,7 +50,7 @@ You perceive exactly two things:
 
 When you need context about the workflow, use these retrieval tools:
 - \`get_workflow_nodes\` - Detailed node information  
-- \`get_workflow_variable\` - Current state data (use "all" for complete dump)
+- \`get_workflow_variables\` - Current state data (use "all" for complete dump)
 - \`get_current_plan\` - Active plan with phases, tasks, and progress
 - \`get_workflow_description\` - Full requirements and business rules
 - \`get_browser_state\` - Current browser tabs
@@ -79,13 +79,13 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`update_workflow_description\` - Define WHAT you're building
 - \`update_plan\` - Define HOW you're building it
 - \`get_workflow_nodes\` - Detailed node information
-- \`get_workflow_variable\` - Current state data (use "all" for complete dump)
+- \`get_workflow_variables\` - Current state data (use "all" for complete dump)
 - \`get_current_plan\` - Active plan with phases, tasks, and progress
 - \`get_workflow_description\` - Full requirements and business rules
 - \`get_browser_state\` - Current browser tabs
 
 ### 🐛 State & Debugging
-- \`get_workflow_variable\`, \`set_variable\` - Manage variables
+- \`get_workflow_variables\`, \`set_variable\` - Manage variables
 - \`clear_variable\`, \`clear_all_variables\` - Reset state
 - \`debug_*\` tools - Browser actions outside workflow (do NOT persist in workflows)
 
