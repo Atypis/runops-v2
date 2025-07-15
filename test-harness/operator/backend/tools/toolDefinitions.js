@@ -11,7 +11,7 @@ export function createToolDefinitions() {
             // Single node properties
             type: {
               type: 'string',
-              enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group'],
+              enum: ['browser_action', 'browser_ai_action', 'browser_query', 'browser_ai_query', 'transform', 'cognition', 'agent', 'iterate', 'route', 'handle', 'context', 'group'],
               description: 'The type of node to create (for single node)'
             },
             config: {
@@ -42,7 +42,7 @@ export function createToolDefinitions() {
                 properties: {
                   type: {
                     type: 'string',
-                    enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
+                    enum: ['browser_action', 'browser_ai_action', 'browser_query', 'browser_ai_query', 'transform', 'cognition', 'agent', 'iterate', 'route', 'handle', 'context', 'group']
                   },
                   config: {
                     type: 'object',
@@ -87,7 +87,7 @@ export function createToolDefinitions() {
               properties: {
                 type: {
                   type: 'string',
-                  enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
+                  enum: ['browser_action', 'browser_ai_action', 'browser_query', 'browser_ai_query', 'transform', 'cognition', 'agent', 'iterate', 'route', 'handle', 'context', 'group']
                 },
                 config: {
                   type: 'object'
@@ -112,7 +112,7 @@ export function createToolDefinitions() {
                 properties: {
                   type: {
                     type: 'string',
-                    enum: ['browser_action', 'browser_query', 'transform', 'cognition', 'sequence', 'iterate', 'route', 'handle', 'memory', 'context', 'group']
+                    enum: ['browser_action', 'browser_ai_action', 'browser_query', 'browser_ai_query', 'transform', 'cognition', 'agent', 'iterate', 'route', 'handle', 'context', 'group']
                   },
                   config: {
                     type: 'object',

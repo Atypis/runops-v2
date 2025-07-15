@@ -441,8 +441,15 @@ export class NodeExecutor {
           console.log(`[EXECUTE] Executing browser action...`);
           result = await this.executeBrowserAction(resolvedParams, workflowId);
           break;
+        case 'browser_ai_action':
+          console.log(`[EXECUTE] Executing browser AI action...`);
+          result = await this.executeBrowserAIAction(resolvedParams, workflowId);
+          break;
         case 'browser_query':
           result = await this.executeBrowserQuery(resolvedParams);
+          break;
+        case 'browser_ai_query':
+          result = await this.executeBrowserAIQuery(resolvedParams);
           break;
         case 'transform':
           result = await this.executeTransform(resolvedParams, workflowId);
@@ -609,197 +616,10 @@ export class NodeExecutor {
         return { navigated: config.url };
         
       case 'click':
-        // Support multiple selector strategies with fallback
-        let clicked = false;
-        let lastError = null;
-        
-        // Handle array of selectors (try each until one works)
-        const selectors = Array.isArray(config.selector) ? config.selector : [config.selector];
-        
-        for (const selector of selectors) {
-          try {
-            if (selector.startsWith('text=')) {
-              console.log(`[CLICK] Trying text selector: ${selector}`);
-              const activePage = await getActiveStagehandPage();
-              await activePage.act({ action: `click on ${selector.slice(5)}` });
-              clicked = true;
-              break;
-            } else if (selector.startsWith('act:')) {
-              console.log(`[CLICK] Using natural language: ${selector.slice(4)}`);
-              const activePage = await getActiveStagehandPage();
-              await activePage.act({ action: selector.slice(4) });
-              clicked = true;
-              break;
-            } else {
-              console.log(`[CLICK] Trying CSS selector: ${selector}`);
-              const activePage = await getActiveStagehandPage();
-              
-              // Handle jQuery-style :contains() selectors
-              if (selector.includes(':contains(')) {
-                console.log(`[CLICK] Detected jQuery-style :contains() selector, converting to Playwright format`);
-                
-                // Extract the text from :contains('text') or :contains("text")
-                const containsMatch = selector.match(/:contains\(['"]([^'"]+)['"]\)/);
-                if (containsMatch) {
-                  const searchText = containsMatch[1];
-                  const baseSelector = selector.substring(0, selector.indexOf(':contains'));
-                  
-                  // Use Playwright's text selector
-                  const playwrightSelector = `${baseSelector}:has-text("${searchText}")`;
-                  console.log(`[CLICK] Converted to Playwright selector: ${playwrightSelector}`);
-                  
-                  try {
-                    await activePage.click(playwrightSelector, { timeout: 3000 });
-                    clicked = true;
-                    break;
-                  } catch (textSelectorError) {
-                    console.log(`[CLICK] Text selector failed, trying XPath as fallback`);
-                    // Try XPath as fallback
-                    const xpathSelector = `//${baseSelector.includes('.') ? 'div' : '*'}[contains(text(), "${searchText}")]`;
-                    try {
-                      await activePage.click(xpathSelector, { timeout: 3000 });
-                      clicked = true;
-                      break;
-                    } catch (xpathError) {
-                      console.log(`[CLICK] XPath also failed: ${xpathError.message}`);
-                    }
-                  }
-                }
-              }
-              
-              // Escape CSS selector if it contains special characters
-              let escapedSelector = selector;
-              if (selector.includes(':') && !selector.includes('\\:') && !selector.includes(':contains')) {
-                // For ID selectors with colons, we need to escape them
-                if (selector.startsWith('#')) {
-                  const id = selector.slice(1);
-                  escapedSelector = `[id="${id}"]`; // Use attribute selector instead
-                  console.log(`[CLICK] Escaped selector: ${escapedSelector}`);
-                }
-              }
-              
-              try {
-                await activePage.click(escapedSelector, { timeout: 3000 });
-                clicked = true;
-                break;
-              } catch (cssError) {
-                // If CSS selector fails for Gmail thread, try using act as a fallback
-                if (selector.includes('thread-f:')) {
-                  console.log(`[CLICK] CSS selector failed for Gmail thread, trying act fallback`);
-                  
-                  // Try to get email data from the current iteration context
-                  if (this.iterationContext.length > 0) {
-                    const iterContext = this.iterationContext[this.iterationContext.length - 1];
-                    const emailData = await this.getStateValue(iterContext.variable, workflowId);
-                    
-                    if (emailData && emailData.subject) {
-                      console.log(`[CLICK] Using act to click on email with subject: "${emailData.subject}"`);
-                      await activePage.act({ action: `click on the email with subject "${emailData.subject}"` });
-                      clicked = true;
-                      break;
-                    } else if (emailData && emailData.senderName) {
-                      console.log(`[CLICK] Using act to click on email from: "${emailData.senderName}"`);
-                      await activePage.act({ action: `click on the email from "${emailData.senderName}"` });
-                      clicked = true;
-                      break;
-                    }
-                  }
-                }
-                throw cssError; // Re-throw if not a Gmail thread or fallback failed
-              }
-            }
-          } catch (error) {
-            console.log(`[CLICK] Selector failed: ${selector}, error: ${error.message}`);
-            lastError = error;
-          }
-        }
-        
-        if (!clicked && config.fallback) {
-          console.log(`[CLICK] All selectors failed, using fallback instruction: ${config.fallback}`);
-          const activePage = await getActiveStagehandPage();
-          await activePage.act({ action: config.fallback });
-          clicked = true;
-        }
-        
-        if (!clicked) {
-          throw lastError || new Error('Click failed - no selectors worked');
-        }
-        
-        return { clicked: config.selector };
+        throw new Error('click action has been moved to browser_ai_action node type. Use browser_ai_action with action:"click" instead.');
         
       case 'type':
-        // Resolve variables in the text
-        console.log(`[TYPE ACTION] Original text: "${config.text || config.value}"`);
-        console.log(`[TYPE ACTION] Workflow ID: ${workflowId}`);
-        console.log(`[TYPE ACTION] Selector: ${config.selector}`);
-        
-        let textToType = config.text || config.value;
-        
-        // Check if it's a state reference (e.g., state.gmailCreds.email)
-        if (typeof textToType === 'string' && textToType.startsWith('state.')) {
-          const path = textToType.substring(6); // Remove 'state.' prefix
-          textToType = await this.getStateValue(path, workflowId);
-          console.log(`[TYPE ACTION] Resolved from state: "${textToType}"`);
-        } else {
-          // Try template resolution for backward compatibility
-          textToType = await this.resolveVariable(textToType, workflowId);
-          console.log(`[TYPE ACTION] Resolved text: "${textToType}"`);
-        }
-        
-        if (!textToType || textToType === 'undefined') {
-          console.error(`[TYPE ACTION] No text to type!`);
-          console.error(`[TYPE ACTION] Original value: "${config.text || config.value}"`);
-          console.error(`[TYPE ACTION] This usually means the state variable doesn't exist.`);
-          throw new Error(`No text to type. Tried to access: "${config.text || config.value}" but got undefined`);
-        }
-        
-        // Support multiple selector strategies with fallback
-        let typed = false;
-        let lastTypeError = null;
-        
-        // Handle array of selectors (try each until one works)
-        const typeSelectors = Array.isArray(config.selector) ? config.selector : [config.selector];
-        
-        for (const selector of typeSelectors) {
-          try {
-            if (selector.startsWith('text=')) {
-              console.log(`[TYPE ACTION] Using text selector: ${selector}`);
-              const activePage = await getActiveStagehandPage();
-              await activePage.act({ action: `type "${textToType}" into ${selector.slice(5)}` });
-              typed = true;
-              break;
-            } else if (selector.startsWith('act:')) {
-              console.log(`[TYPE ACTION] Using natural language: ${selector.slice(4)}`);
-              const activePage = await getActiveStagehandPage();
-              await activePage.act({ action: `${selector.slice(4)} and type "${textToType}"` });
-              typed = true;
-              break;
-            } else {
-              console.log(`[TYPE ACTION] Using CSS selector: ${selector}`);
-              const activePage = await getActiveStagehandPage();
-              await activePage.type(selector, textToType, { timeout: 5000 });
-              typed = true;
-              break;
-            }
-          } catch (error) {
-            console.log(`[TYPE ACTION] Selector failed: ${selector}, error: ${error.message}`);
-            lastTypeError = error;
-          }
-        }
-        
-        if (!typed && config.fallback) {
-          console.log(`[TYPE ACTION] All selectors failed, using fallback: ${config.fallback}`);
-          const activePage = await getActiveStagehandPage();
-          await activePage.act({ action: `${config.fallback} and type "${textToType}"` });
-          typed = true;
-        }
-        
-        if (!typed) {
-          throw lastTypeError || new Error('Type failed - no selectors worked');
-        }
-        
-        console.log(`[TYPE ACTION] Successfully typed text`);
-        return { typed: textToType };
+        throw new Error('type action has been moved to browser_ai_action node type. Use browser_ai_action with action:"type" instead.');
         
       case 'wait':
         const waitPage = await getActiveStagehandPage();
@@ -962,14 +782,7 @@ export class NodeExecutor {
         return { pressed: config.key };
         
       case 'act':
-        // Use StageHand's natural language action capability
-        console.log(`[ACT] Executing natural language action: ${config.instruction}`);
-        const activePage = await getActiveStagehandPage();
-        console.log(`[ACT] Current URL before action: ${activePage.url()}`);
-        const result = await activePage.act({ action: config.instruction });
-        console.log(`[ACT] Action completed, result:`, result);
-        console.log(`[ACT] Current URL after action: ${activePage.url()}`);
-        return { acted: config.instruction, result };
+        throw new Error('act action has been moved to browser_ai_action node type. Use browser_ai_action with action:"act" instead.');
         
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
@@ -997,46 +810,9 @@ export class NodeExecutor {
     };
 
     if (config.method === 'extract') {
-      // Convert simple JSON schema to Zod if provided
-      let zodSchema = undefined;
-      if (config.schema && typeof config.schema === 'object') {
-        zodSchema = this.convertJsonSchemaToZod(config.schema);
-      }
-      
-      // Use the active StagehandPage's extract method
-      const activePage = await getActiveStagehandPage();
-      console.log(`[BROWSER_QUERY] Current URL: ${activePage.url()}`);
-      
-      const enhancedInstruction = `${config.instruction}
-
-CRITICAL: You must ONLY extract data that is actually visible on the page. DO NOT hallucinate, make up, or generate example data. If no data matching the criteria is found, return an empty array or null values. Never create fictional data.`;
-      
-      const result = await activePage.extract({
-        instruction: enhancedInstruction,
-        schema: zodSchema
-      });
-      
-      console.log(`[BROWSER_QUERY] Extract result:`, JSON.stringify(result, null, 2));
-      
-      // If extracting emails, log more details
-      if (config.instruction && config.instruction.toLowerCase().includes('email')) {
-        console.log(`[BROWSER_QUERY] Email extraction detected`);
-        if (result && result.emails && Array.isArray(result.emails)) {
-          console.log(`[BROWSER_QUERY] Found ${result.emails.length} emails`);
-          result.emails.forEach((email, idx) => {
-            console.log(`[BROWSER_QUERY] Email ${idx + 1}: ${email.subject || 'No subject'} from ${email.senderEmail || 'Unknown'} on ${email.date || 'Unknown date'}`);
-          });
-        }
-      }
-      
-      return result;
+      throw new Error('extract method has been moved to browser_ai_query node type. Use browser_ai_query with method:"extract" instead.');
     } else if (config.method === 'observe') {
-      // Use the active StagehandPage's observe method
-      const activePage = await getActiveStagehandPage();
-      const result = await activePage.observe({
-        instruction: config.instruction
-      });
-      return result;
+      throw new Error('observe method has been moved to browser_ai_query node type. Use browser_ai_query with method:"observe" instead.');
     } else if (config.method === 'validate') {
       // New validation method - supports deterministic and AI validation
       const activePage = await getActiveStagehandPage();
@@ -1083,25 +859,7 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
               break;
               
             case 'ai_assessment':
-              // Use Stagehand's observe for AI-powered validation
-              const aiResult = await activePage.observe({
-                instruction: rule.instruction
-              });
-              
-              // Check if result matches expected value
-              if (rule.expected) {
-                ruleResult.passed = aiResult === rule.expected || 
-                  (typeof aiResult === 'string' && aiResult.toLowerCase().includes(rule.expected.toLowerCase()));
-              } else {
-                // If no expected value, assume true result means passed
-                ruleResult.passed = !!aiResult;
-              }
-              
-              if (!ruleResult.passed) {
-                ruleResult.error = `AI assessment failed. Expected: ${rule.expected}, Got: ${aiResult}`;
-              }
-              ruleResult.ai_result = aiResult;
-              break;
+              throw new Error('ai_assessment rule has been moved to browser_ai_query node type. Use browser_ai_query with method:"assess" instead.');
               
             default:
               ruleResult.error = `Unknown validation rule type: ${rule.type}`;
@@ -1134,6 +892,125 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       return results;
     } else {
       throw new Error(`Unknown browser_query method: ${config.method}`);
+    }
+  }
+
+  async executeBrowserAIAction(config, workflowId) {
+    console.log(`[BROWSER_AI_ACTION] Action: ${config.action}, Active tab: ${this.activeTabName}`);
+    
+    const stagehand = await this.getStagehand();
+    const page = stagehand.page;
+    
+    // Helper to get the current active StagehandPage
+    const getActiveStagehandPage = async () => {
+      if (this.activeTabName === 'main') {
+        return this.mainPage;
+      }
+      if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+        return this.stagehandPages[this.activeTabName];
+      }
+      return this.mainPage;
+    };
+
+    const activePage = await getActiveStagehandPage();
+
+    switch (config.action) {
+      case 'click':
+        console.log(`[AI_CLICK] Using AI to: ${config.instruction}`);
+        await activePage.act({ action: config.instruction });
+        return { clicked: config.instruction };
+        
+      case 'type':
+        // Resolve variables in the text
+        let textToType = config.text;
+        if (typeof textToType === 'string' && textToType.startsWith('state.')) {
+          const path = textToType.substring(6);
+          textToType = await this.getStateValue(path, workflowId);
+        } else {
+          textToType = await this.resolveVariable(textToType, workflowId);
+        }
+        
+        if (!textToType || textToType === 'undefined') {
+          throw new Error(`No text to type. Tried to access: "${config.text}" but got undefined`);
+        }
+        
+        console.log(`[AI_TYPE] Using AI to: ${config.instruction} with text: "${textToType}"`);
+        await activePage.act({ action: `${config.instruction} and type "${textToType}"` });
+        return { typed: textToType };
+        
+      case 'act':
+        console.log(`[AI_ACT] Executing: ${config.instruction}`);
+        const result = await activePage.act({ action: config.instruction });
+        return { acted: config.instruction, result };
+        
+      default:
+        throw new Error(`Unknown browser_ai_action: ${config.action}`);
+    }
+  }
+
+  async executeBrowserAIQuery(config) {
+    console.log(`[BROWSER_AI_QUERY] Method: ${config.method}, Instruction: ${config.instruction}`);
+    
+    const stagehand = await this.getStagehand();
+    
+    // Helper to get the active StagehandPage
+    const getActiveStagehandPage = async () => {
+      if (this.activeTabName === 'main') {
+        return this.mainPage;
+      }
+      if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+        return this.stagehandPages[this.activeTabName];
+      }
+      return this.mainPage;
+    };
+
+    const activePage = await getActiveStagehandPage();
+
+    switch (config.method) {
+      case 'extract':
+        // Convert schema to Zod if provided
+        let zodSchema = undefined;
+        if (config.schema && typeof config.schema === 'object') {
+          zodSchema = this.convertJsonSchemaToZod(config.schema);
+        }
+        
+        const enhancedInstruction = `${config.instruction}
+
+CRITICAL: You must ONLY extract data that is actually visible on the page. DO NOT hallucinate, make up, or generate example data. If no data matching the criteria is found, return an empty array or null values. Never create fictional data.`;
+        
+        const extractResult = await activePage.extract({
+          instruction: enhancedInstruction,
+          schema: zodSchema
+        });
+        
+        console.log(`[BROWSER_AI_QUERY] Extract result:`, JSON.stringify(extractResult, null, 2));
+        return extractResult;
+        
+      case 'observe':
+        const observeResult = await activePage.observe({
+          instruction: config.instruction
+        });
+        return observeResult;
+        
+      case 'assess':
+        // AI-powered assessment (replacement for ai_assessment validation)
+        const assessResult = await activePage.observe({
+          instruction: config.instruction
+        });
+        
+        const passed = config.expected ? 
+          (assessResult === config.expected || 
+           (typeof assessResult === 'string' && assessResult.toLowerCase().includes(config.expected.toLowerCase()))) :
+          !!assessResult;
+          
+        return {
+          assessment: assessResult,
+          expected: config.expected,
+          passed
+        };
+        
+      default:
+        throw new Error(`Unknown browser_ai_query method: ${config.method}`);
     }
   }
 

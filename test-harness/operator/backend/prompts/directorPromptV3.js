@@ -86,23 +86,33 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`clear_variable\`, \`clear_all_variables\` - Reset state
 - \`debug_*\` tools - Browser actions outside workflow (do NOT persist in workflows)
 
-## 6. The 9 Core Node Types
+## 6. The 12 Core Node Types
 
 **Execution Layer:**
-1. \`browser_action\` - UI interactions (click, type, navigate)
-2. \`browser_query\` - Data extraction and validation
-   - For extraction: Always include "Only return data that is visibly present; return null if absent"
-3. \`transform\` - Pure data manipulation
-4. \`cognition\` - AI-powered reasoning
+1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, screenshot, keypress)
+   - Fast, predictable, no AI involvement
+   - NO click or type actions (moved to browser_ai_action)
+2. \`browser_ai_action\` - AI-powered UI interactions (click, type, act)
+   - Uses natural language to find and interact with elements
+   - Slower, costs tokens, but handles complex/dynamic UIs
+3. \`browser_query\` - Deterministic validation (element_exists, element_absent)
+   - Fast CSS selector checks only
+   - NO extract or observe methods (moved to browser_ai_query)
+4. \`browser_ai_query\` - AI-powered data extraction and observation
+   - Methods: extract (get data), observe (find elements), assess (check state)
+   - Costs tokens but handles complex data structures
+5. \`transform\` - Pure data manipulation
+6. \`cognition\` - AI-powered reasoning
+7. \`agent\` - Self-healing UI automation
 
 **Control Layer:**
-5. \`iterate\` - Loop over arrays (requires: over, variable)
-6. \`route\` - Conditional branching
-7. \`handle\` - Error boundaries
+8. \`iterate\` - Loop over arrays (requires: over, variable)
+9. \`route\` - Conditional branching
+10. \`handle\` - Error boundaries
 
 **State Layer:**
-8. \`context\` - Explicit state management
-9. \`group\` - Execute node ranges as a unit
+11. \`context\` - Explicit state management
+12. \`group\` - Execute node ranges as a unit
 
 ## 7. Variable Reference System
 
@@ -124,16 +134,35 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 ## 9. Common Patterns
 
-**Robust Selectors:**
+**Deterministic vs AI-Powered Nodes:**
 \`\`\`javascript
-// Try multiple selectors
-{action: "click", selector: ["#submit", "button[type='submit']", "text=Submit"]}
+// DETERMINISTIC browser_action - Fast, predictable, CSS selectors only
+{type: "browser_action", alias: "nav_home", config: {
+  action: "navigate", url: "https://example.com"
+}}
 
-// Handle element variations  
-{action: "type", selector: "input[name='email'], textarea[name='email']", text: "user@example.com"}
+{type: "browser_action", alias: "wait_page", config: {
+  action: "wait", type: "selector", value: "#content"
+}}
 
-// AI fallback
-{action: "click", selector: ["#login", ".login-btn"], fallback: "click the login button"}
+// AI-POWERED browser_ai_action - Natural language, handles dynamic UIs
+{type: "browser_ai_action", alias: "click_login", config: {
+  action: "click", instruction: "Click the login button"
+}}
+
+{type: "browser_ai_action", alias: "fill_form", config: {
+  action: "type", instruction: "Type my email in the email field", text: "{{user_email}}"
+}}
+
+// DETERMINISTIC browser_query - Simple presence checks
+{type: "browser_query", alias: "check_login", config: {
+  method: "element_exists", selector: "#loginForm"
+}}
+
+// AI-POWERED browser_ai_query - Complex data extraction
+{type: "browser_ai_query", alias: "extract_prices", config: {
+  method: "extract", instruction: "Extract all product prices from the page"
+}}
 \`\`\`
 
 **Multi-Tab Navigation:**
@@ -144,5 +173,72 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - Use \`switchTab\` with the tab name: \`{action: "switchTab", tabName: "example"}\`
 - Without a name, tabs cannot be tracked or switched to
 - Note: Duplicate tab names are auto-suffixed (e.g., "facebook" → "facebook_2")
+
+**Complete Node Examples:**
+
+\`\`\`javascript
+// browser_action - Deterministic navigation and waits
+{type: "browser_action", alias: "go_to_site", config: {
+  action: "navigate", url: "https://example.com"
+}}
+{type: "browser_action", alias: "wait_for_load", config: {
+  action: "wait", type: "time", value: "2000"
+}}
+{type: "browser_action", alias: "wait_for_element", config: {
+  action: "wait", type: "selector", value: "#loginForm"
+}}
+{type: "browser_action", alias: "take_screenshot", config: {
+  action: "screenshot", name: "login_page"
+}}
+{type: "browser_action", alias: "press_enter", config: {
+  action: "keypress", key: "Enter"
+}}
+
+// browser_ai_action - AI-powered interactions
+{type: "browser_ai_action", alias: "click_accept", config: {
+  action: "click", instruction: "Click the accept cookies button"
+}}
+{type: "browser_ai_action", alias: "enter_email", config: {
+  action: "type", instruction: "Enter email in the login form", text: "{{user_email}}"
+}}
+{type: "browser_ai_action", alias: "complex_action", config: {
+  action: "act", instruction: "Fill out the shipping form with: Name: {{name}}, Address: {{address}}, select expedited shipping"
+}}
+
+// browser_query - Deterministic validation
+{type: "browser_query", alias: "is_logged_in", config: {
+  method: "element_exists", selector: ".user-profile"
+}}
+{type: "browser_query", alias: "error_gone", config: {
+  method: "element_absent", selector: ".error-message"
+}}
+
+// browser_ai_query - AI-powered data extraction
+{type: "browser_ai_query", alias: "get_prices", config: {
+  method: "extract", instruction: "Extract all product prices and their names"
+}}
+{type: "browser_ai_query", alias: "find_buttons", config: {
+  method: "observe", instruction: "Find all clickable buttons on the page"
+}}
+{type: "browser_ai_query", alias: "check_state", config: {
+  method: "assess", instruction: "Is the checkout process complete?"
+}}
+
+// Control flow nodes
+{type: "iterate", alias: "process_items", config: {
+  over: "{{items_list}}", variable: "current_item"
+}}
+{type: "route", alias: "check_success", config: {
+  condition: "{{login_result}} === true", true_branch: 15, false_branch: 20
+}}
+
+// Data processing
+{type: "transform", alias: "format_data", config: {
+  operation: "custom", code: "return data.map(item => ({name: item.title, price: parseFloat(item.price)}))"
+}}
+{type: "cognition", alias: "analyze_data", config: {
+  instruction: "Analyze these prices and determine which product offers the best value: {{price_data}}"
+}}
+\`\`\`
 
 Remember: You're building robust automations that work reliably across different environments. Scout thoroughly, build precisely, test constantly.`;

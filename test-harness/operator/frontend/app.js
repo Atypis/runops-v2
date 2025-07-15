@@ -1319,14 +1319,19 @@ function App() {
   // Helper function to get the color for a node type
   const getNodeTypeColor = (type) => {
     const colors = {
-      'context': '#10b981',      // green
-      'browser_action': '#3b82f6', // blue
-      'browser_query': '#8b5cf6',  // purple
-      'route': '#f59e0b',         // amber
-      'iterate': '#ef4444',       // red
-      'memory': '#06b6d4',        // cyan
-      'cognition': '#ec4899',     // pink
-      'group': '#14b8a6',         // teal
+      'context': '#10b981',         // green
+      'browser_action': '#4CAF50',   // green (deterministic)
+      'browser_ai_action': '#9C27B0', // purple (AI)
+      'browser_query': '#2196F3',     // blue (deterministic)
+      'browser_ai_query': '#E91E63',  // pink (AI)
+      'route': '#f59e0b',            // amber
+      'iterate': '#ef4444',          // red
+      'memory': '#06b6d4',           // cyan
+      'cognition': '#ec4899',        // pink
+      'group': '#14b8a6',            // teal
+      'transform': '#FF9800',        // orange
+      'agent': '#795548',            // brown
+      'handle': '#607D8B',           // blue-grey
     };
     return colors[type] || '#6b7280';
   };
@@ -2412,6 +2417,24 @@ function App() {
               {node.type === 'browser_action' && node.params?.action && (
                 <span className="ml-1 text-gray-500">
                   · {node.params.action}
+                </span>
+              )}
+              {/* Show action for browser_ai_action nodes */}
+              {node.type === 'browser_ai_action' && node.params?.action && (
+                <span className="ml-1 text-gray-500">
+                  · {node.params.action} (AI)
+                </span>
+              )}
+              {/* Show method for browser_query nodes */}
+              {node.type === 'browser_query' && node.params?.method && (
+                <span className="ml-1 text-gray-500">
+                  · {node.params.method}
+                </span>
+              )}
+              {/* Show method for browser_ai_query nodes */}
+              {node.type === 'browser_ai_query' && node.params?.method && (
+                <span className="ml-1 text-gray-500">
+                  · {node.params.method} (AI)
                 </span>
               )}
               {/* Depth indicator for deep nesting - but not in iteration context */}
