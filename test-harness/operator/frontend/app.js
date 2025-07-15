@@ -1328,6 +1328,13 @@ function App() {
       'iterate': '#ef4444',          // red
       'memory': '#06b6d4',           // cyan
       'cognition': '#ec4899',        // pink
+      'user': '#3b82f6',            // blue
+      'message': '#10b981',         // green
+      'assistant': '#8b5cf6',       // purple
+      'operator': '#f59e0b',        // amber
+      'generator': '#06b6d4',       // cyan
+      'edit': '#ec4899',            // pink
+      'reviewer': '#6366f1',        // indigo
       'group': '#14b8a6',            // teal
       'transform': '#FF9800',        // orange
       'agent': '#795548',            // brown
