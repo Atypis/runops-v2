@@ -339,6 +339,81 @@ export class DirectorService {
     }
   }
 
+  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId) {
+    // Process the response from the Responses API
+    const output = response.output || [];
+    
+    // Extract assistant messages
+    const assistantMessages = output.filter(item => item.type === 'message' && item.role === 'assistant');
+    const assistantContent = assistantMessages
+      .flatMap(msg => msg.content || [])
+      .map(content => content.text || '')
+      .join('');
+    
+    // Extract function calls
+    const functionCalls = output.filter(item => item.type === 'function_call');
+    
+    // Extract reasoning summary
+    const reasoningItems = output.filter(item => item.type === 'reasoning' && item.summary);
+    const reasoningSummary = reasoningItems.length > 0 ? 
+      reasoningItems.map(item => item.summary.map(s => s.text).join('\n')).join('\n\n') : 
+      null;
+    
+    // Get token usage
+    const tokenUsage = {
+      input_tokens: response.usage?.input_tokens || 0,
+      output_tokens: response.usage?.output_tokens || 0,
+      total_tokens: response.usage?.total_tokens || 0,
+      reasoning_tokens: response.usage?.output_tokens_details?.reasoning_tokens || 0
+    };
+    
+    // Process tool calls if any
+    let toolResults = [];
+    if (functionCalls.length > 0) {
+      console.log(`[CLEAN CONTEXT] Processing ${functionCalls.length} tool calls`);
+      
+      // Execute tools
+      for (const call of functionCalls) {
+        try {
+          const toolName = call.name;
+          const toolArgs = JSON.parse(call.arguments || '{}');
+          
+          // Use existing tool execution logic
+          const result = await this.executeToolCall(toolName, toolArgs, workflowId);
+          
+          toolResults.push({
+            toolName,
+            result,
+            success: true
+          });
+        } catch (error) {
+          console.error(`[CLEAN CONTEXT] Tool ${call.name} failed:`, error);
+          toolResults.push({
+            toolName: call.name,
+            error: error.message,
+            success: false
+          });
+        }
+      }
+    }
+    
+    // Prepare response
+    const finalResponse = {
+      message: assistantContent || 'I completed the requested actions.',
+      workflowId,
+      reasoning_summary: reasoningSummary,
+      input_tokens: tokenUsage.input_tokens,
+      output_tokens: tokenUsage.output_tokens,
+      reasoning_tokens: tokenUsage.reasoning_tokens
+    };
+    
+    if (toolResults.length > 0) {
+      finalResponse.toolCalls = toolResults;
+    }
+    
+    return finalResponse;
+  }
+
   async processMessageClean({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
     try {
       console.log('[CLEAN CONTEXT] Processing message with Clean Context 2.0');
@@ -399,8 +474,8 @@ export class DirectorService {
         console.log('[CLEAN CONTEXT] Saved response ID:', finalResponse.id);
       }
       
-      // Process response with existing logic
-      return await this.processResponsesAPIResponse(finalResponse, workflowId);
+      // Process response with control loop
+      return await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId);
     } catch (error) {
       console.error('[CLEAN CONTEXT] Error in processMessageClean:', error);
       throw error;
