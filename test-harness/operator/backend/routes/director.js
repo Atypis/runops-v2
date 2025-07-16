@@ -282,20 +282,43 @@ router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
     
     // Handle both direct state references and resolved values
     let collection;
-    if (typeof resolvedOver === 'string' && (resolvedOver.includes('.') || resolvedOver.startsWith('state'))) {
+    if (Array.isArray(resolvedOver)) {
+      // Already resolved to an array
+      console.log(`[ITERATION PREVIEW] Already resolved to array with ${resolvedOver.length} items`);
+      collection = resolvedOver;
+    } else if (typeof resolvedOver === 'string' && (resolvedOver.includes('.') || resolvedOver.startsWith('state'))) {
       // It's still a path reference (e.g., "state.items" or "items")
+      console.log(`[ITERATION PREVIEW] Resolving string path: ${resolvedOver}`);
       const path = resolvedOver.replace('state.', '');
       collection = await executor.getStateValue(path, node.workflow_id);
+    } else if (typeof resolvedOver === 'string') {
+      // Simple string reference without dots - might be a direct state variable
+      console.log(`[ITERATION PREVIEW] Resolving simple string: ${resolvedOver}`);
+      collection = await executor.getStateValue(resolvedOver, node.workflow_id);
     } else {
-      // It's already resolved to the actual array
+      // Unexpected type
+      console.log(`[ITERATION PREVIEW] Unexpected resolved type: ${typeof resolvedOver}`, resolvedOver);
       collection = resolvedOver;
     }
     
     if (!Array.isArray(collection)) {
+      console.log(`[ITERATION PREVIEW] Resolved value is not an array:`, typeof resolvedOver, resolvedOver);
       return res.json({ 
         items: [],
         message: 'Collection not found or not an array'
       });
+    }
+    
+    // Clear any previous error state on the node
+    if (node.status === 'failed') {
+      console.log(`[ITERATION PREVIEW] Clearing error state for node ${nodeId}`);
+      await directorService.supabase
+        .from('nodes')
+        .update({ 
+          status: 'pending',
+          result: null 
+        })
+        .eq('id', nodeId);
     }
     
     // Get body node information
