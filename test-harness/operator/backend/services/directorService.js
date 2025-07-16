@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { Stagehand } from '@browserbasehq/stagehand';
 import { DIRECTOR_SYSTEM_PROMPT_V2 as DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPromptV2.js';
 import { CLEAN_DIRECTOR_SYSTEM_PROMPT } from '../prompts/cleanDirectorPrompt.js';
-import { createToolDefinitions } from '../tools/toolDefinitions.js';
+import { createToolDefinitions } from '../tools/toolDefinitionsV2.js';
 import { NodeExecutor } from './nodeExecutor.js';
 import { PlanService } from './planService.js';
 import { WorkflowDescriptionService } from './workflowDescriptionService.js';
