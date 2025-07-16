@@ -2290,47 +2290,73 @@ function App() {
     const hasNestedNodes = isRoute && node.params?.paths;
     const hasIterateBody = isIterate && node.params?.body;
     
-    // Function to fetch iteration preview
+    // Debounced fetch ref to prevent rapid calls
+    const fetchTimeoutRef = React.useRef(null);
+    
+    // Function to fetch iteration preview with debouncing
     const fetchIterationPreview = React.useCallback(async () => {
-      if (isLoadingPreview) return; // Prevent duplicate fetches
-      
-      setIsLoadingPreview(true);
-      try {
-        const response = await fetch(`${API_BASE}/nodes/${node.id}/iteration-preview`);
-        if (response.ok) {
-          const preview = await response.json();
-          console.log(`[ITERATE PREVIEW] Fetched preview for node ${node.id}:`, preview);
-          if (preview.items && preview.items.length > 0) {
-            setIterationData(preview.items);
-          }
-        } else {
-          console.error('Failed to fetch iteration preview:', await response.text());
-        }
-      } catch (error) {
-        console.error('Error fetching iteration preview:', error);
-      } finally {
-        setIsLoadingPreview(false);
+      if (isLoadingPreview) {
+        console.log(`[ITERATE ${node.id}] Already loading preview, skipping...`);
+        return; // Prevent duplicate fetches
       }
+      
+      // Clear any pending fetch
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+      
+      // Debounce for 100ms to prevent rapid successive calls
+      fetchTimeoutRef.current = setTimeout(async () => {
+        setIsLoadingPreview(true);
+        try {
+          console.log(`[ITERATE ${node.id}] Fetching preview from backend...`);
+          const response = await fetch(`${API_BASE}/nodes/${node.id}/iteration-preview`);
+          if (response.ok) {
+            const preview = await response.json();
+            console.log(`[ITERATE ${node.id}] Preview fetched successfully:`, preview);
+            if (preview.items && preview.items.length > 0) {
+              setIterationData(preview.items);
+            }
+          } else {
+            console.error(`[ITERATE ${node.id}] Failed to fetch preview:`, await response.text());
+          }
+        } catch (error) {
+          console.error(`[ITERATE ${node.id}] Error fetching preview:`, error);
+        } finally {
+          setIsLoadingPreview(false);
+        }
+      }, 100);
     }, [node.id, isLoadingPreview]);
+    
+    // Track if preview has been fetched for this expansion
+    const [hasPreviewBeenFetched, setHasPreviewBeenFetched] = React.useState(false);
+    
+    // Reset preview fetch flag when node is collapsed
+    React.useEffect(() => {
+      if (!expanded) {
+        setHasPreviewBeenFetched(false);
+      }
+    }, [expanded]);
     
     // Load iteration data when expanded or node result changes
     React.useEffect(() => {
       if (isIterate && expanded) {
         if (node.result?.items) {
           // New preview format from executeIterate
-          console.log(`Loading iteration data for node ${node.id}: ${node.result.items.length} items`);
+          console.log(`[ITERATE ${node.id}] Loading iteration data: ${node.result.items.length} items`);
           setIterationData(node.result.items);
         } else if (node.result?.results) {
           // Old format - actual execution results
-          console.log(`Loading iteration results for node ${node.id}: ${node.result.results.length} results`);
+          console.log(`[ITERATE ${node.id}] Loading iteration results: ${node.result.results.length} results`);
           setIterationData(node.result.results);
-        } else if (!iterationData && !isLoadingPreview) {
-          // No result yet and no iteration data - fetch preview once
-          console.log(`No iteration data found for node ${node.id}, fetching preview once...`);
+        } else if (!iterationData && !isLoadingPreview && !hasPreviewBeenFetched) {
+          // No result yet and no iteration data - fetch preview once per expansion
+          console.log(`[ITERATE ${node.id}] No iteration data found, fetching preview (once per expansion)...`);
+          setHasPreviewBeenFetched(true);
           fetchIterationPreview();
         }
       }
-    }, [isIterate, expanded, node.result?.items, node.result?.results]); // Removed iterationData and fetchIterationPreview from deps
+    }, [isIterate, expanded, node.result?.items, node.result?.results, hasPreviewBeenFetched]); // Added hasPreviewBeenFetched
     
     // Listen for variable updates that might affect this iterate node
     React.useEffect(() => {
