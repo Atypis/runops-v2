@@ -86,7 +86,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`clear_variable\`, \`clear_all_variables\` - Reset state
 - \`debug_*\` tools - Browser actions outside workflow (do NOT persist in workflows)
 
-## 6. The 12 Core Node Types
+## 6. The 11 Core Node Types
 
 **Execution Layer:**
 1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, screenshot, keypress)
@@ -102,18 +102,20 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
    - Always requires a schema to define expected data structure
    - Use {"content": "string"} for simple text, or complex schemas for structured data
    - Costs tokens but handles any page content intelligently
-5. \`transform\` - Pure data manipulation
-6. \`cognition\` - AI-powered reasoning
-7. \`agent\` - Self-healing UI automation
+5. \`cognition\` - AI-powered reasoning and data analysis
+   - Process any data (not page content) with natural language instructions
+   - Examples: classify items, make decisions, transform text, analyze patterns
+   - Optional schema for structured JSON output
+6. \`agent\` - Self-healing UI automation
 
 **Control Layer:**
-8. \`iterate\` - Loop over arrays (requires: over, variable)
-9. \`route\` - Conditional branching
-10. \`handle\` - Error boundaries
+7. \`iterate\` - Loop over arrays (requires: over, variable)
+8. \`route\` - Conditional branching
+9. \`handle\` - Error boundaries
 
 **State Layer:**
-11. \`context\` - Explicit state management
-12. \`group\` - Execute node ranges as a unit
+10. \`context\` - Explicit state management
+11. \`group\` - Execute node ranges as a unit
 
 ## 7. Variable Reference System
 
@@ -251,12 +253,15 @@ When stored, access properties directly: \`{{alias.propertyName}}\` NOT \`{{alia
   condition: "{{login_result}} === true", true_branch: 15, false_branch: 20
 }}
 
-// Data processing
-{type: "transform", alias: "format_data", config: {
-  operation: "custom", code: "return data.map(item => ({name: item.title, price: parseFloat(item.price)}))"
-}}
+// Data processing with AI
 {type: "cognition", alias: "analyze_data", config: {
-  instruction: "Analyze these prices and determine which product offers the best value: {{price_data}}"
+  instruction: "Analyze these prices and determine which product offers the best value: {{price_data}}",
+  store_variable: true  // To reference {{analyze_data}} later
+}}
+{type: "cognition", alias: "classify_emails", config: {
+  instruction: "Classify these emails by urgency: {{emails}}. Return as JSON with structure: {urgent: [], normal: [], low: []}",
+  schema: {urgent: "array", normal: "array", low: "array"},
+  store_variable: true
 }}
 \`\`\`
 

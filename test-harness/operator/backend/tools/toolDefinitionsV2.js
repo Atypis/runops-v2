@@ -335,13 +335,51 @@ export function createToolDefinitions() {
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
+    // cognition - AI-powered reasoning and analysis
+    {
+      type: 'object',
+      properties: {
+        type: { const: 'cognition' },
+        config: {
+          type: 'object',
+          properties: {
+            instruction: {
+              type: 'string',
+              description: 'Natural language instruction for the AI. Can include {{variable}} references.'
+            },
+            schema: {
+              type: 'object',
+              description: 'Optional JSON schema to enforce structured output. When provided, response will be JSON.',
+              additionalProperties: true
+            },
+            store_variable: {
+              type: 'boolean',
+              description: 'Store this node\'s result as a reusable variable (default: false)'
+            }
+          },
+          required: ['instruction'],
+          additionalProperties: false
+        },
+        description: {
+          type: 'string',
+          description: 'Human-readable description of what this node does'
+        },
+        alias: {
+          type: 'string',
+          description: 'Required unique identifier for the node (snake_case format)',
+          pattern: '^[a-z][a-z0-9_]*$'
+        }
+      },
+      required: ['type', 'config', 'alias'],
+      additionalProperties: false
+    },
     // General schema for other node types with minimal requirements
     {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          enum: ['transform', 'cognition', 'agent', 'route', 'handle'],
+          enum: ['transform', 'agent', 'route', 'handle'],
           description: 'The type of node'
         },
         config: {

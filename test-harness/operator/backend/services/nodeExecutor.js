@@ -1025,24 +1025,19 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
   }
 
   async executeCognition(config, inputData) {
-    // If agentTask is provided, delegate to StagehandAgent.ensure()
-    if (config.agentTask) {
-      const stagehand = await this.getStagehand();
-      // Reuse the active page (main or switched)
-      const page = stagehand.page;
-      const agent = new (await import('@browserbasehq/stagehand')).StagehandAgent(page);
-      console.log(`[AGENT] Running agent task:`, JSON.stringify(config.agentTask, null, 2));
-      const ok = await agent.ensure(config.agentTask);
-      return { ok };
+    console.log(`[COGNITION] Processing with instruction: ${config.instruction || config.prompt}`);
+    
+    // Build the prompt - either use instruction directly or replace {{input}} placeholder
+    let prompt = config.instruction || config.prompt || '';
+    if (inputData && prompt.includes('{{input}}')) {
+      prompt = prompt.replace('{{input}}', JSON.stringify(inputData));
     }
-
-    const prompt = config.prompt.replace('{{input}}', JSON.stringify(inputData));
     
     // OpenAI requires the word "JSON" to appear in the messages when using
     // `response_format: {type: 'json_object'}`.  Append a one-liner if the
     // caller didn't already mention it.
     const needsJsonHint = !!config.schema && !/json/i.test(prompt);
-    const safePrompt   = needsJsonHint
+    const safePrompt = needsJsonHint
       ? `${prompt}\n\nRespond ONLY in valid JSON format.`
       : prompt;
 
