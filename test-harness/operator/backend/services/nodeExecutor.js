@@ -978,10 +978,17 @@ export class NodeExecutor {
 
 CRITICAL: You must ONLY extract data that is actually visible on the page. DO NOT hallucinate, make up, or generate example data. If no data matching the criteria is found, return an empty array or null values. Never create fictional data.`;
         
-        const extractResult = await activePage.extract({
-          instruction: enhancedInstruction,
-          schema: zodSchema
-        });
+        // Build options object conditionally
+        const extractOptions = {
+          instruction: enhancedInstruction
+        };
+        
+        // Only include schema if it's defined
+        if (zodSchema) {
+          extractOptions.schema = zodSchema;
+        }
+        
+        const extractResult = await activePage.extract(extractOptions);
         
         console.log(`[BROWSER_AI_QUERY] Extract result:`, JSON.stringify(extractResult, null, 2));
         return extractResult;
