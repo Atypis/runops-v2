@@ -222,7 +222,7 @@ export function createToolDefinitions() {
           properties: {
             over: {
               type: 'string',
-              description: 'Array to iterate over. Use {{alias.property}} syntax (e.g., "{{extract_emails.emails}}") or direct paths (e.g., "state.items").'
+              description: 'Reference to array to iterate over. Use {{alias.property}} syntax for stored variables (e.g., "{{extract_emails.emails}}"). Direct state paths also supported for backward compatibility (e.g., "state.items").'
             },
             variable: {
               type: 'string',

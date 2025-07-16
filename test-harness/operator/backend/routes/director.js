@@ -273,10 +273,23 @@ router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
     
     // Get the collection to iterate over
     const executor = directorService.nodeExecutor;
-    const collection = await executor.getStateValue(
-      node.params.over.replace('state.', ''), 
+    
+    // Resolve template variables in the 'over' parameter
+    const resolvedOver = await executor.resolveTemplateVariables(
+      node.params.over,
       node.workflow_id
     );
+    
+    // Handle both direct state references and resolved values
+    let collection;
+    if (typeof resolvedOver === 'string' && (resolvedOver.includes('.') || resolvedOver.startsWith('state'))) {
+      // It's still a path reference (e.g., "state.items" or "items")
+      const path = resolvedOver.replace('state.', '');
+      collection = await executor.getStateValue(path, node.workflow_id);
+    } else {
+      // It's already resolved to the actual array
+      collection = resolvedOver;
+    }
     
     if (!Array.isArray(collection)) {
       return res.json({ 
