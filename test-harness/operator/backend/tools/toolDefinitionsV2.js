@@ -212,7 +212,7 @@ export function createToolDefinitions() {
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
-    // iterate - requires over and variable
+    // iterate - Sequential loop execution with automatic variable scoping
     {
       type: 'object',
       properties: {
@@ -222,20 +222,35 @@ export function createToolDefinitions() {
           properties: {
             over: {
               type: 'string',
-              description: 'Variable reference to iterate over. Use {{alias.property}} syntax (e.g., "{{extract_emails.emails}}").'
+              description: 'Array to iterate over. Use {{alias.property}} syntax (e.g., "{{extract_emails.emails}}") or direct paths (e.g., "state.items").'
             },
             variable: {
               type: 'string',
-              description: 'Name for the loop variable'
+              description: 'Name for the current item variable. Creates: ${variable} (current item), ${variable}Index (0-based index), ${variable}Total (array length).',
+              pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
             },
             body: {
               type: 'array',
               items: { type: 'number' },
-              description: 'Node positions to execute in each iteration'
+              description: 'Node positions to execute for each iteration (e.g., [15, 16, 17]).'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of items to process. Useful for testing or limiting large datasets. Processes all items if not specified.',
+              minimum: 1
+            },
+            continueOnError: {
+              type: 'boolean',
+              description: 'Whether to continue iterating if an error occurs in one iteration (default: true). When false, stops at first error.'
+            },
+            index: {
+              type: 'string',
+              description: 'Custom name for the index variable. Defaults to "${variable}Index". Must be different from the main variable name.',
+              pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+              description: 'Store iteration results as a reusable variable (default: false). Returns {results: [], errors: [], processed: number, total: number}. Reference with {{alias.results}}, {{alias.processed}}, etc.'
             }
           },
           required: ['over', 'variable'],

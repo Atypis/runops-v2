@@ -245,6 +245,21 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 {type: "iterate", alias: "process_items", config: {
   over: "{{get_prices.products}}", variable: "current_item"
 }}
+
+// Iterate with body nodes - process each email individually
+{type: "iterate", alias: "send_emails", config: {
+  over: "{{classified_emails.urgent}}", 
+  variable: "email",
+  body: [25, 26, 27], // Navigate to email, compose reply, send
+  limit: 5, // Process only first 5 during testing
+  continueOnError: true // Don't stop if one email fails
+}}
+
+// Using iteration variables in child nodes
+// Within the body nodes, you can reference:
+// - {{email}} - current email object
+// - {{emailIndex}} - current position (0-based)
+// - {{emailTotal}} - total number of emails
 {type: "route", alias: "check_success", config: {
   condition: "{{login_result}} === true", true_branch: 15, false_branch: 20
 }}
