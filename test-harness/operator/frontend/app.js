@@ -3537,7 +3537,8 @@ function App() {
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
-    const userMessage = { role: 'user', content: input };
+    const messageText = input; // Save the input before clearing it
+    const userMessage = { role: 'user', content: messageText };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -3618,11 +3619,19 @@ function App() {
         };
       });
 
+      console.log('[SendMessage] About to send message:', {
+        message: messageText,
+        workflowId,
+        mockMode,
+        selectedModel: !mockMode ? selectedModel : undefined,
+        historyLength: cleanConversationHistory.length
+      });
+
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input,
+          message: messageText,
           workflowId,
           conversationHistory: cleanConversationHistory,
           mockMode,
