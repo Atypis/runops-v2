@@ -486,7 +486,7 @@ export class NodeExecutor {
           break;
         case 'iterate':
           console.log(`[EXECUTE] Executing iterate...`);
-          result = await this.executeIterate(resolvedParams, workflowId, node.position, options);
+          result = await this.executeIterate(resolvedParams, workflowId, node.position, { ...options, previewOnly: false });
           break;
         case 'group':
           console.log(`[EXECUTE] Executing group...`);
@@ -1425,6 +1425,8 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     
     // Simple variable lookup
     const storageKey = this.getStorageKey(path);
+    console.log(`[STATE] Looking up variable '${path}' with storage key: ${storageKey}`);
+    
     const { data } = await supabase
       .from('workflow_memory')
       .select('value')
@@ -1433,9 +1435,16 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       .single();
       
     if (!data) {
+      console.log(`[STATE] Variable '${path}' not found with key '${storageKey}'. Checking all keys for this workflow...`);
+      const { data: allVars } = await supabase
+        .from('workflow_memory')
+        .select('key, value')
+        .eq('workflow_id', workflowId);
+      console.log(`[STATE] All variables in workflow:`, allVars?.map(v => `${v.key}=${JSON.stringify(v.value)}`));
       throw new Error(`Variable '${path}' not found. Did you forget to set store_variable: true?`);
     }
     
+    console.log(`[STATE] Found variable '${path}' with value: ${JSON.stringify(data.value)}`);
     return data.value;
   }
   
@@ -1643,6 +1652,10 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         const varKey = this.getStorageKey(variable);
         const indexKey = this.getStorageKey(indexVariable);
         const totalKey = this.getStorageKey(`${variable}Total`);
+        
+        console.log(`[ITERATE] Setting iteration variable '${varKey}' = ${JSON.stringify(item)}`);
+        console.log(`[ITERATE] Setting index variable '${indexKey}' = ${i}`);
+        console.log(`[ITERATE] Setting total variable '${totalKey}' = ${collection.length}`);
         
         await supabase
           .from('workflow_memory')

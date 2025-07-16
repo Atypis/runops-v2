@@ -474,50 +474,80 @@ function App() {
   };
 
 
-  // Real-time browser state updates via Server-Sent Events
+  // Real-time browser state updates via Server-Sent Events with auto-reconnection
   useEffect(() => {
     if (!currentWorkflow?.id) return;
     
-    console.log(`[SSE] Connecting to browser state stream for workflow: ${currentWorkflow.id}`);
+    let eventSource;
+    let reconnectTimer;
+    let retryCount = 0;
+    let isManualClose = false;
     
-    const eventSource = new EventSource(`${API_BASE}/workflows/${currentWorkflow.id}/browser-state/stream`);
-    
-    eventSource.onopen = () => {
-      console.log('[SSE] Browser state stream connected');
-    };
-    
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        // Handle different event types
-        if (data.type === 'browserStateUpdate') {
-          console.log('[SSE] Received browser state update:', data.formattedDisplay?.substring(0, 50) + '...');
-          setBrowserState(data);
-        } else if (data.type === 'variableUpdate') {
-          console.log('[SSE] Received variable update:', data.variableKey, 'from node:', data.nodeAlias);
-          // Trigger a variable update event that components can listen to
-          window.dispatchEvent(new CustomEvent('variableUpdate', { 
-            detail: { 
-              key: data.variableKey, 
-              nodeAlias: data.nodeAlias,
-              value: data.value,
-              timestamp: data.timestamp
-            } 
-          }));
+    const connect = () => {
+      if (isManualClose) return; // Don't reconnect if manually closed
+      
+      console.log(`[SSE] Connecting to browser state stream for workflow: ${currentWorkflow.id} (attempt ${retryCount + 1})`);
+      
+      eventSource = new EventSource(`${API_BASE}/workflows/${currentWorkflow.id}/browser-state/stream`);
+      
+      eventSource.onopen = () => {
+        console.log('[SSE] Browser state stream connected successfully');
+        retryCount = 0; // Reset retry count on successful connection
+      };
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Handle different event types
+          if (data.type === 'browserStateUpdate') {
+            console.log('[SSE] Received browser state update:', data.formattedDisplay?.substring(0, 50) + '...');
+            setBrowserState(data);
+          } else if (data.type === 'variableUpdate') {
+            console.log('[SSE] Received variable update:', data.variableKey, 'from node:', data.nodeAlias);
+            
+            // Immediately refresh variables to show the update in the frontend
+            loadVariables();
+            
+            // Trigger a variable update event that components can listen to
+            window.dispatchEvent(new CustomEvent('variableUpdate', { 
+              detail: { 
+                key: data.variableKey, 
+                nodeAlias: data.nodeAlias,
+                value: data.value,
+                timestamp: data.timestamp
+              } 
+            }));
+          }
+        } catch (error) {
+          console.error('[SSE] Error parsing event:', error);
         }
-      } catch (error) {
-        console.error('[SSE] Error parsing event:', error);
-      }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.error('[SSE] Browser state stream error:', error);
+        console.error('[SSE] EventSource readyState:', eventSource.readyState);
+        
+        // Auto-reconnect on connection loss
+        if (eventSource.readyState === EventSource.CLOSED && retryCount < 5 && !isManualClose) {
+          retryCount++;
+          console.log(`[SSE] Connection lost, reconnecting in 3 seconds... (attempt ${retryCount}/5)`);
+          reconnectTimer = setTimeout(() => {
+            connect();
+          }, 3000);
+        } else if (retryCount >= 5) {
+          console.error('[SSE] Max reconnection attempts reached. Please refresh the page.');
+        }
+      };
     };
     
-    eventSource.onerror = (error) => {
-      console.error('[SSE] Browser state stream error:', error);
-    };
+    connect();
     
     return () => {
-      console.log('[SSE] Closing browser state stream');
-      eventSource.close();
+      console.log('[SSE] Cleaning up browser state stream');
+      isManualClose = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (eventSource) eventSource.close();
     };
   }, [currentWorkflow?.id]);
 
@@ -2265,11 +2295,6 @@ function App() {
 
   // NodeCard Component - Handles display of nodes including complex route and iterate nodes
   const NodeCard = ({ node, executeNode, depth = 0, expandedNodes, setExpandedNodes, loadNodeValues, currentWorkflow, nodeValues, selectedNodes = [], setSelectedNodes, isIterationContext = false }) => {
-    console.log(`[DEBUG] Rendering NodeCard for node ${node.position} (${node.type}):`, { 
-      id: node.id, 
-      result: node.result,
-      status: node.status 
-    });
     const expanded = expandedNodes?.has(node.id) || false;
     const setExpanded = (value) => {
       if (value) {
@@ -3017,6 +3042,7 @@ function App() {
         // Reload node values to show updated results
         if (loadNodeValues) {
           await loadNodeValues();
+          await loadVariables(); // Reload variables to show updated variable values
         }
       } catch (error) {
         console.error('Failed to execute iteration node:', error);
@@ -3111,6 +3137,7 @@ function App() {
         // Reload node values to show updated results
         if (loadNodeValues) {
           await loadNodeValues();
+          await loadVariables(); // Reload variables to show updated variable values
         }
       } catch (error) {
         console.error('Failed to execute step:', error);
@@ -3862,6 +3889,7 @@ function App() {
         console.log('Refreshing workflow nodes and values after execution...');
         await loadWorkflowNodes(currentWorkflow.id);
         await loadNodeValues(); // Reload node values to show execution results
+        await loadVariables(); // Reload variables to show updated variable values
         
         // Restore scroll position after data is loaded
         setTimeout(() => {

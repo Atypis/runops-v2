@@ -223,13 +223,21 @@ router.post('/execute-iteration-step', async (req, res, next) => {
     try {
       // Store the iteration variable in memory
       const varKey = executor.getStorageKey(variable);
-      await directorService.supabase
+      const { data, error } = await directorService.supabase
         .from('workflow_memory')
         .upsert({
           workflow_id: workflowId,
           key: varKey,
           value: iterationData
-        });
+        }, { onConflict: 'workflow_id,key' })
+        .select();
+        
+      if (error) {
+        console.error(`[ITERATION STEP] Failed to store iteration variable:`, error);
+        throw error;
+      }
+      
+      console.log(`[ITERATION STEP] Stored iteration variable '${varKey}' = ${JSON.stringify(iterationData)}`);
       
       // Execute the node with iteration context
       const result = await executor.execute(nodeId, workflowId, { previewOnly: false });
@@ -558,9 +566,28 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
     // Register this connection with the browser state service for updates
     directorService.browserStateService.addSSEConnection(workflowId, res);
 
+    // Keep connection alive with heartbeat
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch (error) {
+        console.error(`[SSE] Heartbeat failed for workflow ${workflowId}:`, error.message);
+        clearInterval(heartbeat);
+        directorService.browserStateService.removeSSEConnection(workflowId, res);
+      }
+    }, 30000); // Every 30 seconds
+
     // Handle client disconnect
     req.on('close', () => {
       console.log(`[SSE] Browser state stream closed for workflow: ${workflowId}`);
+      clearInterval(heartbeat);
+      directorService.browserStateService.removeSSEConnection(workflowId, res);
+    });
+
+    // Handle errors
+    req.on('error', (error) => {
+      console.error(`[SSE] Request error for workflow ${workflowId}:`, error.message);
+      clearInterval(heartbeat);
       directorService.browserStateService.removeSSEConnection(workflowId, res);
     });
 

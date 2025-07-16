@@ -12,6 +12,9 @@ class BrowserStateService {
     // Store SSE connections for real-time updates
     // Format: { workflowId: [res1, res2, ...] }
     this.sseConnections = new Map();
+    // Buffer recent variable updates for when connections re-establish
+    // Format: { workflowId: [{ type, data, timestamp }, ...] }
+    this.pendingUpdates = new Map();
   }
 
   /**
@@ -259,6 +262,34 @@ class BrowserStateService {
     }
     this.sseConnections.get(workflowId).push(res);
     console.log(`[SSE] Added connection for workflow ${workflowId}. Total connections: ${this.sseConnections.get(workflowId).length}`);
+    
+    // Send any buffered updates to the new connection
+    this.sendPendingUpdates(workflowId, res);
+  }
+
+  /**
+   * Send any buffered updates to a newly connected client
+   */
+  sendPendingUpdates(workflowId, res) {
+    const pendingUpdates = this.pendingUpdates.get(workflowId);
+    if (!pendingUpdates || pendingUpdates.length === 0) {
+      return;
+    }
+
+    console.log(`[SSE] Sending ${pendingUpdates.length} buffered updates to new connection`);
+    
+    pendingUpdates.forEach((update) => {
+      try {
+        const { bufferedAt, ...updateData } = update; // Remove bufferedAt before sending
+        const data = JSON.stringify(updateData);
+        res.write(`data: ${data}\n\n`);
+      } catch (error) {
+        console.error(`[SSE] Error sending buffered update:`, error.message);
+      }
+    });
+    
+    // Clear the pending updates after sending
+    this.pendingUpdates.delete(workflowId);
   }
 
   removeSSEConnection(workflowId, res) {
@@ -319,20 +350,38 @@ class BrowserStateService {
    * Called when a node stores a variable
    */
   async emitVariableUpdate(workflowId, variableKey, value, nodeAlias) {
-    const connections = this.sseConnections.get(workflowId);
-    if (!connections || connections.length === 0) {
-      console.log(`[SSE] No connections to emit variable update for workflow ${workflowId}`);
-      return;
-    }
-
-    const data = JSON.stringify({
+    const updateData = {
       type: 'variableUpdate',
       variableKey,
       nodeAlias,
       value,
       timestamp: new Date().toISOString()
-    });
+    };
 
+    const connections = this.sseConnections.get(workflowId);
+    if (!connections || connections.length === 0) {
+      console.log(`[SSE] No connections to emit variable update for workflow ${workflowId}`);
+      console.log(`[SSE] Buffering variable update for later delivery`);
+      
+      // Buffer the update for when connections re-establish
+      if (!this.pendingUpdates.has(workflowId)) {
+        this.pendingUpdates.set(workflowId, []);
+      }
+      this.pendingUpdates.get(workflowId).push({
+        ...updateData,
+        bufferedAt: Date.now()
+      });
+      
+      // Keep only recent updates (last 5 minutes)
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      this.pendingUpdates.set(workflowId, 
+        this.pendingUpdates.get(workflowId).filter(update => update.bufferedAt > fiveMinutesAgo)
+      );
+      
+      return;
+    }
+
+    const data = JSON.stringify(updateData);
     console.log(`[SSE] Emitting variable update for ${variableKey} to ${connections.length} connections`);
 
     const deadConnections = [];
