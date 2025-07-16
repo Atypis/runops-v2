@@ -1377,6 +1377,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     // Get value from workflow memory or previous node results
     console.log(`[STATE] Getting value for path: ${path}`);
     
+    // Handle malformed template references - strip any remaining braces
+    if (typeof path === 'string' && (path.includes('{{') || path.includes('}}'))) {
+      console.warn(`[STATE] Malformed template reference detected: ${path}`);
+      path = path.replace(/\{\{|\}\}/g, '');
+      console.log(`[STATE] Cleaned path: ${path}`);
+    }
+    
     // Remove legacy position-based support
     if (path.startsWith('node') && /^node\d+/.test(path)) {
       throw new Error(`Position-based references (${path}) are no longer supported. Use the node alias instead.`);
