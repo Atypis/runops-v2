@@ -357,7 +357,7 @@ export class NodeExecutor {
         env: 'LOCAL',
         headless: false,
         enableCaching: true,
-        modelName: 'gpt-4.1-mini-2025-04-14', // Using gpt-4.1-mini-2025-04-14 for browser actions (act, extract, observe)
+        modelName: 'o4-mini', // Using o4-mini for browser actions (act, extract, observe)
         modelClientOptions: {
           apiKey: process.env.OPENAI_API_KEY
         },
@@ -1049,7 +1049,7 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       : prompt;
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4.1-mini-2025-04-14',
+      model: 'o4-mini',
       messages: [
         { role: 'system', content: 'You are a helpful assistant that processes data according to instructions.' },
         { role: 'user', content: safePrompt }
