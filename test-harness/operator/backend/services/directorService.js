@@ -975,6 +975,170 @@ export class DirectorService {
     return node;
   }
 
+  /**
+   * New 2-function design: Add or Replace Nodes
+   * Handles create, insert, and update based on target type
+   */
+  async addOrReplaceNodes(args, workflowId) {
+    const { target, nodes } = args;
+    
+    // Validate all nodes have aliases
+    for (const node of nodes) {
+      if (!node.alias) {
+        throw new Error(`All nodes must have an alias. Node of type '${node.type}' is missing alias.`);
+      }
+      if (!node.alias.match(/^[a-z][a-z0-9_]*$/)) {
+        throw new Error(`Invalid alias '${node.alias}'. Must be snake_case starting with lowercase letter.`);
+      }
+    }
+    
+    console.log(`[ADD_OR_REPLACE_NODES] Target: ${target}, Nodes: ${nodes.length}`);
+    
+    // Determine operation based on target type
+    if (target === 'end') {
+      // Append nodes to the end
+      console.log('[ADD_OR_REPLACE_NODES] Appending nodes to end of workflow');
+      const createdNodes = [];
+      for (const nodeData of nodes) {
+        const node = await this.createNode(nodeData, workflowId);
+        createdNodes.push(node);
+      }
+      return {
+        success: true,
+        operation: 'append',
+        nodes: createdNodes,
+        message: `Added ${createdNodes.length} node(s) to the end of the workflow`
+      };
+      
+    } else if (typeof target === 'number') {
+      // Insert at position
+      const position = target;
+      console.log(`[ADD_OR_REPLACE_NODES] Inserting nodes at position ${position}`);
+      
+      // Use existing insertNodeAt logic
+      const result = await this.insertNodeAt({ 
+        position, 
+        nodes 
+      }, workflowId);
+      
+      return {
+        success: true,
+        operation: 'insert',
+        nodes: result.nodes,
+        message: `Inserted ${nodes.length} node(s) at position ${position}`
+      };
+      
+    } else if (typeof target === 'string') {
+      // Replace existing node(s) by alias or ID
+      console.log(`[ADD_OR_REPLACE_NODES] Replacing node with identifier: ${target}`);
+      
+      // Find the node to replace
+      let nodeToReplace;
+      
+      // First try by alias
+      const { data: nodeByAlias } = await supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .eq('alias', target)
+        .single();
+        
+      if (nodeByAlias) {
+        nodeToReplace = nodeByAlias;
+      } else {
+        // Try by ID (if it's a numeric string)
+        if (target.match(/^\d+$/)) {
+          const { data: nodeById } = await supabase
+            .from('nodes')
+            .select('*')
+            .eq('workflow_id', workflowId)
+            .eq('id', parseInt(target))
+            .single();
+            
+          if (nodeById) {
+            nodeToReplace = nodeById;
+          }
+        }
+      }
+      
+      if (!nodeToReplace) {
+        throw new Error(`Node not found with identifier: ${target}`);
+      }
+      
+      // For replacement, we only support single node (makes sense semantically)
+      if (nodes.length !== 1) {
+        throw new Error(`Node replacement requires exactly 1 node, got ${nodes.length}`);
+      }
+      
+      const newNode = nodes[0];
+      
+      // Update the existing node
+      const updatedNode = await this.updateNode({
+        nodeId: nodeToReplace.id,
+        updates: {
+          type: newNode.type,
+          config: newNode.config,
+          description: newNode.description,
+          alias: newNode.alias  // Can be same or different
+        }
+      });
+      
+      return {
+        success: true,
+        operation: 'replace',
+        nodes: [updatedNode],
+        message: `Replaced node '${target}' with new configuration`
+      };
+      
+    } else {
+      throw new Error(`Invalid target type: ${typeof target}. Expected 'end', number, or string.`);
+    }
+  }
+
+  /**
+   * New 2-function design: Delete Nodes
+   * Enhanced version with alias support
+   */
+  async deleteNodesByIdOrAlias(args, workflowId) {
+    const { nodeIds, options = {} } = args;
+    const { handleDependencies = true, deleteChildren = false, dryRun = false } = options;
+    
+    console.log(`[DELETE_NODES_V2] Deleting nodes:`, { nodeIds, options });
+    
+    // Convert aliases to IDs
+    const resolvedIds = [];
+    for (const identifier of nodeIds) {
+      if (typeof identifier === 'number') {
+        resolvedIds.push(identifier);
+      } else if (typeof identifier === 'string') {
+        // Try to resolve alias
+        const { data: nodeByAlias } = await supabase
+          .from('nodes')
+          .select('id')
+          .eq('workflow_id', workflowId)
+          .eq('alias', identifier)
+          .single();
+          
+        if (nodeByAlias) {
+          resolvedIds.push(nodeByAlias.id);
+        } else if (identifier.match(/^\d+$/)) {
+          // If it's a numeric string, treat as ID
+          resolvedIds.push(parseInt(identifier));
+        } else {
+          throw new Error(`Node not found with identifier: ${identifier}`);
+        }
+      }
+    }
+    
+    // Use the existing deleteNodes internal method
+    return await this.deleteNodes({
+      nodeIds: resolvedIds,
+      handleDependencies,
+      deleteChildren,
+      dryRun
+    });
+  }
+
   async deleteNode(args) {
     // Handle multiple node deletes passed in nodeIds array
     if (args.nodeIds && Array.isArray(args.nodeIds)) {
@@ -3242,6 +3406,15 @@ export class DirectorService {
       
       // Route to appropriate tool handler (same as existing processToolCalls)
       switch (toolName) {
+        // New 2-function design
+        case 'add_or_replace_nodes':
+          result = await this.addOrReplaceNodes(args, workflowId);
+          break;
+        case 'delete_nodes':
+          result = await this.deleteNodesByIdOrAlias(args, workflowId);
+          break;
+          
+        // Legacy functions (to be removed)
         case 'create_node':
           result = await this.createNode(args, workflowId);
           break;
