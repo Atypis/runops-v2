@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-After deep analysis of the Director 2.0 codebase, I propose consolidating the current 4 node operation functions into 2 elegant functions. This plan outlines the approach, identifies key design decisions, and provides a clear implementation path.
+After deep analysis of the Director 2.0 codebase, we successfully consolidated the current 4 node operation functions into 2 elegant functions. This document captures both the original plan and the actual implementation details.
 
 ## Current State Analysis
 
@@ -216,39 +216,97 @@ Maintains current delete functionality with its complex dependency handling.
 - Provide operation-specific error messages
 - Include examples in error text
 
-## Implementation Timeline
+## Implementation Status: COMPLETED ✅
 
-1. **Week 1**: 
-   - Implement `toolDefinitionsV2.js` with new schemas
-   - Create backend handlers
-   - Write comprehensive tests
+### What Was Actually Implemented
 
-2. **Week 2**:
-   - Update Director prompts with examples
-   - Run parallel testing
-   - Monitor for issues
+1. **Tool Definitions (`toolDefinitionsV2.js`)**:
+   - Created unified node schema used by both functions
+   - Implemented `add_or_replace_nodes` with full parameter documentation
+   - Implemented `delete_nodes` with alias support
+   - Enabled strict mode for JSON Schema validation
+   - Total lines of schema: ~270 (vs ~1000+ in original)
 
-3. **Week 3**:
-   - Gradual rollout
-   - Deprecation warnings on old functions
-   - Documentation updates
+2. **Backend Handlers (`directorService.js`)**:
+   - `addOrReplaceNodes`: Routes based on target type
+     - Validates all nodes have aliases (throws error if missing)
+     - Handles append, insert, and replace operations
+     - Returns unified response format
+   - `deleteNodesByIdOrAlias`: Enhanced delete with alias resolution
+     - Converts aliases to IDs before deletion
+     - Maintains all dependency handling logic
+   - Added to `executeToolCall` switch statement
 
-4. **Week 4**:
-   - Full transition
-   - Remove old functions
-   - Final cleanup
+3. **Additional Fixes**:
+   - Fixed browser_ai_query Zod schema error
+   - Fixed frontend real-time updates by adding new tool names to refresh triggers
 
-## Next Steps
+### Key Implementation Details
 
-1. **Approval**: Review and approve this plan
-2. **Prototype**: Implement in `toolDefinitionsV2.js`
-3. **Backend**: Create new handlers
-4. **Test**: Comprehensive testing suite
-5. **Deploy**: Gradual rollout with monitoring
+#### Alias Enforcement
+```javascript
+// In addOrReplaceNodes
+for (const node of nodes) {
+  if (!node.alias) {
+    throw new Error(`All nodes must have an alias. Node of type '${node.type}' is missing alias.`);
+  }
+  if (!node.alias.match(/^[a-z][a-z0-9_]*$/)) {
+    throw new Error(`Invalid alias '${node.alias}'. Must be snake_case starting with lowercase letter.`);
+  }
+}
+```
+
+#### Target Resolution
+```javascript
+// String target resolution in addOrReplaceNodes
+// First try by alias
+const { data: nodeByAlias } = await supabase
+  .from('nodes')
+  .select('*')
+  .eq('workflow_id', workflowId)
+  .eq('alias', target)
+  .single();
+
+// If not found, try by ID (if numeric string)
+if (!nodeByAlias && target.match(/^\d+$/)) {
+  // Try by ID...
+}
+```
+
+#### Frontend Integration
+```javascript
+// Updated in app.js
+const nodeTools = [
+  'create_node', 'create_workflow_sequence', 'insert_node_at', 
+  'update_node', 'delete_node', 
+  'add_or_replace_nodes', 'delete_nodes'  // Added new tools
+];
+```
+
+### Testing Results
+
+Successfully tested live with:
+```
+[ADD_OR_REPLACE_NODES] Target: end, Nodes: 1
+[ADD_OR_REPLACE_NODES] Appending nodes to end of workflow
+Result: {
+  "success": true,
+  "operation": "append",
+  "nodes": [...],
+  "message": "Added 1 node(s) to the end of the workflow"
+}
+```
+
+### Migration Notes
+
+- No backwards compatibility layer implemented (per user request)
+- Direct switch from `toolDefinitions.js` to `toolDefinitionsV2.js`
+- Old functions still exist in backend but are not exposed to Director
+- Frontend now recognizes both old and new tool names for compatibility
 
 ## Alternative Consideration
 
-If we want to be even more radical, we could go to a single function:
+We considered going to a single function:
 
 ```javascript
 manage_nodes({
@@ -259,14 +317,25 @@ manage_nodes({
 })
 ```
 
-However, this adds complexity without significant benefit and makes the schema more convoluted with conditional requirements.
+However, this would add complexity without significant benefit and make the schema more convoluted with conditional requirements.
 
-## Recommendation
+## Final Implementation
 
-Proceed with the 2-function approach as it provides the optimal balance of:
-- Simplicity
-- Clarity of intent  
-- Flexibility
-- Backwards compatibility
+The 2-function approach was successfully implemented and provides:
+- **Simplicity**: Clear, intuitive API
+- **Zero Duplication**: Single node schema definition
+- **Flexibility**: Handles all CRUD operations elegantly  
+- **Type Safety**: Strict mode JSON Schema validation
+- **Developer Experience**: Mandatory aliases prevent common errors
 
-The consolidation from 4 to 2 functions captures 90% of the deduplication benefit while maintaining clear semantics and safe operations.
+The consolidation from 4 to 2 functions eliminated ~870 lines of duplicated schema definitions while maintaining clear semantics and safe operations.
+
+## Lessons Learned
+
+1. **Aliases as First-Class Citizens**: Making aliases mandatory for ALL operations (including replacements) ensures consistency and prevents confusion.
+
+2. **Target Type Inference Works**: The polymorphic target parameter ("end" | number | string) provides an intuitive API without ambiguity.
+
+3. **Frontend Integration Matters**: Real-time updates required updating the frontend's tool name whitelist.
+
+4. **Simplicity Wins**: The 2-function design is easier to understand and use than either 4 functions or 1 mega-function.
