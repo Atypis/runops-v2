@@ -3689,7 +3689,7 @@ function App() {
         });
         
         // Refresh nodes if any node-related tools were called
-        const nodeTools = ['create_node', 'create_workflow_sequence', 'insert_node_at', 'update_node', 'delete_node'];
+        const nodeTools = ['create_node', 'create_workflow_sequence', 'insert_node_at', 'update_node', 'delete_node', 'add_or_replace_nodes', 'delete_nodes'];
         if (data.toolCalls.some(tc => nodeTools.includes(tc.toolName))) {
           await loadWorkflowNodes(workflowId);
         }
