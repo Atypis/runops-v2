@@ -28,10 +28,7 @@ Each cycle discovers more about the UI, adds capability, and refines understandi
 
 **Scout First:** ALWAYS deploy scout before building ANY interaction nodes. Web UIs vary across locales, A/B tests, and updates. Ask Scout for element tag names, multiple stable selectors, and any variations or edge cases.
 
-**Build with Aliases (STRICT):**
-- Every node MUST have an \`alias\` field (snake_case format)
-- Aliases must be unique across the workflow
-- \`config\` must never be empty - the platform rejects \`{}\`
+**Build with Aliases:**
 - Reference nodes by alias: \`{{extract_emails.result}}\`
 
 **Auto-Validation:** Navigation nodes (click, type) automatically validate their selectors - if not found, execution halts. No need for separate "element exists" checks.
@@ -91,25 +88,20 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 **Execution Layer:**
 1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, screenshot, keypress)
    - Fast, predictable, no AI involvement
-   - NO click or type actions (moved to browser_ai_action)
 2. \`browser_ai_action\` - AI-powered UI interactions (click, type, act)
    - Uses natural language to find and interact with elements
    - Slower, costs tokens, but handles complex/dynamic UIs
-3. \`browser_query\` - Deterministic validation (element_exists, element_absent)
+3. \`browser_query\` - Deterministic validation 
    - Fast CSS selector checks only
-   - NO extract or observe methods (moved to browser_ai_query)
 4. \`browser_ai_query\` - AI-powered data extraction from the page
-   - Always requires a schema to define expected data structure
-   - Use {"content": "string"} for simple text, or complex schemas for structured data
    - Costs tokens but handles any page content intelligently
 5. \`cognition\` - AI-powered reasoning and data analysis
    - Process any data (not page content) with natural language instructions
    - Examples: classify items, make decisions, transform text, analyze patterns
-   - Optional schema for structured JSON output
 6. \`agent\` - Self-healing UI automation
 
 **Control Layer:**
-7. \`iterate\` - Loop over arrays (requires: over, variable)
+7. \`iterate\` - Loop over arrays
 8. \`route\` - Conditional branching
 9. \`handle\` - Error boundaries
 
@@ -119,24 +111,18 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 ## 7. Variable Reference System
 
-- **Stored node results:** \`{{extract_emails.title}}\` (use alias + property name directly)
-- **Environment:** \`{{env:GMAIL_EMAIL}}\` (env: prefix)
-- **Workflow variables:** \`{{user_credentials.email}}\` (no prefix)
-- **Iterator variables:** \`{{current_email.subject}}\` (in loops)
-
-**Note:** To reference a node's result later, set \`store_variable: true\` in that node's config.
-When stored, access properties directly: \`{{alias.propertyName}}\` NOT \`{{alias.result.propertyName}}\`
-
-**NEVER prefix variables with \`state.\`** - Wrong: \`{{state.email}}\`, Right: \`{{email}}\`
+- **Stored node results:** \`{{extract_emails.title}}\`
+- **Environment:** \`{{env:GMAIL_EMAIL}}\`
+- **Workflow variables:** \`{{user_credentials.email}}\`
+- **Iterator variables:** \`{{current_email.subject}}\`
 
 ## 8. Critical Rules
 
 1. **Always scout before building** - Never assume UI structure
-2. **Every node needs an alias** - This is mandatory, not optional
-3. **Prefer deterministic selectors** - IDs, data-testid, aria-labels
-4. **Use union selectors for variations** - \`input[name='q'], textarea[name='q']\`
-5. **Test incrementally** - Execute after each build cycle
-6. **🔴 NO API CALLS** - Pure UI automation only
+2. **Prefer deterministic selectors** - IDs, data-testid, aria-labels
+3. **Use union selectors for variations** - \`input[name='q'], textarea[name='q']\`
+4. **Test incrementally** - Execute after each build cycle
+5. **🔴 NO API CALLS** - Pure UI automation only
 
 ## 9. Common Patterns
 
@@ -168,18 +154,15 @@ When stored, access properties directly: \`{{alias.propertyName}}\` NOT \`{{alia
 // AI-POWERED browser_ai_query - Complex data extraction (requires schema)
 {type: "browser_ai_query", alias: "extract_prices", config: {
   instruction: "Extract all product prices from the page",
-  schema: {prices: "array", "prices[]": "number"},
-  store_variable: true  // Set this to reference {{extract_prices.result}} later!
+  schema: {type: "object", properties: {prices: {type: "array", items: {type: "number"}}}},
+  store_variable: true  // Set this to reference {{extract_prices.prices}} later!
 }}
 \`\`\`
 
 **Multi-Tab Navigation:**
 - First tab is "main" (exists automatically)
-- \`openNewTab\` REQUIRES a name: \`{action: "openNewTab", url: "https://example.com", name: "example"}\`
 - The new tab becomes active automatically
 - All actions operate on the active tab
-- Use \`switchTab\` with the tab name: \`{action: "switchTab", tabName: "example"}\`
-- Without a name, tabs cannot be tracked or switched to
 - Note: Duplicate tab names are auto-suffixed (e.g., "facebook" → "facebook_2")
 
 **Complete Node Examples:**
@@ -221,33 +204,47 @@ When stored, access properties directly: \`{{alias.propertyName}}\` NOT \`{{alia
   method: "element_absent", selector: ".error-message"
 }}
 
-// browser_ai_query - AI-powered data extraction (always requires schema)
+// browser_ai_query - AI-powered data extraction
 {type: "browser_ai_query", alias: "get_prices", config: {
   instruction: "Extract all product prices and their names",
-  schema: {products: "array", "products[].name": "string", "products[].price": "number"},
-  store_variable: true  // REQUIRED to reference {{get_prices.result}} later
+  schema: {
+    type: "object",
+    properties: {
+      products: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: {type: "string"},
+            price: {type: "number"}
+          }
+        }
+      }
+    }
+  },
+  store_variable: true  // To reference {{get_prices.products}} later
 }}
 {type: "browser_ai_query", alias: "get_description", config: {
   instruction: "Describe what's visible on this page",
-  schema: {description: "string"},
-  store_variable: true  // REQUIRED to reference {{get_description.result}} later
+  schema: {type: "object", properties: {description: {type: "string"}}},
+  store_variable: true  // To reference {{get_description.description}} later
 }}
 {type: "browser_ai_query", alias: "check_state", config: {
   instruction: "Is the checkout process complete?",
-  schema: {isComplete: "boolean", reason: "string"},
-  store_variable: true  // REQUIRED to reference {{check_state.isComplete}} later
+  schema: {type: "object", properties: {isComplete: {type: "boolean"}, reason: {type: "string"}}},
+  store_variable: true  // To reference {{check_state.isComplete}} later
 }}
 
-// Using stored node results - notice no .result in the path!
+// Using stored node results
 {type: "browser_ai_action", alias: "search_product", config: {
   action: "type", 
   instruction: "Type the product title in search", 
-  text: "{{get_prices.products[0].name}}"  // Direct access to stored data
+  text: "{{get_prices.products[0].name}}"
 }}
 
 // Control flow nodes
 {type: "iterate", alias: "process_items", config: {
-  over: "{{get_prices.products}}", variable: "current_item"  // Direct access to array
+  over: "{{get_prices.products}}", variable: "current_item"
 }}
 {type: "route", alias: "check_success", config: {
   condition: "{{login_result}} === true", true_branch: 15, false_branch: 20
@@ -260,7 +257,7 @@ When stored, access properties directly: \`{{alias.propertyName}}\` NOT \`{{alia
 }}
 {type: "cognition", alias: "classify_emails", config: {
   instruction: "Classify these emails by urgency: {{emails}}. Return as JSON with structure: {urgent: [], normal: [], low: []}",
-  schema: {urgent: "array", normal: "array", low: "array"},
+  schema: {type: "object", properties: {urgent: {type: "array"}, normal: {type: "array"}, low: {type: "array"}}},
   store_variable: true
 }}
 \`\`\`

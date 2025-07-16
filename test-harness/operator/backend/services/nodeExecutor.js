@@ -542,20 +542,27 @@ export class NodeExecutor {
           // Use alias as the storage key (with iteration context if applicable)
           const storageKey = this.getStorageKey(node.alias);
           
-          await supabase
+          const { data: memData, error: memError } = await supabase
             .from('workflow_memory')
             .upsert({
               workflow_id: workflowId,
               key: storageKey,
               value: result
-            });
+            }, { onConflict: 'workflow_id,key' })
+            .select()
+            .single();
             
-          console.log(`[EXECUTE] Stored variable '${storageKey}' for node ${node.alias}`);
+          if (memError) {
+            throw memError;
+          }
+            
+          console.log(`[EXECUTE] Stored variable '${storageKey}' for node ${node.alias} with value:`, JSON.stringify(result, null, 2).substring(0, 200) + '...');
           
           // Still send real-time update for UI
           this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
         } catch (memError) {
           console.error(`[EXECUTE] Failed to store variable for ${node.alias}:`, memError);
+          console.error(`[EXECUTE] Full error details:`, JSON.stringify(memError, null, 2));
           // Don't fail the execution if memory storage fails
         }
       }
@@ -1376,8 +1383,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       
       // Navigate nested properties
       let value = memoryData.value;
+      console.log(`[STATE] Starting with value:`, JSON.stringify(value, null, 2));
+      
       for (let i = 1; i < parts.length; i++) {
-        value = value?.[parts[i]];
+        const part = parts[i];
+        console.log(`[STATE] Accessing property '${part}' on value of type ${typeof value}`);
+        value = value?.[part];
+        console.log(`[STATE] Result:`, JSON.stringify(value, null, 2));
       }
       
       return value;

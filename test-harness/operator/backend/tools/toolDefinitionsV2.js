@@ -15,12 +15,12 @@ export function createToolDefinitions() {
             },
             schema: {
               type: 'object',
-              description: 'Required JSON schema defining expected data structure. Examples: {"content": "string"} for text, {"isVisible": "boolean"} for checks, {"title": "string", "price": "number"} for structured data',
+              description: 'Required JSON schema in proper JSON Schema format. Must use type definitions. Examples: {type: "object", properties: {title: {type: "string"}}} for objects, {type: "array", items: {type: "string"}} for arrays, {type: "boolean"} for booleans. Always specify types explicitly.',
               additionalProperties: true
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['instruction', 'schema'],
@@ -32,7 +32,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -67,7 +67,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['action', 'instruction'],
@@ -79,7 +79,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -97,7 +97,7 @@ export function createToolDefinitions() {
             action: {
               type: 'string',
               enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'screenshot', 'listTabs', 'getCurrentTab', 'keypress'],
-              description: 'The deterministic browser action to perform'
+              description: 'The deterministic browser action to perform. Note: click and type actions have been moved to browser_ai_action node type.'
             },
             url: {
               type: 'string',
@@ -118,7 +118,7 @@ export function createToolDefinitions() {
             },
             name: {
               type: 'string',
-              description: 'For openNewTab/screenshot: Tab name or screenshot file name'
+              description: 'For openNewTab: REQUIRED tab name (tabs cannot be tracked without names). For screenshot: file name.'
             },
             key: {
               type: 'string',
@@ -130,7 +130,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['action'],
@@ -142,7 +142,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -160,7 +160,7 @@ export function createToolDefinitions() {
             method: {
               type: 'string',
               enum: ['validate'],
-              description: 'The query method - browser_query only supports validate'
+              description: 'The query method - browser_query only supports validate. Note: extract and observe methods have been moved to browser_ai_query node type.'
             },
             rules: {
               type: 'array',
@@ -193,7 +193,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['method', 'rules'],
@@ -205,7 +205,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -222,7 +222,7 @@ export function createToolDefinitions() {
           properties: {
             over: {
               type: 'string',
-              description: 'Variable to iterate over (e.g., "{{emails.result}}")'
+              description: 'Variable reference to iterate over. Use {{alias.property}} syntax (e.g., "{{extract_emails.emails}}").'
             },
             variable: {
               type: 'string',
@@ -235,7 +235,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['over', 'variable'],
@@ -247,7 +247,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -277,7 +277,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['nodeRange'],
@@ -289,7 +289,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -316,7 +316,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['operation'],
@@ -328,7 +328,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -354,7 +354,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false)'
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
           required: ['instruction'],
@@ -366,7 +366,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -384,7 +384,7 @@ export function createToolDefinitions() {
         },
         config: {
           type: 'object',
-          description: 'Configuration specific to the node type',
+          description: 'Configuration specific to the node type. Config object cannot be empty ({}) - platform will reject it.',
           additionalProperties: true
         },
         description: {
@@ -393,7 +393,7 @@ export function createToolDefinitions() {
         },
         alias: {
           type: 'string',
-          description: 'Required unique identifier for the node (snake_case format)',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
           pattern: '^[a-z][a-z0-9_]*$'
         }
       },
@@ -407,7 +407,7 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'add_or_replace_nodes',
-        description: 'Add nodes to the workflow or replace existing nodes. Use target="end" to append, a number to insert at position, or a node alias/id to replace.',
+        description: 'Add nodes to the workflow or replace existing nodes. Use target="end" to append, a number to insert at position, or a node alias/id to replace. Every node MUST have a unique alias and non-empty config object.',
         parameters: {
           type: 'object',
           properties: {
