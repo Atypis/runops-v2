@@ -1535,12 +1535,25 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
     }
     
-    console.log(`[ITERATE] Starting iteration over: ${config.over}`);
+    console.log(`[ITERATE] Starting iteration over:`, config.over);
     
     // Get the collection to iterate over
-    const collection = await this.getStateValue(config.over.replace('state.', ''), workflowId);
+    let collection;
+    if (Array.isArray(config.over)) {
+      // Already resolved to an array by resolveTemplateVariables
+      console.log(`[ITERATE] Using already-resolved array with ${config.over.length} items`);
+      collection = config.over;
+    } else if (typeof config.over === 'string') {
+      // It's a path reference - resolve it
+      console.log(`[ITERATE] Resolving path reference: ${config.over}`);
+      collection = await this.getStateValue(config.over.replace('state.', ''), workflowId);
+    } else {
+      console.warn(`[ITERATE] Invalid 'over' value type: ${typeof config.over}`, config.over);
+      return { results: [], errors: [], processed: 0, total: 0 };
+    }
+    
     if (!Array.isArray(collection)) {
-      console.warn(`[ITERATE] Value at ${config.over} is not an array:`, collection);
+      console.warn(`[ITERATE] Resolved value is not an array:`, collection);
       return { results: [], errors: [], processed: 0, total: 0 };
     }
     
