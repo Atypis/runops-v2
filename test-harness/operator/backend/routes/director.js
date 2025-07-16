@@ -254,7 +254,7 @@ router.post('/execute-iteration-step', async (req, res, next) => {
 router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
   try {
     const { nodeId } = req.params;
-    console.log(`[ITERATION PREVIEW] Fetching preview for node ${nodeId}`);
+    console.log(`[ITERATION PREVIEW] Fetching preview for node ${nodeId} using unified approach`);
     
     // Fetch the node
     const { data: node, error } = await directorService.supabase
@@ -271,44 +271,6 @@ router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
       return res.status(400).json({ error: 'Node is not an iterate type' });
     }
     
-    // Get the collection to iterate over
-    const executor = directorService.nodeExecutor;
-    
-    // Resolve template variables in the 'over' parameter
-    const resolvedOver = await executor.resolveTemplateVariables(
-      node.params.over,
-      node.workflow_id
-    );
-    
-    // Handle both direct state references and resolved values
-    let collection;
-    if (Array.isArray(resolvedOver)) {
-      // Already resolved to an array
-      console.log(`[ITERATION PREVIEW] Already resolved to array with ${resolvedOver.length} items`);
-      collection = resolvedOver;
-    } else if (typeof resolvedOver === 'string' && (resolvedOver.includes('.') || resolvedOver.startsWith('state'))) {
-      // It's still a path reference (e.g., "state.items" or "items")
-      console.log(`[ITERATION PREVIEW] Resolving string path: ${resolvedOver}`);
-      const path = resolvedOver.replace('state.', '');
-      collection = await executor.getStateValue(path, node.workflow_id);
-    } else if (typeof resolvedOver === 'string') {
-      // Simple string reference without dots - might be a direct state variable
-      console.log(`[ITERATION PREVIEW] Resolving simple string: ${resolvedOver}`);
-      collection = await executor.getStateValue(resolvedOver, node.workflow_id);
-    } else {
-      // Unexpected type
-      console.log(`[ITERATION PREVIEW] Unexpected resolved type: ${typeof resolvedOver}`, resolvedOver);
-      collection = resolvedOver;
-    }
-    
-    if (!Array.isArray(collection)) {
-      console.log(`[ITERATION PREVIEW] Resolved value is not an array:`, typeof resolvedOver, resolvedOver);
-      return res.json({ 
-        items: [],
-        message: 'Collection not found or not an array'
-      });
-    }
-    
     // Clear any previous error state on the node
     if (node.status === 'failed') {
       console.log(`[ITERATION PREVIEW] Clearing error state for node ${nodeId}`);
@@ -321,40 +283,31 @@ router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
         .eq('id', nodeId);
     }
     
-    // Get body node information
-    let bodyNodes = [];
-    if (Array.isArray(node.params.body) && node.params.body.length > 0 && typeof node.params.body[0] === 'number') {
-      const { data: nodes } = await directorService.supabase
-        .from('nodes')
-        .select('*')
-        .eq('workflow_id', node.workflow_id)
-        .in('position', node.params.body)
-        .order('position');
-      
-      bodyNodes = nodes || [];
-    }
+    // Use the unified executeIterate method with preview mode
+    const executor = directorService.nodeExecutor;
     
-    // Create preview structure similar to executeIterate preview mode
-    const preview = {
-      iterationCount: collection.length,
-      items: collection.map((item, idx) => ({
-        index: idx,
-        data: item,
-        status: 'pending',
-        results: []
-      })),
-      variable: node.params.variable || 'item',
-      bodyNodePositions: node.params.body,
-      bodyNodes: bodyNodes,
-      status: 'preview',
-      processed: 0,
-      total: collection.length
-    };
+    // First resolve the node parameters using the same logic as execution
+    console.log(`[ITERATION PREVIEW] Resolving node parameters with unified approach`);
+    const resolvedParams = await executor.resolveNodeParams(node.params, node.workflow_id);
     
+    // Call executeIterate with preview mode (previewOnly defaults to true)
+    const preview = await executor.executeIterate(
+      resolvedParams, 
+      node.workflow_id, 
+      node.position, 
+      { previewOnly: true }
+    );
+    
+    console.log(`[ITERATION PREVIEW] Successfully generated preview using unified approach`);
     res.json(preview);
   } catch (error) {
-    console.error('Failed to get iteration preview:', error);
-    next(error);
+    console.error('Failed to get iteration preview with unified approach:', error);
+    res.status(500).json({ 
+      error: { 
+        message: error.message, 
+        status: 500 
+      } 
+    });
   }
 });
 
