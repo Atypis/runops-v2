@@ -6,10 +6,11 @@
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
-    "dev": "nodemon backend/server.js"
+    "dev": "nodemon backend/server.js",
+    "postinstall": "patch-package"
   },
   "dependencies": {
-    "@browserbasehq/stagehand": "^1.0.0",
+    "@browserbasehq/stagehand": "^2.4.1",
     "@playwright/test": "^1.53.2",
     "@supabase/supabase-js": "^2.39.0",
     "cors": "^2.8.5",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.2",
+    "patch-package": "^8.0.0",
     "typescript": "^5.8.3"
   }
 }

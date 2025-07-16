@@ -1,4 +1,5 @@
 import { Stagehand } from '@browserbasehq/stagehand';
+
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { supabase } from '../config/supabase.js';
