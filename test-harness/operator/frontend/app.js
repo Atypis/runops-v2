@@ -488,11 +488,26 @@ function App() {
     
     eventSource.onmessage = (event) => {
       try {
-        const browserStateData = JSON.parse(event.data);
-        console.log('[SSE] Received browser state update:', browserStateData.formattedDisplay?.substring(0, 50) + '...');
-        setBrowserState(browserStateData);
+        const data = JSON.parse(event.data);
+        
+        // Handle different event types
+        if (data.type === 'browserStateUpdate') {
+          console.log('[SSE] Received browser state update:', data.formattedDisplay?.substring(0, 50) + '...');
+          setBrowserState(data);
+        } else if (data.type === 'variableUpdate') {
+          console.log('[SSE] Received variable update:', data.variableKey, 'from node:', data.nodeAlias);
+          // Trigger a variable update event that components can listen to
+          window.dispatchEvent(new CustomEvent('variableUpdate', { 
+            detail: { 
+              key: data.variableKey, 
+              nodeAlias: data.nodeAlias,
+              value: data.value,
+              timestamp: data.timestamp
+            } 
+          }));
+        }
       } catch (error) {
-        console.error('[SSE] Error parsing browser state update:', error);
+        console.error('[SSE] Error parsing event:', error);
       }
     };
     
@@ -2309,13 +2324,33 @@ function App() {
           // Old format - actual execution results
           console.log(`Loading iteration results for node ${node.id}: ${node.result.results.length} results`);
           setIterationData(node.result.results);
-        } else if (!iterationData) {
-          // No result yet and no iteration data - fetch preview data from the new endpoint
-          console.log(`No iteration data found for node ${node.id}, fetching preview...`);
+        } else if (!iterationData && !isLoadingPreview) {
+          // No result yet and no iteration data - fetch preview once
+          console.log(`No iteration data found for node ${node.id}, fetching preview once...`);
           fetchIterationPreview();
         }
       }
-    }, [isIterate, expanded, node.result, iterationData, fetchIterationPreview]);
+    }, [isIterate, expanded, node.result?.items, node.result?.results]); // Removed iterationData and fetchIterationPreview from deps
+    
+    // Listen for variable updates that might affect this iterate node
+    React.useEffect(() => {
+      if (!isIterate || !node.params?.over) return;
+      
+      const handleVariableUpdate = (event) => {
+        const { nodeAlias } = event.detail;
+        // Extract the alias from the over parameter (e.g., "{{define_animals.animals}}" -> "define_animals")
+        const overMatch = node.params.over.match(/\{\{([^.]+)/);
+        const overAlias = overMatch ? overMatch[1] : null;
+        
+        if (overAlias && overAlias === nodeAlias) {
+          console.log(`[ITERATE] Variable update detected for ${nodeAlias}, fetching preview...`);
+          fetchIterationPreview();
+        }
+      };
+      
+      window.addEventListener('variableUpdate', handleVariableUpdate);
+      return () => window.removeEventListener('variableUpdate', handleVariableUpdate);
+    }, [isIterate, node.params?.over, fetchIterationPreview]);
     
     
     // Helper to render a nested node or array of nodes
