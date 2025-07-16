@@ -564,6 +564,7 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
         const rawBrowserState = await directorService.browserStateService.getBrowserState(workflowId);
         
         const data = JSON.stringify({
+          type: 'browserStateUpdate',
           formattedDisplay: browserStateContext,
           rawState: rawBrowserState,
           timestamp: new Date().toISOString()

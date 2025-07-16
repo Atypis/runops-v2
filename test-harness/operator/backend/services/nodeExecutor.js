@@ -560,6 +560,11 @@ export class NodeExecutor {
           
           // Still send real-time update for UI
           this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
+          
+          // Emit SSE event for variable storage
+          if (this.browserStateService) {
+            await this.browserStateService.emitVariableUpdate(workflowId, storageKey, result, node.alias);
+          }
         } catch (memError) {
           console.error(`[EXECUTE] Failed to store variable for ${node.alias}:`, memError);
           console.error(`[EXECUTE] Full error details:`, JSON.stringify(memError, null, 2));

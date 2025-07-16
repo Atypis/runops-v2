@@ -290,6 +290,7 @@ class BrowserStateService {
       const rawBrowserState = await this.getBrowserState(workflowId);
       
       const data = JSON.stringify({
+        type: 'browserStateUpdate',
         formattedDisplay: browserStateContext,
         rawState: rawBrowserState,
         timestamp: new Date().toISOString()
@@ -311,6 +312,41 @@ class BrowserStateService {
     } catch (error) {
       console.error(`[SSE] Error emitting browser state update:`, error);
     }
+  }
+
+  /**
+   * Emit variable storage update to connected clients
+   * Called when a node stores a variable
+   */
+  async emitVariableUpdate(workflowId, variableKey, value, nodeAlias) {
+    const connections = this.sseConnections.get(workflowId);
+    if (!connections || connections.length === 0) {
+      console.log(`[SSE] No connections to emit variable update for workflow ${workflowId}`);
+      return;
+    }
+
+    const data = JSON.stringify({
+      type: 'variableUpdate',
+      variableKey,
+      nodeAlias,
+      value,
+      timestamp: new Date().toISOString()
+    });
+
+    console.log(`[SSE] Emitting variable update for ${variableKey} to ${connections.length} connections`);
+
+    const deadConnections = [];
+    connections.forEach((res, index) => {
+      try {
+        res.write(`data: ${data}\n\n`);
+      } catch (error) {
+        console.error(`[SSE] Error sending variable update to connection ${index}:`, error.message);
+        deadConnections.push(index);
+      }
+    });
+
+    // Remove dead connections
+    deadConnections.reverse().forEach(index => connections.splice(index, 1));
   }
 }
 
