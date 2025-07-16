@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { Stagehand } from '@browserbasehq/stagehand';
-import { DIRECTOR_SYSTEM_PROMPT_V2 as DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPromptV2.js';
+import { DIRECTOR_SYSTEM_PROMPT_V3 as DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPromptV3.js';
 import { CLEAN_DIRECTOR_SYSTEM_PROMPT } from '../prompts/cleanDirectorPrompt.js';
 import { createToolDefinitions } from '../tools/toolDefinitionsV2.js';
 import { NodeExecutor } from './nodeExecutor.js';
@@ -797,10 +797,10 @@ export class DirectorService {
         break;
       case 'browser_query':
         if (!config.method) throw new Error('browser_query requires "method" field');
-        if (config.method !== 'validate') throw new Error('browser_query only supports "validate" method. Use browser_ai_query for extract/observe.');
+        if (config.method !== 'validate') throw new Error('browser_query only supports "validate" method. Use browser_ai_query for AI-powered data extraction.');
         break;
       case 'browser_ai_query':
-        if (!config.method || !config.instruction) throw new Error('browser_ai_query requires "method" and "instruction" fields');
+        if (!config.instruction || !config.schema) throw new Error('browser_ai_query requires "instruction" and "schema" fields');
         break;
       case 'memory':
         if (!config.operation || !config.key) throw new Error('memory requires "operation" and "key" fields');
@@ -1653,12 +1653,12 @@ export class DirectorService {
             errors.push(`Node at index ${index}: browser_query requires 'method' field in config`);
           }
           if (node.config.method !== 'validate') {
-            errors.push(`Node at index ${index}: browser_query only supports 'validate' method. Use browser_ai_query for extract/observe.`);
+            errors.push(`Node at index ${index}: browser_query only supports 'validate' method. Use browser_ai_query for AI-powered data extraction.`);
           }
           break;
         case 'browser_ai_query':
-          if (!node.config.method || !node.config.instruction) {
-            errors.push(`Node at index ${index}: browser_ai_query requires 'method' and 'instruction' fields in config`);
+          if (!node.config.instruction || !node.config.schema) {
+            errors.push(`Node at index ${index}: browser_ai_query requires 'instruction' and 'schema' fields in config`);
           }
           break;
         case 'iterate':

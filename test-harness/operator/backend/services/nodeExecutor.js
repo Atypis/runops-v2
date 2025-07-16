@@ -949,7 +949,7 @@ export class NodeExecutor {
   }
 
   async executeBrowserAIQuery(config) {
-    console.log(`[BROWSER_AI_QUERY] Method: ${config.method}, Instruction: ${config.instruction}`);
+    console.log(`[BROWSER_AI_QUERY] Instruction: ${config.instruction}`);
     
     const stagehand = await this.getStagehand();
     
@@ -966,58 +966,44 @@ export class NodeExecutor {
 
     const activePage = await getActiveStagehandPage();
 
-    switch (config.method) {
-      case 'extract':
-        // Convert schema to Zod if provided
-        let zodSchema = undefined;
-        if (config.schema && typeof config.schema === 'object') {
-          zodSchema = this.convertJsonSchemaToZod(config.schema);
-        }
-        
-        const enhancedInstruction = `${config.instruction}
+    // Schema is always required
+    if (!config.schema || typeof config.schema !== 'object') {
+      throw new Error('Schema is required for browser_ai_query. Examples: {"content": "string"} for text, {"isVisible": "boolean"} for checks, {"title": "string", "price": "number"} for structured data.');
+    }
+    
+    console.log(`[BROWSER_AI_QUERY] Schema provided:`, JSON.stringify(config.schema, null, 2));
+    
+    // Convert schema to Zod
+    let zodSchema;
+    try {
+      zodSchema = this.convertJsonSchemaToZod(config.schema);
+      if (!zodSchema) {
+        throw new Error('Failed to convert schema to Zod format');
+      }
+    } catch (error) {
+      console.error(`[BROWSER_AI_QUERY] Schema conversion error:`, error);
+      throw new Error(`Invalid schema format: ${error.message}`);
+    }
+    
+    const enhancedInstruction = `${config.instruction}
 
-CRITICAL: You must ONLY extract data that is actually visible on the page. DO NOT hallucinate, make up, or generate example data. If no data matching the criteria is found, return an empty array or null values. Never create fictional data.`;
-        
-        // Build options object conditionally
-        const extractOptions = {
-          instruction: enhancedInstruction
-        };
-        
-        // Only include schema if it's defined
-        if (zodSchema) {
-          extractOptions.schema = zodSchema;
-        }
-        
-        const extractResult = await activePage.extract(extractOptions);
-        
-        console.log(`[BROWSER_AI_QUERY] Extract result:`, JSON.stringify(extractResult, null, 2));
-        return extractResult;
-        
-      case 'observe':
-        const observeResult = await activePage.observe({
-          instruction: config.instruction
-        });
-        return observeResult;
-        
-      case 'assess':
-        // AI-powered assessment (replacement for ai_assessment validation)
-        const assessResult = await activePage.observe({
-          instruction: config.instruction
-        });
-        
-        const passed = config.expected ? 
-          (assessResult === config.expected || 
-           (typeof assessResult === 'string' && assessResult.toLowerCase().includes(config.expected.toLowerCase()))) :
-          !!assessResult;
-          
-        return {
-          assessment: assessResult,
-          expected: config.expected,
-          passed
-        };
-        
-      default:
-        throw new Error(`Unknown browser_ai_query method: ${config.method}`);
+CRITICAL: You must ONLY extract data that is actually visible on the page. DO NOT hallucinate, make up, or generate example data. If no data matching the criteria is found, return null values or empty strings. Never create fictional data.`;
+    
+    const extractOptions = {
+      instruction: enhancedInstruction,
+      schema: zodSchema
+    };
+    
+    console.log(`[BROWSER_AI_QUERY] Calling extract with Zod schema`);
+    
+    try {
+      const extractResult = await activePage.extract(extractOptions);
+      console.log(`[BROWSER_AI_QUERY] Extract result:`, JSON.stringify(extractResult, null, 2));
+      return extractResult;
+    } catch (error) {
+      console.error(`[BROWSER_AI_QUERY] Extract failed:`, error);
+      console.error(`[BROWSER_AI_QUERY] Error stack:`, error.stack);
+      throw new Error(`Failed to extract data: ${error.message}`);
     }
   }
 

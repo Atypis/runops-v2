@@ -98,9 +98,10 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 3. \`browser_query\` - Deterministic validation (element_exists, element_absent)
    - Fast CSS selector checks only
    - NO extract or observe methods (moved to browser_ai_query)
-4. \`browser_ai_query\` - AI-powered data extraction and observation
-   - Methods: extract (get data), observe (find elements), assess (check state)
-   - Costs tokens but handles complex data structures
+4. \`browser_ai_query\` - AI-powered data extraction from the page
+   - Always requires a schema to define expected data structure
+   - Use {"content": "string"} for simple text, or complex schemas for structured data
+   - Costs tokens but handles any page content intelligently
 5. \`transform\` - Pure data manipulation
 6. \`cognition\` - AI-powered reasoning
 7. \`agent\` - Self-healing UI automation
@@ -116,10 +117,13 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 ## 7. Variable Reference System
 
-- **Node results:** \`{{extract_emails.result}}\` (use alias)
+- **Stored node results:** \`{{extract_emails.title}}\` (use alias + property name directly)
 - **Environment:** \`{{env:GMAIL_EMAIL}}\` (env: prefix)
-- **Stored variables:** \`{{user_credentials.email}}\` (no prefix)
+- **Workflow variables:** \`{{user_credentials.email}}\` (no prefix)
 - **Iterator variables:** \`{{current_email.subject}}\` (in loops)
+
+**Note:** To reference a node's result later, set \`store_variable: true\` in that node's config.
+When stored, access properties directly: \`{{alias.propertyName}}\` NOT \`{{alias.result.propertyName}}\`
 
 **NEVER prefix variables with \`state.\`** - Wrong: \`{{state.email}}\`, Right: \`{{email}}\`
 
@@ -159,9 +163,11 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   method: "element_exists", selector: "#loginForm"
 }}
 
-// AI-POWERED browser_ai_query - Complex data extraction
+// AI-POWERED browser_ai_query - Complex data extraction (requires schema)
 {type: "browser_ai_query", alias: "extract_prices", config: {
-  method: "extract", instruction: "Extract all product prices from the page"
+  instruction: "Extract all product prices from the page",
+  schema: {prices: "array", "prices[]": "number"},
+  store_variable: true  // Set this to reference {{extract_prices.result}} later!
 }}
 \`\`\`
 
@@ -199,7 +205,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   action: "click", instruction: "Click the accept cookies button"
 }}
 {type: "browser_ai_action", alias: "enter_email", config: {
-  action: "type", instruction: "Enter email in the login form", text: "{{user_email}}"
+  action: "type", instruction: "Enter email in the login form", text: "{{stored_email.address}}"
 }}
 {type: "browser_ai_action", alias: "complex_action", config: {
   action: "act", instruction: "Fill out the shipping form with: Name: {{name}}, Address: {{address}}, select expedited shipping"
@@ -213,20 +219,33 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   method: "element_absent", selector: ".error-message"
 }}
 
-// browser_ai_query - AI-powered data extraction
+// browser_ai_query - AI-powered data extraction (always requires schema)
 {type: "browser_ai_query", alias: "get_prices", config: {
-  method: "extract", instruction: "Extract all product prices and their names"
+  instruction: "Extract all product prices and their names",
+  schema: {products: "array", "products[].name": "string", "products[].price": "number"},
+  store_variable: true  // REQUIRED to reference {{get_prices.result}} later
 }}
-{type: "browser_ai_query", alias: "find_buttons", config: {
-  method: "observe", instruction: "Find all clickable buttons on the page"
+{type: "browser_ai_query", alias: "get_description", config: {
+  instruction: "Describe what's visible on this page",
+  schema: {description: "string"},
+  store_variable: true  // REQUIRED to reference {{get_description.result}} later
 }}
 {type: "browser_ai_query", alias: "check_state", config: {
-  method: "assess", instruction: "Is the checkout process complete?"
+  instruction: "Is the checkout process complete?",
+  schema: {isComplete: "boolean", reason: "string"},
+  store_variable: true  // REQUIRED to reference {{check_state.isComplete}} later
+}}
+
+// Using stored node results - notice no .result in the path!
+{type: "browser_ai_action", alias: "search_product", config: {
+  action: "type", 
+  instruction: "Type the product title in search", 
+  text: "{{get_prices.products[0].name}}"  // Direct access to stored data
 }}
 
 // Control flow nodes
 {type: "iterate", alias: "process_items", config: {
-  over: "{{items_list}}", variable: "current_item"
+  over: "{{get_prices.products}}", variable: "current_item"  // Direct access to array
 }}
 {type: "route", alias: "check_success", config: {
   condition: "{{login_result}} === true", true_branch: 15, false_branch: 20

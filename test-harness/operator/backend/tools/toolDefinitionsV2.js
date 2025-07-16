@@ -1,7 +1,7 @@
 export function createToolDefinitions() {
   // Define node schemas with type-specific required fields using anyOf
   const nodeSchemas = [
-    // browser_ai_query - requires method and instruction
+    // browser_ai_query - uses AI to get content from the page with required schema
     {
       type: 'object',
       properties: {
@@ -9,29 +9,21 @@ export function createToolDefinitions() {
         config: {
           type: 'object',
           properties: {
-            method: {
-              type: 'string',
-              enum: ['extract', 'observe', 'assess'],
-              description: 'The query method (extract for structured data, observe for descriptions, assess for validations)'
-            },
             instruction: {
               type: 'string',
-              description: 'Natural language instruction describing what to extract, observe, or assess'
+              description: 'Natural language instruction describing what to get from the page'
             },
             schema: {
               type: 'object',
-              description: 'For extract: Optional JSON schema defining expected data structure'
-            },
-            expected: {
-              type: 'string',
-              description: 'For assess: Expected state or condition to check for'
+              description: 'Required JSON schema defining expected data structure. Examples: {"content": "string"} for text, {"isVisible": "boolean"} for checks, {"title": "string", "price": "number"} for structured data',
+              additionalProperties: true
             },
             store_variable: {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false)'
             }
           },
-          required: ['method', 'instruction'],
+          required: ['instruction', 'schema'],
           additionalProperties: false
         },
         description: {
