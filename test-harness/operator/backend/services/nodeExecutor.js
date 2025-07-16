@@ -241,6 +241,21 @@ export class NodeExecutor {
   async resolveTemplateVariables(value, workflowId) {
     if (typeof value !== 'string') return value;
     
+    // Special case: if the entire value is a single template variable, return the actual resolved value
+    const singleTemplatePattern = /^\{\{([^}]+)\}\}$/;
+    const singleMatch = value.match(singleTemplatePattern);
+    if (singleMatch) {
+      const expression = singleMatch[1].trim();
+      try {
+        const resolvedValue = await this.getStateValue(expression, workflowId);
+        console.log(`[TEMPLATE] Single template resolved: ${expression} -> ${Array.isArray(resolvedValue) ? `[Array of ${resolvedValue.length}]` : resolvedValue}`);
+        return resolvedValue; // Return the actual value, not stringified
+      } catch (error) {
+        console.error(`[TEMPLATE] Error resolving single template ${expression}:`, error);
+        return value; // Return original on error
+      }
+    }
+    
     // Pattern to match {{variable}} or {{node.property}}
     const templatePattern = /\{\{([^}]+)\}\}/g;
     
@@ -1535,7 +1550,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
     }
     
-    console.log(`[ITERATE] Starting iteration over:`, config.over);
+    console.log(`[ITERATE] Starting iteration over (type: ${typeof config.over}, isArray: ${Array.isArray(config.over)}):`, config.over);
     
     // Get the collection to iterate over
     let collection;
