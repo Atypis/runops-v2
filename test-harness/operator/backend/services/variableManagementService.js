@@ -8,6 +8,95 @@ export class VariableManagementService {
   }
 
   /**
+   * Find all iterate nodes that reference a specific variable
+   * @param {string} workflowId - The workflow ID
+   * @param {string} variableKey - The variable key being updated
+   * @returns {Array} Array of iterate node positions that reference this variable
+   */
+  async findIterateNodesReferencingVariable(workflowId, variableKey) {
+    try {
+      // Get all iterate nodes in the workflow
+      const { data: iterateNodes, error } = await this.supabase
+        .from('nodes')
+        .select('position, config')
+        .eq('workflow_id', workflowId)
+        .eq('type', 'iterate');
+
+      if (error) {
+        console.error('[VariableManagementService] Error finding iterate nodes:', error);
+        return [];
+      }
+
+      if (!iterateNodes || iterateNodes.length === 0) {
+        return [];
+      }
+
+      // Find nodes that reference this variable
+      const referencingNodes = [];
+      for (const node of iterateNodes) {
+        if (node.config?.over) {
+          // Check if the 'over' field references our variable
+          // Handle different formats: "variableKey", "state.variableKey", "{{variableKey}}"
+          const overValue = node.config.over;
+          if (
+            overValue === variableKey ||
+            overValue === `state.${variableKey}` ||
+            overValue === `{{${variableKey}}}` ||
+            overValue.includes(`{{${variableKey}.`) // For nested references like {{animals.items}}
+          ) {
+            referencingNodes.push(node.position);
+          }
+        }
+      }
+
+      return referencingNodes;
+    } catch (error) {
+      console.error('[VariableManagementService] Exception finding iterate nodes:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clean up stale iteration variables for specific iterate nodes
+   * @param {string} workflowId - The workflow ID
+   * @param {Array<number>} nodePositions - Array of iterate node positions
+   */
+  async cleanupIterationVariables(workflowId, nodePositions) {
+    if (!nodePositions || nodePositions.length === 0) {
+      return;
+    }
+
+    const ms = Date.now();
+    console.log(`[VAR_CLEANUP ${ms}] Cleaning up iteration variables for nodes: ${nodePositions.join(', ')}`);
+
+    try {
+      // Build cleanup patterns for each node position
+      const cleanupConditions = nodePositions.map(pos => `key.like.%@iter:${pos}:%`);
+      
+      // Delete all matching iteration variables
+      const { data: deletedVars, error } = await this.supabase
+        .from('workflow_memory')
+        .delete()
+        .eq('workflow_id', workflowId)
+        .or(cleanupConditions.join(','))
+        .select('key');
+
+      if (error) {
+        console.error(`[VAR_CLEANUP ${ms}] Error cleaning up iteration variables:`, error);
+        return;
+      }
+
+      const deletedCount = deletedVars?.length || 0;
+      console.log(`[VAR_CLEANUP ${ms}] Deleted ${deletedCount} stale iteration variables`);
+      if (deletedCount > 0) {
+        console.log(`[VAR_CLEANUP ${ms}] Deleted keys:`, deletedVars.map(v => v.key).join(', '));
+      }
+    } catch (error) {
+      console.error(`[VAR_CLEANUP ${ms}] Exception during cleanup:`, error);
+    }
+  }
+
+  /**
    * Get formatted variables for Director 2.0 context (Part 4)
    * Returns chunked display with sensitive data masking
    */
@@ -40,16 +129,22 @@ export class VariableManagementService {
    */
   async getAllVariables(workflowId) {
     try {
+      const queryStart = Date.now();
       const { data, error } = await this.supabase
         .from('workflow_memory')
         .select('key, value, created_at, updated_at')
         .eq('workflow_id', workflowId)
         .order('key');
-
-      if (error) throw error;
-      return data || [];
+      
+      if (error) {
+        console.error(`Failed to fetch variables: ${error.message}`);
+        throw error;
+      }
+      
+      const variables = data || [];
+      return variables;
     } catch (error) {
-      console.error('[VariableManagementService] Error getting all variables:', error);
+      console.error(`Error in getAllVariables: ${error.message}`);
       throw error;
     }
   }
@@ -74,12 +169,15 @@ export class VariableManagementService {
         .eq('workflow_id', workflowId)
         .eq('key', key)
         .single();
-
+      
       if (error && error.code === 'PGRST116') {
         // No rows returned
         return null;
       }
-      if (error) throw error;
+      if (error) {
+        console.error(`Failed to read variable: ${error.message}`);
+        throw error;
+      }
 
       return data?.value || null;
     } catch (error) {
@@ -109,10 +207,19 @@ export class VariableManagementService {
         })
         .select()
         .single();
+      
+      if (error) {
+        console.error(`Failed to write variable: ${error.message}`);
+        throw error;
+      }
 
-      if (error) throw error;
-
-      console.log(`[VariableManagementService] Set variable ${key}${reason ? ` (${reason})` : ''}`);
+      // Smart cleanup: Find and clean up stale iteration variables when source data changes
+      // This ensures previews always show correct data
+      const iterateNodes = await this.findIterateNodesReferencingVariable(workflowId, key);
+      if (iterateNodes.length > 0) {
+        await this.cleanupIterationVariables(workflowId, iterateNodes);
+      }
+      
       return { success: true, key, value, reason };
     } catch (error) {
       console.error(`[VariableManagementService] Error setting variable ${key}:`, error);
@@ -326,6 +433,34 @@ export class VariableManagementService {
       return stats;
     } catch (error) {
       console.error('[VariableManagementService] Error getting variable stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up all iteration variables for a workflow
+   * Useful for debugging or when resetting workflow state
+   */
+  async cleanupAllIterationVariables(workflowId) {
+    try {
+      const { data: deletedVars, error } = await this.supabase
+        .from('workflow_memory')
+        .delete()
+        .eq('workflow_id', workflowId)
+        .like('key', '%@iter:%')
+        .select('key');
+
+      if (error) {
+        console.error('[VariableManagementService] Error cleaning up all iteration variables:', error);
+        throw error;
+      }
+
+      const deletedCount = deletedVars?.length || 0;
+      console.log(`[VariableManagementService] Cleaned up ${deletedCount} iteration variables`);
+      
+      return { success: true, deletedCount, deletedKeys: deletedVars?.map(v => v.key) || [] };
+    } catch (error) {
+      console.error('[VariableManagementService] Exception cleaning up iteration variables:', error);
       throw error;
     }
   }

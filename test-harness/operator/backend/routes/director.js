@@ -4,6 +4,7 @@ import { WorkflowService } from '../services/workflowService.js';
 import { PlanService } from '../services/planService.js';
 import { WorkflowDescriptionService } from '../services/workflowDescriptionService.js';
 import { ConversationService } from '../services/conversationService.js';
+import { VariableManagementService } from '../services/variableManagementService.js';
 
 const router = express.Router();
 const directorService = new DirectorService();
@@ -260,9 +261,11 @@ router.post('/execute-iteration-step', async (req, res, next) => {
 
 // Get iteration preview data for an iterate node
 router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
+  const ms = Date.now();
+  const timestamp = new Date().toISOString();
+  const { nodeId } = req.params;
+  
   try {
-    const { nodeId } = req.params;
-    console.log(`[ITERATION PREVIEW] Fetching preview for node ${nodeId} using unified approach`);
     
     // Fetch the node
     const { data: node, error } = await directorService.supabase
@@ -295,21 +298,24 @@ router.get('/nodes/:nodeId/iteration-preview', async (req, res, next) => {
     const executor = directorService.nodeExecutor;
     
     // First resolve the node parameters using the same logic as execution
-    console.log(`[ITERATION PREVIEW] Resolving node parameters with unified approach`);
+    const resolveStart = Date.now();
     const resolvedParams = await executor.resolveNodeParams(node.params, node.workflow_id);
     
     // Call executeIterate with preview mode (previewOnly defaults to true)
+    const executeStart = Date.now();
     const preview = await executor.executeIterate(
       resolvedParams, 
       node.workflow_id, 
       node.position, 
       { previewOnly: true }
     );
+    const executeDuration = Date.now() - executeStart;
     
-    console.log(`[ITERATION PREVIEW] Successfully generated preview using unified approach`);
+    const totalDuration = Date.now() - ms;
+    console.log(`Preview for node ${nodeId} completed - items: ${preview.iterationCount}, duration: ${totalDuration}ms`);
     res.json(preview);
   } catch (error) {
-    console.error('Failed to get iteration preview with unified approach:', error);
+    console.error(`Error getting preview for node ${nodeId}:`, error.message);
     res.status(500).json({ 
       error: { 
         message: error.message, 
@@ -495,10 +501,24 @@ router.get('/workflows/:id/description/history', async (req, res, next) => {
 
 // Variable management endpoints
 router.get('/workflows/:id/variables', async (req, res, next) => {
+  const ms = Date.now();
+  const timestamp = new Date().toISOString();
+  const workflowId = req.params.id;
+  console.log(`[API_VARS ${ms}] GET /workflows/${workflowId}/variables - timestamp: ${timestamp}`);
+  
   try {
-    const variables = await directorService.variableManagementService.getAllVariables(req.params.id);
+    const startFetch = Date.now();
+    const variables = await directorService.variableManagementService.getAllVariables(workflowId);
+    const fetchDuration = Date.now() - startFetch;
+    
+    console.log(`[API_VARS ${ms}] FETCHED - duration: ${fetchDuration}ms, count: ${variables.length}`);
+    console.log(`[API_VARS ${ms}] VARIABLES - ${JSON.stringify(variables.map(v => ({key: v.key, type: typeof v.value}))).substring(0, 500)}...`);
+    
     res.json(variables);
+    const totalDuration = Date.now() - ms;
+    console.log(`[API_VARS ${ms}] COMPLETE - total duration: ${totalDuration}ms`);
   } catch (error) {
+    console.error(`[API_VARS ${ms}] ERROR - ${error.message}`);
     next(error);
   }
 });
@@ -530,7 +550,10 @@ router.get('/workflows/:id/browser-state', async (req, res, next) => {
 router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
   try {
     const workflowId = req.params.id;
-    console.log(`[SSE] New browser state stream connection for workflow: ${workflowId}`);
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    
+    console.log(`[SSE] New browser state connection for workflow: ${workflowId}`);
     
     // Set SSE headers
     res.writeHead(200, {
@@ -538,7 +561,8 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
+      'Access-Control-Allow-Headers': 'Cache-Control',
+      'X-Accel-Buffering': 'no' // Disable proxy buffering
     });
 
     // Send initial browser state
@@ -554,10 +578,12 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
           timestamp: new Date().toISOString()
         });
         
+        console.log(`[SSE] Writing initial state to response stream...`);
         res.write(`data: ${data}\n\n`);
-        console.log(`[SSE] Sent initial browser state for workflow: ${workflowId}`);
+        console.log(`[SSE] Successfully sent initial browser state for workflow: ${workflowId}`);
       } catch (error) {
-        console.error(`[SSE] Error sending initial browser state:`, error);
+        console.error(`[SSE] ERROR sending initial browser state:`, error);
+        console.error(`[SSE] Error stack:`, error.stack);
       }
     };
 
@@ -567,13 +593,17 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
     directorService.browserStateService.addSSEConnection(workflowId, res);
 
     // Keep connection alive with heartbeat
+    let heartbeatCount = 0;
     const heartbeat = setInterval(() => {
       try {
-        res.write(': heartbeat\n\n');
+        heartbeatCount++;
+        const heartbeatMsg = `: heartbeat #${heartbeatCount} at ${new Date().toISOString()}\n\n`;
+        res.write(heartbeatMsg);
+        console.log(`[SSE] Heartbeat #${heartbeatCount} sent for workflow ${workflowId}`);
       } catch (error) {
         console.error(`[SSE] Heartbeat failed for workflow ${workflowId}:`, error.message);
         clearInterval(heartbeat);
-        directorService.browserStateService.removeSSEConnection(workflowId, res);
+        directorService.browserStateService.removeSSEConnection(workflowId, res, 'heartbeat_failed');
       }
     }, 30000); // Every 30 seconds
 
@@ -581,14 +611,14 @@ router.get('/workflows/:id/browser-state/stream', (req, res, next) => {
     req.on('close', () => {
       console.log(`[SSE] Browser state stream closed for workflow: ${workflowId}`);
       clearInterval(heartbeat);
-      directorService.browserStateService.removeSSEConnection(workflowId, res);
+      directorService.browserStateService.removeSSEConnection(workflowId, res, 'client_closed');
     });
 
     // Handle errors
     req.on('error', (error) => {
       console.error(`[SSE] Request error for workflow ${workflowId}:`, error.message);
       clearInterval(heartbeat);
-      directorService.browserStateService.removeSSEConnection(workflowId, res);
+      directorService.browserStateService.removeSSEConnection(workflowId, res, `request_error: ${error.message}`);
     });
 
   } catch (error) {
@@ -1012,5 +1042,37 @@ router.get('/groups/:workflowId', async (req, res, next) => {
 });
 
 // Old group endpoints removed - group functionality is now handled by the 'group' node type
+
+// Debug endpoint to manually trigger iteration variable cleanup
+router.post('/workflows/:workflowId/cleanup-iteration-vars', async (req, res, next) => {
+  try {
+    const { workflowId } = req.params;
+    const { nodePositions } = req.body;
+    
+    console.log(`[ROUTE /cleanup-iteration-vars] Manual cleanup requested for workflow ${workflowId}`);
+    
+    const variableService = new VariableManagementService();
+    
+    if (nodePositions && Array.isArray(nodePositions)) {
+      // Clean up specific node positions
+      await variableService.cleanupIterationVariables(workflowId, nodePositions);
+      res.json({ 
+        success: true, 
+        message: `Cleaned up iteration variables for nodes: ${nodePositions.join(', ')}` 
+      });
+    } else {
+      // Clean up all iteration variables
+      const result = await variableService.cleanupAllIterationVariables(workflowId);
+      res.json({ 
+        success: true, 
+        message: `Cleaned up all iteration variables`,
+        ...result
+      });
+    }
+  } catch (error) {
+    console.error(`[ROUTE /cleanup-iteration-vars] Error:`, error);
+    next(error);
+  }
+});
 
 export default router;

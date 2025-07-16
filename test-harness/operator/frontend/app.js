@@ -445,7 +445,9 @@ function App() {
 
   // Load variables for the Variables tab
   const loadVariables = async () => {
-    if (!currentWorkflow?.id) return;
+    if (!currentWorkflow?.id) {
+      return;
+    }
     
     try {
       const variablesResponse = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/variables`);
@@ -453,9 +455,11 @@ function App() {
       if (variablesResponse.ok) {
         const vars = await variablesResponse.json();
         setVariables(vars);
+      } else {
+        console.error(`Failed to load variables - status: ${variablesResponse.status}`);
       }
     } catch (error) {
-      console.error('Failed to load variables:', error);
+      console.error(`Error loading variables: ${error.message}`);
     }
   };
 
@@ -508,6 +512,11 @@ function App() {
             
             // Immediately refresh variables to show the update in the frontend
             loadVariables();
+            
+            // Also refresh workflow nodes to update iterate node previews
+            if (currentWorkflow?.id) {
+              loadWorkflowNodes(currentWorkflow.id);
+            }
             
             // Trigger a variable update event that components can listen to
             window.dispatchEvent(new CustomEvent('variableUpdate', { 
@@ -2334,19 +2343,23 @@ function App() {
       fetchTimeoutRef.current = setTimeout(async () => {
         setIsLoadingPreview(true);
         try {
-          console.log(`[ITERATE ${node.id}] Fetching preview from backend...`);
+          const fetchStart = Date.now();
           const response = await fetch(`${API_BASE}/nodes/${node.id}/iteration-preview`);
+          const fetchDuration = Date.now() - fetchStart;
+          
           if (response.ok) {
             const preview = await response.json();
-            console.log(`[ITERATE ${node.id}] Preview fetched successfully:`, preview);
+            
             if (preview.items && preview.items.length > 0) {
               setIterationData(preview.items);
+            } else {
+              setIterationData([]);
             }
           } else {
-            console.error(`[ITERATE ${node.id}] Failed to fetch preview:`, await response.text());
+            console.error('Failed to fetch iteration preview:', await response.text());
           }
         } catch (error) {
-          console.error(`[ITERATE ${node.id}] Error fetching preview:`, error);
+          console.error('Error fetching iteration preview:', error);
         } finally {
           setIsLoadingPreview(false);
         }
@@ -2365,23 +2378,23 @@ function App() {
     
     // Load iteration data when expanded or node result changes
     React.useEffect(() => {
-      if (isIterate && expanded) {
-        if (node.result?.items) {
-          // New preview format from executeIterate
-          console.log(`[ITERATE ${node.id}] Loading iteration data: ${node.result.items.length} items`);
-          setIterationData(node.result.items);
-        } else if (node.result?.results) {
-          // Old format - actual execution results
-          console.log(`[ITERATE ${node.id}] Loading iteration results: ${node.result.results.length} results`);
-          setIterationData(node.result.results);
-        } else if (!iterationData && !isLoadingPreview && !hasPreviewBeenFetched) {
-          // No result yet and no iteration data - fetch preview once per expansion
-          console.log(`[ITERATE ${node.id}] No iteration data found, fetching preview (once per expansion)...`);
-          setHasPreviewBeenFetched(true);
-          fetchIterationPreview();
+      const ms = Date.now();
+      if (isIterate) {
+        if (expanded) {
+          
+          // Always fetch fresh preview data instead of using potentially stale node.result
+          if (!isLoadingPreview && !hasPreviewBeenFetched) {
+            // Fetch preview if we haven't fetched it yet for this expansion
+            setHasPreviewBeenFetched(true);
+            fetchIterationPreview();
+          }
+        } else {
+          // When collapsed, reset state to ensure fresh data on next expansion
+          setIterationData(null);
+          setHasPreviewBeenFetched(false);
         }
       }
-    }, [isIterate, expanded, node.result?.items, node.result?.results, hasPreviewBeenFetched]); // Added hasPreviewBeenFetched
+    }, [isIterate, expanded]); // Simplified dependencies
     
     // Listen for variable updates that might affect this iterate node
     React.useEffect(() => {
@@ -2389,12 +2402,17 @@ function App() {
       
       const handleVariableUpdate = (event) => {
         const { nodeAlias } = event.detail;
+        
         // Extract the alias from the over parameter (e.g., "{{define_animals.animals}}" -> "define_animals")
-        const overMatch = node.params.over.match(/\{\{([^.]+)/);
+        const overMatch = node.params?.over?.match?.(/\{\{([^.]+)/);
         const overAlias = overMatch ? overMatch[1] : null;
         
         if (overAlias && overAlias === nodeAlias) {
-          console.log(`[ITERATE] Variable update detected for ${nodeAlias}, fetching preview...`);
+          // Clear old iteration data immediately to show it's updating
+          setIterationData(null);
+          // Reset the preview fetch flag so it will fetch again if expanded
+          setHasPreviewBeenFetched(false);
+          // Fetch new preview
           fetchIterationPreview();
         }
       };
@@ -2693,14 +2711,22 @@ function App() {
               </div>
             )}
             
+            {/* Show loading indicator when fetching preview */}
+            {isLoadingPreview && (
+              <div className="mt-3 text-center py-4">
+                <div className="text-sm text-gray-600">Loading iterations...</div>
+              </div>
+            )}
+            
             {/* Show iterations as the main content */}
-            {iterationData && iterationData.length > 0 && (
+            {!isLoadingPreview && iterationData && iterationData.length > 0 && (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-gray-700">
                   {iterationData.length} Iterations
                 </div>
                 {/* Simple vertical list of iteration cards */}
                 <SimpleIterationList 
+                  key={`${node.id}-${JSON.stringify(iterationData)}`}
                   iterations={iterationData}
                   node={node}
                   currentWorkflow={currentWorkflow}

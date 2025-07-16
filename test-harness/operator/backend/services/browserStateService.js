@@ -257,11 +257,21 @@ class BrowserStateService {
    * SSE Connection Management
    */
   addSSEConnection(workflowId, res) {
+    const timestamp = new Date().toISOString();
+    const connectionId = `${workflowId}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    
+    // Add a unique identifier to the response object for tracking
+    res._connectionId = connectionId;
+    res._connectedAt = timestamp;
+    
     if (!this.sseConnections.has(workflowId)) {
       this.sseConnections.set(workflowId, []);
     }
-    this.sseConnections.get(workflowId).push(res);
-    console.log(`[SSE] Added connection for workflow ${workflowId}. Total connections: ${this.sseConnections.get(workflowId).length}`);
+    
+    const connections = this.sseConnections.get(workflowId);
+    connections.push(res);
+    
+    console.log(`[SSE] Connection added for workflow ${workflowId}. Total connections: ${connections.length}`);
     
     // Send any buffered updates to the new connection
     this.sendPendingUpdates(workflowId, res);
@@ -292,23 +302,44 @@ class BrowserStateService {
     this.pendingUpdates.delete(workflowId);
   }
 
-  removeSSEConnection(workflowId, res) {
+  removeSSEConnection(workflowId, res, reason = 'unknown') {
+    const timestamp = new Date().toISOString();
+    const connectionId = res._connectionId || 'unknown';
+    const connectedAt = res._connectedAt || 'unknown';
+    const connectionDuration = res._connectedAt ? 
+      ((new Date() - new Date(res._connectedAt)) / 1000).toFixed(2) + 's' : 'unknown';
+    
+    console.log(`[SSE] Connection removed for workflow ${workflowId}. Reason: ${reason}, Duration: ${connectionDuration}`);
+    
     if (this.sseConnections.has(workflowId)) {
       const connections = this.sseConnections.get(workflowId);
       const index = connections.indexOf(res);
       if (index !== -1) {
         connections.splice(index, 1);
-        console.log(`[SSE] Removed connection for workflow ${workflowId}. Remaining connections: ${connections.length}`);
+        console.log(`[SSE] Successfully removed connection. Remaining: ${connections.length}`);
         
         // Clean up empty arrays
         if (connections.length === 0) {
           this.sseConnections.delete(workflowId);
+          console.log(`[SSE] No more connections for workflow ${workflowId}, cleaning up`);
         }
+      } else {
+        console.log(`[SSE] WARNING: Connection not found in array!`);
       }
+    } else {
+      console.log(`[SSE] WARNING: No connections found for workflow ${workflowId}`);
     }
+    
+    console.log(`[SSE] All workflows with connections: ${Array.from(this.sseConnections.keys()).join(', ')}`);
+    console.log(`[SSE] ==========================================================`);
   }
 
   async emitBrowserStateUpdate(workflowId) {
+    console.log(`[SSE] Attempting to emit browser state update for workflow ${workflowId}`);
+    console.log(`[SSE] Current connections map:`, Array.from(this.sseConnections.entries()).map(([wf, conns]) => 
+      `${wf}: ${conns.length} connections`
+    ));
+    
     const connections = this.sseConnections.get(workflowId);
     if (!connections || connections.length === 0) {
       console.log(`[SSE] No connections to emit browser state update for workflow ${workflowId}`);
@@ -330,15 +361,28 @@ class BrowserStateService {
       console.log(`[SSE] Emitting browser state update to ${connections.length} connections for workflow ${workflowId}`);
 
       // Send to all connected clients
+      const deadConnections = [];
       connections.forEach((res, index) => {
         try {
+          const connectionId = res._connectionId || 'unknown';
+          console.log(`[SSE] Sending browser state update to connection ${connectionId} (index ${index})`);
           res.write(`data: ${data}\n\n`);
+          console.log(`[SSE] Successfully sent browser state update to connection ${connectionId}`);
         } catch (error) {
-          console.error(`[SSE] Error sending to connection ${index}:`, error.message);
-          // Remove dead connection
-          connections.splice(index, 1);
+          console.error(`[SSE] ERROR: Failed to send to connection ${index}:`, error.message);
+          console.error(`[SSE] Connection appears to be dead, marking for removal`);
+          deadConnections.push(index);
         }
       });
+      
+      // Remove dead connections
+      if (deadConnections.length > 0) {
+        console.log(`[SSE] Removing ${deadConnections.length} dead connections`);
+        deadConnections.reverse().forEach(index => {
+          const res = connections[index];
+          this.removeSSEConnection(workflowId, res, 'write_failed');
+        });
+      }
 
     } catch (error) {
       console.error(`[SSE] Error emitting browser state update:`, error);
@@ -357,11 +401,21 @@ class BrowserStateService {
       value,
       timestamp: new Date().toISOString()
     };
+    
+    console.log(`[SSE] ==================== VARIABLE UPDATE ====================`);
+    console.log(`[SSE] Workflow ID: ${workflowId}`);
+    console.log(`[SSE] Variable Key: ${variableKey}`);
+    console.log(`[SSE] Node Alias: ${nodeAlias}`);
+    console.log(`[SSE] Value type: ${typeof value}`);
+    console.log(`[SSE] Current connections map:`, Array.from(this.sseConnections.entries()).map(([wf, conns]) => 
+      `${wf}: ${conns.length} connections`
+    ));
 
     const connections = this.sseConnections.get(workflowId);
     if (!connections || connections.length === 0) {
-      console.log(`[SSE] No connections to emit variable update for workflow ${workflowId}`);
+      console.log(`[SSE] WARNING: No connections found for workflow ${workflowId}`);
       console.log(`[SSE] Buffering variable update for later delivery`);
+      console.log(`[SSE] All workflows with connections: ${Array.from(this.sseConnections.keys()).join(', ')}`);
       
       // Buffer the update for when connections re-establish
       if (!this.pendingUpdates.has(workflowId)) {
@@ -374,10 +428,14 @@ class BrowserStateService {
       
       // Keep only recent updates (last 5 minutes)
       const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      const before = this.pendingUpdates.get(workflowId).length;
       this.pendingUpdates.set(workflowId, 
         this.pendingUpdates.get(workflowId).filter(update => update.bufferedAt > fiveMinutesAgo)
       );
+      const after = this.pendingUpdates.get(workflowId).length;
       
+      console.log(`[SSE] Buffered updates: ${after} (cleaned ${before - after} old updates)`);
+      console.log(`[SSE] ========================================================`);
       return;
     }
 
@@ -387,15 +445,27 @@ class BrowserStateService {
     const deadConnections = [];
     connections.forEach((res, index) => {
       try {
+        const connectionId = res._connectionId || 'unknown';
+        console.log(`[SSE] Sending variable update to connection ${connectionId} (index ${index})`);
         res.write(`data: ${data}\n\n`);
+        console.log(`[SSE] Successfully sent variable update to connection ${connectionId}`);
       } catch (error) {
-        console.error(`[SSE] Error sending variable update to connection ${index}:`, error.message);
-        deadConnections.push(index);
+        console.error(`[SSE] ERROR: Failed to send variable update to connection ${index}:`, error.message);
+        console.error(`[SSE] Connection appears to be dead, marking for removal`);
+        deadConnections.push({ index, res });
       }
     });
 
     // Remove dead connections
-    deadConnections.reverse().forEach(index => connections.splice(index, 1));
+    if (deadConnections.length > 0) {
+      console.log(`[SSE] Removing ${deadConnections.length} dead connections`);
+      deadConnections.forEach(({ res }) => {
+        this.removeSSEConnection(workflowId, res, 'write_failed_during_variable_update');
+      });
+    }
+    
+    console.log(`[SSE] Variable update complete. Active connections: ${this.sseConnections.get(workflowId)?.length || 0}`);
+    console.log(`[SSE] ========================================================`);
   }
 }
 

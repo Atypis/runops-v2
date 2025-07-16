@@ -37,12 +37,13 @@ export class DirectorService {
       });
     }
     
-    this.nodeExecutor = new NodeExecutor();
+    // Create shared instances
+    this.browserStateService = new BrowserStateService();
+    this.nodeExecutor = new NodeExecutor(this.browserStateService); // Pass shared instance
     this.planService = new PlanService();
     this.workflowDescriptionService = new WorkflowDescriptionService();
     this.variableManagementService = new VariableManagementService();
     this.tokenCounter = new TokenCounterService();
-    this.browserStateService = new BrowserStateService();
     this.conversationService = new ConversationService();
     this.supabase = supabase;
     
@@ -959,6 +960,13 @@ export class DirectorService {
     console.log('[UPDATE_NODE] Attempting to update node:', nodeId);
     console.log('[UPDATE_NODE] Mapped update payload:', JSON.stringify(mappedUpdates, null, 2));
     
+    // Get the node before update to check if it's an iterate node
+    const { data: nodeBeforeUpdate } = await supabase
+      .from('nodes')
+      .select('type, workflow_id, position')
+      .eq('id', nodeId)
+      .single();
+
     const { data: node, error } = await supabase
       .from('nodes')
       .update(mappedUpdates)
@@ -972,6 +980,16 @@ export class DirectorService {
     }
     
     console.log('[UPDATE_NODE] Successfully updated node:', JSON.stringify(node, null, 2));
+    
+    // If we updated an iterate node's config, clean up stale iteration variables
+    if (nodeBeforeUpdate?.type === 'iterate' && mappedUpdates.params) {
+      console.log('[UPDATE_NODE] Updated iterate node config, triggering iteration variable cleanup');
+      await this.variableManagementService.cleanupIterationVariables(
+        nodeBeforeUpdate.workflow_id, 
+        [nodeBeforeUpdate.position]
+      );
+    }
+    
     return node;
   }
 
@@ -1326,6 +1344,24 @@ export class DirectorService {
             throw new Error(`Failed to update dependent node ${affected.id}: ${updateError.message}`);
           }
         }
+      }
+
+      // Clean up iteration variables for any iterate nodes being deleted
+      const iterateNodesToDelete = nodesToDelete.filter(n => n.type === 'iterate');
+      if (deleteChildren) {
+        // Also check children for iterate nodes
+        for (const childId of childNodesToDelete) {
+          const childNode = allNodes.find(n => n.id === childId);
+          if (childNode?.type === 'iterate') {
+            iterateNodesToDelete.push(childNode);
+          }
+        }
+      }
+      
+      if (iterateNodesToDelete.length > 0) {
+        console.log(`[DELETE_NODES] Cleaning up iteration variables for ${iterateNodesToDelete.length} iterate nodes`);
+        const iteratePositions = iterateNodesToDelete.map(n => n.position);
+        await this.variableManagementService.cleanupIterationVariables(workflowId, iteratePositions);
       }
 
       // Delete the nodes

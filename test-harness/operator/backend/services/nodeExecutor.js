@@ -242,27 +242,20 @@ export class NodeExecutor {
 
   // Resolve template variables in a value
   async resolveTemplateVariables(value, workflowId) {
-    const ms = Date.now();
-    console.log(`[TEMPLATE_RESOLVE ${ms}] START - value type: ${typeof value}, workflowId: ${workflowId}`);
     if (typeof value !== 'string') {
-      console.log(`[TEMPLATE_RESOLVE ${ms}] SKIP - not a string`);
       return value;
     }
-    console.log(`[TEMPLATE_RESOLVE ${ms}] INPUT - "${value}"`);
     
     // Special case: if the entire value is a single template variable, return the actual resolved value
     const singleTemplatePattern = /^\{\{([^}]+)\}\}$/;
     const singleMatch = value.match(singleTemplatePattern);
     if (singleMatch) {
       const expression = singleMatch[1].trim();
-      console.log(`[TEMPLATE_RESOLVE ${ms}] SINGLE TEMPLATE - expression: "${expression}"`);
       try {
         const resolvedValue = await this.getStateValue(expression, workflowId);
-        const duration = Date.now() - ms;
-        console.log(`[TEMPLATE_RESOLVE ${ms}] SINGLE RESOLVED - duration: ${duration}ms, type: ${typeof resolvedValue}, value: ${Array.isArray(resolvedValue) ? `[Array of ${resolvedValue.length}]` : JSON.stringify(resolvedValue).substring(0, 100)}`);
         return resolvedValue; // Return the actual value, not stringified
       } catch (error) {
-        console.error(`[TEMPLATE_RESOLVE ${ms}] SINGLE ERROR - ${error.message}`);
+        console.error(`Template resolution error: ${error.message}`);
         return value; // Return original on error
       }
     }
@@ -278,7 +271,6 @@ export class NodeExecutor {
       const expression = match[1].trim();
       let replacementValue = '';
       replacementCount++;
-      console.log(`[TEMPLATE_RESOLVE ${ms}] PROCESSING #${replacementCount} - expression: "${expression}"`);
       
       try {
         // Handle group parameter references (e.g., {{param.email}})
@@ -327,14 +319,11 @@ export class NodeExecutor {
         }
         
         resolved = resolved.replace(match[0], replacementValue);
-        console.log(`[TEMPLATE_RESOLVE ${ms}] REPLACED #${replacementCount} - "${match[0]}" -> "${replacementValue}"`);
       } catch (error) {
-        console.error(`[TEMPLATE_RESOLVE ${ms}] ERROR #${replacementCount} - ${error.message}`);
+        console.error(`Template variable error: ${error.message}`);
       }
     }
     
-    const duration = Date.now() - ms;
-    console.log(`[TEMPLATE_RESOLVE ${ms}] COMPLETE - duration: ${duration}ms, replacements: ${replacementCount}, result: "${resolved}"`);
     return resolved;
   }
 
@@ -570,17 +559,9 @@ export class NodeExecutor {
       
       // Store result as variable ONLY if explicitly requested
       if (result !== null && result !== undefined && node.store_variable) {
-        const storeMs = Date.now();
-        const storeTimestamp = new Date().toISOString();
-        console.log(`[STORE_VAR ${storeMs}] START - node: ${nodeId}, alias: ${node.alias}, position: ${node.position}, timestamp: ${storeTimestamp}`);
-        
         try {
           // Use alias as the storage key (with iteration context if applicable)
           const storageKey = this.getStorageKey(node.alias);
-          console.log(`[STORE_VAR ${storeMs}] STORAGE KEY - "${storageKey}"`);
-          console.log(`[STORE_VAR ${storeMs}] VALUE TO STORE - type: ${typeof result}, value: ${JSON.stringify(result).substring(0, 200)}...`);
-          
-          const dbStart = Date.now();
           const { data: memData, error: memError } = await supabase
             .from('workflow_memory')
             .upsert({
@@ -591,16 +572,10 @@ export class NodeExecutor {
             .select()
             .single();
           
-          const dbDuration = Date.now() - dbStart;
-          console.log(`[STORE_VAR ${storeMs}] DB UPSERT - duration: ${dbDuration}ms, success: ${!memError}`);
-            
           if (memError) {
-            console.error(`[STORE_VAR ${storeMs}] DB ERROR - ${memError.message}`);
+            console.error(`Failed to store variable: ${memError.message}`);
             throw memError;
           }
-          
-          console.log(`[STORE_VAR ${storeMs}] VERIFIED - stored value matches: ${JSON.stringify(memData?.value) === JSON.stringify(result)}`);
-          console.log(`[STORE_VAR ${storeMs}] COMPLETE - total duration: ${Date.now() - storeMs}ms`);
           
           // Still send real-time update for UI
           this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
@@ -1410,16 +1385,11 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
   
   async getStateValue(path, workflowId) {
-    // Get value from workflow memory or previous node results
     const ms = Date.now();
-    const timestamp = new Date().toISOString();
-    console.log(`[STATE_GET ${ms}] START - path: "${path}", workflow: ${workflowId}, timestamp: ${timestamp}`);
-    
+    // Get value from workflow memory or previous node results
     // Handle malformed template references - strip any remaining braces
     if (typeof path === 'string' && (path.includes('{{') || path.includes('}}'))) {
-      console.warn(`[STATE_GET ${ms}] MALFORMED - detected template syntax in path: "${path}"`);
       path = path.replace(/\{\{|\}\}/g, '');
-      console.log(`[STATE_GET ${ms}] CLEANED - new path: "${path}"`);
     }
     
     // Remove legacy position-based support
@@ -1431,13 +1401,8 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     if (path.includes('.')) {
       const parts = path.split('.');
       const aliasRef = parts[0];
-      console.log(`[STATE_GET ${ms}] PROPERTY ACCESS - base: "${aliasRef}", parts: ${parts.join('.')}`);
-      
       // Look up by alias with iteration context
       const storageKey = this.getStorageKey(aliasRef);
-      console.log(`[STATE_GET ${ms}] STORAGE KEY - "${storageKey}"`);
-      
-      const queryStart = Date.now();
       const { data: memoryData } = await supabase
         .from('workflow_memory')
         .select('value')
@@ -1445,33 +1410,22 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         .eq('key', storageKey)
         .single();
       
-      const queryDuration = Date.now() - queryStart;
-      console.log(`[STATE_GET ${ms}] DB QUERY - duration: ${queryDuration}ms, found: ${!!memoryData}`);
-        
       if (!memoryData) {
-        console.error(`[STATE_GET ${ms}] NOT FOUND - Variable '${aliasRef}' (key: ${storageKey})`);
         throw new Error(`Variable '${aliasRef}' not found. Did you forget to set store_variable: true?`);
       }
       
       // Navigate nested properties
       let value = memoryData.value;
-      console.log(`[STATE_GET ${ms}] BASE VALUE - type: ${typeof value}, value: ${JSON.stringify(value).substring(0, 200)}...`);
       
       for (let i = 1; i < parts.length; i++) {
         const part = parts[i];
-        const prevType = typeof value;
         value = value?.[part];
-        console.log(`[STATE_GET ${ms}] PROPERTY[${i}] - "${part}" on ${prevType} -> ${typeof value}`);
       }
-      
-      const totalDuration = Date.now() - ms;
-      console.log(`[STATE_GET ${ms}] COMPLETE - duration: ${totalDuration}ms, final type: ${typeof value}, value: ${JSON.stringify(value).substring(0, 100)}...`);
       return value;
     }
     
     // Simple variable lookup
     const storageKey = this.getStorageKey(path);
-    console.log(`[STATE_GET ${ms}] SIMPLE LOOKUP - path: "${path}", storage key: "${storageKey}"`);
     console.log(`[STATE] Looking up variable '${path}' with storage key: ${storageKey}`);
     
     const { data } = await supabase
@@ -1492,8 +1446,6 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     }
     
     console.log(`[STATE] Found variable '${path}' with value: ${JSON.stringify(data.value)}`);
-    const totalDuration = Date.now() - ms;
-    console.log(`[STATE_GET ${ms}] COMPLETE - duration: ${totalDuration}ms, type: ${typeof data.value}, value: ${JSON.stringify(data.value).substring(0, 100)}...`);
     return data.value;
   }
   
@@ -1607,11 +1559,6 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
 
   async executeIterate(config, workflowId, iterateNodePosition, options = {}) {
-    const ms = Date.now();
-    const timestamp = new Date().toISOString();
-    console.log(`[ITERATE_EXEC ${ms}] START - position: ${iterateNodePosition}, workflow: ${workflowId}, timestamp: ${timestamp}`);
-    console.log(`[ITERATE_EXEC ${ms}] CONFIG - ${JSON.stringify(config, null, 2)}`);
-    console.log(`[ITERATE_EXEC ${ms}] OPTIONS - previewOnly: ${options.previewOnly}`);
     
     // Validate required fields
     if (!config.over) {
@@ -1622,40 +1569,29 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
     }
     
-    console.log(`[ITERATE_EXEC ${ms}] OVER PARAM - type: ${typeof config.over}, isArray: ${Array.isArray(config.over)}, value: ${JSON.stringify(config.over).substring(0, 200)}...`);
     
     // Get the collection to iterate over
     let collection;
     const resolveStart = Date.now();
     if (Array.isArray(config.over)) {
       // Already resolved to an array by resolveTemplateVariables
-      console.log(`[ITERATE_EXEC ${ms}] ALREADY RESOLVED - array with ${config.over.length} items`);
       collection = config.over;
     } else if (typeof config.over === 'string') {
       // It's a path reference - resolve it
-      console.log(`[ITERATE_EXEC ${ms}] RESOLVING PATH - "${config.over}"`);
       const cleanPath = config.over.replace('state.', '');
-      console.log(`[ITERATE_EXEC ${ms}] CLEAN PATH - "${cleanPath}"`);
       collection = await this.getStateValue(cleanPath, workflowId);
-      const resolveDuration = Date.now() - resolveStart;
-      console.log(`[ITERATE_EXEC ${ms}] RESOLVED - duration: ${resolveDuration}ms, type: ${typeof collection}, isArray: ${Array.isArray(collection)}`);
     } else {
-      console.warn(`[ITERATE_EXEC ${ms}] INVALID TYPE - ${typeof config.over}`);
       return { results: [], errors: [], processed: 0, total: 0 };
     }
     
     if (!Array.isArray(collection)) {
-      console.warn(`[ITERATE_EXEC ${ms}] NOT AN ARRAY - type: ${typeof collection}, value: ${JSON.stringify(collection).substring(0, 200)}...`);
       return { results: [], errors: [], processed: 0, total: 0 };
     }
     
-    console.log(`[ITERATE_EXEC ${ms}] COLLECTION READY - ${collection.length} items`);
-    console.log(`[ITERATE_EXEC ${ms}] FIRST ITEM - ${JSON.stringify(collection[0]).substring(0, 200)}...`);
     
     // If preview mode, return iteration structure without executing
     if (options.previewOnly !== false) {  // Default to preview mode
       const previewStart = Date.now();
-      console.log(`[ITERATE_EXEC ${ms}] PREVIEW MODE - preparing iteration structure`);
       
       // Get body node information for display
       let bodyNodes = [];
@@ -1672,8 +1608,6 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       }
       
       const previewDuration = Date.now() - previewStart;
-      const totalDuration = Date.now() - ms;
-      console.log(`[ITERATE_EXEC ${ms}] PREVIEW COMPLETE - preview duration: ${previewDuration}ms, total duration: ${totalDuration}ms`);
       
       const result = {
         iterationCount: collection.length,
@@ -1691,12 +1625,10 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         total: collection.length
       };
       
-      console.log(`[ITERATE_EXEC ${ms}] PREVIEW RESULT - ${JSON.stringify(result).substring(0, 300)}...`);
       return result;
     }
     
     // Full execution mode (when explicitly requested)
-    console.log(`[ITERATE_EXEC ${ms}] FULL EXECUTION MODE - processing all ${collection.length} items`);
     
     const results = [];
     const errors = [];
@@ -1704,7 +1636,6 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     const indexVariable = config.index || `${variable}Index`;
     
     // Clean up any existing iteration variables for this iterate node
-    console.log(`[ITERATE_EXEC ${ms}] CLEANING UP - removing old iteration variables for node position ${iterateNodePosition}`);
     const cleanupPattern = `%@iter:${iterateNodePosition}:%`;
     const { data: deletedVars, error: deleteError } = await supabase
       .from('workflow_memory')
@@ -1714,12 +1645,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       .select();
     
     if (deleteError) {
-      console.error(`[ITERATE_EXEC ${ms}] CLEANUP ERROR:`, deleteError);
-    } else {
-      console.log(`[ITERATE_EXEC ${ms}] CLEANUP COMPLETE - removed ${deletedVars?.length || 0} old iteration variables`);
-      if (deletedVars?.length > 0) {
-        console.log(`[ITERATE_EXEC ${ms}] DELETED VARS:`, deletedVars.map(v => `${v.key} (${v.type})`).join(', '));
-      }
+      console.error(`Failed to cleanup iteration variables:`, deleteError);
     }
     
     // Process each item
@@ -1731,8 +1657,6 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       
       const item = collection[i];
       const itemMs = Date.now();
-      console.log(`[ITERATE_EXEC ${ms}] ITEM ${i + 1}/${collection.length} - start at ${itemMs}ms`);
-      console.log(`[ITERATE_EXEC ${ms}] ITEM DATA - ${JSON.stringify(item).substring(0, 200)}...`);
       
       // Push iteration context
       this.pushIterationContext(iterateNodePosition, i, variable, collection.length);
@@ -1743,7 +1667,6 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         const indexKey = this.getStorageKey(indexVariable);
         const totalKey = this.getStorageKey(`${variable}Total`);
         
-        console.log(`[ITERATE_EXEC ${ms}] STORING VARS - item: ${varKey}, index: ${indexKey}, total: ${totalKey}`);
         
         const storeStart = Date.now();
         await supabase
