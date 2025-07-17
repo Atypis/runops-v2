@@ -314,12 +314,23 @@ export class NodeExecutor {
           replacementValue = await this.getStateValue(expression, workflowId);
         }
         
-        // Convert to string if needed
+        // Convert to string if needed, with proper quoting for expressions
         if (typeof replacementValue === 'object') {
           replacementValue = JSON.stringify(replacementValue);
         } else if (replacementValue === undefined || replacementValue === null) {
           console.warn(`[TEMPLATE] Could not resolve variable: ${expression}`);
           replacementValue = match[0]; // Keep original
+        } else if (typeof replacementValue === 'string') {
+          // Check if this is being used in an expression context (contains operators)
+          const expressionOperators = ['equals', 'contains', 'matches', '===', '!==', '==', '!=', '>', '<', '>=', '<='];
+          const isInExpression = expressionOperators.some(op => value.includes(op));
+          
+          if (isInExpression) {
+            // Escape any quotes in the string and wrap in single quotes
+            replacementValue = "'" + String(replacementValue).replace(/'/g, "\\'") + "'";
+          } else {
+            replacementValue = String(replacementValue);
+          }
         } else {
           replacementValue = String(replacementValue);
         }
@@ -1041,10 +1052,29 @@ export class NodeExecutor {
     
     console.log(`[BROWSER_AI_QUERY] Schema provided:`, JSON.stringify(config.schema, null, 2));
     
+    // Handle primitive schemas and arrays by wrapping them in an object
+    // Stagehand only supports object schemas, so we auto-wrap non-objects
+    let effectiveSchema = config.schema;
+    let isPrimitiveOrArraySchema = false;
+    
+    // Check for primitive types or arrays
+    const nonObjectTypes = ['string', 'number', 'boolean', 'array'];
+    if (config.schema.type && nonObjectTypes.includes(config.schema.type)) {
+      console.log(`[BROWSER_AI_QUERY] Detected ${config.schema.type} schema. Wrapping in object for Stagehand compatibility.`);
+      isPrimitiveOrArraySchema = true;
+      effectiveSchema = {
+        type: 'object',
+        properties: {
+          value: config.schema
+        },
+        required: ['value']
+      };
+    }
+    
     // Convert schema to Zod
     let zodSchema;
     try {
-      zodSchema = this.convertJsonSchemaToZod(config.schema);
+      zodSchema = this.convertJsonSchemaToZod(effectiveSchema);
       if (!zodSchema) {
         throw new Error('Failed to convert schema to Zod format');
       }
@@ -1067,6 +1097,13 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
     try {
       const extractResult = await activePage.extract(extractOptions);
       console.log(`[BROWSER_AI_QUERY] Extract result:`, JSON.stringify(extractResult, null, 2));
+      
+      // If we wrapped a primitive or array schema, unwrap the result
+      if (isPrimitiveOrArraySchema && extractResult && typeof extractResult === 'object' && 'value' in extractResult) {
+        console.log(`[BROWSER_AI_QUERY] Unwrapping result from object wrapper`);
+        return extractResult.value;
+      }
+      
       return extractResult;
     } catch (error) {
       console.error(`[BROWSER_AI_QUERY] Extract failed:`, error);
