@@ -2321,7 +2321,7 @@ function App() {
     const isRoute = node.type === 'route';
     const isIterate = node.type === 'iterate';
     const isGroup = node.type === 'group';
-    const hasNestedNodes = isRoute && node.params?.paths;
+    const hasNestedNodes = isRoute && node.config?.paths;
     const hasIterateBody = isIterate && node.params?.body;
     
     // Debounced fetch ref to prevent rapid calls
@@ -2579,11 +2579,11 @@ function App() {
             )}
             
             {/* Special display for route nodes */}
-            {isRoute && node.params?.value && (
+            {isRoute && node.config?.value && (
               <div className="text-xs text-gray-500 mt-1">
-                <span className="font-mono bg-gray-100 px-1 rounded">{node.params.value}</span>
+                <span className="font-mono bg-gray-100 px-1 rounded">{node.config.value}</span>
                 {' → '}
-                {Object.keys(node.params.paths || {}).join(' | ')}
+                {Object.keys(node.config?.paths || {}).join(' | ')}
               </div>
             )}
             
@@ -2645,7 +2645,7 @@ function App() {
         {expanded && hasNestedNodes && (
           <div className="mt-3 bg-gray-50 rounded p-3">
             <div className="text-xs font-semibold text-gray-700 mb-2">Route Branches:</div>
-            {Object.entries(node.params.paths).map(([branchName, branchContent]) => (
+            {Object.entries(node.config.paths).map(([branchName, branchContent]) => (
               <div key={branchName} className="mb-3">
                 <div className="flex items-center text-xs font-medium text-gray-600 mb-1">
                   <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
