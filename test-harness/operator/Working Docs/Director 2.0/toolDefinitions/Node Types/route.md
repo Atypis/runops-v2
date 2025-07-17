@@ -11,32 +11,39 @@ The route node is a control flow node that enables conditional branching in work
 - **First-match-wins** - Branches evaluated in order for predictable behavior
 - **Named branches** - Clear, descriptive names for each path
 - **Default support** - Use `condition: "true"` for fallback branches
+- **Visual nesting** - Referenced nodes appear inside route branches in the UI
 
 ## Implementation Architecture
 
 ### Core Files
 
 1. **Backend Execution**
-   - `/test-harness/operator/backend/services/nodeExecutor.js` - `executeRoute()` method (lines 1203-1328)
-   - `/test-harness/workflows/executor/primitives/route.js` - Legacy primitive implementation
+   - `/test-harness/operator/backend/services/nodeExecutor.js` 
+     - `executeRoute()` method (lines 1203-1328)
+     - `resolveNodeParams()` updated to handle array configs (lines 347-391)
+   - `/test-harness/operator/backend/services/directorService.js`
+     - `createNode()` fixed to preserve array structure (line 865)
 
 2. **Frontend Components**
-   - `/test-harness/operator/frontend/app.js` - `RouteCard` and `NestedRouteCard` components
+   - `/test-harness/operator/frontend/app.js`
+     - Route expansion detection (line 2325)
+     - Branch rendering with `NestedNodesList` (lines 2650-2703)
+     - Node filtering to hide nested nodes from root (lines 1005-1039)
    - Handles route visualization and nested node display
 
 3. **Configuration**
-   - `/test-harness/operator/backend/tools/toolDefinitionsV2.js` - Route node schema definition
+   - `/test-harness/operator/backend/tools/toolDefinitionsV2.js` - Route node schema definition (lines 391-439)
    - `/test-harness/operator/backend/prompts/directorPromptV3.js` - Usage examples
 
 ### Node Configuration Format
 
-The route node uses a single, clean format - an array of branches:
+The route node uses a single, clean format - an array of branches stored directly in `params`:
 
 ```javascript
 {
   type: 'route',
   alias: 'handle_request',
-  config: [
+  params: [  // Note: array goes directly in params, not config
     {
       name: 'urgent',
       condition: '{{priority}} > 8',
@@ -56,7 +63,7 @@ The route node uses a single, clean format - an array of branches:
 }
 ```
 
-Each branch has three properties:
+Each branch has three required properties:
 - **name** - Descriptive name for the branch (for clarity and debugging)
 - **condition** - Expression that evaluates to true/false
 - **branch** - Node position(s) to execute if condition is true
@@ -68,7 +75,7 @@ Each branch has three properties:
 {
   type: 'route',
   alias: 'check_auth',
-  config: [
+  params: [
     { name: 'authenticated', condition: '{{isLoggedIn}}', branch: 10 },
     { name: 'anonymous', condition: 'true', branch: 20 }
   ]
@@ -80,7 +87,7 @@ Each branch has three properties:
 {
   type: 'route',
   alias: 'customer_support_router',
-  config: [
+  params: [
     {
       name: 'security_emergency',
       condition: '{{issue.type}} equals "security" && {{severity}} > 9',
@@ -116,7 +123,7 @@ Each branch has three properties:
 Branches are evaluated **in order** from top to bottom. The first branch whose condition evaluates to `true` is executed. This makes the behavior predictable and allows for cascading conditions:
 
 ```javascript
-config: [
+params: [
   { name: 'critical', condition: '{{severity}} > 9', branch: 10 },
   { name: 'high', condition: '{{severity}} > 6', branch: 20 },
   { name: 'medium', condition: '{{severity}} > 3', branch: 30 },
@@ -262,13 +269,13 @@ condition: '({{order.total}} > 1000 || {{customer.lifetimeValue}} > 5000) && !{{
 ### 1. Use Descriptive Branch Names
 ```javascript
 // Good - Clear what each branch does
-config: [
+params: [
   { name: 'payment_success', condition: '{{payment.verified}}', branch: 30 },
   { name: 'payment_failed', condition: 'true', branch: 35 }
 ]
 
 // Less clear
-config: [
+params: [
   { name: 'branch1', condition: '{{payment.verified}}', branch: 30 },
   { name: 'branch2', condition: 'true', branch: 35 }
 ]
@@ -277,7 +284,7 @@ config: [
 ### 2. Order Matters - Most Specific First
 ```javascript
 // Good - Specific conditions first
-config: [
+params: [
   { name: 'vip_urgent', condition: '{{vip}} && {{priority}} > 8', branch: 10 },
   { name: 'vip_normal', condition: '{{vip}}', branch: 20 },
   { name: 'urgent', condition: '{{priority}} > 8', branch: 30 },
@@ -288,7 +295,7 @@ config: [
 ### 3. Always Include a Default
 ```javascript
 // Good - Workflow never gets stuck
-config: [
+params: [
   { name: 'has_email', condition: '{{email}} exists', branch: 50 },
   { name: 'no_email', condition: 'true', branch: 60 }  // Always have fallback
 ]
@@ -310,7 +317,7 @@ config: [
 {
   type: 'route',
   alias: 'auth_verification',
-  config: [
+  params: [
     { 
       name: 'fully_authenticated',
       condition: '{{login.success}} && ({{mfa.verified}} || {{user.trustedDevice}})',
@@ -330,7 +337,7 @@ config: [
 {
   type: 'route',
   alias: 'process_document',
-  config: [
+  params: [
     { name: 'invoice', condition: '{{docType}} equals "invoice"', branch: [20, 21, 22] },
     { name: 'receipt', condition: '{{docType}} equals "receipt"', branch: [25, 26] },
     { name: 'contract', condition: '{{docType}} equals "contract"', branch: [30, 31, 32] },
@@ -344,7 +351,7 @@ config: [
 {
   type: 'route',
   alias: 'handle_error',
-  config: [
+  params: [
     {
       name: 'critical_security',
       condition: '{{error.type}} equals "security" || {{error.severity}} >= 9',
@@ -369,31 +376,35 @@ config: [
 }
 ```
 
-### Nested Conditions
+### Nested Route Nodes
 ```javascript
 // First route - check if logged in
 {
   type: 'route',
   alias: 'logged_in_check',
-  config: {
-    condition: '{{isLoggedIn}}',
-    true_branch: 40,  // Points to another route node
-    false_branch: 45  // Login flow
-  }
+  params: [
+    { 
+      name: 'authenticated', 
+      condition: '{{isLoggedIn}}', 
+      branch: 40  // Points to another route node
+    },
+    { 
+      name: 'not_authenticated', 
+      condition: 'true', 
+      branch: 45  // Login flow
+    }
+  ]
 }
 
 // Second route at position 40 - check user role
 {
   type: 'route',
   alias: 'role_check',
-  config: {
-    value: 'state.userRole',
-    paths: {
-      'admin': [50, 51],
-      'user': [55, 56],
-      'default': [60]
-    }
-  }
+  params: [
+    { name: 'admin', condition: '{{userRole}} equals "admin"', branch: [50, 51] },
+    { name: 'user', condition: '{{userRole}} equals "user"', branch: [55, 56] },
+    { name: 'guest', condition: 'true', branch: 60 }
+  ]
 }
 ```
 
@@ -430,11 +441,74 @@ config: [
 3. Verify variable is set before route evaluation
 4. Use correct reference syntax (`{{alias.property}}`)
 
+## Frontend Display Behavior
+
+### Visual Hierarchy
+- Route nodes appear as expandable cards with a distinct blue color
+- Clicking the expand button (▼/▶) reveals all branches
+- Each branch shows:
+  - Branch name in a blue badge
+  - Condition expression in monospace font
+  - Full node cards for referenced nodes (fetched via `NestedNodesList`)
+
+### Node Filtering
+Nodes referenced in route branches are automatically hidden from the root workflow view:
+- They only appear inside their parent route node
+- This prevents duplicate display and reduces clutter
+- The filtering happens in `loadWorkflowNodes()` (frontend/app.js)
+
+### Example UI Display
+```
+┌─ generate_random (cognition) ─────────────┐
+│  Generate a random integer 1-100          │
+└───────────────────────────────────────────┘
+
+┌─ decide_site (route) ─────────────────────┐
+│  Choose navigation path based on value  ▼ │
+├───────────────────────────────────────────┤
+│  Route Branches:                          │
+│  ┌─ low_range ──── {{value}} < 34 ───────┐
+│  │  └─ Navigate to Example.com           │
+│  ├─ medium_range ─ {{value}} >= 34 && ≤66┤
+│  │  └─ Navigate to Wikipedia             │
+│  ├─ high_range ─── {{value}} > 66 ───────┤
+│  │  └─ Navigate to OpenAI                │
+│  └─ default ────── true ─────────────────┘
+│     └─ Navigate to Teapot page           │
+└───────────────────────────────────────────┘
+```
+
 ## Technical Notes
 
 - Routes evaluate synchronously - no async operations in conditions
 - Branch execution is sequential, not parallel
 - Nested execution context prevents interference between branches
 - Route nodes themselves don't store results unless `store_variable: true`
-- Supports both position-based and inline node references for compatibility
+- Array params are preserved through serialization (fixed in directorService.js)
+- Template variables in conditions are resolved before evaluation
+- Supports position-based references only (inline node definitions removed)
 - Execution tracking ensures skipped branches are properly marked
+
+## Recent Fixes and Improvements
+
+### Backend Fixes
+1. **Array Serialization** (directorService.js line 865)
+   - Fixed object spread converting arrays to objects with numeric keys
+   - Now preserves array structure when creating nodes
+
+2. **Parameter Resolution** (nodeExecutor.js lines 350-364)
+   - Added array detection to handle route params correctly
+   - Recursively resolves template variables in branch conditions
+
+### Frontend Improvements
+1. **Route Expansion** (app.js line 2325)
+   - Detects both old format (`config.paths`) and new format (`params` array)
+   - Shows expand/collapse button appropriately
+
+2. **Branch Display** (app.js lines 2650-2703)
+   - Uses `NestedNodesList` to fetch and display actual nodes
+   - Shows branch name, condition, and nested nodes
+
+3. **Node Filtering** (app.js lines 1005-1039)
+   - Collects positions referenced in routes and iterates
+   - Hides these nodes from root level display
