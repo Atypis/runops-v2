@@ -107,14 +107,14 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 7. \`route\` - Conditional branching with enhanced expression support (&&, ||, !, ternary)
 
 **State Layer:**
-8. \`context\` - Explicit state management
+8. \`context\` - Store variables (credentials, user input, configuration)
 9. \`group\` - Execute node ranges as a unit
 
 ## 7. Variable Reference System
 
-- **Stored node results:** \`{{extract_emails.title}}\`
+- **Stored node results:** \`{{extract_emails.title}}\` (nodes with store_variable: true)
 - **Environment:** \`{{env:GMAIL_EMAIL}}\`
-- **Workflow variables:** \`{{user_credentials.email}}\`
+- **Context variables:** \`{{email}}\`, \`{{username}}\` (stored flat, not nested)
 - **Iterator variables:** \`{{current_email.subject}}\`
 
 ### Schema and Variable Types (CRITICAL!)
@@ -418,6 +418,24 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   schema: {type: "number"},
   store_variable: true  // Result: {{calculate_score}} is a number
 }}
+
+// Context - Store variables for use throughout the workflow
+// IMPORTANT: Context variables are stored flat, not nested under the alias
+{type: "context", alias: "store_credentials", config: {
+  variables: {
+    email: "{{env:GMAIL_EMAIL}}",
+    password: "{{env:GMAIL_PASSWORD}}"
+  }
+}}
+// Reference these as {{email}} and {{password}}, NOT {{store_credentials.email}}
+
+{type: "context", alias: "save_user_data", config: {
+  variables: {
+    username: "{{extracted_username}}",
+    user_id: "{{extracted_id}}"
+  }
+}}
+// Reference these as {{username}} and {{user_id}}, NOT {{save_user_data.username}}
 \`\`\`
 
 ## Route Node Best Practices

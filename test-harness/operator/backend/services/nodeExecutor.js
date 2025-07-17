@@ -1273,8 +1273,33 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
 
   async executeContext(config, workflowId) {
-    // Context is the new name for memory, same functionality
-    return this.executeMemory(config, workflowId);
+    // Simplified context node - only stores variables
+    if (!config.variables) {
+      throw new Error('Context node requires variables object');
+    }
+
+    console.log(`[CONTEXT] Storing variables:`, config.variables);
+
+    // Store each variable individually for backward compatibility
+    // Variables are stored flat in the workflow_memory table
+    const results = {};
+    
+    for (const [key, value] of Object.entries(config.variables)) {
+      const memoryConfig = {
+        operation: 'set',
+        key,
+        value
+      };
+      
+      const result = await this.executeMemory(memoryConfig, workflowId);
+      results[key] = result;
+    }
+    
+    return {
+      success: true,
+      message: `Stored ${Object.keys(config.variables).length} variables`,
+      stored: config.variables
+    };
   }
 
   async executeRoute(config, workflowId) {

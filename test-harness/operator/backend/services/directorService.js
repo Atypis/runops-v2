@@ -814,8 +814,7 @@ export class DirectorService {
         if (!config.variable) throw new Error('iterate node requires "variable" field - the name for the current item in each iteration (e.g., "currentItem")');
         break;
       case 'context':
-        if (!config.operation) throw new Error('context node requires "operation" field (set, get, update, clear, or merge)');
-        if (config.operation !== 'clear' && !config.key) throw new Error('context node requires "key" field for non-clear operations');
+        if (!config.variables) throw new Error('context node requires "variables" field - an object containing the variables to store');
         break;
       case 'cognition':
         if (!config.instruction) throw new Error('cognition node requires "instruction" field');

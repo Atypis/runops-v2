@@ -311,7 +311,7 @@ export function createToolDefinitions() {
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
-    // context - requires operation
+    // context - Simplified state management for storing credentials and user input
     {
       type: 'object',
       properties: {
@@ -319,22 +319,13 @@ export function createToolDefinitions() {
         config: {
           type: 'object',
           properties: {
-            operation: {
-              type: 'string',
-              enum: ['set', 'clear', 'clear_all'],
-              description: 'The context operation to perform'
-            },
             variables: {
               type: 'object',
-              description: 'Variables to set, clear, or modify',
+              description: 'Variables to store in workflow state. Each key-value pair is stored flat (e.g., {email: "x@y.com"} is accessed as {{email}}, NOT {{alias.email}}). Overwrites existing values.',
               additionalProperties: true
-            },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
-          required: ['operation'],
+          required: ['variables'],
           additionalProperties: false
         },
         description: {
