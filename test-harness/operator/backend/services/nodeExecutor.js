@@ -1093,6 +1093,16 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
   }
 
   async executeCognition(config, inputData) {
+    // Add validation at execution time as safety net
+    if (!config.schema) {
+      throw new Error(
+        `Cognition node missing required schema. ` +
+        `This node would return a string, making property access impossible. ` +
+        `Add a schema like: {type: "string"} for simple text, or ` +
+        `{type: "object", properties: {...}} for structured data.`
+      );
+    }
+    
     console.log(`[COGNITION] Processing with instruction: ${config.instruction || config.prompt}`);
     
     // Build the prompt - either use instruction directly or replace {{input}} placeholder

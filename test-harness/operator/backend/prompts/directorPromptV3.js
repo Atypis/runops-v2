@@ -98,8 +98,9 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 5. \`cognition\` - AI-powered reasoning and data analysis
    - Process any data (not page content) with natural language instructions
    - Examples: classify items, make decisions, transform text, analyze patterns
-   - **CRITICAL**: Without schema → returns STRING. With schema → returns parsed OBJECT/ARRAY/etc
-   - Must use schema if you need property access (e.g., for route conditions or iteration)
+   - **REQUIRED**: Schema must be provided to define output format
+   - Use {type: "string"} for text, {type: "object", properties: {...}} for structured data
+   - Schema ensures proper type handling for route conditions and property access
 
 **Control Layer:**
 6. \`iterate\` - Loop over arrays
@@ -370,28 +371,14 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   }
 ]}
 
-// Cognition (AI reasoning) - CRITICAL: Schema determines output type!
-// WITHOUT schema: ALWAYS returns a string (even if it looks like JSON)
-{type: "cognition", alias: "analyze_data", config: {
-  instruction: "Analyze these prices and determine which product offers the best value: {{price_data}}",
-  store_variable: true  // Result: {{analyze_data}} is a STRING
-}}
-
-// WITH schema: Returns parsed object/array/boolean/number
+// Cognition (AI reasoning) - Schema is REQUIRED to define output type
 {type: "cognition", alias: "classify_emails", config: {
   instruction: "Classify these emails by urgency: {{emails}}. Return as JSON with structure: {urgent: [], normal: [], low: []}",
   schema: {type: "object", properties: {urgent: {type: "array"}, normal: {type: "array"}, low: {type: "array"}}},
   store_variable: true  // Result: {{classify_emails.urgent}} works because it's an OBJECT
 }}
 
-// ⚠️ COMMON MISTAKE - This WILL NOT WORK:
-{type: "cognition", alias: "check_status", config: {
-  instruction: "Check if system is ready. Return {\"ready\": true/false, \"reason\": \"...\"}"
-  // NO SCHEMA = returns string '{"ready": true, "reason": "..."}' 
-  // {{check_status.ready}} will FAIL - can't access property on string!
-}}
-
-// ✅ CORRECT - Use schema for property access:
+// Example with object schema for property access:
 {type: "cognition", alias: "check_status", config: {
   instruction: "Check if system is ready",
   schema: {
@@ -402,6 +389,34 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
     }
   },
   store_variable: true  // Now {{check_status.ready}} works!
+}}
+
+// Example with string schema for text generation:
+{type: "cognition", alias: "generate_summary", config: {
+  instruction: "Summarize this article in 2-3 sentences: {{article_text}}",
+  schema: {type: "string"},
+  store_variable: true  // Result: {{generate_summary}} is a string
+}}
+
+// Example with boolean schema for yes/no decisions:
+{type: "cognition", alias: "needs_approval", config: {
+  instruction: "Does this purchase order exceed $10,000 and require manager approval? Amount: {{order.total}}",
+  schema: {type: "boolean"},
+  store_variable: true  // Result: {{needs_approval}} is true/false
+}}
+
+// Example with array schema for lists:
+{type: "cognition", alias: "extract_keywords", config: {
+  instruction: "Extract 5 key topics from this document: {{document}}",
+  schema: {type: "array", items: {type: "string"}},
+  store_variable: true  // Result: {{extract_keywords}} is an array of strings
+}}
+
+// Example with number schema:
+{type: "cognition", alias: "calculate_score", config: {
+  instruction: "Calculate a priority score (0-100) based on: urgency={{urgency}}, impact={{impact}}, effort={{effort}}",
+  schema: {type: "number"},
+  store_variable: true  // Result: {{calculate_score}} is a number
 }}
 \`\`\`
 

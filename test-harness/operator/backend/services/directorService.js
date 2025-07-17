@@ -817,6 +817,54 @@ export class DirectorService {
         if (!config.operation) throw new Error('context node requires "operation" field (set, get, update, clear, or merge)');
         if (config.operation !== 'clear' && !config.key) throw new Error('context node requires "key" field for non-clear operations');
         break;
+      case 'cognition':
+        if (!config.instruction) throw new Error('cognition node requires "instruction" field');
+        if (!config.schema) {
+          throw new Error(
+            `Cognition nodes require a schema to define output format.\n` +
+            `Common patterns:\n` +
+            `  - For text: schema: {type: "string"}\n` +
+            `  - For yes/no: schema: {type: "boolean"}\n` +
+            `  - For numbers: schema: {type: "number"}\n` +
+            `  - For objects: schema: {type: "object", properties: {field1: {type: "string"}}}\n` +
+            `  - For arrays: schema: {type: "array", items: {type: "string"}}`
+          );
+        }
+        
+        // Validate schema is an object
+        if (typeof config.schema !== 'object' || config.schema === null) {
+          throw new Error('Schema must be a valid JSON Schema object');
+        }
+        
+        // Validate schema has at least 'type' property
+        if (!config.schema.type) {
+          throw new Error('Schema must have a "type" property (e.g., "string", "object", "array", "boolean", "number")');
+        }
+        
+        // Validate type is valid
+        const validTypes = ['string', 'number', 'boolean', 'object', 'array', 'null'];
+        if (!validTypes.includes(config.schema.type)) {
+          throw new Error(`Schema type must be one of: ${validTypes.join(', ')}. Got: ${config.schema.type}`);
+        }
+        
+        // Validate object schemas have proper structure
+        if (config.schema.type === 'object' && config.schema.properties) {
+          if (typeof config.schema.properties !== 'object') {
+            throw new Error('Schema properties must be an object defining the structure');
+          }
+          // Validate each property has a type
+          for (const [key, value] of Object.entries(config.schema.properties)) {
+            if (!value || typeof value !== 'object' || !value.type) {
+              throw new Error(`Schema property "${key}" must have a type. Example: ${key}: {type: "string"}`);
+            }
+          }
+        }
+        
+        // Validate array schemas have items definition
+        if (config.schema.type === 'array' && !config.schema.items) {
+          throw new Error('Array schema must have "items" property defining the array element type. Example: {type: "array", items: {type: "string"}}');
+        }
+        break;
     }
     
     // If position is provided, use it; otherwise get the next available position

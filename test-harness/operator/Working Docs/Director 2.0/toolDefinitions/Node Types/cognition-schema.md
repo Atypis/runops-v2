@@ -1,19 +1,20 @@
-# Cognition Node Schema Requirement Plan
+# Cognition Node Schema Requirement - IMPLEMENTED
 
-## Current Issue
+## Implementation Status: ✅ COMPLETE
 
-The cognition node currently treats `schema` as optional, leading to confusion:
-- Without schema: Returns raw string (even if it looks like JSON)
-- With schema: Returns parsed and typed data
+### What Was Done
 
-This caused a real bug where:
-1. Director created: `instruction: "Return {\"hasHot\":true,\"hasWarm\":false}"`
-2. Expected to access: `{{check_posts.hasHot}}`
-3. Failed because result was string `'{"hasHot":true,"hasWarm":false}'`, not object
+1. **Schema is now REQUIRED** - All cognition nodes must have a schema
+2. **Strict validation** - Schema must be a valid JSON Schema with proper type definitions
+3. **Helpful error messages** - Clear guidance when schema is missing or invalid
+4. **Full alignment with function guidance** - Follows all best practices from function-guidance.md
 
-## Proposed Change
+### The Problem We Solved
 
-Make `schema` **required** for all cognition nodes.
+Previously, cognition nodes without schema returned strings (even JSON-looking ones), causing bugs like:
+- Director created: `instruction: "Return {\"hasHot\":true,\"hasWarm\":false}"`
+- Expected to access: `{{check_posts.hasHot}}`
+- Failed because result was string `'{"hasHot":true,"hasWarm":false}'`, not object
 
 ### Implementation
 
@@ -61,29 +62,33 @@ schema: {
 3. **Better Validation**: Schema ensures AI returns expected format
 4. **Clear Intent**: Forces Director to think about data structure
 
-## Implementation Tasks
+## What Was Implemented
 
-### 1. Codebase Change
-- **File**: `/test-harness/operator/backend/services/nodeExecutor.js`
-- **Task**: Ensure cognition execution handles required schema properly
-- **Verify**: Error handling when schema validation fails
+### 1. Enhanced Tool Definition (toolDefinitionsV2.js)
+- Schema is now in the `required` array
+- Added strict JSON Schema validation structure
+- Schema property now enforces proper type definitions
+- Follows OpenAI function calling best practices with `additionalProperties: false`
 
-### 2. Tool Definitions Change
-- **File**: `/test-harness/operator/backend/tools/toolDefinitionsV2.js`
-- **Task**: Move `schema` from optional to required in cognition node definition
-- **Change**: `required: ['instruction', 'schema']` in cognition schema
+### 2. Multi-Layer Validation (directorService.js)
+- Validates schema exists at node creation time
+- Checks schema has valid type property
+- Validates object schemas have properly typed properties
+- Ensures array schemas have items definition
+- Provides helpful error messages with examples
 
-### 3. System Prompt Update
-- **File**: `/test-harness/operator/backend/prompts/directorPromptV3.js`
-- **Tasks**:
-  - Update all cognition examples to include schema
-  - Remove any examples without schema
-  - Add clear explanation that schema is required
-  - Include common schema patterns
+### 3. Execution Safety Net (nodeExecutor.js)
+- Added runtime validation as backup
+- Clear error if schema missing during execution
 
-## Migration Notes
+### 4. Updated Documentation (directorPromptV3.js)
+- Removed all examples without schema
+- Added comprehensive examples for all types
+- Clear indication that schema is REQUIRED
 
-This is a breaking change. All existing cognition nodes without schema will fail validation. Consider adding helpful error message when schema is missing.
+## Breaking Change Notice
+
+This is a breaking change. All existing cognition nodes without schema will fail validation with clear error messages guiding the fix.
 
 ## No Downside
 

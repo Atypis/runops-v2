@@ -351,6 +351,13 @@ export function createToolDefinitions() {
       additionalProperties: false
     },
     // cognition - AI-powered reasoning and analysis
+    // Purpose: Process data through natural language instructions and return structured results
+    // When to use: For classification, decision-making, data transformation, or any reasoning task
+    // Common patterns:
+    //   - Text generation: {type: "string"}
+    //   - Yes/no decisions: {type: "boolean"}  
+    //   - Structured data: {type: "object", properties: {...}}
+    //   - Lists: {type: "array", items: {...}}
     {
       type: 'object',
       properties: {
@@ -364,7 +371,7 @@ export function createToolDefinitions() {
             },
             schema: {
               type: 'object',
-              description: 'Optional JSON schema to enforce structured output. When provided, response will be JSON.',
+              description: 'Required JSON Schema defining the output format. Must include at least a "type" property. Common examples: {type: "string"}, {type: "boolean"}, {type: "object", properties: {...}}, {type: "array", items: {...}}',
               additionalProperties: true
             },
             store_variable: {
@@ -372,7 +379,7 @@ export function createToolDefinitions() {
               description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
-          required: ['instruction'],
+          required: ['instruction', 'schema'],
           additionalProperties: false
         },
         description: {
