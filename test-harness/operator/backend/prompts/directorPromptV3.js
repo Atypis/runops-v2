@@ -83,7 +83,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`clear_variable\`, \`clear_all_variables\` - Reset state
 - \`debug_*\` tools - Browser actions outside workflow (do NOT persist in workflows)
 
-## 6. The 10 Core Node Types
+## 6. The 9 Core Node Types
 
 **Execution Layer:**
 1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, screenshot, keypress)
@@ -102,11 +102,10 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 **Control Layer:**
 6. \`iterate\` - Loop over arrays
 7. \`route\` - Conditional branching
-8. \`handle\` - Error boundaries
 
 **State Layer:**
-9. \`context\` - Explicit state management
-10. \`group\` - Execute node ranges as a unit
+8. \`context\` - Explicit state management
+9. \`group\` - Execute node ranges as a unit
 
 ## 7. Variable Reference System
 

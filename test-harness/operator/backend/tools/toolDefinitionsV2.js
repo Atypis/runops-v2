@@ -394,7 +394,7 @@ export function createToolDefinitions() {
       properties: {
         type: {
           type: 'string',
-          enum: ['transform', 'route', 'handle'],
+          enum: ['transform', 'route'],
           description: 'The type of node'
         },
         config: {
