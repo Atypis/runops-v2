@@ -2321,7 +2321,8 @@ function App() {
     const isRoute = node.type === 'route';
     const isIterate = node.type === 'iterate';
     const isGroup = node.type === 'group';
-    const hasNestedNodes = isRoute && node.config?.paths;
+    // New route format uses array in params, old format uses paths in config
+    const hasNestedNodes = isRoute && (Array.isArray(node.params) || node.config?.paths);
     const hasIterateBody = isIterate && node.params?.body;
     
     // Debounced fetch ref to prevent rapid calls
@@ -2645,32 +2646,59 @@ function App() {
         {expanded && hasNestedNodes && (
           <div className="mt-3 bg-gray-50 rounded p-3">
             <div className="text-xs font-semibold text-gray-700 mb-2">Route Branches:</div>
-            {Object.entries(node.config.paths).map(([branchName, branchContent]) => (
-              <div key={branchName} className="mb-3">
-                <div className="flex items-center text-xs font-medium text-gray-600 mb-1">
-                  <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                    {branchName}
-                  </span>
+            {/* Handle new array format */}
+            {Array.isArray(node.params) ? (
+              node.params.map((branch, idx) => (
+                <div key={idx} className="mb-3">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                      {branch.name || `Branch ${idx + 1}`}
+                    </span>
+                    <span className="text-gray-500 font-mono">
+                      {branch.condition}
+                    </span>
+                  </div>
+                  {/* Show target nodes */}
+                  {Array.isArray(branch.branch) ? (
+                    <div className="ml-4 text-xs text-gray-600">
+                      → Nodes: {branch.branch.join(', ')}
+                    </div>
+                  ) : (
+                    <div className="ml-4 text-xs text-gray-600">
+                      → Node: {branch.branch}
+                    </div>
+                  )}
                 </div>
-                {/* Check if it's the new format (array of positions) or old format (node objects) */}
-                {Array.isArray(branchContent) && branchContent.length > 0 && typeof branchContent[0] === 'number' ? (
-                  <NestedNodesList 
-                    nodePositions={branchContent} 
-                    workflowId={currentWorkflow?.id}
-                    nodeValues={nodeValues}
-                    depth={depth + 1}
-                    executeNode={executeNode}
-                    expandedNodes={expandedNodes}
-                    setExpandedNodes={setExpandedNodes}
-                    loadNodeValues={loadNodeValues}
-                    currentWorkflow={currentWorkflow}
-                    isIterationContext={isIterationContext}
-                  />
-                ) : (
-                  renderNestedNode(branchContent, branchName, 0, depth + 1)
-                )}
-              </div>
-            ))}
+              ))
+            ) : (
+              /* Handle old format with paths object */
+              Object.entries(node.config.paths).map(([branchName, branchContent]) => (
+                <div key={branchName} className="mb-3">
+                  <div className="flex items-center text-xs font-medium text-gray-600 mb-1">
+                    <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                      {branchName}
+                    </span>
+                  </div>
+                  {/* Check if it's the new format (array of positions) or old format (node objects) */}
+                  {Array.isArray(branchContent) && branchContent.length > 0 && typeof branchContent[0] === 'number' ? (
+                    <NestedNodesList 
+                      nodePositions={branchContent} 
+                      workflowId={currentWorkflow?.id}
+                      nodeValues={nodeValues}
+                      depth={depth + 1}
+                      executeNode={executeNode}
+                      expandedNodes={expandedNodes}
+                      setExpandedNodes={setExpandedNodes}
+                      loadNodeValues={loadNodeValues}
+                      currentWorkflow={currentWorkflow}
+                      isIterationContext={isIterationContext}
+                    />
+                  ) : (
+                    renderNestedNode(branchContent, branchName, 0, depth + 1)
+                  )}
+                </div>
+              ))
+            )}
           </div>
         )}
         
