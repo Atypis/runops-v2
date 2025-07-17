@@ -2,14 +2,15 @@
 
 ## Overview
 
-The route node is a control flow node that enables conditional branching in workflows. It evaluates conditions or values and directs execution to different paths based on the results. This is essential for implementing decision logic, handling different scenarios, and creating dynamic workflows that adapt to varying conditions.
+The route node is a control flow node that enables conditional branching in workflows. It evaluates conditions and directs execution to different paths based on the results. This is essential for implementing decision logic, handling different scenarios, and creating dynamic workflows that adapt to varying conditions.
 
 ### Key Features
-- Multiple routing strategies (value-based, condition-based)
-- Support for complex conditions with operators
-- Nested branch execution with proper tracking
-- Backward compatibility with legacy formats
-- Default fallback paths for unmatched conditions
+- **Single, unified format** - One clean pattern for all routing needs
+- **Unlimited branches** - Handle 2-way, 3-way, or N-way decisions with the same syntax
+- **Enhanced expression evaluation** - Full support for &&, ||, !, parentheses, and ternary operators
+- **First-match-wins** - Branches evaluated in order for predictable behavior
+- **Named branches** - Clear, descriptive names for each path
+- **Default support** - Use `condition: "true"` for fallback branches
 
 ## Implementation Architecture
 
@@ -27,97 +28,154 @@ The route node is a control flow node that enables conditional branching in work
    - `/test-harness/operator/backend/tools/toolDefinitionsV2.js` - Route node schema definition
    - `/test-harness/operator/backend/prompts/directorPromptV3.js` - Usage examples
 
-### Node Configuration Formats
+### Node Configuration Format
 
-#### Modern Condition-Based Format (Recommended)
+The route node uses a single, clean format - an array of branches:
+
 ```javascript
 {
   type: 'route',
-  alias: 'check_login_status',
-  config: {
-    condition: '{{login_result}} === true',
-    true_branch: 15,    // Execute node at position 15 if true
-    false_branch: 20    // Execute node at position 20 if false
-  }
-}
-```
-
-#### Legacy Value-Based Format (Still Supported)
-```javascript
-{
-  type: 'route',
-  alias: 'process_by_type',
-  config: {
-    value: 'state.documentType',
-    paths: {
-      'invoice': [25, 26, 27],      // Process invoice nodes
-      'receipt': [30, 31],          // Process receipt nodes
-      'default': [35]               // Handle unknown types
+  alias: 'handle_request',
+  config: [
+    {
+      name: 'urgent',
+      condition: '{{priority}} > 8',
+      branch: [100, 101, 102]
+    },
+    {
+      name: 'normal', 
+      condition: '{{priority}} > 3',
+      branch: 110
+    },
+    {
+      name: 'low',
+      condition: 'true',  // Default fallback
+      branch: 120
     }
-  }
+  ]
 }
 ```
 
-## Routing Strategies
+Each branch has three properties:
+- **name** - Descriptive name for the branch (for clarity and debugging)
+- **condition** - Expression that evaluates to true/false
+- **branch** - Node position(s) to execute if condition is true
 
-### 1. Condition-Based Routing (Modern Approach)
+### Examples
 
-Uses explicit conditions with operators for clear, readable logic:
-
-```javascript
-// Simple boolean check
-{
-  condition: '{{isAuthenticated}}',
-  true_branch: 10,
-  false_branch: 15
-}
-
-// Comparison operators
-{
-  condition: '{{price}} > 100',
-  true_branch: [20, 21],  // Can be array of positions
-  false_branch: 25
-}
-
-// String matching
-{
-  condition: '{{status}} equals "completed"',
-  true_branch: 30,
-  false_branch: 35
-}
-```
-
-### 2. Value-Based Routing (Legacy)
-
-Maps specific values to execution paths:
-
+#### Binary Decision (2 branches)
 ```javascript
 {
-  value: 'state.userRole',
-  paths: {
-    'admin': [40, 41, 42],
-    'user': [45, 46],
-    'guest': [50],
-    'default': [55]  // Fallback for unmatched values
-  }
+  type: 'route',
+  alias: 'check_auth',
+  config: [
+    { name: 'authenticated', condition: '{{isLoggedIn}}', branch: 10 },
+    { name: 'anonymous', condition: 'true', branch: 20 }
+  ]
 }
 ```
 
-## Supported Operators
+#### Multi-Way Decision (5+ branches)
+```javascript
+{
+  type: 'route',
+  alias: 'customer_support_router',
+  config: [
+    {
+      name: 'security_emergency',
+      condition: '{{issue.type}} equals "security" && {{severity}} > 9',
+      branch: [300, 301, 302]
+    },
+    {
+      name: 'vip_technical',
+      condition: '{{customer.tier}} equals "enterprise" && {{issue.technical}}',
+      branch: [310, 311]
+    },
+    {
+      name: 'billing_high_value',
+      condition: '{{issue.type}} equals "billing" && {{amount}} > 1000',
+      branch: [320, 321, 322]
+    },
+    {
+      name: 'quick_resolution',
+      condition: '{{issue.estimatedTime}} < 5',
+      branch: 330
+    },
+    {
+      name: 'standard_support',
+      condition: 'true',
+      branch: [340, 341]
+    }
+  ]
+}
+```
 
-The route node supports these operators in conditions:
+## How It Works
 
+### Evaluation Order
+Branches are evaluated **in order** from top to bottom. The first branch whose condition evaluates to `true` is executed. This makes the behavior predictable and allows for cascading conditions:
+
+```javascript
+config: [
+  { name: 'critical', condition: '{{severity}} > 9', branch: 10 },
+  { name: 'high', condition: '{{severity}} > 6', branch: 20 },
+  { name: 'medium', condition: '{{severity}} > 3', branch: 30 },
+  { name: 'low', condition: 'true', branch: 40 }  // Catches everything else
+]
+```
+
+### Default Branches
+Always include a default branch with `condition: 'true'` as the last entry. This ensures the workflow doesn't get stuck if no other conditions match:
+
+```javascript
+{ name: 'default', condition: 'true', branch: 50 }
+```
+
+## Enhanced Expression Syntax
+
+### Logical Operators
 | Operator | Description | Example |
 |----------|-------------|---------|
-| `equals` | Exact equality | `{{status}} equals "active"` |
-| `notEquals` | Inequality | `{{count}} notEquals 0` |
+| `&&` | Logical AND | `{{isActive}} && {{hasPermission}}` |
+| `||` | Logical OR | `{{isAdmin}} || {{isOwner}}` |
+| `!` | Logical NOT | `!{{isDisabled}}` |
+| `()` | Grouping | `({{a}} || {{b}}) && {{c}}` |
+| `? :` | Ternary | `{{count}} > 0 ? "has items" : "empty"` |
+
+### Comparison Operators
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `===` | Strict equality | `{{status}} === "active"` |
+| `!==` | Strict inequality | `{{type}} !== "draft"` |
+| `==` | Loose equality | `{{count}} == "5"` |
+| `!=` | Loose inequality | `{{result}} != null` |
+| `>` | Greater than | `{{score}} > 80` |
+| `<` | Less than | `{{remaining}} < 10` |
+| `>=` | Greater or equal | `{{age}} >= 18` |
+| `<=` | Less or equal | `{{items}} <= 100` |
+
+### String Operators
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `equals` | Case-sensitive equality | `{{status}} equals "active"` |
 | `contains` | String contains | `{{message}} contains "error"` |
-| `exists` | Non-null/undefined/empty | `{{user}} exists` |
-| `greater` | Greater than | `{{score}} greater 80` |
-| `less` | Less than | `{{remaining}} less 10` |
-| `greaterOrEqual` | Greater or equal | `{{age}} greaterOrEqual 18` |
-| `lessOrEqual` | Less or equal | `{{items}} lessOrEqual 100` |
 | `matches` | Regex pattern | `{{email}} matches "^[\\w]+@[\\w]+\\.[\\w]+$"` |
+| `exists` | Non-null/undefined/empty | `{{user}} exists` |
+
+### Complex Expression Examples
+```javascript
+// Combining multiple conditions
+condition: '{{priority}} > 5 && ({{customer.tier}} equals "vip" || {{override}})'
+
+// Using negation
+condition: '!{{isProcessed}} && {{status}} !== "cancelled"'
+
+// Ternary in computedPaths
+condition: '{{items.length}} > 0 ? {{items[0].priority}} > 8 : false'
+
+// Complex business logic
+condition: '({{order.total}} > 1000 || {{customer.lifetimeValue}} > 5000) && !{{fraud.detected}}'
+```
 
 ## Variable References
 
@@ -201,48 +259,48 @@ The route node supports these operators in conditions:
 
 ## Best Practices
 
-### 1. Use Clear Conditions
+### 1. Use Descriptive Branch Names
 ```javascript
-// Good - Clear and specific
-{ condition: '{{user.isVerified}} === true' }
+// Good - Clear what each branch does
+config: [
+  { name: 'payment_success', condition: '{{payment.verified}}', branch: 30 },
+  { name: 'payment_failed', condition: 'true', branch: 35 }
+]
 
 // Less clear
-{ condition: '{{verified}}' }
+config: [
+  { name: 'branch1', condition: '{{payment.verified}}', branch: 30 },
+  { name: 'branch2', condition: 'true', branch: 35 }
+]
 ```
 
-### 2. Always Include Defaults
+### 2. Order Matters - Most Specific First
 ```javascript
-// Value-based - always add default
-{
-  paths: {
-    'option1': [10],
-    'option2': [15],
-    'default': [20]  // Handle unexpected values
-  }
-}
+// Good - Specific conditions first
+config: [
+  { name: 'vip_urgent', condition: '{{vip}} && {{priority}} > 8', branch: 10 },
+  { name: 'vip_normal', condition: '{{vip}}', branch: 20 },
+  { name: 'urgent', condition: '{{priority}} > 8', branch: 30 },
+  { name: 'normal', condition: 'true', branch: 40 }
+]
 ```
 
-### 3. Prefer Node Positions Over Inline
+### 3. Always Include a Default
 ```javascript
-// Good - Reference existing nodes
-{ true_branch: 25 }
-
-// Avoid - Inline node definitions
-{ true_branch: { type: 'browser_action', ... } }
+// Good - Workflow never gets stuck
+config: [
+  { name: 'has_email', condition: '{{email}} exists', branch: 50 },
+  { name: 'no_email', condition: 'true', branch: 60 }  // Always have fallback
+]
 ```
 
-### 4. Document Branch Logic
+### 4. Use Clear Expressions
 ```javascript
-{
-  type: 'route',
-  alias: 'check_payment_status',
-  description: 'Route based on payment verification result',
-  config: {
-    condition: '{{payment.verified}} === true',
-    true_branch: 30,  // Process successful payment
-    false_branch: 35  // Handle payment failure
-  }
-}
+// Good - Explicit and readable
+{ condition: '{{status}} === "active" && {{balance}} > 0' }
+
+// Less clear - Implicit truthiness
+{ condition: '{{status}} && {{balance}}' }
 ```
 
 ## Common Patterns
@@ -251,29 +309,63 @@ The route node supports these operators in conditions:
 ```javascript
 {
   type: 'route',
-  alias: 'auth_check',
-  config: {
-    condition: '{{login_attempt.success}} === true',
-    true_branch: [10, 11, 12],  // Continue to dashboard
-    false_branch: [15, 16]      // Show error, retry login
-  }
+  alias: 'auth_verification',
+  config: [
+    { 
+      name: 'fully_authenticated',
+      condition: '{{login.success}} && ({{mfa.verified}} || {{user.trustedDevice}})',
+      branch: [10, 11, 12]  // Proceed to app
+    },
+    {
+      name: 'needs_verification',
+      condition: 'true',
+      branch: [15, 16]  // Additional verification required
+    }
+  ]
 }
 ```
 
-### Multi-Way Branching
+### Document Processing by Type
 ```javascript
 {
   type: 'route',
   alias: 'process_document',
-  config: {
-    value: 'extract_type.documentType',
-    paths: {
-      'invoice': [20, 21, 22],
-      'receipt': [25, 26],
-      'contract': [30, 31, 32],
-      'default': [35]  // Unknown document handler
+  config: [
+    { name: 'invoice', condition: '{{docType}} equals "invoice"', branch: [20, 21, 22] },
+    { name: 'receipt', condition: '{{docType}} equals "receipt"', branch: [25, 26] },
+    { name: 'contract', condition: '{{docType}} equals "contract"', branch: [30, 31, 32] },
+    { name: 'unknown', condition: 'true', branch: 35 }  // Handle unknown types
+  ]
+}
+```
+
+### Error Severity Handling
+```javascript
+{
+  type: 'route',
+  alias: 'handle_error',
+  config: [
+    {
+      name: 'critical_security',
+      condition: '{{error.type}} equals "security" || {{error.severity}} >= 9',
+      branch: [100, 101, 102]  // Immediate escalation
+    },
+    {
+      name: 'high_priority',
+      condition: '{{error.severity}} >= 7 || {{error.affectedUsers}} > 100',
+      branch: [110, 111]
+    },
+    {
+      name: 'known_issue',
+      condition: '{{error.code}} matches "KNOWN-\\d+"',
+      branch: 120  // Automated fix
+    },
+    {
+      name: 'standard',
+      condition: 'true',
+      branch: [130, 131]  // Regular error handling
     }
-  }
+  ]
 }
 ```
 

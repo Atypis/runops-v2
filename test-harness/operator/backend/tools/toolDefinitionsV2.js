@@ -388,13 +388,62 @@ export function createToolDefinitions() {
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
+    // route - Clean conditional branching with expression evaluation
+    {
+      type: 'object',
+      properties: {
+        type: { const: 'route' },
+        config: {
+          type: 'array',
+          description: 'Array of branches evaluated in order. First matching condition wins.',
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Name of this branch (e.g., "urgent", "normal", "default")'
+              },
+              condition: {
+                type: 'string',
+                description: 'Boolean expression to evaluate. Supports logical operators (&&, ||, !), comparisons, and ternary. Use "true" for default/fallback branch.'
+              },
+              branch: {
+                anyOf: [
+                  { type: 'number', description: 'Single node position to execute' },
+                  { 
+                    type: 'array', 
+                    items: { type: 'number' },
+                    description: 'Array of node positions to execute in sequence'
+                  }
+                ],
+                description: 'Node position(s) to execute if condition is true'
+              }
+            },
+            required: ['name', 'condition', 'branch'],
+            additionalProperties: false
+          },
+          minItems: 1
+        },
+        description: {
+          type: 'string',
+          description: 'Human-readable description of what this node does'
+        },
+        alias: {
+          type: 'string',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
+          pattern: '^[a-z][a-z0-9_]*$'
+        }
+      },
+      required: ['type', 'config', 'alias'],
+      additionalProperties: false
+    },
     // General schema for other node types with minimal requirements
     {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          enum: ['transform', 'route'],
+          enum: ['transform', 'handle'],
           description: 'The type of node'
         },
         config: {

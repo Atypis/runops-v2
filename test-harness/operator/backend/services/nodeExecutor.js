@@ -1201,57 +1201,43 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
 
   async executeRoute(config, workflowId) {
-    console.log(`[ROUTE] Evaluating route with value path: ${config.value}`);
+    console.log(`[ROUTE] Evaluating route with ${config.length} branches`);
     
-    // Get the value to check
-    let valueToCheck;
-    if (config.value && typeof config.value === 'string') {
-      // Try to resolve any path-like value
-      if (config.value.includes('.') || config.value.startsWith('node') || config.value.startsWith('state')) {
-        // Remove 'state.' prefix if present for consistency
-        const path = config.value.startsWith('state.') ? config.value.substring(6) : config.value;
-        valueToCheck = await this.getStateValue(path, workflowId);
-        console.log(`[ROUTE] Retrieved value: ${valueToCheck}`);
-      } else {
-        // Direct value
-        valueToCheck = config.value;
-      }
-    } else {
-      valueToCheck = config.value;
+    // Config is now simply an array of branches
+    if (!Array.isArray(config)) {
+      throw new Error('Route config must be an array of branches');
     }
     
     // Determine which path to take
     let selectedPath = null;
     let selectedBranch = null;
     
-    if (config.paths) {
-      // Simple value routing
-      const pathKey = String(valueToCheck);
-      if (config.paths[pathKey]) {
-        selectedPath = pathKey;
-        selectedBranch = config.paths[pathKey];
-        console.log(`[ROUTE] Taking path: ${pathKey}`);
-      } else if (config.paths.default) {
-        selectedPath = 'default';
-        selectedBranch = config.paths.default;
-        console.log(`[ROUTE] Taking default path`);
-      }
-    } else if (config.conditions) {
-      // Condition-based routing
-      for (const condition of config.conditions) {
-        const conditionMet = await this.evaluateCondition(condition, workflowId);
+    // Evaluate each branch condition in order
+    for (const branch of config) {
+      console.log(`[ROUTE] Evaluating branch '${branch.name}' with condition: ${branch.condition}`);
+      
+      try {
+        const conditionMet = await this.evaluateExpression(branch.condition, workflowId);
+        
         if (conditionMet) {
-          selectedPath = `condition_${config.conditions.indexOf(condition)}`;
-          selectedBranch = condition.branch;
-          console.log(`[ROUTE] Condition met: ${JSON.stringify(condition)}`);
+          selectedPath = branch.name;
+          selectedBranch = branch.branch;
+          console.log(`[ROUTE] Taking branch '${branch.name}'`);
           break;
         }
+      } catch (error) {
+        console.error(`[ROUTE] Error evaluating condition for branch '${branch.name}':`, error);
+        // Continue to next branch on error
       }
-      
-      if (!selectedBranch && config.default) {
-        selectedPath = 'default';
-        selectedBranch = config.default;
-        console.log(`[ROUTE] No conditions met, taking default path`);
+    }
+    
+    // If no branch matched, look for a default (condition: 'true')
+    if (!selectedBranch) {
+      const defaultBranch = config.find(b => b.condition === 'true' || b.name === 'default');
+      if (defaultBranch) {
+        selectedPath = defaultBranch.name;
+        selectedBranch = defaultBranch.branch;
+        console.log(`[ROUTE] No specific conditions met, taking default branch '${defaultBranch.name}'`);
       }
     }
     
@@ -1449,8 +1435,223 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     return data.value;
   }
   
+  /**
+   * Parse and evaluate complex expressions for enhanced routing
+   * Supports: &&, ||, !, (), comparison operators, ternary operator
+   */
+  async evaluateExpression(expression, workflowId) {
+    console.log(`[EXPRESSION] Evaluating: ${expression}`);
+    
+    try {
+      // First, resolve all template variables
+      const resolvedExpression = await this.resolveTemplateVariables(expression, workflowId);
+      console.log(`[EXPRESSION] After variable resolution: ${resolvedExpression}`);
+      
+      // Parse and evaluate the expression
+      const result = await this.parseAndEvaluate(resolvedExpression, workflowId);
+      console.log(`[EXPRESSION] Result: ${result}`);
+      
+      return result;
+    } catch (error) {
+      console.error(`[EXPRESSION] Error evaluating expression:`, error);
+      return false; // Default to false on error to not break workflow
+    }
+  }
+
+  /**
+   * Parse and evaluate an expression with proper operator precedence
+   */
+  async parseAndEvaluate(expr, workflowId) {
+    // Remove extra whitespace
+    expr = expr.trim();
+    
+    // Handle ternary operator (lowest precedence)
+    const ternaryMatch = this.findTernaryOperator(expr);
+    if (ternaryMatch) {
+      const condition = await this.parseAndEvaluate(ternaryMatch.condition, workflowId);
+      return condition 
+        ? await this.parseAndEvaluate(ternaryMatch.trueValue, workflowId)
+        : await this.parseAndEvaluate(ternaryMatch.falseValue, workflowId);
+    }
+    
+    // Handle logical OR (||)
+    const orParts = this.splitByOperator(expr, '||');
+    if (orParts.length > 1) {
+      for (const part of orParts) {
+        if (await this.parseAndEvaluate(part, workflowId)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    
+    // Handle logical AND (&&)
+    const andParts = this.splitByOperator(expr, '&&');
+    if (andParts.length > 1) {
+      for (const part of andParts) {
+        if (!await this.parseAndEvaluate(part, workflowId)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    
+    // Handle NOT operator (!)
+    if (expr.startsWith('!')) {
+      const innerExpr = expr.substring(1).trim();
+      return !await this.parseAndEvaluate(innerExpr, workflowId);
+    }
+    
+    // Handle parentheses
+    if (expr.startsWith('(') && expr.endsWith(')')) {
+      return await this.parseAndEvaluate(expr.slice(1, -1), workflowId);
+    }
+    
+    // Handle comparison operators
+    const comparisonResult = await this.evaluateComparison(expr, workflowId);
+    if (comparisonResult !== null) {
+      return comparisonResult;
+    }
+    
+    // Handle boolean literals
+    if (expr === 'true') return true;
+    if (expr === 'false') return false;
+    
+    // Handle single values (check for existence)
+    const value = await this.resolveValue(expr, workflowId);
+    return value !== null && value !== undefined && value !== '' && value !== false;
+  }
+
+  /**
+   * Find ternary operator in expression, handling nested cases
+   */
+  findTernaryOperator(expr) {
+    let depth = 0;
+    let questionIndex = -1;
+    let colonIndex = -1;
+    
+    for (let i = 0; i < expr.length; i++) {
+      if (expr[i] === '(') depth++;
+      else if (expr[i] === ')') depth--;
+      else if (expr[i] === '?' && depth === 0 && questionIndex === -1) {
+        questionIndex = i;
+      } else if (expr[i] === ':' && depth === 0 && questionIndex !== -1 && colonIndex === -1) {
+        colonIndex = i;
+      }
+    }
+    
+    if (questionIndex !== -1 && colonIndex !== -1) {
+      return {
+        condition: expr.substring(0, questionIndex).trim(),
+        trueValue: expr.substring(questionIndex + 1, colonIndex).trim(),
+        falseValue: expr.substring(colonIndex + 1).trim()
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Split expression by operator, respecting parentheses
+   */
+  splitByOperator(expr, operator) {
+    const parts = [];
+    let current = '';
+    let depth = 0;
+    let i = 0;
+    
+    while (i < expr.length) {
+      if (expr[i] === '(') {
+        depth++;
+        current += expr[i];
+        i++;
+      } else if (expr[i] === ')') {
+        depth--;
+        current += expr[i];
+        i++;
+      } else if (depth === 0 && expr.substring(i, i + operator.length) === operator) {
+        parts.push(current.trim());
+        current = '';
+        i += operator.length;
+      } else {
+        current += expr[i];
+        i++;
+      }
+    }
+    
+    if (current) {
+      parts.push(current.trim());
+    }
+    
+    return parts;
+  }
+
+  /**
+   * Evaluate comparison expressions
+   */
+  async evaluateComparison(expr, workflowId) {
+    // Check for comparison operators
+    const operators = [
+      { op: '===', fn: (a, b) => a === b },
+      { op: '!==', fn: (a, b) => a !== b },
+      { op: '==', fn: (a, b) => a == b },
+      { op: '!=', fn: (a, b) => a != b },
+      { op: '>=', fn: (a, b) => Number(a) >= Number(b) },
+      { op: '<=', fn: (a, b) => Number(a) <= Number(b) },
+      { op: '>', fn: (a, b) => Number(a) > Number(b) },
+      { op: '<', fn: (a, b) => Number(a) < Number(b) },
+      { op: ' contains ', fn: (a, b) => String(a).includes(String(b)) },
+      { op: ' matches ', fn: (a, b) => new RegExp(b).test(String(a)) },
+      { op: ' equals ', fn: (a, b) => a === b },
+      { op: ' exists', fn: (a) => a !== null && a !== undefined && a !== '' }
+    ];
+    
+    for (const { op, fn } of operators) {
+      if (expr.includes(op)) {
+        const parts = expr.split(op);
+        if (parts.length === 2 || (op === ' exists' && parts.length === 1)) {
+          const leftValue = await this.resolveValue(parts[0].trim(), workflowId);
+          
+          if (op === ' exists') {
+            return fn(leftValue);
+          }
+          
+          const rightValue = await this.resolveValue(parts[1].trim(), workflowId);
+          return fn(leftValue, rightValue);
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Resolve a value - could be a variable reference, string literal, or number
+   */
+  async resolveValue(value, workflowId) {
+    // String literals
+    if ((value.startsWith('"') && value.endsWith('"')) || 
+        (value.startsWith("'") && value.endsWith("'"))) {
+      return value.slice(1, -1);
+    }
+    
+    // Numbers
+    if (!isNaN(value)) {
+      return Number(value);
+    }
+    
+    // Boolean literals
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    if (value === 'null') return null;
+    if (value === 'undefined') return undefined;
+    
+    // Variable reference - use getStateValue
+    return await this.getStateValue(value, workflowId);
+  }
+
   async evaluateCondition(condition, workflowId) {
-    // Evaluate a single condition
+    // Legacy condition evaluation for backward compatibility
     const value = await this.getStateValue(condition.path, workflowId);
     const expected = condition.value;
     

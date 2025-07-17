@@ -101,7 +101,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 **Control Layer:**
 6. \`iterate\` - Loop over arrays
-7. \`route\` - Conditional branching
+7. \`route\` - Conditional branching with enhanced expression support (&&, ||, !, ternary)
 
 **State Layer:**
 8. \`context\` - Explicit state management
@@ -259,9 +259,72 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 // - {{email}} - current email object
 // - {{emailIndex}} - current position (0-based)
 // - {{emailTotal}} - total number of emails
-{type: "route", alias: "check_success", config: {
-  condition: "{{login_result}} === true", true_branch: 15, false_branch: 20
-}}
+
+// Route nodes - single clean format for all routing needs
+// Route evaluates conditions in order, first match wins
+// ALWAYS include a default branch with condition: "true" as the last entry
+
+// Binary decision (2 branches)
+{type: "route", alias: "check_auth", config: [
+  { name: "authenticated", condition: "{{isLoggedIn}}", branch: 15 },
+  { name: "anonymous", condition: "true", branch: 20 }
+]}
+
+// Condition expression examples:
+// - Simple boolean: "{{isActive}}"
+// - Comparison: "{{price}} > 100", "{{count}} <= 5"
+// - String equality: "{{status}} equals 'active'", "{{type}} !== 'draft'"
+// - String contains: "{{message}} contains 'error'"
+// - Regex match: "{{email}} matches '^[\\w]+@[\\w]+\\.[\\w]+$'"
+// - Existence check: "{{user}} exists"
+// - Logical AND: "{{a}} && {{b}}"
+// - Logical OR: "{{x}} || {{y}}"
+// - Negation: "!{{disabled}}"
+// - Grouping: "({{a}} || {{b}}) && {{c}}"
+// - Ternary: "{{count}} > 0 ? {{count}} > 10 : false"
+
+// Multi-way routing (5+ branches) - order matters!
+{type: "route", alias: "smart_router", config: [
+  {
+    name: "urgent_error",
+    condition: "{{error.severity}} > 8 && {{error.type}} equals 'security'",
+    branch: [100, 101, 102]  // Can execute multiple nodes in sequence
+  },
+  {
+    name: "needs_auth",
+    condition: "!{{isAuthenticated}} || {{session.expired}}",
+    branch: [110, 111]
+  },
+  {
+    name: "premium_flow",
+    condition: "{{user.tier}} equals 'premium' && {{feature.enabled}}",
+    branch: 120  // Or single node
+  },
+  {
+    name: "default",
+    condition: "true",  // Always matches - essential fallback!
+    branch: [130, 131]
+  }
+]}
+
+// Complex business logic with parentheses
+{type: "route", alias: "validate_order", config: [
+  { 
+    name: "auto_approve",
+    condition: "({{order.total}} > 1000 || {{customer.vip}}) && !{{fraud.detected}}",
+    branch: [200, 201]
+  },
+  {
+    name: "high_risk",
+    condition: "{{fraud.score}} > 0.7 || {{order.total}} > 10000",
+    branch: [205, 206, 207]
+  },
+  {
+    name: "manual_review",
+    condition: "true",  // Catch-all for remaining cases
+    branch: 210
+  }
+]}
 
 // Data processing with AI
 {type: "cognition", alias: "analyze_data", config: {
@@ -274,5 +337,13 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   store_variable: true
 }}
 \`\`\`
+
+## Route Node Best Practices
+
+1. **Always include a default branch** - Last branch should have \`condition: "true"\` to catch unmatched cases
+2. **Order matters** - Conditions are evaluated top to bottom, first match wins
+3. **Use descriptive branch names** - Makes workflows self-documenting
+4. **Keep conditions readable** - Use parentheses for clarity in complex expressions
+5. **Test edge cases** - What if variables are null, undefined, or unexpected types?
 
 Remember: You're building robust automations that work reliably across different environments. Scout thoroughly, build precisely, test constantly.`;
