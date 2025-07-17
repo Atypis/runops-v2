@@ -253,6 +253,12 @@ export class NodeExecutor {
       const expression = singleMatch[1].trim();
       try {
         const resolvedValue = await this.getStateValue(expression, workflowId);
+        // Special handling: if resolved to undefined, return the original template
+        // This prevents conditions from being lost when variables don't exist
+        if (resolvedValue === undefined) {
+          console.warn(`Template '${value}' resolved to undefined, keeping original`);
+          return value;
+        }
         return resolvedValue; // Return the actual value, not stringified
       } catch (error) {
         console.error(`Template resolution error: ${error.message}`);
@@ -372,12 +378,18 @@ export class NodeExecutor {
         resolved[key] = await this.resolveTemplateVariables(value, workflowId);
       } else if (Array.isArray(value)) {
         resolved[key] = await Promise.all(
-          value.map(item => {
+          value.map(async item => {
             // Skip null/undefined items in arrays
             if (item === null || item === undefined) {
               return item;
+            } else if (typeof item === 'string') {
+              return this.resolveTemplateVariables(item, workflowId);
+            } else if (typeof item === 'object') {
+              // Recursively resolve objects within arrays
+              return this.resolveNodeParams(item, workflowId);
+            } else {
+              return item;
             }
-            return this.resolveTemplateVariables(item, workflowId);
           })
         );
       } else if (typeof value === 'object' && value !== null) {
@@ -1425,6 +1437,12 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         const part = parts[i];
         value = value?.[part];
       }
+      
+      // If value is undefined after navigation, it means the property doesn't exist
+      if (value === undefined) {
+        throw new Error(`Property '${path}' not found. The variable '${aliasRef}' exists but doesn't have property '${parts.slice(1).join('.')}'`);
+      }
+      
       return value;
     }
     
@@ -1480,6 +1498,17 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
    * Parse and evaluate an expression with proper operator precedence
    */
   async parseAndEvaluate(expr, workflowId) {
+    // Handle undefined or null expressions
+    if (expr === undefined || expr === null) {
+      console.warn(`[EXPRESSION] Expression is ${expr}, treating as false`);
+      return false;
+    }
+    
+    // Convert to string if needed
+    if (typeof expr !== 'string') {
+      expr = String(expr);
+    }
+    
     // Remove extra whitespace
     expr = expr.trim();
     
