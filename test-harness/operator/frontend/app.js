@@ -1489,82 +1489,327 @@ function App() {
     };
   };
 
-  // VariablesViewer Component
-  const GroupsViewer = ({ workflow, onDeleteGroup, onGoToNode, onRefresh }) => {
-    // Get all group nodes from the workflow
-    const groupNodes = workflow?.nodes?.filter(node => node.type === 'group') || [];
+  // GroupsViewer Component - Now with execution functionality
+  const GroupsViewer = ({ workflowId }) => {
+    const [nodeSelectionInput, setNodeSelectionInput] = useState('');
+    const [isExecutingRange, setIsExecutingRange] = useState(false);
+    const [savedGroups, setSavedGroups] = useState([]);
+    const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+    const [saveGroupName, setSaveGroupName] = useState('');
+    const [saveGroupDescription, setSaveGroupDescription] = useState('');
+    const [showSaveDialog, setShowSaveDialog] = useState(false);
+    const [showSuccessMessage, setShowSuccessMessage] = useState('');
     
-    if (groupNodes.length === 0) {
-      return (
-        <div className="text-center text-gray-500 py-8">
-          <p className="text-sm">No groups in this workflow</p>
-          <p className="text-xs mt-1">Select nodes in the workflow and click "Group Selected" to create a group</p>
-          <button 
-            onClick={onRefresh}
-            className="mt-4 text-teal-600 hover:text-teal-700 text-sm font-medium"
-          >
-            Refresh
-          </button>
-        </div>
-      );
-    }
-
+    // Load saved groups on mount and when workflowId changes
+    useEffect(() => {
+      if (workflowId) {
+        loadSavedGroups();
+      }
+    }, [workflowId]);
+    
+    const loadSavedGroups = async () => {
+      setIsLoadingGroups(true);
+      try {
+        const response = await fetch(`${API_BASE}/workflows/${workflowId}/saved-groups`);
+        if (response.ok) {
+          const data = await response.json();
+          setSavedGroups(data.groups || []);
+        }
+      } catch (error) {
+        console.error('Failed to load saved groups:', error);
+      } finally {
+        setIsLoadingGroups(false);
+      }
+    };
+    
+    const executeNodeRange = async (nodeSelection = nodeSelectionInput) => {
+      if (!nodeSelection.trim()) {
+        addMessage('error', 'Please enter a node selection (e.g., "1-5" or "3,7,9")');
+        return;
+      }
+      
+      setIsExecutingRange(true);
+      
+      try {
+        const response = await fetch(`${API_BASE}/execute-range`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflowId,
+            nodeSelection: nodeSelection.trim(),
+            resetBrowserFirst: false
+          })
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to execute nodes');
+        }
+        
+        const result = await response.json();
+        
+        // Add execution summary to logs
+        const log = {
+          timestamp: new Date().toISOString(),
+          type: 'success',
+          message: `Executed ${result.summary.successfully_executed} of ${result.summary.total_requested} nodes in ${result.summary.execution_time}`,
+          details: result
+        };
+        setExecutionLogs(prev => [...prev, log]);
+        
+        // Show individual results in logs
+        result.execution_results.forEach(nodeResult => {
+          const nodeLog = {
+            timestamp: new Date().toISOString(),
+            type: nodeResult.status === 'success' ? 'info' : 'error',
+            message: `Node ${nodeResult.node_position}: ${nodeResult.status}`,
+            details: nodeResult
+          };
+          setExecutionLogs(prev => [...prev, nodeLog]);
+        });
+        
+        // Refresh node values to show updated results
+        loadNodeValues();
+        
+        // Show success message
+        setShowSuccessMessage(`Successfully executed ${result.summary.successfully_executed} nodes`);
+        setTimeout(() => setShowSuccessMessage(''), 3000);
+        
+      } catch (error) {
+        console.error('Failed to execute node range:', error);
+        const log = {
+          timestamp: new Date().toISOString(),
+          type: 'error',
+          message: `Failed to execute nodes: ${error.message}`,
+          details: error
+        };
+        setExecutionLogs(prev => [...prev, log]);
+      } finally {
+        setIsExecutingRange(false);
+      }
+    };
+    
+    const saveGroup = async () => {
+      if (!saveGroupName.trim() || !nodeSelectionInput.trim()) {
+        addMessage('error', 'Please enter a group name and node selection');
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${API_BASE}/workflows/${workflowId}/groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: saveGroupName.trim(),
+            nodeSelection: nodeSelectionInput.trim(),
+            description: saveGroupDescription.trim()
+          })
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to save group');
+        }
+        
+        // Reload groups and reset form
+        await loadSavedGroups();
+        setShowSaveDialog(false);
+        setSaveGroupName('');
+        setSaveGroupDescription('');
+        
+        setShowSuccessMessage(`Group "${saveGroupName}" saved successfully`);
+        setTimeout(() => setShowSuccessMessage(''), 3000);
+        
+      } catch (error) {
+        console.error('Failed to save group:', error);
+        addMessage('error', `Failed to save group: ${error.message}`);
+      }
+    };
+    
+    const deleteGroup = async (groupId, groupName) => {
+      if (!confirm(`Delete group "${groupName}"?`)) return;
+      
+      try {
+        const response = await fetch(`${API_BASE}/workflows/${workflowId}/groups/${groupId}`, {
+          method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to delete group');
+        }
+        
+        await loadSavedGroups();
+        setShowSuccessMessage(`Group "${groupName}" deleted`);
+        setTimeout(() => setShowSuccessMessage(''), 3000);
+        
+      } catch (error) {
+        console.error('Failed to delete group:', error);
+        addMessage('error', `Failed to delete group: ${error.message}`);
+      }
+    };
+    
     return (
-      <div className="space-y-3">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">Workflow Groups</h3>
-          <button 
-            onClick={onRefresh}
-            className="text-teal-600 hover:text-teal-700 text-sm"
-          >
-            Refresh
-          </button>
+      <div className="space-y-4">
+        {/* Execute Node Range Section */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="text-sm font-medium text-blue-800 mb-3">Execute Node Range</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={nodeSelectionInput}
+              onChange={(e) => setNodeSelectionInput(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && !isExecutingRange) {
+                  executeNodeRange();
+                }
+              }}
+              placeholder='e.g., "1-5" or "3,7,9-12" or "all"'
+              className="flex-1 px-3 py-2 text-sm border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isExecutingRange}
+            />
+            <button
+              onClick={() => executeNodeRange()}
+              disabled={isExecutingRange || !nodeSelectionInput.trim()}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
+                isExecutingRange || !nodeSelectionInput.trim()
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+            >
+              {isExecutingRange ? '⏳ Executing...' : '▶ Execute'}
+            </button>
+            <button
+              onClick={() => setShowSaveDialog(true)}
+              disabled={!nodeSelectionInput.trim()}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
+                !nodeSelectionInput.trim()
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
+            >
+              💾 Save
+            </button>
+          </div>
+          <div className="text-xs text-blue-600 mt-2">
+            Format: Single (5), Range (3-5), Multiple (1-3,10,15-17), or All (all)
+          </div>
         </div>
         
-        {groupNodes.map(node => (
-          <div key={node.id} className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <h4 className="font-semibold text-gray-800">
-                  {node.config?.name || node.alias || `Group at position ${node.position}`}
-                </h4>
-                <p className="text-sm text-gray-600 mt-1">
-                  {node.description || `Executes nodes ${node.config?.nodeRange}`}
-                </p>
-                <div className="mt-2 text-xs text-gray-500">
-                  <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                    Nodes: {node.config?.nodeRange}
-                  </span>
-                  <span className="ml-2">
-                    Position: {node.position}
-                  </span>
-                </div>
-                {node.result && (
-                  <div className="mt-2 text-xs">
-                    <span className={node.result.success ? "text-green-600" : "text-red-600"}>
-                      Last run: {node.result.executed}/{node.result.total} nodes
-                      {node.result.success ? " ✓" : " ✗"}
-                    </span>
-                  </div>
-                )}
+        {/* Success Message */}
+        {showSuccessMessage && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+            ✓ {showSuccessMessage}
+          </div>
+        )}
+        
+        {/* Save Dialog */}
+        {showSaveDialog && (
+          <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
+            <h4 className="font-medium text-gray-800 mb-3">Save Group</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Group Name</label>
+                <input
+                  type="text"
+                  value={saveGroupName}
+                  onChange={(e) => setSaveGroupName(e.target.value)}
+                  placeholder="e.g., Login Flow"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-              <div className="flex space-x-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Description (optional)</label>
+                <input
+                  type="text"
+                  value={saveGroupDescription}
+                  onChange={(e) => setSaveGroupDescription(e.target.value)}
+                  placeholder="e.g., Handles Gmail login with 2FA"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => onGoToNode(node.position)}
-                  className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded"
+                  onClick={saveGroup}
+                  disabled={!saveGroupName.trim()}
+                  className={`px-4 py-2 text-sm font-medium text-white rounded-md ${
+                    !saveGroupName.trim()
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
                 >
-                  View
+                  Save Group
                 </button>
                 <button
-                  onClick={() => onDeleteGroup(node.id)}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded"
+                  onClick={() => {
+                    setShowSaveDialog(false);
+                    setSaveGroupName('');
+                    setSaveGroupDescription('');
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 >
-                  Delete
+                  Cancel
                 </button>
               </div>
             </div>
           </div>
-        ))}
+        )}
+        
+        {/* Saved Groups Section */}
+        <div className="border-t pt-4">
+          <div className="flex justify-between items-center mb-3">
+            <h4 className="text-sm font-medium text-gray-800">Saved Groups</h4>
+            <button
+              onClick={loadSavedGroups}
+              disabled={isLoadingGroups}
+              className="text-xs text-blue-600 hover:text-blue-700"
+            >
+              {isLoadingGroups ? '⏳ Loading...' : '🔄 Refresh'}
+            </button>
+          </div>
+          
+          {savedGroups.length === 0 ? (
+            <div className="text-center text-gray-500 py-6 bg-gray-50 rounded-lg">
+              <p className="text-sm">No saved groups yet</p>
+              <p className="text-xs mt-1">Execute a node range and click Save to create reusable groups</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {savedGroups.map((group) => (
+                <div key={group.id} className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm transition-shadow">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h5 className="font-medium text-gray-800">{group.name}</h5>
+                      {group.description && (
+                        <p className="text-xs text-gray-600 mt-1">{group.description}</p>
+                      )}
+                      <div className="text-xs text-gray-500 mt-1 font-mono">
+                        Selection: {group.nodeSelection}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 ml-2">
+                      <button
+                        onClick={() => {
+                          setNodeSelectionInput(group.nodeSelection);
+                          executeNodeRange(group.nodeSelection);
+                        }}
+                        className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+                      >
+                        ▶ Run
+                      </button>
+                      <button
+                        onClick={() => deleteGroup(group.id, group.name)}
+                        className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -4815,33 +5060,7 @@ function App() {
                 )}
                 {activeTab === 'groups' && (
                   <GroupsViewer 
-                    workflow={currentWorkflow}
-                    onDeleteGroup={async (nodeId) => {
-                      if (confirm('Are you sure you want to delete this group node?')) {
-                        try {
-                          await deleteNode(nodeId);
-                          await loadWorkflow(currentWorkflow.id);
-                        } catch (error) {
-                          console.error('Error deleting group node:', error);
-                          alert('Failed to delete group node: ' + error.message);
-                        }
-                      }
-                    }}
-                    onGoToNode={(position) => {
-                      // Scroll to the node in the workflow view
-                      setActiveTab('workflow');
-                      setTimeout(() => {
-                        const nodeElement = document.querySelector(`[data-node-position="${position}"]`);
-                        if (nodeElement) {
-                          nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          nodeElement.style.boxShadow = '0 0 20px rgba(147, 51, 234, 0.8)';
-                          setTimeout(() => {
-                            nodeElement.style.boxShadow = '';
-                          }, 2000);
-                        }
-                      }, 100);
-                    }}
-                    onRefresh={() => loadWorkflow(currentWorkflow.id)}
+                    workflowId={currentWorkflow?.id}
                   />
                 )}
               </div>

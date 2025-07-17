@@ -1030,6 +1030,123 @@ router.get('/groups/:workflowId', async (req, res, next) => {
   }
 });
 
+// Execute nodes by selection range
+router.post('/execute-range', async (req, res, next) => {
+  try {
+    const { workflowId, nodeSelection, resetBrowserFirst = false } = req.body;
+    
+    if (!workflowId || !nodeSelection) {
+      return res.status(400).json({ 
+        error: 'workflowId and nodeSelection are required' 
+      });
+    }
+    
+    console.log(`[EXECUTE_RANGE] Request to execute nodes: ${nodeSelection} for workflow: ${workflowId}`);
+    
+    // Set workflow ID for browser state tracking
+    directorService.nodeExecutor.setWorkflowId(workflowId);
+    
+    // Use existing executeNodes function from directorService
+    const result = await directorService.executeNodes(
+      { nodeSelection, resetBrowserFirst },
+      workflowId
+    );
+    
+    res.json(result);
+  } catch (error) {
+    console.error('[EXECUTE_RANGE] Error:', error);
+    next(error);
+  }
+});
+
+// Save a named group
+router.post('/workflows/:workflowId/groups', async (req, res, next) => {
+  try {
+    const { workflowId } = req.params;
+    const { name, nodeSelection, description } = req.body;
+    
+    if (!name || !nodeSelection) {
+      return res.status(400).json({ 
+        error: 'name and nodeSelection are required' 
+      });
+    }
+    
+    console.log(`[SAVE_GROUP] Saving group "${name}" with selection "${nodeSelection}" for workflow ${workflowId}`);
+    
+    // Store in workflow memory
+    const { error } = await directorService.supabase
+      .from('workflow_memory')
+      .upsert({
+        workflow_id: workflowId,
+        key: `saved_group_${name.toLowerCase().replace(/\s+/g, '_')}`,
+        value: {
+          name,
+          nodeSelection,
+          description: description || '',
+          createdAt: new Date().toISOString()
+        }
+      });
+    
+    if (error) throw error;
+    
+    res.json({ success: true, message: `Group "${name}" saved successfully` });
+  } catch (error) {
+    console.error('[SAVE_GROUP] Error:', error);
+    next(error);
+  }
+});
+
+// Get all saved groups for a workflow
+router.get('/workflows/:workflowId/saved-groups', async (req, res, next) => {
+  try {
+    const { workflowId } = req.params;
+    
+    console.log(`[GET_GROUPS] Fetching saved groups for workflow ${workflowId}`);
+    
+    const { data, error } = await directorService.supabase
+      .from('workflow_memory')
+      .select('key, value')
+      .eq('workflow_id', workflowId)
+      .like('key', 'saved_group_%')
+      .order('value->createdAt', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Transform the data to a cleaner format
+    const groups = (data || []).map(item => ({
+      id: item.key.replace('saved_group_', ''),
+      ...item.value
+    }));
+    
+    res.json({ groups });
+  } catch (error) {
+    console.error('[GET_GROUPS] Error:', error);
+    next(error);
+  }
+});
+
+// Delete a saved group
+router.delete('/workflows/:workflowId/groups/:groupId', async (req, res, next) => {
+  try {
+    const { workflowId, groupId } = req.params;
+    
+    console.log(`[DELETE_GROUP] Deleting group "${groupId}" for workflow ${workflowId}`);
+    
+    const { error } = await directorService.supabase
+      .from('workflow_memory')
+      .delete()
+      .eq('workflow_id', workflowId)
+      .eq('key', `saved_group_${groupId}`);
+    
+    if (error) throw error;
+    
+    res.json({ success: true, message: `Group "${groupId}" deleted successfully` });
+  } catch (error) {
+    console.error('[DELETE_GROUP] Error:', error);
+    next(error);
+  }
+});
+
 // Old group endpoints removed - group functionality is now handled by the 'group' node type
 
 // Debug endpoint to manually trigger iteration variable cleanup

@@ -269,48 +269,6 @@ export function createToolDefinitions() {
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
-    // group - requires nodeRange
-    {
-      type: 'object',
-      properties: {
-        type: { const: 'group' },
-        config: {
-          type: 'object',
-          properties: {
-            nodeRange: {
-              type: 'string',
-              description: 'Range of nodes to group (e.g., "3-7" or "3,5,7-9")'
-            },
-            groupId: {
-              type: 'string',
-              description: 'Unique identifier for the group'
-            },
-            params: {
-              type: 'object',
-              description: 'Parameters to pass to the group',
-              additionalProperties: true
-            },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
-            }
-          },
-          required: ['nodeRange'],
-          additionalProperties: false
-        },
-        description: {
-          type: 'string',
-          description: 'Human-readable description of what this node does'
-        },
-        alias: {
-          type: 'string',
-          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
-          pattern: '^[a-z][a-z0-9_]*$'
-        }
-      },
-      required: ['type', 'config', 'alias'],
-      additionalProperties: false
-    },
     // context - Simplified state management for storing credentials and user input
     {
       type: 'object',
