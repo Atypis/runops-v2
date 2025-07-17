@@ -2658,16 +2658,36 @@ function App() {
                       {branch.condition}
                     </span>
                   </div>
-                  {/* Show target nodes */}
-                  {Array.isArray(branch.branch) ? (
-                    <div className="ml-4 text-xs text-gray-600">
-                      → Nodes: {branch.branch.join(', ')}
-                    </div>
-                  ) : (
-                    <div className="ml-4 text-xs text-gray-600">
-                      → Node: {branch.branch}
-                    </div>
-                  )}
+                  {/* Display actual nodes using NestedNodesList */}
+                  <div className="ml-4 mt-2">
+                    {Array.isArray(branch.branch) ? (
+                      <NestedNodesList 
+                        nodePositions={branch.branch} 
+                        workflowId={currentWorkflow?.id}
+                        nodeValues={nodeValues}
+                        depth={depth + 1}
+                        executeNode={executeNode}
+                        expandedNodes={expandedNodes}
+                        setExpandedNodes={setExpandedNodes}
+                        loadNodeValues={loadNodeValues}
+                        currentWorkflow={currentWorkflow}
+                        isIterationContext={isIterationContext}
+                      />
+                    ) : (
+                      <NestedNodesList 
+                        nodePositions={[branch.branch]} 
+                        workflowId={currentWorkflow?.id}
+                        nodeValues={nodeValues}
+                        depth={depth + 1}
+                        executeNode={executeNode}
+                        expandedNodes={expandedNodes}
+                        setExpandedNodes={setExpandedNodes}
+                        loadNodeValues={loadNodeValues}
+                        currentWorkflow={currentWorkflow}
+                        isIterationContext={isIterationContext}
+                      />
+                    )}
+                  </div>
                 </div>
               ))
             ) : (
