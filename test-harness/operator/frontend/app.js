@@ -1002,11 +1002,34 @@ function App() {
       console.log('[DEBUG] Iterate nodes:', data.nodes?.filter(n => n.type === 'iterate'));
       console.log('[DEBUG] Group nodes:', data.nodes?.filter(n => n.type === 'group'));
       
-      // Filter to only show top-level nodes (those without parent_position)
+      // Collect all node positions that are referenced within routes
+      const nodesInRoutes = new Set();
+      (data.nodes || []).forEach(node => {
+        if (node.type === 'route' && Array.isArray(node.params)) {
+          // New route format - array of branches
+          node.params.forEach(branch => {
+            if (Array.isArray(branch.branch)) {
+              branch.branch.forEach(pos => nodesInRoutes.add(pos));
+            } else if (typeof branch.branch === 'number') {
+              nodesInRoutes.add(branch.branch);
+            }
+          });
+        } else if (node.type === 'route' && node.config?.paths) {
+          // Old route format - paths object
+          Object.values(node.config.paths).forEach(path => {
+            if (Array.isArray(path) && path.length > 0 && typeof path[0] === 'number') {
+              path.forEach(pos => nodesInRoutes.add(pos));
+            }
+          });
+        }
+      });
+
+      // Filter to only show top-level nodes (those without parent_position and not in routes)
       const topLevelNodes = (data.nodes || []).filter(node => 
-        !node.params?._parent_position
+        !node.params?._parent_position && !nodesInRoutes.has(node.position)
       );
       console.log('[DEBUG] Top-level nodes count:', topLevelNodes.length);
+      console.log('[DEBUG] Nodes hidden in routes:', nodesInRoutes.size);
       console.log('[DEBUG] Top-level group nodes:', topLevelNodes.filter(n => n.type === 'group'));
       setWorkflowNodes(topLevelNodes);
     } catch (error) {

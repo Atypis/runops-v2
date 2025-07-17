@@ -502,21 +502,10 @@ router.get('/workflows/:id/description/history', async (req, res, next) => {
 // Variable management endpoints
 router.get('/workflows/:id/variables', async (req, res, next) => {
   const ms = Date.now();
-  const timestamp = new Date().toISOString();
   const workflowId = req.params.id;
-  console.log(`[API_VARS ${ms}] GET /workflows/${workflowId}/variables - timestamp: ${timestamp}`);
-  
   try {
-    const startFetch = Date.now();
     const variables = await directorService.variableManagementService.getAllVariables(workflowId);
-    const fetchDuration = Date.now() - startFetch;
-    
-    console.log(`[API_VARS ${ms}] FETCHED - duration: ${fetchDuration}ms, count: ${variables.length}`);
-    console.log(`[API_VARS ${ms}] VARIABLES - ${JSON.stringify(variables.map(v => ({key: v.key, type: typeof v.value}))).substring(0, 500)}...`);
-    
     res.json(variables);
-    const totalDuration = Date.now() - ms;
-    console.log(`[API_VARS ${ms}] COMPLETE - total duration: ${totalDuration}ms`);
   } catch (error) {
     console.error(`[API_VARS ${ms}] ERROR - ${error.message}`);
     next(error);
