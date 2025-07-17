@@ -123,7 +123,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 #### When You Need Schema:
 
 1. **Route conditions checking properties**
-   ```javascript
+   \`\`\`javascript
    // ❌ WRONG - cognition without schema returns string
    {type: "cognition", alias: "check_posts", config: {
      instruction: "Return {\"hasHot\": true, \"hasWarm\": false}"
@@ -136,10 +136,10 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
      schema: {type: "object", properties: {hasHot: {type: "boolean"}, hasWarm: {type: "boolean"}}}
    }}
    // Route condition {{check_posts.hasHot}} works!
-   ```
+   \`\`\`
 
 2. **Iterate over arrays**
-   ```javascript
+   \`\`\`javascript
    // ❌ WRONG - returns string "[1,2,3]"
    {type: "cognition", alias: "get_ids", config: {
      instruction: "Return array of IDs: [1,2,3]"
@@ -150,7 +150,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
      instruction: "Return array of IDs",
      schema: {type: "array", items: {type: "number"}}
    }}
-   ```
+   \`\`\`
 
 3. **Any property access**
    - \`{{result.items[0].name}}\` - needs schema
