@@ -61,12 +61,29 @@ schema: {
 3. **Better Validation**: Schema ensures AI returns expected format
 4. **Clear Intent**: Forces Director to think about data structure
 
-## Migration
+## Implementation Tasks
 
-This is a breaking change. All existing cognition nodes without schema will fail validation. Need to:
-1. Update all examples in directorPromptV3.js
-2. Add migration note in changelog
-3. Consider adding helpful error message when schema is missing
+### 1. Codebase Change
+- **File**: `/test-harness/operator/backend/services/nodeExecutor.js`
+- **Task**: Ensure cognition execution handles required schema properly
+- **Verify**: Error handling when schema validation fails
+
+### 2. Tool Definitions Change
+- **File**: `/test-harness/operator/backend/tools/toolDefinitionsV2.js`
+- **Task**: Move `schema` from optional to required in cognition node definition
+- **Change**: `required: ['instruction', 'schema']` in cognition schema
+
+### 3. System Prompt Update
+- **File**: `/test-harness/operator/backend/prompts/directorPromptV3.js`
+- **Tasks**:
+  - Update all cognition examples to include schema
+  - Remove any examples without schema
+  - Add clear explanation that schema is required
+  - Include common schema patterns
+
+## Migration Notes
+
+This is a breaking change. All existing cognition nodes without schema will fail validation. Consider adding helpful error message when schema is missing.
 
 ## No Downside
 
