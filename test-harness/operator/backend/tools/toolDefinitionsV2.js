@@ -493,6 +493,157 @@ export function createToolDefinitions() {
         strict: true
       }
     },
+    {
+      type: 'function',
+      function: {
+        name: 'execute_nodes',
+        description: 'Execute specific workflow nodes by position. WARNING: Executes ALL nodes in the selection sequentially, ignoring route decisions. If node 5 is a route that should skip to node 9, nodes 6-8 will still execute.',
+        parameters: {
+          type: 'object',
+          properties: {
+            nodeSelection: {
+              type: 'string',
+              description: 'Nodes to execute. Formats: single node "5", range "3-5", multiple "1-3,10,15-17", or "all" for entire workflow',
+              pattern: '^(all|\\d+(-\\d+)?(,\\d+(-\\d+)?)*)$'
+            },
+            resetBrowserFirst: {
+              type: 'boolean',
+              default: false,
+              description: 'Reset browser state before execution. Useful for clean test runs.'
+            }
+          },
+          required: ['nodeSelection'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_workflow_description',
+        description: 'Update the high-fidelity workflow description that serves as the authoritative contract. This defines WHAT we are building (requirements), while the plan defines HOW we build it (implementation). Include all business rules, data contracts, edge cases, and success criteria.',
+        parameters: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'object',
+              description: 'Complete workflow description with all high-fidelity details. Should include: workflow_name, goal, trigger, actors, happy_path_steps, decision_matrix, data_contracts, business_rules, edge_case_policies, success_criteria, external_resources, and revision_history.',
+              additionalProperties: true
+            },
+            reason: {
+              type: 'string',
+              description: 'Why the description is being created or updated (for revision history)'
+            }
+          },
+          required: ['description', 'reason'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_plan',
+        description: 'Update the current workflow plan with structured phases and tasks. This is the primary tool for Director 2.0 planning methodology.',
+        parameters: {
+          type: 'object',
+          properties: {
+            plan: {
+              type: 'object',
+              description: 'Complete plan object with phases, tasks, and status tracking',
+              properties: {
+                overall_goal: {
+                  type: 'string',
+                  description: 'Clear description of the workflow goal'
+                },
+                current_phase: {
+                  type: 'string',
+                  description: 'Name of the phase currently being worked on'
+                },
+                phases: {
+                  type: 'array',
+                  description: 'Array of workflow phases with tasks',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      phase_name: { 
+                        type: 'string',
+                        description: 'Name of the phase'
+                      },
+                      status: { 
+                        type: 'string',
+                        enum: ['pending', 'in_progress', 'completed', 'failed'],
+                        description: 'Current status of the phase'
+                      },
+                      tasks: {
+                        type: 'array',
+                        description: 'Tasks within this phase',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            task_id: { 
+                              type: 'number',
+                              description: 'Unique identifier for the task'
+                            },
+                            description: { 
+                              type: 'string',
+                              description: 'What the task accomplishes'
+                            },
+                            status: { 
+                              type: 'string',
+                              enum: ['pending', 'in_progress', 'completed', 'failed'],
+                              description: 'Current status of the task'
+                            },
+                            node_ids: { 
+                              type: 'array',
+                              items: { type: 'string' },
+                              description: 'Associated node IDs/aliases for traceability'
+                            },
+                            notes: { 
+                              type: 'string',
+                              description: 'Additional notes or findings'
+                            }
+                          },
+                          required: ['task_id', 'description', 'status'],
+                          additionalProperties: false
+                        }
+                      }
+                    },
+                    required: ['phase_name', 'status'],
+                    additionalProperties: false
+                  }
+                },
+                next_actions: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Immediate next steps to take'
+                },
+                blockers: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Current blockers preventing progress'
+                },
+                notes: {
+                  type: 'string',
+                  description: 'General notes about the plan or discoveries'
+                }
+              },
+              required: ['overall_goal', 'current_phase', 'phases'],
+              additionalProperties: false
+            },
+            reason: {
+              type: 'string',
+              description: 'Why the plan is being updated (for audit trail)'
+            }
+          },
+          required: ['plan', 'reason'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
     // Add other tool definitions here as we refactor them
   ];
 }
