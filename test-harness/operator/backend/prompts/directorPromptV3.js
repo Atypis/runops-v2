@@ -98,6 +98,8 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 5. \`cognition\` - AI-powered reasoning and data analysis
    - Process any data (not page content) with natural language instructions
    - Examples: classify items, make decisions, transform text, analyze patterns
+   - **CRITICAL**: Without schema → returns STRING. With schema → returns parsed OBJECT/ARRAY/etc
+   - Must use schema if you need property access (e.g., for route conditions or iteration)
 
 **Control Layer:**
 6. \`iterate\` - Loop over arrays
@@ -113,6 +115,48 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - **Environment:** \`{{env:GMAIL_EMAIL}}\`
 - **Workflow variables:** \`{{user_credentials.email}}\`
 - **Iterator variables:** \`{{current_email.subject}}\`
+
+### Schema and Variable Types (CRITICAL!)
+
+**The Golden Rule**: To access properties with dot notation (e.g., \`{{result.property}}\`), the stored variable MUST be an object/array, not a string.
+
+#### When You Need Schema:
+
+1. **Route conditions checking properties**
+   ```javascript
+   // ❌ WRONG - cognition without schema returns string
+   {type: "cognition", alias: "check_posts", config: {
+     instruction: "Return {\"hasHot\": true, \"hasWarm\": false}"
+   }}
+   // Route condition {{check_posts.hasHot}} will FAIL
+   
+   // ✅ RIGHT - with schema returns object
+   {type: "cognition", alias: "check_posts", config: {
+     instruction: "Check if posts are hot or warm",
+     schema: {type: "object", properties: {hasHot: {type: "boolean"}, hasWarm: {type: "boolean"}}}
+   }}
+   // Route condition {{check_posts.hasHot}} works!
+   ```
+
+2. **Iterate over arrays**
+   ```javascript
+   // ❌ WRONG - returns string "[1,2,3]"
+   {type: "cognition", alias: "get_ids", config: {
+     instruction: "Return array of IDs: [1,2,3]"
+   }}
+   
+   // ✅ RIGHT - returns actual array [1,2,3]
+   {type: "cognition", alias: "get_ids", config: {
+     instruction: "Return array of IDs",
+     schema: {type: "array", items: {type: "number"}}
+   }}
+   ```
+
+3. **Any property access**
+   - \`{{result.items[0].name}}\` - needs schema
+   - \`{{data.users.length}}\` - needs schema
+   - \`{{response.success}}\` - needs schema
+   - \`{{simple_text}}\` - works without schema (it's just a string)
 
 ## 8. Critical Rules
 
@@ -326,15 +370,38 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   }
 ]}
 
-// Data processing with AI
+// Cognition (AI reasoning) - CRITICAL: Schema determines output type!
+// WITHOUT schema: ALWAYS returns a string (even if it looks like JSON)
 {type: "cognition", alias: "analyze_data", config: {
   instruction: "Analyze these prices and determine which product offers the best value: {{price_data}}",
-  store_variable: true  // To reference {{analyze_data}} later
+  store_variable: true  // Result: {{analyze_data}} is a STRING
 }}
+
+// WITH schema: Returns parsed object/array/boolean/number
 {type: "cognition", alias: "classify_emails", config: {
   instruction: "Classify these emails by urgency: {{emails}}. Return as JSON with structure: {urgent: [], normal: [], low: []}",
   schema: {type: "object", properties: {urgent: {type: "array"}, normal: {type: "array"}, low: {type: "array"}}},
-  store_variable: true
+  store_variable: true  // Result: {{classify_emails.urgent}} works because it's an OBJECT
+}}
+
+// ⚠️ COMMON MISTAKE - This WILL NOT WORK:
+{type: "cognition", alias: "check_status", config: {
+  instruction: "Check if system is ready. Return {\"ready\": true/false, \"reason\": \"...\"}"
+  // NO SCHEMA = returns string '{"ready": true, "reason": "..."}' 
+  // {{check_status.ready}} will FAIL - can't access property on string!
+}}
+
+// ✅ CORRECT - Use schema for property access:
+{type: "cognition", alias: "check_status", config: {
+  instruction: "Check if system is ready",
+  schema: {
+    type: "object", 
+    properties: {
+      ready: {type: "boolean"},
+      reason: {type: "string"}
+    }
+  },
+  store_variable: true  // Now {{check_status.ready}} works!
 }}
 \`\`\`
 
