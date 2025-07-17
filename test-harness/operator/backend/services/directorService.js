@@ -862,8 +862,17 @@ export class DirectorService {
     
     // Extract store_variable from config before storing
     const storeVariable = config?.store_variable === true;
-    const cleanConfig = { ...(config || {}) };
-    delete cleanConfig.store_variable;  // Remove from params to keep it clean
+    
+    // Handle both array and object configs properly
+    let cleanConfig;
+    if (Array.isArray(config)) {
+      // For arrays (like route node configs), preserve the array structure
+      cleanConfig = [...config];
+    } else {
+      // For objects, spread and clean
+      cleanConfig = { ...(config || {}) };
+      delete cleanConfig.store_variable;  // Remove from params to keep it clean
+    }
     
     const nodeData = {
       workflow_id: workflowId,
