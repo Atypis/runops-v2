@@ -347,6 +347,24 @@ export class NodeExecutor {
   async resolveNodeParams(params, workflowId) {
     if (!params) return params;
     
+    // Handle array params (like route node configs)
+    if (Array.isArray(params)) {
+      return Promise.all(
+        params.map(async item => {
+          if (item === null || item === undefined) {
+            return item;
+          } else if (typeof item === 'string') {
+            return this.resolveTemplateVariables(item, workflowId);
+          } else if (typeof item === 'object') {
+            return this.resolveNodeParams(item, workflowId);
+          } else {
+            return item;
+          }
+        })
+      );
+    }
+    
+    // Handle object params (most node types)
     const resolved = {};
     
     for (const [key, value] of Object.entries(params)) {
