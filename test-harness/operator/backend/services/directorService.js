@@ -2644,10 +2644,11 @@ export class DirectorService {
    */
   async executeNodes(args, workflowId) {
     try {
-      const { nodeSelection, resetBrowserFirst = false } = args;
+      const { nodeSelection, resetBrowserFirst = false, mode = 'isolated' } = args;
       
       console.log(`[EXECUTE_NODES] Starting execution of: ${nodeSelection}`);
       console.log(`[EXECUTE_NODES] Reset browser first: ${resetBrowserFirst}`);
+      console.log(`[EXECUTE_NODES] Execution mode: ${mode}`);
       
       // Parse node selection string into positions array
       const positions = await this.parseNodeSelection(nodeSelection, workflowId);
@@ -2669,7 +2670,7 @@ export class DirectorService {
       // Get nodes for the specified positions
       const { data: availableNodes, error: nodesError } = await this.supabase
         .from('nodes')
-        .select('id, position, type, description')
+        .select('id, position, type, description, config, params')
         .eq('workflow_id', workflowId)
         .in('position', positions)
         .order('position');
@@ -2698,8 +2699,38 @@ export class DirectorService {
       // Execute each node
       const results = [];
       const startTime = Date.now();
+      const skippedNodes = new Set(); // Track nodes to skip in flow mode
       
       for (const node of availableNodes) {
+        // Flow mode: Check if this node should be skipped
+        if (mode === 'flow') {
+          // Skip nodes that are in unexecuted route branches
+          if (skippedNodes.has(node.position)) {
+            console.log(`[FLOW] Skipping node at position ${node.position} (inside unexecuted route branch)`);
+            results.push({
+              node_position: node.position,
+              node_id: node.id,
+              status: 'skipped',
+              message: 'Skipped due to route decision',
+              execution_time: '0s'
+            });
+            continue;
+          }
+          
+          // Skip nested nodes (they'll be executed by their parent)
+          if (node.params?._parent_position) {
+            console.log(`[FLOW] Skipping nested node at position ${node.position} (will be executed by parent)`);
+            results.push({
+              node_position: node.position,
+              node_id: node.id,
+              status: 'skipped',
+              message: 'Nested node - executed by parent',
+              execution_time: '0s'
+            });
+            continue;
+          }
+        }
+        
         const nodeStartTime = Date.now();
         console.log(`[EXECUTE_NODES] Executing node ${node.position}: ${node.type} - ${node.description}`);
         
@@ -2727,6 +2758,11 @@ export class DirectorService {
           });
           
           console.log(`[EXECUTE_NODES] ✅ Node ${node.position} executed successfully`);
+          
+          // In flow mode, track route decisions
+          if (mode === 'flow' && node.type === 'route' && cleanResult?.path) {
+            this.updateSkippedNodes(node, cleanResult, skippedNodes);
+          }
         } catch (error) {
           console.error(`[EXECUTE_NODES] ❌ Node ${node.position} failed:`, error.message);
           
@@ -2761,8 +2797,9 @@ export class DirectorService {
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
       const successCount = results.filter(r => r.status === 'success').length;
       const failCount = results.filter(r => r.status === 'error').length;
+      const skippedCount = results.filter(r => r.status === 'skipped').length;
       
-      console.log(`[EXECUTE_NODES] Execution complete: ${successCount} success, ${failCount} failed, ${totalTime}s total`);
+      console.log(`[EXECUTE_NODES] Execution complete: ${successCount} success, ${failCount} failed, ${skippedCount} skipped, ${totalTime}s total`);
       
       return {
         execution_results: results,
@@ -2770,6 +2807,7 @@ export class DirectorService {
           total_requested: positions.length,
           successfully_executed: successCount,
           failed: failCount,
+          skipped: skippedCount,
           execution_time: `${totalTime}s`
         }
       };
@@ -2787,6 +2825,46 @@ export class DirectorService {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Update skippedNodes set based on route decision
+   */
+  updateSkippedNodes(routeNode, result, skippedNodes) {
+    console.log(`[FLOW] Route at position ${routeNode.position} took path: ${result.path}`);
+    
+    // Handle new format (config array)
+    if (Array.isArray(routeNode.config)) {
+      routeNode.config.forEach(branch => {
+        if (branch.name !== result.path) {
+          // Mark all positions in non-taken branches
+          const positions = Array.isArray(branch.branch) ? branch.branch : [branch.branch];
+          positions.forEach(pos => {
+            if (typeof pos === 'number') {
+              skippedNodes.add(pos);
+              console.log(`[FLOW] Marking position ${pos} as skipped (${branch.name} branch not taken)`);
+            }
+          });
+        }
+      });
+    }
+    // Handle old format (params.paths) for backward compatibility
+    else if (routeNode.params?.paths) {
+      for (const [branchName, branchNodes] of Object.entries(routeNode.params.paths)) {
+        if (branchName !== result.path) {
+          if (Array.isArray(branchNodes)) {
+            branchNodes.forEach(pos => {
+              if (typeof pos === 'number') {
+                skippedNodes.add(pos);
+                console.log(`[FLOW] Marking position ${pos} as skipped (${branchName} branch not taken)`);
+              }
+            });
+          }
+        }
+      }
+    }
+    
+    console.log(`[FLOW] Total nodes marked for skipping: ${skippedNodes.size}`);
   }
 
   /**
