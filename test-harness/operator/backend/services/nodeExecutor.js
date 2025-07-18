@@ -603,12 +603,23 @@ export class NodeExecutor {
         try {
           // Use alias as the storage key (with iteration context if applicable)
           const storageKey = this.getStorageKey(node.alias);
+          
+          // Extract the actual value for storage (remove _page_observation wrapper for primitives)
+          // When visual observations are enabled, primitives get wrapped as {value: primitive, _page_observation: "..."}
+          // We need to unwrap them so {{variable}} returns the primitive directly, not the wrapper object
+          let storageValue = result;
+          if (result && typeof result === 'object' && '_page_observation' in result && 'value' in result) {
+            // This is a wrapped primitive, unwrap it for storage
+            storageValue = result.value;
+            console.log(`[EXECUTE] Unwrapping primitive value for storage: ${JSON.stringify(storageValue)}`);
+          }
+          
           const { data: memData, error: memError } = await supabase
             .from('workflow_memory')
             .upsert({
               workflow_id: workflowId,
               key: storageKey,
-              value: result
+              value: storageValue
             }, { onConflict: 'workflow_id,key' })
             .select()
             .single();
@@ -628,7 +639,7 @@ export class NodeExecutor {
             console.log(`[EXECUTE] Current workflow ID: ${workflowId}`);
             console.log(`[EXECUTE] Storage key: ${storageKey}`);
             console.log(`[EXECUTE] Node alias: ${node.alias}`);
-            await this.browserStateService.emitVariableUpdate(workflowId, storageKey, result, node.alias);
+            await this.browserStateService.emitVariableUpdate(workflowId, storageKey, storageValue, node.alias);
           } else {
             console.log(`[EXECUTE] WARNING: BrowserStateService is not available!`);
           }
