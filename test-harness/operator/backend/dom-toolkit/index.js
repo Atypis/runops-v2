@@ -52,6 +52,9 @@ export class DOMToolkit {
       diff_from = null,
       include_full = false
     } = options;
+    
+    // Safety check: ensure max_rows is reasonable
+    const safeMaxRows = Math.min(max_rows, 100);
 
     try {
       // Get or create snapshot
@@ -73,6 +76,7 @@ export class DOMToolkit {
           visible,
           viewport,
           include_full,
+          max_rows: safeMaxRows,
           page
         });
         // Store snapshot AFTER diff computation to avoid comparing against itself
@@ -84,7 +88,7 @@ export class DOMToolkit {
       this.snapshotStore.store(tabId, snapshot, snapshot.id);
 
       // Build full overview
-      const overview = await this.buildFullOverview(snapshot, { filters, visible, viewport, max_rows, page });
+      const overview = await this.buildFullOverview(snapshot, { filters, visible, viewport, max_rows: safeMaxRows, page });
 
       // Build response
       return {
@@ -269,7 +273,7 @@ export class DOMToolkit {
    * Compute diff between snapshots and return filtered changes
    */
   async computeDiffOverview(currentSnapshot, tabId, diffFrom, options) {
-    const { filters, visible, viewport, include_full, page } = options;
+    const { filters, visible, viewport, include_full, max_rows = 30, page } = options;
 
     // Get previous snapshot
     let previousSnapshot = null;
@@ -278,16 +282,26 @@ export class DOMToolkit {
     if (diffFrom === true || diffFrom === 'true') {
       const stored = this.snapshotStore.getPreviousForTab(tabId);
       if (!stored) {
-        // No baseline available - fall back to full overview
+        // No baseline available - return empty diff
         console.log('[DOMToolkit] No previous snapshot available for diff');
-        const overview = await this.buildFullOverview(currentSnapshot, { filters, visible, viewport, page });
         return {
           success: true,
           snapshotId: currentSnapshot.id,
           url: await page.url(),
           tabName: tabId.split('-').pop(),
           baselineUnavailable: true,
-          ...overview
+          diff: {
+            added: [],
+            removed: [],
+            modified: []
+          },
+          summary: {
+            baseline: null,
+            totalChanges: 0,
+            totalRawChanges: 0,
+            filteredOutChanges: 0,
+            note: 'No baseline snapshot available for comparison. Run dom_overview without diff_from first.'
+          }
         };
       }
       previousSnapshot = stored.snapshot;
@@ -309,6 +323,19 @@ export class DOMToolkit {
     
     // Filter changes based on overview filters
     const filteredChanges = this.diffProcessor.filterChanges(rawChanges, filters, currentSnapshot);
+    
+    // Safety limit: cap the number of changes to prevent token explosion
+    const maxChanges = max_rows * 3; // Allow 3x max_rows for diffs
+    const limitedChanges = {
+      added: filteredChanges.added.slice(0, maxChanges),
+      removed: filteredChanges.removed.slice(0, maxChanges),
+      modified: filteredChanges.modified.slice(0, maxChanges)
+    };
+    
+    const truncated = 
+      filteredChanges.added.length > maxChanges ||
+      filteredChanges.removed.length > maxChanges ||
+      filteredChanges.modified.length > maxChanges;
 
     // Build diff response
     const diffResponse = {
@@ -317,9 +344,9 @@ export class DOMToolkit {
       url: await page.url(),
       tabName: tabId.split('-').pop(), // Extract tab name from tabId
       diff: {
-        added: filteredChanges.added,
-        removed: filteredChanges.removed,
-        modified: filteredChanges.modified
+        added: limitedChanges.added,
+        removed: limitedChanges.removed,
+        modified: limitedChanges.modified
       },
       summary: {
         baseline: previousSnapshot.id,
@@ -330,13 +357,15 @@ export class DOMToolkit {
                         rawChanges.removed.length + 
                         rawChanges.modified.length,
         filteredOutChanges: (rawChanges.added.length + rawChanges.removed.length + rawChanges.modified.length) -
-                           (filteredChanges.added.length + filteredChanges.removed.length + filteredChanges.modified.length)
+                           (filteredChanges.added.length + filteredChanges.removed.length + filteredChanges.modified.length),
+        truncated: truncated,
+        maxChangesPerType: maxChanges
       }
     };
 
     // Include full overview if requested
     if (include_full) {
-      const fullOverview = await this.buildFullOverview(currentSnapshot, { filters, visible, viewport, page });
+      const fullOverview = await this.buildFullOverview(currentSnapshot, { filters, visible, viewport, max_rows, page });
       diffResponse.sections = fullOverview.sections;
       diffResponse.summary = { ...diffResponse.summary, ...fullOverview.summary };
     }

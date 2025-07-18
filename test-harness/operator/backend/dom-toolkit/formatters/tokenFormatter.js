@@ -314,6 +314,11 @@ export class TokenFormatter {
       `Total changes: ${data.summary.totalChanges} | ` +
       `Filtered out: ${data.summary.filteredOutChanges || 0}`
     );
+    
+    if (data.summary.truncated) {
+      lines.push(`⚠️  Changes truncated to ${data.summary.maxChangesPerType} per type`);
+    }
+    
     lines.push(`Current snapshot: ${data.snapshotId}`);
 
     return lines.join('\n');
