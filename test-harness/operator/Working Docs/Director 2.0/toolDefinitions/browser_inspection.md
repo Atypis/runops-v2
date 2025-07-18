@@ -2,9 +2,78 @@
 
 ## Overview
 
-The browser inspection suite provides Director 2.0 with "eyes" to understand and interact with web pages. This group consists of three complementary functions that work together to enable intelligent browser automation.
+The browser inspection suite provides Director 2.0 with "eyes" to understand and interact with web pages. While the codebase contains three inspection functions (`inspect_tab`, `expand_dom_selector`, and `send_scout`), in this simplified Director architecture we are only exposing `send_scout` to the Director. The other tools remain implemented and available for scout's internal use, but are not directly accessible to keep the Director's tool interface simple and focused.
 
-## Function Group: Browser Inspection (3 functions)
+## Architecture Note
+
+**Available to Director**: 
+- `send_scout` - The primary browser discovery tool
+
+**Implemented but not exposed** (used internally by scout):
+- `inspect_tab` - DOM structure inspection
+- `expand_dom_selector` - Detailed element inspection
+
+This simplification allows Director to focus on high-level workflow building while delegating all browser exploration complexity to the scout agent.
+
+## Function Available to Director
+
+### send_scout - Deploy AI scout for exploration
+
+**Purpose**: Deploy an intelligent AI agent to explore pages and answer complex questions about UI structure. This is Director's sole browser discovery tool.
+
+**When to use**:
+- Initial page exploration and reconnaissance
+- Finding form elements and their selectors
+- Understanding dynamic UI behavior
+- Investigating error states or edge cases
+- Multi-tab workflow exploration
+- Any time you need to understand page structure or find selectors
+
+**Parameters**:
+```javascript
+{
+  instruction: string,          // Natural language mission description
+  tabName: string              // Optional: specific tab (default: active)
+}
+```
+
+**Returns**:
+```javascript
+{
+  summary: string,             // Key findings summary
+  findings: object,            // Structured mission results
+  tokensUsed: number,         // Total tokens consumed
+  toolCalls: number,          // Number of tool calls made
+  executionLog: array         // Detailed execution history
+}
+```
+
+**Example missions**:
+```javascript
+// Find form elements
+send_scout({
+  instruction: "Find all form input fields on this page, including their labels, types, and validation requirements"
+})
+
+// Test dynamic behavior
+send_scout({
+  instruction: "Click the 'Show More' button and describe what content appears"
+})
+
+// Multi-condition exploration
+send_scout({
+  instruction: "Find the login form. Check if it has: email field, password field, remember me checkbox, and forgot password link"
+})
+
+// Get stable selectors
+send_scout({
+  instruction: "Find the submit button and provide multiple stable selectors for it (ID, data attributes, aria labels)"
+})
+```
+
+## Internal Tools (Not Exposed to Director)
+
+The following tools are implemented in the codebase but not exposed to Director. Scout uses these internally:
 
 ### 1. inspect_tab - Get page overview
 

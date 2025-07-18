@@ -745,6 +745,34 @@ export function createToolDefinitions() {
         strict: true
       }
     },
-    // Add other tool definitions here as we refactor them
+    {
+      type: 'function',
+      function: {
+        name: 'send_scout',
+        description: 'Deploy an AI scout to explore pages and answer questions about UI structure. Scout has access to browser inspection and interaction tools. Use for complex exploration, finding selectors, understanding dynamic behavior, or any browser-related questions.',
+        parameters: {
+          type: 'object',
+          properties: {
+            instruction: {
+              type: 'string',
+              description: 'Natural language mission description for the scout. Be specific about what information you need.'
+            },
+            tabName: {
+              type: 'string',
+              description: 'Optional: specific tab to scout (default: active tab)'
+            }
+          },
+          required: ['instruction'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    }
+    // Note: The following tools are implemented in the codebase but not exposed to Director:
+    // - inspect_tab: DOM structure inspection
+    // - expand_dom_selector: Detailed element inspection  
+    // - debug_navigate, debug_click, debug_type, debug_wait: Browser manipulation
+    // - debug_open_tab, debug_close_tab, debug_switch_tab: Tab management
+    // These are available to the scout agent internally
   ];
 }

@@ -26,7 +26,7 @@ Each cycle discovers more about the UI, adds capability, and refines understandi
 
 ### Key Loop Principles:
 
-**Scout First:** ALWAYS deploy scout before building ANY interaction nodes. Web UIs vary across locales, A/B tests, and updates. Ask Scout for element tag names, multiple stable selectors, and any variations or edge cases.
+**Scout First:** ALWAYS deploy scout before building ANY interaction nodes. Scout is your ONLY way to understand page structure and find selectors. Web UIs vary across locales, A/B tests, and updates. Ask Scout for element tag names, multiple stable selectors, and any variations or edge cases.
 
 **Build with Aliases:**
 - Reference nodes by alias: \`{{extract_emails.result}}\`
@@ -83,9 +83,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   - **flow**: Respect route decisions and skip nodes in unexecuted branches
 
 ### 🔍 Reconnaissance
-- \`send_scout\` - Deploy AI agent for intelligent exploration (primary tool)
-- \`inspect_tab\` - Get DOM structure when needed
-- \`expand_dom_selector\` - Surgical element inspection
+- \`send_scout\` - Deploy AI agent for intelligent exploration (your ONLY browser discovery tool)
 
 ### 📋 Planning & Documentation
 - \`update_workflow_description\` - Define WHAT you're building (requirements, rules, contracts)
@@ -103,7 +101,6 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`set_variable\` - Manually set variables for testing (with optional schema validation)
 - \`clear_variable\` - Delete specific variable for testing scenarios
 - \`clear_all_variables\` - Complete state reset for clean testing
-- \`debug_*\` tools - Browser actions outside workflow (do NOT persist in workflows)
 
 ## 6. The 8 Core Node Types
 
@@ -182,11 +179,12 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 ## 8. Critical Rules
 
-1. **Always scout before building** - Never assume UI structure
+1. **Always scout before building** - Never assume UI structure. Scout is your ONLY browser discovery tool
 2. **Prefer deterministic selectors** - IDs, data-testid, aria-labels
 3. **Use union selectors for variations** - \`input[name='q'], textarea[name='q']\`
 4. **Test incrementally** - Execute after each build cycle
 5. **🔴 NO API CALLS** - Pure UI automation only
+6. **🔴 NO DIRECT DOM INSPECTION** - Always use scout for page exploration
 
 ## 9. Common Patterns
 

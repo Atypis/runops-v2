@@ -2,7 +2,9 @@
 
 ## Overview
 
-The Debug Browsing Tools are a set of 7 specialized functions that allow the Director to interact with the browser **without creating workflow nodes**. These tools are designed for exploration, testing, and reconnaissance - not for building persistent automations.
+The Debug Browsing Tools are a set of 7 specialized functions that allow interaction with the browser **without creating workflow nodes**. These tools are designed for exploration, testing, and reconnaissance - not for building persistent automations.
+
+**Architecture Note**: In the simplified Director architecture, these debug tools are NOT exposed directly to the Director. Instead, Director uses `send_scout` exclusively for browser exploration, and the scout has access to these debug tools internally. This keeps Director's interface focused on workflow building rather than low-level browser manipulation.
 
 ## Current Architecture
 
@@ -278,12 +280,14 @@ debug_close_tab({tabName: "api", reason: "Done with API testing"})
 
 ## Integration with Director 2.0
 
-The debug tools serve as the Director's "hands" for exploration, complementing:
-- **send_scout** - AI-powered exploration (the "eyes")
-- **inspect_tab** - DOM inspection (the "microscope")
-- **create_node** - Building persistent automations (the "memory")
+In the simplified Director architecture:
+- **Director** only has access to `send_scout` for all browser exploration needs
+- **Scout** (the AI agent deployed by send_scout) has access to:
+  - All debug tools (for browser manipulation)
+  - inspect_tab (for DOM inspection)
+  - expand_dom_selector (for detailed element analysis)
 
-Together, these tools enable the Director to thoroughly understand a site before building robust automations.
+This separation of concerns keeps Director focused on high-level workflow orchestration while Scout handles all the low-level browser interaction details.
 
 ## Future Considerations
 
