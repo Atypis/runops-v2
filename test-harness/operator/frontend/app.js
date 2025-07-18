@@ -2437,6 +2437,81 @@ function App() {
           </div>
         )}
 
+        {/* Key Design Decisions */}
+        {(data.key_design_decisions || data.design_decisions) && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Key Design Decisions</h4>
+            <div className="space-y-3">
+              {(() => {
+                const decisions = data.key_design_decisions || data.design_decisions;
+                if (Array.isArray(decisions)) {
+                  // Array format
+                  return decisions.map((item, i) => (
+                    <div key={i} className="border-l-4 border-blue-200 pl-3">
+                      <div className="font-medium text-gray-700">{item.topic || item.id || `Decision ${i + 1}`}</div>
+                      <div className="text-sm text-gray-600 mt-1">{item.decision}</div>
+                      {item.rationale && (
+                        <div className="text-xs text-gray-500 mt-1">Rationale: {item.rationale}</div>
+                      )}
+                    </div>
+                  ));
+                } else if (typeof decisions === 'object') {
+                  // Object format
+                  return Object.entries(decisions).map(([key, value]) => (
+                    <div key={key} className="border-l-4 border-blue-200 pl-3">
+                      <div className="font-medium text-gray-700">{key}</div>
+                      {typeof value === 'object' && value !== null ? (
+                        <>
+                          <div className="text-sm text-gray-600 mt-1">{value.decision}</div>
+                          {value.rationale && (
+                            <div className="text-xs text-gray-500 mt-1">Rationale: {value.rationale}</div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-sm text-gray-600 mt-1">{value}</div>
+                      )}
+                    </div>
+                  ));
+                }
+              })()}
+            </div>
+          </div>
+        )}
+        {/* Data Contracts */}
+        {(data.data_contracts || data.data_contract) && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Data Contracts</h4>
+            <div className="space-y-3">
+              {Object.entries(data.data_contracts || data.data_contract).map(([key, contract]) => (
+                <details key={key} className="group">
+                  <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+                    {key}
+                    <span className="ml-2 text-xs text-gray-500">Click to expand</span>
+                  </summary>
+                  <div className="mt-2 ml-4 p-2 bg-gray-50 rounded text-xs">
+                    <pre className="whitespace-pre-wrap overflow-x-auto">
+                      {JSON.stringify(contract, null, 2)}
+                    </pre>
+                  </div>
+                </details>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Business Rules */}
+        {data.business_rules && data.business_rules.length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h4 className="font-semibold text-gray-800 mb-2">Business Rules</h4>
+            <ul className="space-y-1">
+              {data.business_rules.map((rule, i) => (
+                <li key={i} className="text-sm text-gray-700 flex items-start">
+                  <span className="text-blue-500 mr-2">•</span>
+                  {typeof rule === 'object' ? JSON.stringify(rule) : rule}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* Revision History */}
         {data.revision_history && data.revision_history.length > 0 && (
           <div className="bg-gray-50 rounded-lg border p-4">

@@ -215,10 +215,14 @@ export class WorkflowDescriptionService {
       } else if (typeof designDecisions === 'object' && Object.keys(designDecisions).length > 0) {
         // Object format: {decision_name: {decision: "...", rationale: "..."}, ...}
         summary += `KEY DESIGN DECISIONS:\n`;
-        Object.entries(designDecisions).forEach(([decision, details]) => {
-          summary += `• ${decision}: ${details.decision || details}\n`;
-          if (details.rationale) {
-            summary += `  Rationale: ${details.rationale}\n`;
+        Object.entries(designDecisions).forEach(([key, value]) => {
+          if (typeof value === 'object' && value !== null) {
+            summary += `• ${key}: ${value.decision || JSON.stringify(value)}\n`;
+            if (value.rationale) {
+              summary += `  Rationale: ${value.rationale}\n`;
+            }
+          } else {
+            summary += `• ${key}: ${value}\n`;
           }
         });
         summary += '\n';

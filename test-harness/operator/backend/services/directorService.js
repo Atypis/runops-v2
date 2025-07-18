@@ -3706,9 +3706,18 @@ export class DirectorService {
         
         case 'get_workflow_description': {
           const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
-          result = description ? 
-            this.workflowDescriptionService.getDescriptionSummary(description.description_data) : 
-            'No workflow description created yet. Use update_workflow_description to capture comprehensive requirements.';
+          if (description) {
+            // Return both the structured data and a summary for context
+            result = {
+              version: description.description_version,
+              created_at: description.created_at,
+              updated_at: description.updated_at,
+              data: description.description_data,
+              summary: this.workflowDescriptionService.getDescriptionSummary(description.description_data)
+            };
+          } else {
+            result = null;
+          }
           break;
         }
         
