@@ -145,6 +145,7 @@ export class WorkflowDescriptionService {
       success_criteria,
       decision_matrix,
       key_design_decisions,
+      design_decisions, // Also check for this variant
       edge_case_policies,
       business_rules
     } = descriptionData;
@@ -185,15 +186,32 @@ export class WorkflowDescriptionService {
     }
     
     // Include key design decisions if present
-    if (key_design_decisions && Object.keys(key_design_decisions).length > 0) {
-      summary += `KEY DESIGN DECISIONS:\n`;
-      Object.entries(key_design_decisions).forEach(([decision, details]) => {
-        summary += `• ${decision}: ${details.decision || details}\n`;
-        if (details.rationale) {
-          summary += `  Rationale: ${details.rationale}\n`;
-        }
-      });
-      summary += '\n';
+    // Handle both object and array formats for flexibility
+    // Also handle both "key_design_decisions" and "design_decisions" field names
+    const designDecisions = key_design_decisions || design_decisions;
+    if (designDecisions) {
+      if (Array.isArray(designDecisions) && designDecisions.length > 0) {
+        // Array format: [{id: "A", topic: "...", decision: "...", rationale: "..."}, ...]
+        summary += `KEY DESIGN DECISIONS:\n`;
+        designDecisions.forEach(item => {
+          const topic = item.topic || item.id || 'Decision';
+          summary += `• ${topic}: ${item.decision}\n`;
+          if (item.rationale) {
+            summary += `  Rationale: ${item.rationale}\n`;
+          }
+        });
+        summary += '\n';
+      } else if (typeof designDecisions === 'object' && Object.keys(designDecisions).length > 0) {
+        // Object format: {decision_name: {decision: "...", rationale: "..."}, ...}
+        summary += `KEY DESIGN DECISIONS:\n`;
+        Object.entries(designDecisions).forEach(([decision, details]) => {
+          summary += `• ${decision}: ${details.decision || details}\n`;
+          if (details.rationale) {
+            summary += `  Rationale: ${details.rationale}\n`;
+          }
+        });
+        summary += '\n';
+      }
     }
     
     // Include edge case count if present
