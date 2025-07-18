@@ -216,10 +216,28 @@ export class WorkflowDescriptionService {
         // Object format: {decision_name: {decision: "...", rationale: "..."}, ...}
         summary += `KEY DESIGN DECISIONS:\n`;
         Object.entries(designDecisions).forEach(([key, value]) => {
+          // Skip malformed keys that look like they contain data
+          if (key.includes("':[") || key.includes('"]')) {
+            return;
+          }
+          
           if (typeof value === 'object' && value !== null) {
-            summary += `• ${key}: ${value.decision || JSON.stringify(value)}\n`;
-            if (value.rationale) {
-              summary += `  Rationale: ${value.rationale}\n`;
+            // If value has question/options/recommended structure
+            if (value.question && value.options && value.recommended) {
+              summary += `• ${key}: ${value.question}\n`;
+              summary += `  Options: ${value.options.join(', ')}\n`;
+              summary += `  Recommended: ${value.recommended}\n`;
+            } 
+            // If value has decision/rationale structure
+            else if (value.decision) {
+              summary += `• ${key}: ${value.decision}\n`;
+              if (value.rationale) {
+                summary += `  Rationale: ${value.rationale}\n`;
+              }
+            }
+            // Fallback to showing all properties
+            else {
+              summary += `• ${key}: ${JSON.stringify(value)}\n`;
             }
           } else {
             summary += `• ${key}: ${value}\n`;

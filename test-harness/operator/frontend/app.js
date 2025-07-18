@@ -2456,22 +2456,43 @@ function App() {
                     </div>
                   ));
                 } else if (typeof decisions === 'object') {
-                  // Object format
-                  return Object.entries(decisions).map(([key, value]) => (
-                    <div key={key} className="border-l-4 border-blue-200 pl-3">
-                      <div className="font-medium text-gray-700">{key}</div>
-                      {typeof value === 'object' && value !== null ? (
-                        <>
-                          <div className="text-sm text-gray-600 mt-1">{value.decision}</div>
-                          {value.rationale && (
-                            <div className="text-xs text-gray-500 mt-1">Rationale: {value.rationale}</div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="text-sm text-gray-600 mt-1">{value}</div>
-                      )}
-                    </div>
-                  ));
+                  // Object format - filter out malformed keys
+                  return Object.entries(decisions)
+                    .filter(([key]) => !key.includes("':[") && !key.includes('"]'))
+                    .map(([key, value]) => (
+                      <div key={key} className="border-l-4 border-blue-200 pl-3">
+                        <div className="font-medium text-gray-700">{key}</div>
+                        {typeof value === 'object' && value !== null ? (
+                          <>
+                            {/* Handle question/options/recommended format */}
+                            {value.question && value.options && value.recommended ? (
+                              <>
+                                <div className="text-sm text-gray-600 mt-1">{value.question}</div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Options: {Array.isArray(value.options) ? value.options.join(', ') : value.options}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  <span className="font-medium">Recommended:</span> {value.recommended}
+                                </div>
+                              </>
+                            ) : value.decision ? (
+                              <>
+                                <div className="text-sm text-gray-600 mt-1">{value.decision}</div>
+                                {value.rationale && (
+                                  <div className="text-xs text-gray-500 mt-1">Rationale: {value.rationale}</div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="text-sm text-gray-600 mt-1">
+                                {JSON.stringify(value, null, 2)}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-sm text-gray-600 mt-1">{value}</div>
+                        )}
+                      </div>
+                    ));
                 }
               })()}
             </div>
