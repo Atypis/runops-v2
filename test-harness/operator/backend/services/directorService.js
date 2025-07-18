@@ -594,6 +594,13 @@ export class DirectorService {
         return this.legacyProcessMessage({ message, workflowId, conversationHistory, mockMode, isCompressionRequest, selectedModel });
       }
 
+      // Check if this is a KIMI model that needs special handling
+      if (this.isKimiModel(selectedModel)) {
+        console.log('[CLEAN CONTEXT] KIMI model detected, routing to legacy handler');
+        // KIMI models aren't supported by Responses API yet, use legacy handler
+        return this.legacyProcessMessage({ message, workflowId, conversationHistory, mockMode, isCompressionRequest, selectedModel });
+      }
+      
       // Determine if using background mode
       const useBackgroundMode = selectedModel === 'o3';
       
