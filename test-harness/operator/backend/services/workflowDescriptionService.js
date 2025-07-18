@@ -144,6 +144,7 @@ export class WorkflowDescriptionService {
       actors, 
       success_criteria,
       decision_matrix,
+      key_design_decisions,
       edge_case_policies,
       business_rules
     } = descriptionData;
@@ -176,9 +177,21 @@ export class WorkflowDescriptionService {
     
     // Include key decision points if present
     if (decision_matrix && Object.keys(decision_matrix).length > 0) {
-      summary += `KEY DECISIONS:\n`;
+      summary += `DECISION MATRIX:\n`;
       Object.entries(decision_matrix).forEach(([category, decisions]) => {
         summary += `• ${category}: ${Object.keys(decisions).length} branches\n`;
+      });
+      summary += '\n';
+    }
+    
+    // Include key design decisions if present
+    if (key_design_decisions && Object.keys(key_design_decisions).length > 0) {
+      summary += `KEY DESIGN DECISIONS:\n`;
+      Object.entries(key_design_decisions).forEach(([decision, details]) => {
+        summary += `• ${decision}: ${details.decision || details}\n`;
+        if (details.rationale) {
+          summary += `  Rationale: ${details.rationale}\n`;
+        }
       });
       summary += '\n';
     }

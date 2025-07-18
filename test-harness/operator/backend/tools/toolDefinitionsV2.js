@@ -534,7 +534,7 @@ export function createToolDefinitions() {
           properties: {
             description: {
               type: 'object',
-              description: 'Complete workflow description with all high-fidelity details. Should include: workflow_name, goal, trigger, actors, happy_path_steps, decision_matrix, data_contracts, business_rules, edge_case_policies, success_criteria, external_resources, and revision_history.',
+              description: 'Complete workflow description with all high-fidelity details. Should include: workflow_name, goal, trigger, actors, happy_path_steps, decision_matrix, key_design_decisions, data_contracts, business_rules, edge_case_policies, success_criteria, external_resources, and revision_history.',
               additionalProperties: true
             },
             reason: {
