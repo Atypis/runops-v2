@@ -141,26 +141,37 @@ export class WorkflowDescriptionService {
       goal, 
       trigger, 
       happy_path_steps, 
-      actors, 
+      actors,
+      actors_access, // Director uses this variant
       success_criteria,
+      success_definition, // Director uses this variant
       decision_matrix,
       key_design_decisions,
       design_decisions, // Also check for this variant
       edge_case_policies,
-      business_rules
+      edge_cases, // Director uses this variant
+      business_rules,
+      data_contracts,
+      data_contract, // Director uses this variant
+      security_privacy,
+      ui_considerations,
+      date_scope,
+      external_resources
     } = descriptionData;
     
     let summary = `WORKFLOW: ${workflow_name || 'Unnamed'}\n`;
     summary += `GOAL: ${goal || 'Not specified'}\n`;
     summary += `TRIGGER: ${trigger || 'Manual'}\n\n`;
     
-    if (actors) {
+    // Handle actors with variants
+    const actorsList = actors || actors_access;
+    if (actorsList) {
       summary += `ACTORS:\n`;
       // Handle both string and array types
-      if (Array.isArray(actors)) {
-        actors.forEach(actor => summary += `• ${actor}\n`);
-      } else if (typeof actors === 'string') {
-        summary += `• ${actors}\n`;
+      if (Array.isArray(actorsList)) {
+        actorsList.forEach(actor => summary += `• ${actor}\n`);
+      } else if (typeof actorsList === 'string') {
+        summary += `• ${actorsList}\n`;
       }
       summary += '\n';
     }
@@ -214,19 +225,47 @@ export class WorkflowDescriptionService {
       }
     }
     
-    // Include edge case count if present
-    if (edge_case_policies && Object.keys(edge_case_policies).length > 0) {
-      summary += `EDGE CASES: ${Object.keys(edge_case_policies).length} policies defined\n\n`;
+    // Include edge case count if present (handle both variants)
+    const edgeCases = edge_case_policies || edge_cases;
+    if (edgeCases && Object.keys(edgeCases).length > 0) {
+      summary += `EDGE CASES: ${Object.keys(edgeCases).length} policies defined\n\n`;
     }
     
-    if (success_criteria) {
+    // Handle success criteria with variants
+    const successList = success_criteria || success_definition;
+    if (successList) {
       summary += `SUCCESS CRITERIA:\n`;
       // Handle both string and array types
-      if (Array.isArray(success_criteria)) {
-        success_criteria.forEach(criterion => summary += `✓ ${criterion}\n`);
-      } else if (typeof success_criteria === 'string') {
-        summary += `✓ ${success_criteria}\n`;
+      if (Array.isArray(successList)) {
+        successList.forEach(criterion => summary += `✓ ${criterion}\n`);
+      } else if (typeof successList === 'string') {
+        summary += `✓ ${successList}\n`;
       }
+      summary += '\n';
+    }
+    
+    // Handle data contracts with variants
+    const contracts = data_contracts || data_contract;
+    if (contracts && Object.keys(contracts).length > 0) {
+      summary += `DATA CONTRACTS: ${Object.keys(contracts).length} defined\n\n`;
+    }
+    
+    // Add business rules if present
+    if (business_rules && business_rules.length > 0) {
+      summary += `BUSINESS RULES: ${business_rules.length} rules defined\n\n`;
+    }
+    
+    // Add additional fields if present
+    if (security_privacy) {
+      summary += `SECURITY/PRIVACY: Defined\n`;
+    }
+    
+    if (ui_considerations) {
+      summary += `UI CONSIDERATIONS: Defined\n`;
+    }
+    
+    if (date_scope) {
+      summary += `DATE SCOPE: ${date_scope}\n`;
     }
     
     return summary;

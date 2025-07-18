@@ -534,7 +534,76 @@ export function createToolDefinitions() {
           properties: {
             description: {
               type: 'object',
-              description: 'Complete workflow description with all high-fidelity details. Should include: workflow_name, goal, trigger, actors, happy_path_steps, decision_matrix, key_design_decisions, data_contracts, business_rules, edge_case_policies, success_criteria, external_resources, and revision_history.',
+              description: 'Complete workflow description with all high-fidelity details. Use snake_case for all field names.',
+              properties: {
+                workflow_name: { type: 'string', description: 'Descriptive name for the workflow' },
+                goal: { type: 'string', description: 'Overall objective of the automation' },
+                trigger: { type: 'string', description: 'What initiates the workflow (e.g., "Manual", "CRON @daily 07:00")' },
+                actors: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Systems and accounts involved (e.g., ["Gmail Account (user@example.com)", "Airtable Base"])'
+                },
+                happy_path_steps: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Step-by-step happy path flow'
+                },
+                decision_matrix: {
+                  type: 'object',
+                  description: 'Branching logic and decision trees',
+                  additionalProperties: true
+                },
+                key_design_decisions: {
+                  type: 'object',
+                  description: 'Critical design choices with rationale. Format: {decision_name: {decision: "...", rationale: "..."}}',
+                  additionalProperties: {
+                    type: 'object',
+                    properties: {
+                      decision: { type: 'string' },
+                      rationale: { type: 'string' }
+                    }
+                  }
+                },
+                data_contracts: {
+                  type: 'object',
+                  description: 'Input/output schemas and field requirements',
+                  additionalProperties: true
+                },
+                business_rules: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Business constraints and rules'
+                },
+                edge_case_policies: {
+                  type: 'object',
+                  description: 'How to handle various edge cases',
+                  additionalProperties: true
+                },
+                success_criteria: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'What defines successful execution'
+                },
+                external_resources: {
+                  type: 'object',
+                  description: 'Links to documentation, examples, etc.',
+                  additionalProperties: true
+                },
+                revision_history: {
+                  type: 'array',
+                  description: 'Version history (automatically managed)',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      version: { type: 'number' },
+                      date: { type: 'string' },
+                      author: { type: 'string' },
+                      changes: { type: 'string' }
+                    }
+                  }
+                }
+              },
               additionalProperties: true
             },
             reason: {

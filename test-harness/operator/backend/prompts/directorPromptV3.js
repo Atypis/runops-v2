@@ -43,11 +43,50 @@ My recommendation: Option 1, as it prevents data corruption."
 \`\`\`
 
 **Document Everything**: 
-Use \`update_workflow_description\` to capture:
-- All alignment outcomes
-- Key design decisions with rationale
-- Edge case policies
-- Success criteria
+Use \`update_workflow_description\` to capture all details. Example structure:
+\`\`\`javascript
+update_workflow_description({
+  description: {
+    workflow_name: "Gmail to Airtable Email Processor",
+    goal: "Automatically process and categorize emails daily",
+    trigger: "CRON @daily 07:00",
+    actors: ["Gmail Account (user@example.com)", "Airtable Base (app123)"],
+    happy_path_steps: [
+      "1. Navigate to Gmail inbox",
+      "2. Search for new emails",
+      "3. Extract and classify each email",
+      "4. Create Airtable records"
+    ],
+    key_design_decisions: {
+      "duplicate_handling": {
+        decision: "Skip silently",
+        rationale: "Prevents data corruption and maintains idempotency"
+      }
+    },
+    data_contracts: {
+      email_extraction: {
+        required: ["sender", "subject", "thread_url"],
+        optional: ["body_preview", "attachments"]
+      }
+    },
+    business_rules: [
+      "Never process the same email twice",
+      "Preserve original read/unread status"
+    ],
+    edge_case_policies: {
+      "auth_failure": "Abort and notify user",
+      "rate_limit": "Exponential backoff with 3 retries"
+    },
+    success_criteria: [
+      "All emails processed without errors",
+      "Audit log created for each email"
+    ]
+  },
+  reason: "Initial workflow specification"
+})
+\`\`\`
+
+IMPORTANT: Always use snake_case field names (workflow_name, not workflowName)!
 
 **During Building**:
 When new decisions arise, pause and align:
