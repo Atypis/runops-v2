@@ -68,13 +68,16 @@ export class DOMToolkit {
 
       // Handle diff mode
       if (diff_from) {
-        return await this.computeDiffOverview(snapshot, tabId, diff_from, {
+        const diffResult = await this.computeDiffOverview(snapshot, tabId, diff_from, {
           filters,
           visible,
           viewport,
           include_full,
           page
         });
+        // Store snapshot AFTER diff computation to avoid comparing against itself
+        this.snapshotStore.store(tabId, snapshot, snapshot.id);
+        return diffResult;
       }
 
       // Store snapshot for future diffs
@@ -300,9 +303,6 @@ export class DOMToolkit {
       }
       previousSnapshot = stored.snapshot;
     }
-
-    // Store current snapshot for future diffs
-    this.snapshotStore.store(tabId, currentSnapshot, currentSnapshot.id);
 
     // Compute raw diff
     const rawChanges = this.diffProcessor.computeDiff(previousSnapshot, currentSnapshot);
