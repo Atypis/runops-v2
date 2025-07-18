@@ -236,3 +236,19 @@ When a route node executes in flow mode:
 - Execution stops on first error (fail-fast approach)
 - In flow mode, subsequent nodes that would be skipped still appear as skipped
 - Error details are included in the results for debugging
+
+## Known Issues and Solutions
+
+### Cognition Node Result Wrapping
+**Issue**: Some cognition nodes return wrapped primitives like `{result: true}` instead of just `true`, causing route conditions to fail.
+
+**Root Cause**: When the AI responds to boolean/string/number schemas, it sometimes wraps the value in an object.
+
+**Solution**: The system now automatically unwraps these values:
+- Detects when cognition results are wrapped: `{result: primitive}`
+- Unwraps before storing in workflow_memory
+- Route conditions like `{{check_header}}` now correctly evaluate to `true/false`
+
+**Note**: If you encounter this issue with existing variables:
+1. Re-run the cognition node to store the unwrapped value
+2. Or update route conditions to use `{{variable.result}}` temporarily
