@@ -49,6 +49,14 @@ export function createDOMExplorationTools() {
               description: 'Maximum elements per category (default: 30, max: 100)',
               minimum: 1,
               maximum: 100
+            },
+            diff_from: {
+              type: ['string', 'boolean', 'null'],
+              description: 'Compare to previous snapshot to see changes. Use true to compare with last snapshot for this tab, or provide a specific snapshotId. When set, response shows only what changed (added/removed/modified elements).'
+            },
+            include_full: {
+              type: 'boolean',
+              description: 'When using diff mode, also include the full overview sections (default: false)'
             }
           },
           additionalProperties: false

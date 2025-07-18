@@ -11,29 +11,44 @@ export class TokenFormatter {
   }
 
   /**
+   * Truncate text to specified length
+   */
+  truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 3) + '...';
+  }
+
+  /**
    * Format the complete DOM overview response
    */
   formatResponse(data) {
     const lines = [];
     
+    // Check if this is a diff response
+    if (data.diff) {
+      return this.formatDiffResponse(data);
+    }
+    
     // Header
-    lines.push(`=== DOM OVERVIEW: ${data.url} ===`);
+    lines.push(`=== DOM OVERVIEW: ${data.url || 'Current Page'} ===`);
     lines.push('');
 
-    // Format each section
-    if (data.sections.outline && data.sections.outline.length > 0) {
-      lines.push(...this.formatOutlineSection(data.sections.outline));
-      lines.push('');
-    }
+    // Format each section (check if sections exists first)
+    if (data.sections) {
+      if (data.sections.outline && data.sections.outline.length > 0) {
+        lines.push(...this.formatOutlineSection(data.sections.outline));
+        lines.push('');
+      }
 
-    if (data.sections.interactives && data.sections.interactives.length > 0) {
-      lines.push(...this.formatInteractivesSection(data.sections.interactives, data.summary));
-      lines.push('');
-    }
+      if (data.sections.interactives && data.sections.interactives.length > 0) {
+        lines.push(...this.formatInteractivesSection(data.sections.interactives, data.summary));
+        lines.push('');
+      }
 
-    if (data.sections.headings && data.sections.headings.length > 0) {
-      lines.push(...this.formatHeadingsSection(data.sections.headings));
-      lines.push('');
+      if (data.sections.headings && data.sections.headings.length > 0) {
+        lines.push(...this.formatHeadingsSection(data.sections.headings));
+        lines.push('');
+      }
     }
 
     // Summary
@@ -252,5 +267,103 @@ export class TokenFormatter {
     }
 
     return lines;
+  }
+
+  /**
+   * Format diff response
+   */
+  formatDiffResponse(data) {
+    const lines = [];
+    
+    // Header
+    lines.push(`=== DOM DIFF: Changes since ${data.summary.baseline} ===`);
+    lines.push('');
+
+    const { added, removed, modified } = data.diff;
+    
+    // Added elements
+    if (added && added.length > 0) {
+      lines.push(`[ADDED - ${added.length} new elements]`);
+      for (const elem of added) {
+        lines.push(this.formatDiffElement(elem, '+'));
+      }
+      lines.push('');
+    }
+
+    // Removed elements  
+    if (removed && removed.length > 0) {
+      lines.push(`[REMOVED - ${removed.length} elements]`);
+      for (const elem of removed) {
+        lines.push(this.formatDiffElement(elem, '-'));
+      }
+      lines.push('');
+    }
+
+    // Modified elements
+    if (modified && modified.length > 0) {
+      lines.push(`[MODIFIED - ${modified.length} elements]`);
+      for (const elem of modified) {
+        lines.push(this.formatModifiedElement(elem));
+      }
+      lines.push('');
+    }
+
+    // Summary
+    lines.push('[SUMMARY]');
+    lines.push(
+      `Total changes: ${data.summary.totalChanges} | ` +
+      `Filtered out: ${data.summary.filteredOutChanges || 0}`
+    );
+    lines.push(`Current snapshot: ${data.snapshotId}`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Format a single diff element
+   */
+  formatDiffElement(elem, prefix) {
+    let line = `${prefix} ${elem.id} ${elem.tag}`;
+    
+    if (elem.text) {
+      line += ` "${this.truncateText(elem.text, 30)}"`;
+    }
+    
+    // Add key attributes
+    if (elem.attributes) {
+      const attrs = [];
+      if (elem.attributes.class) attrs.push(`.${elem.attributes.class.split(' ')[0]}`);
+      if (elem.attributes.id) attrs.push(`#${elem.attributes.id}`);
+      if (elem.attributes.name) attrs.push(`[name="${elem.attributes.name}"]`);
+      if (attrs.length > 0) {
+        line += ' ' + attrs.join('');
+      }
+    }
+    
+    return line;
+  }
+
+  /**
+   * Format a modified element with changes
+   */
+  formatModifiedElement(elem) {
+    let lines = [`* ${elem.id} ${elem.tag}`];
+    
+    // Format each type of change
+    if (elem.changes.text) {
+      lines.push(`  text: "${this.truncateText(elem.changes.text.old, 20)}" → "${this.truncateText(elem.changes.text.new, 20)}"`);
+    }
+    
+    if (elem.changes.visibility) {
+      lines.push(`  visibility: ${elem.changes.visibility.old} → ${elem.changes.visibility.new}`);
+    }
+    
+    if (elem.changes.attributes) {
+      for (const [attr, change] of Object.entries(elem.changes.attributes)) {
+        lines.push(`  ${attr}: "${change.old || '(none)'}" → "${change.new || '(none)'}"`);
+      }
+    }
+    
+    return lines.join('\n');
   }
 }

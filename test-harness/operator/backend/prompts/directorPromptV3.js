@@ -526,6 +526,89 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   }
 }}
 // Reference these as {{username}} and {{user_id}}, NOT {{save_user_data.username}}
+
+// DOM Exploration Tools - Token-efficient page analysis
+// Use these instead of inspect_tab for better performance and clarity
+
+// dom_overview - Primary reconnaissance tool
+execute_node({
+  type: "function",
+  name: "dom_overview",
+  args: {}  // Default: all filters, visible only, viewport only
+})
+// Returns structured view of page with IDs like [123] for each element
+
+// Just get interactive elements (buttons, links, inputs)
+execute_node({
+  type: "function", 
+  name: "dom_overview",
+  args: {filters: {interactives: true}}
+})
+
+// Include content below the fold
+execute_node({
+  type: "function",
+  name: "dom_overview", 
+  args: {viewport: false}
+})
+
+// NEW: Diff mode - detect what changed after an action
+// Step 1: Get initial snapshot
+execute_node({type: "function", name: "dom_overview", args: {}})
+// Returns: {snapshotId: "snap123", sections: {...}}
+
+// Step 2: Perform action (click, navigate, etc.)
+execute_node({type: "browser_ai_action", alias: "submit", config: {action: "click", instruction: "Submit form"}})
+
+// Step 3: Check what changed
+execute_node({
+  type: "function",
+  name: "dom_overview", 
+  args: {diff_from: true}  // Compare to last snapshot
+})
+// Returns only changes: {diff: {added: [...], removed: [...], modified: [...]}}
+
+// Compare to specific snapshot
+execute_node({
+  type: "function",
+  name: "dom_overview",
+  args: {diff_from: "snap123"}
+})
+
+// Get diff AND full overview
+execute_node({
+  type: "function",
+  name: "dom_overview",
+  args: {diff_from: true, include_full: true}
+})
+
+// dom_search - Find specific elements by text or selector
+execute_node({
+  type: "function",
+  name: "dom_search",
+  args: {query: "Submit"}  // Find by text content
+})
+
+execute_node({
+  type: "function",
+  name: "dom_search", 
+  args: {query: {selector: "button[type='submit']"}}  // By CSS selector
+})
+
+// dom_inspect - Deep dive on element from overview
+execute_node({
+  type: "function",
+  name: "dom_inspect",
+  args: {element_id: 123}  // Inspect element [123] from dom_overview
+})
+// Returns full details: attributes, computed styles, parent/child info
+
+// Typical workflow pattern:
+// 1. dom_overview() → See what's on page
+// 2. dom_search({query: "Login"}) → Find specific element
+// 3. dom_inspect({element_id: 234}) → Get details for interaction
+// 4. browser_ai_action to interact with element
+// 5. dom_overview({diff_from: true}) → See what changed
 \`\`\`
 
 ## Route Node Best Practices

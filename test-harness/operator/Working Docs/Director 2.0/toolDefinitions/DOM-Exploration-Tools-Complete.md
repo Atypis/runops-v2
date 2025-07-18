@@ -53,6 +53,7 @@ dom-toolkit/
 - After navigation or major state changes
 - When you need both structure AND interactive elements
 - As a starting point before using other DOM tools
+- **NEW**: To detect what changed between two snapshots (diff mode)
 
 **Parameters**:
 ```javascript
@@ -65,7 +66,14 @@ dom-toolkit/
   },
   visible: boolean,     // Only visible elements (default: true)
   viewport: boolean,    // Only in viewport (default: true)
-  max_rows: number      // Max per category (default: 30, max: 100)
+  max_rows: number,     // Max per category (default: 30, max: 100)
+  
+  // Diff mode parameters (NEW)
+  diff_from: string|boolean|null,  // Compare to previous snapshot
+                                   // true = use last snapshot for this tab
+                                   // "snapshotId" = compare to specific snapshot
+                                   // null/undefined = normal overview (default)
+  include_full: boolean            // Include full overview with diff (default: false)
 }
 ```
 
@@ -112,6 +120,46 @@ dom-toolkit/
     }
   }
 }
+
+// Diff Mode Response (when diff_from is set):
+{
+  success: boolean,
+  snapshotId: string,           // Current snapshot ID
+  diff: {
+    added: [{                   // Elements that appeared
+      id: "[401]",
+      tag: "button",
+      text: "Pay Now",
+      attributes: { class: "btn-primary" },
+      visible: true,
+      inViewport: true
+    }],
+    removed: [{                 // Elements that disappeared
+      id: "[345]",
+      tag: "a",
+      text: "Upgrade Plan"
+    }],
+    modified: [{                // Elements that changed
+      id: "[278]",
+      tag: "span",
+      changes: {
+        text: { old: "$29", new: "$24" },
+        attributes: {
+          class: { old: "price", new: "price sale" }
+        },
+        visibility: { old: false, new: true }
+      },
+      current: { /* current element state */ }
+    }]
+  },
+  summary: {
+    baseline: "prevSnapId",     // Previous snapshot ID
+    totalChanges: 5,            // Sum of added + removed + modified
+    totalRawChanges: 12,        // Changes before filtering
+    filteredOutChanges: 7       // Changes hidden by filters
+  }
+  // If include_full: true, also includes sections: {...}
+}
 ```
 
 **Quick Examples**:
@@ -124,6 +172,15 @@ dom_overview({ filters: { interactives: true } })
 
 // Everything, including below fold
 dom_overview({ viewport: false })
+
+// DIFF MODE: Compare to last snapshot
+dom_overview({ diff_from: true })
+
+// DIFF MODE: Compare to specific snapshot
+dom_overview({ diff_from: "5c2a6b3c" })
+
+// DIFF MODE: With full overview included
+dom_overview({ diff_from: true, include_full: true })
 
 // Focus on forms with more results
 dom_overview({ 
