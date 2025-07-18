@@ -767,6 +767,68 @@ export function createToolDefinitions() {
         },
         strict: true
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_current_plan',
+        description: 'Get the current workflow plan with phases, tasks, and progress. Returns null if no plan exists.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_nodes',
+        description: 'Get detailed information about workflow nodes. Can filter by range or node type.',
+        parameters: {
+          type: 'object',
+          properties: {
+            range: {
+              type: 'string',
+              description: 'Node range to retrieve: "all" (default), "recent" (last 10), or specific range like "1-10"',
+              default: 'all'
+            },
+            type: {
+              type: 'string',
+              description: 'Optional: filter by node type (e.g., "browser_action", "route", "iterate")'
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_description',
+        description: 'Get the high-fidelity workflow description containing requirements, business rules, and success criteria.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_browser_state',
+        description: 'Get current browser state showing open tabs and active tab.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false
+        },
+        strict: true
+      }
     }
     // Note: The following tools are implemented in the codebase but not exposed to Director:
     // - inspect_tab: DOM structure inspection
