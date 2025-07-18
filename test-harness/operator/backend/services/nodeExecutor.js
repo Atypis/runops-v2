@@ -581,11 +581,34 @@ export class NodeExecutor {
       }
       
       // Update node status AND result
+      // Store the unwrapped result in the nodes table to avoid confusion
+      // Handle two cases of wrapped primitives:
+      // 1. Visual observations: {value: primitive, _page_observation: "..."}
+      // 2. Cognition results: {result: primitive} when schema is {type: "boolean/string/number"}
+      let nodeResult = result;
+      
+      // Check for visual observation wrapper
+      if (result && typeof result === 'object' && '_page_observation' in result && 'value' in result) {
+        // This is a wrapped primitive from visual observations
+        nodeResult = result.value;
+        console.log(`[EXECUTE] Storing unwrapped visual observation result in nodes table: ${JSON.stringify(nodeResult)}`);
+      }
+      // Check for cognition result wrapper when expecting a primitive
+      else if (result && typeof result === 'object' && 'result' in result && Object.keys(result).length === 1) {
+        // This looks like a wrapped primitive from cognition (e.g., {result: true})
+        // Only unwrap if the schema suggests it should be a primitive
+        const primitiveTypes = ['boolean', 'string', 'number'];
+        if (node.type === 'cognition' && node.params?.schema?.type && primitiveTypes.includes(node.params.schema.type)) {
+          nodeResult = result.result;
+          console.log(`[EXECUTE] Storing unwrapped cognition result in nodes table for ${node.params.schema.type}: ${JSON.stringify(nodeResult)}`);
+        }
+      }
+      
       const { data: updatedNode, error: updateError } = await supabase
         .from('nodes')
         .update({
           status: 'success',
-          result,
+          result: nodeResult,
           executed_at: new Date().toISOString()
         })
         .eq('id', nodeId)
@@ -604,14 +627,27 @@ export class NodeExecutor {
           // Use alias as the storage key (with iteration context if applicable)
           const storageKey = this.getStorageKey(node.alias);
           
-          // Extract the actual value for storage (remove _page_observation wrapper for primitives)
-          // When visual observations are enabled, primitives get wrapped as {value: primitive, _page_observation: "..."}
-          // We need to unwrap them so {{variable}} returns the primitive directly, not the wrapper object
+          // Extract the actual value for storage (remove wrappers for primitives)
+          // Handle two cases of wrapped primitives:
+          // 1. Visual observations: {value: primitive, _page_observation: "..."}
+          // 2. Cognition results: {result: primitive} when schema is {type: "boolean/string/number"}
           let storageValue = result;
+          
+          // Check for visual observation wrapper
           if (result && typeof result === 'object' && '_page_observation' in result && 'value' in result) {
-            // This is a wrapped primitive, unwrap it for storage
+            // This is a wrapped primitive from visual observations
             storageValue = result.value;
-            console.log(`[EXECUTE] Unwrapping primitive value for storage: ${JSON.stringify(storageValue)}`);
+            console.log(`[EXECUTE] Unwrapping visual observation wrapper: ${JSON.stringify(storageValue)}`);
+          }
+          // Check for cognition result wrapper when expecting a primitive
+          else if (result && typeof result === 'object' && 'result' in result && Object.keys(result).length === 1) {
+            // This looks like a wrapped primitive from cognition (e.g., {result: true})
+            // Only unwrap if the schema suggests it should be a primitive
+            const primitiveTypes = ['boolean', 'string', 'number'];
+            if (node.type === 'cognition' && node.params?.schema?.type && primitiveTypes.includes(node.params.schema.type)) {
+              storageValue = result.result;
+              console.log(`[EXECUTE] Unwrapping cognition result wrapper for ${node.params.schema.type}: ${JSON.stringify(storageValue)}`);
+            }
           }
           
           const { data: memData, error: memError } = await supabase
@@ -1491,9 +1527,81 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       path = path.replace(/\{\{|\}\}/g, '');
     }
     
-    // Remove legacy position-based support
-    if (path.startsWith('node') && /^node\d+/.test(path)) {
-      throw new Error(`Position-based references (${path}) are no longer supported. Use the node alias instead.`);
+    // Check for position-based references (e.g., node25 or node25.property)
+    const positionMatch = path.match(/^node(\d+)(?:\.(.+))?$/);
+    if (positionMatch) {
+      const position = positionMatch[1];
+      const propertyPath = positionMatch[2];
+      
+      console.log(`[STATE] WARNING: Using deprecated position-based reference: ${path}`);
+      console.log(`[STATE] Looking up node at position ${position}...`);
+      
+      // First try to find the node by position to get its alias
+      const { data: node } = await supabase
+        .from('nodes')
+        .select('alias, result, store_variable')
+        .eq('workflow_id', workflowId)
+        .eq('position', parseInt(position))
+        .single();
+        
+      if (!node) {
+        throw new Error(`Node at position ${position} not found`);
+      }
+      
+      // If the node has store_variable: true and an alias, try to get from workflow_memory
+      if (node.store_variable && node.alias) {
+        const storageKey = this.getStorageKey(node.alias);
+        const { data: memoryData } = await supabase
+          .from('workflow_memory')
+          .select('value')
+          .eq('workflow_id', workflowId)
+          .eq('key', storageKey)
+          .single();
+          
+        if (memoryData) {
+          let value = memoryData.value;
+          
+          // Navigate nested properties if specified
+          if (propertyPath) {
+            const parts = propertyPath.split('.');
+            for (const part of parts) {
+              value = value?.[part];
+            }
+            
+            if (value === undefined) {
+              throw new Error(`Property '${path}' not found. Node at position ${position} exists but doesn't have property '${propertyPath}'`);
+            }
+          }
+          
+          console.log(`[STATE] Found value from workflow_memory for position ${position}: ${JSON.stringify(value)}`);
+          return value;
+        }
+      }
+      
+      // Fallback: get result from nodes table
+      let value = node.result;
+      
+      // IMPORTANT: Handle visual observation wrapper
+      // When visual observations are enabled, primitive values get wrapped as {value: primitive, _page_observation: "..."}
+      if (value && typeof value === 'object' && '_page_observation' in value && 'value' in value) {
+        console.log(`[STATE] Unwrapping visual observation wrapper for position ${position}`);
+        value = value.value;
+      }
+      
+      // Navigate nested properties if specified
+      if (propertyPath) {
+        const parts = propertyPath.split('.');
+        for (const part of parts) {
+          value = value?.[part];
+        }
+        
+        if (value === undefined) {
+          throw new Error(`Property '${path}' not found. Node at position ${position} exists but doesn't have property '${propertyPath}'`);
+        }
+      }
+      
+      console.log(`[STATE] Found value from node result for position ${position}: ${JSON.stringify(value)}`);
+      return value;
     }
     
     // Handle property access (e.g., search_results.emails)
