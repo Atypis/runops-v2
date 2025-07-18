@@ -685,7 +685,6 @@ export function createToolDefinitions() {
               description: 'Variable name to set. Examples: "test_email", "user_data", "mock_response"'
             },
             value: {
-              type: ['string', 'number', 'boolean', 'object', 'array', 'null'],
               description: 'Variable value. Can be any JSON type: string, number, boolean, object, array, null'
             },
             reason: {
