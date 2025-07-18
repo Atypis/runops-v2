@@ -99,7 +99,7 @@ In flow mode, the function uses a `skippedNodes` Set to track nodes that should 
 
 ### Route Format Support
 The function handles both route formats for backward compatibility:
-- **New format**: `config` array with branch objects
+- **New format**: `params` array with branch objects
 - **Old format**: `params.paths` object (legacy)
 
 ## Return Structure

@@ -2670,7 +2670,7 @@ export class DirectorService {
       // Get nodes for the specified positions
       const { data: availableNodes, error: nodesError } = await this.supabase
         .from('nodes')
-        .select('id, position, type, description, config, params')
+        .select('id, position, type, description, params')
         .eq('workflow_id', workflowId)
         .in('position', positions)
         .order('position');
@@ -2833,9 +2833,9 @@ export class DirectorService {
   updateSkippedNodes(routeNode, result, skippedNodes) {
     console.log(`[FLOW] Route at position ${routeNode.position} took path: ${result.path}`);
     
-    // Handle new format (config array)
-    if (Array.isArray(routeNode.config)) {
-      routeNode.config.forEach(branch => {
+    // Handle new format (params array)
+    if (Array.isArray(routeNode.params)) {
+      routeNode.params.forEach(branch => {
         if (branch.name !== result.path) {
           // Mark all positions in non-taken branches
           const positions = Array.isArray(branch.branch) ? branch.branch : [branch.branch];
@@ -2848,7 +2848,7 @@ export class DirectorService {
         }
       });
     }
-    // Handle old format (params.paths) for backward compatibility
+    // Handle old format (params.paths object) for backward compatibility
     else if (routeNode.params?.paths) {
       for (const [branchName, branchNodes] of Object.entries(routeNode.params.paths)) {
         if (branchName !== result.path) {
