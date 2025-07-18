@@ -497,7 +497,7 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'execute_nodes',
-        description: 'Execute specific workflow nodes by position. WARNING: Executes ALL nodes in the selection sequentially, ignoring route decisions. If node 5 is a route that should skip to node 9, nodes 6-8 will still execute.',
+        description: 'Execute specific workflow nodes with optional control flow awareness. Use mode="isolated" to test nodes individually, or mode="flow" to respect route decisions and iteration contexts.',
         parameters: {
           type: 'object',
           properties: {
@@ -505,6 +505,12 @@ export function createToolDefinitions() {
               type: 'string',
               description: 'Nodes to execute. Formats: single node "5", range "3-5", multiple "1-3,10,15-17", or "all" for entire workflow',
               pattern: '^(all|\\d+(-\\d+)?(,\\d+(-\\d+)?)*)$'
+            },
+            mode: {
+              type: 'string',
+              enum: ['isolated', 'flow'],
+              default: 'isolated',
+              description: 'Execution mode. isolated: execute all nodes in sequence ignoring control flow (default). flow: respect route decisions and skip nodes in unexecuted branches.'
             },
             resetBrowserFirst: {
               type: 'boolean',
@@ -639,6 +645,102 @@ export function createToolDefinitions() {
             }
           },
           required: ['plan', 'reason'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_variables',
+        description: 'Get workflow variables with flexible querying. Use variableName="all" for complete state dump, nodeId for node-specific variables, or specific variable names. This tool bypasses chunked display to show full content.',
+        parameters: {
+          type: 'object',
+          properties: {
+            variableName: {
+              type: 'string',
+              description: 'Variable name to retrieve, or "all" for complete variable dump. Examples: "extract_emails", "all", "user_credentials"'
+            },
+            nodeId: {
+              type: 'number',
+              description: 'Alternative: get all variables from a specific node. Example: nodeId=7 returns all node7.* variables'
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'set_variable',
+        description: 'Set or update a workflow variable for debugging and testing. Use this to manually override variables, test edge cases, or inject test data. Variables persist across workflow executions.',
+        parameters: {
+          type: 'object',
+          properties: {
+            variableName: {
+              type: 'string',
+              description: 'Variable name to set. Examples: "test_email", "user_data", "mock_response"'
+            },
+            value: {
+              type: ['string', 'number', 'boolean', 'object', 'array', 'null'],
+              description: 'Variable value. Can be any JSON type: string, number, boolean, object, array, null'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why setting this variable (required for audit trail). Example: "Testing empty array scenario"'
+            },
+            schema: {
+              type: 'object',
+              description: 'Optional JSON Schema for validation. Example: {type: "object", properties: {email: {type: "string", format: "email"}}}',
+              additionalProperties: true
+            }
+          },
+          required: ['variableName', 'value', 'reason'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'clear_variable',
+        description: 'Delete a specific workflow variable. Use this to test missing variable scenarios or clean up after testing.',
+        parameters: {
+          type: 'object',
+          properties: {
+            variableName: {
+              type: 'string',
+              description: 'Variable name to delete. Example: "old_session_data"'
+            },
+            reason: {
+              type: 'string',
+              description: 'Why clearing this variable (required for audit trail). Example: "Testing logged out state"'
+            }
+          },
+          required: ['variableName', 'reason'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'clear_all_variables',
+        description: 'Reset entire workflow state by deleting all variables. Use this for clean testing from scratch. Returns count and list of deleted variables.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reason: {
+              type: 'string',
+              description: 'Why clearing all variables (required for audit trail). Example: "Starting fresh test run"'
+            }
+          },
+          required: ['reason'],
           additionalProperties: false
         },
         strict: true

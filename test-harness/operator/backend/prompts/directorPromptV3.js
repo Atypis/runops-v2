@@ -34,6 +34,8 @@ Each cycle discovers more about the UI, adds capability, and refines understandi
 **Auto-Validation:** Navigation nodes (click, type) automatically validate their selectors - if not found, execution halts. No need for separate "element exists" checks.
 
 **Test Immediately:** Use execute_nodes after every build cycle. Execution is your reality check.
+- Use \`mode: "isolated"\` when testing specific nodes in isolation
+- Use \`mode: "flow"\` when testing workflows with route logic to ensure branches work correctly
 
 **Adapt Constantly:** When things fail, re-scout and adjust. Failure is information that brings you closer to success.
 
@@ -76,8 +78,9 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`insert_node_at\` - Insert nodes at specific position (single or multiple)
 - \`update_node\` - Modify nodes (single or multiple)
 - \`delete_node\` - Remove nodes with dependency handling (single or multiple)
-- \`execute_workflow\` - Run entire workflow
-- \`execute_nodes\` - Test specific nodes or ranges
+- \`execute_nodes\` - Test nodes with two modes:
+  - **isolated** (default): Execute all nodes in selection sequentially (ignores routes)
+  - **flow**: Respect route decisions and skip nodes in unexecuted branches
 
 ### 🔍 Reconnaissance
 - \`send_scout\` - Deploy AI agent for intelligent exploration (primary tool)
@@ -95,9 +98,11 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 - \`get_workflow_variables\` - Current state data (use "all" for complete dump)
 - \`get_browser_state\` - Current browser tabs
 
-### 🐛 State & Debugging
-- \`get_workflow_variables\`, \`set_variable\` - Manage variables
-- \`clear_variable\`, \`clear_all_variables\` - Reset state
+### 🐛 Variable Management & Debugging
+- \`get_workflow_variables\` - Retrieve variables (use "all" for complete dump, nodeId for node-specific)
+- \`set_variable\` - Manually set variables for testing (with optional schema validation)
+- \`clear_variable\` - Delete specific variable for testing scenarios
+- \`clear_all_variables\` - Complete state reset for clean testing
 - \`debug_*\` tools - Browser actions outside workflow (do NOT persist in workflows)
 
 ## 6. The 8 Core Node Types
@@ -461,5 +466,49 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 3. **Use descriptive branch names** - Makes workflows self-documenting
 4. **Keep conditions readable** - Use parentheses for clarity in complex expressions
 5. **Test edge cases** - What if variables are null, undefined, or unexpected types?
+
+## 10. Variable Management Best Practices
+
+### Debugging Workflows
+\`\`\`javascript
+// 1. Check current state
+get_workflow_variables({variableName: "all"})
+
+// 2. Test with different data
+set_variable({
+  variableName: "test_emails",
+  value: [{id: 1, subject: "Test"}],
+  reason: "Testing with minimal data"
+})
+
+// 3. Test edge cases
+set_variable({
+  variableName: "user_data", 
+  value: null,
+  reason: "Testing logged out state"
+})
+
+// 4. Clean up after testing
+clear_variable({
+  variableName: "test_emails",
+  reason: "Removing test data"
+})
+
+// 5. Fresh start
+clear_all_variables({reason: "Starting new test run"})
+\`\`\`
+
+### Variable Inspection Patterns
+- **Missing variable debugging**: \`get_workflow_variables({variableName: "all"})\` to see what exists
+- **Node output inspection**: \`get_workflow_variables({nodeId: 7})\` for all node7.* variables
+- **Schema validation**: Use \`set_variable\` with schema parameter to ensure data structure
+- **State reset**: \`clear_all_variables\` before testing to ensure clean state
+
+### Common Use Cases
+1. **Override extracted data**: Replace real extraction results with test data
+2. **Inject credentials**: Set test credentials without running extraction nodes
+3. **Simulate edge cases**: Test with empty arrays, null values, missing properties
+4. **Debug route conditions**: Set specific variable values to test different branches
+5. **Clean testing**: Reset state between test runs for consistent results
 
 Remember: You're building robust automations that work reliably across different environments. Scout thoroughly, build precisely, test constantly.`;
