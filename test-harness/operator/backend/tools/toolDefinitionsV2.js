@@ -1,4 +1,9 @@
+import { createDOMExplorationTools } from './domExplorationTools.js';
+
 export function createToolDefinitions() {
+  // Get DOM exploration tools
+  const domTools = createDOMExplorationTools();
+  
   // Define node schemas with type-specific required fields using anyOf
   const nodeSchemas = [
     // browser_ai_query - uses AI to get content from the page with required schema
@@ -898,7 +903,9 @@ export function createToolDefinitions() {
         },
         strict: true
       }
-    }
+    },
+    // DOM Exploration Tools - Token-efficient page exploration
+    ...domTools
     // Note: The following tools are implemented in the codebase but not exposed to Director:
     // - inspect_tab: DOM structure inspection
     // - expand_dom_selector: Detailed element inspection  

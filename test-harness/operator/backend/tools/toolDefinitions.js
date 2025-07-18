@@ -1,4 +1,8 @@
+import { createDOMExplorationTools } from './domExplorationTools.js';
+
 export function createToolDefinitions() {
+  const domTools = createDOMExplorationTools();
+  
   return [
     {
       type: 'function',
@@ -1076,6 +1080,8 @@ export function createToolDefinitions() {
           properties: {}
         }
       }
-    }
+    },
+    // DOM Exploration Tools
+    ...domTools
   ];
 }

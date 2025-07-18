@@ -10,6 +10,7 @@ import { VariableManagementService } from './variableManagementService.js';
 import { TokenCounterService } from './tokenCounterService.js';
 import BrowserStateService from './browserStateService.js';
 import { ConversationService } from './conversationService.js';
+import domToolkitService from './domToolkitService.js';
 import { supabase } from '../config/supabase.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -3658,6 +3659,20 @@ export class DirectorService {
           break;
         case 'debug_switch_tab':
           result = await this.debugSwitchTab(args, workflowId);
+          break;
+          
+        // DOM Exploration Tools
+        case 'dom_overview':
+          result = await domToolkitService.domOverview(args, this.nodeExecutor);
+          break;
+        case 'dom_structure':
+          result = await domToolkitService.domStructure(args, this.nodeExecutor);
+          break;
+        case 'dom_search':
+          result = await domToolkitService.domSearch(args, this.nodeExecutor);
+          break;
+        case 'dom_inspect':
+          result = await domToolkitService.domInspect(args, this.nodeExecutor);
           break;
           
         // Clean Context 2.0 - Context Retrieval Tools
