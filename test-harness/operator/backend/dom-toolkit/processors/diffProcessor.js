@@ -193,6 +193,8 @@ export class DiffProcessor {
       id: `[${node.id}]`,
       tag: node.tag
     };
+    
+    const LONG_ATTR_THRESHOLD = 40;
 
     // Match the format from InteractivesFilter.formatInteractiveElement
     if (node.tag === 'button' || node.tag === 'a' || node.attributes?.role === 'button') {
@@ -201,10 +203,10 @@ export class DiffProcessor {
       }
     }
     
-    // For inputs, add placeholder or name
+    // For inputs, add placeholder or name if short enough
     if (node.tag === 'input' || node.tag === 'textarea' || node.tag === 'select') {
-      if (node.attributes?.placeholder) {
-        summary.placeholder = this.truncateText(node.attributes.placeholder, 40);
+      if (node.attributes?.placeholder && node.attributes.placeholder.length <= LONG_ATTR_THRESHOLD) {
+        summary.placeholder = node.attributes.placeholder;
       } else if (node.attributes?.name) {
         summary.name = node.attributes.name;
       }
@@ -218,14 +220,18 @@ export class DiffProcessor {
       summary.class = node.attributes.class.split(' ')[0];
     }
     
-    // Only add href for links (truncated)
+    // Only add href for links if short or it's the only identifier
     if (node.tag === 'a' && node.attributes?.href) {
       const href = node.attributes.href;
-      if (href.length <= 30) {
+      const hasOtherIdentifiers = node.text || node.attributes?.id || node.attributes?.['aria-label'];
+      
+      if (href.length <= LONG_ATTR_THRESHOLD) {
         summary.href = href;
-      } else if (href.startsWith('/')) {
+      } else if (!hasOtherIdentifiers && href.length > 0) {
+        // Only include if it's the sole identifier, and truncate it
         summary.href = href.substring(0, 20) + '...';
       }
+      // Otherwise omit the href entirely
     }
 
     return summary;

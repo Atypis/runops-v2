@@ -6,7 +6,7 @@
 export class SelectorHints {
   constructor() {
     // Maximum number of hints to generate
-    this.maxHints = 4;
+    this.maxHints = 1;  // Changed from 4 to 1 for optimization
     
     // Preferred attribute order for selectors
     this.preferredAttributes = [
@@ -17,11 +17,12 @@ export class SelectorHints {
 
   /**
    * Generate selector hints for an element
+   * Now returns only the shortest unique selector for token efficiency
    */
   generate(element, snapshot) {
     const hints = [];
     
-    // 1. ID selector (highest priority)
+    // 1. ID selector (highest priority and usually shortest)
     const idHint = this.generateIdSelector(element);
     if (idHint) hints.push(idHint);
 
@@ -39,12 +40,27 @@ export class SelectorHints {
 
     // 5. Structural selector (as fallback)
     const structuralHint = this.generateStructuralSelector(element, snapshot);
-    if (structuralHint && hints.length < this.maxHints) {
+    if (structuralHint) {
       hints.push(structuralHint);
     }
 
-    // Return unique hints, limited to maxHints
-    return [...new Set(hints)].slice(0, this.maxHints);
+    // Sort by length and return the shortest
+    // In case of tie, prefer ID > data-testid > name > others
+    const uniqueHints = [...new Set(hints)];
+    const priorityOrder = ['#', '[data-testid=', '[data-test=', '[name=', '[aria-label='];
+    
+    return uniqueHints
+      .sort((a, b) => {
+        // First sort by length
+        if (a.length !== b.length) {
+          return a.length - b.length;
+        }
+        // If same length, sort by priority
+        const aPriority = priorityOrder.findIndex(p => a.startsWith(p));
+        const bPriority = priorityOrder.findIndex(p => b.startsWith(p));
+        return (bPriority === -1 ? 999 : bPriority) - (aPriority === -1 ? 999 : aPriority);
+      })
+      .slice(0, 1);  // Return only the best selector
   }
 
   /**

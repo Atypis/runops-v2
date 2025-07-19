@@ -238,26 +238,43 @@ export class InteractivesFilter {
    */
   extractKeyAttributes(node) {
     const attrs = {};
+    const LONG_ATTR_THRESHOLD = 40;
+    const LONG_ATTRS = ['href', 'src', 'placeholder', 'value'];
 
     // Always include these if present
-    const includeAttrs = ['name', 'type', 'role', 'href'];
+    const includeAttrs = ['name', 'type', 'role', 'href', 'id'];
     
     for (const attr of includeAttrs) {
       if (node.attributes[attr]) {
-        // Truncate long hrefs
-        if (attr === 'href' && node.attributes[attr].length > 50) {
-          // Keep beginning and end
-          const href = node.attributes[attr];
-          attrs[attr] = href.substring(0, 30) + '...' + href.substring(href.length - 15);
+        const value = node.attributes[attr];
+        
+        // Apply length filtering for long attributes
+        if (LONG_ATTRS.includes(attr) && value.length > LONG_ATTR_THRESHOLD) {
+          // Only include long attributes if they're the only identifying feature
+          const hasOtherIdentifiers = node.text || 
+                                     node.attributes.id || 
+                                     node.attributes.name ||
+                                     node.attributes['aria-label'];
+          
+          if (!hasOtherIdentifiers) {
+            // Keep it but truncate for display
+            const href = value;
+            attrs[attr] = href.substring(0, 20) + '...';
+          }
+          // Otherwise skip this long attribute entirely
         } else {
-          attrs[attr] = node.attributes[attr];
+          // Keep short attributes or non-long-attr types
+          attrs[attr] = value;
         }
       }
     }
 
-    // Include placeholder if no label
+    // Include placeholder if no label and it's short enough
     if (!attrs['aria-label'] && node.attributes.placeholder) {
-      attrs.placeholder = this.truncateText(node.attributes.placeholder, 40);
+      const placeholder = node.attributes.placeholder;
+      if (placeholder.length <= LONG_ATTR_THRESHOLD) {
+        attrs.placeholder = placeholder;
+      }
     }
 
     return attrs;
