@@ -9,6 +9,10 @@ import visualObservationService from './visualObservationService.js';
 
 export class NodeExecutor {
   constructor(sharedBrowserStateService = null) {
+    // Generate unique instance ID for tracking
+    this.instanceId = Math.random().toString(36).substring(7);
+    console.log(`[NodeExecutor-${this.instanceId}] Creating new NodeExecutor instance`);
+    
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
@@ -24,7 +28,7 @@ export class NodeExecutor {
     // Browser state service for Director 2.0 real-time context
     // Use shared instance if provided, otherwise create new one
     this.browserStateService = sharedBrowserStateService || new BrowserStateService();
-    console.log(`[NodeExecutor] Using ${sharedBrowserStateService ? 'shared' : 'new'} BrowserStateService instance`);
+    console.log(`[NodeExecutor-${this.instanceId}] Using ${sharedBrowserStateService ? 'shared' : 'new'} BrowserStateService instance`);
     // Track current workflow ID for browser state updates
     this.currentWorkflowId = null;
     // Track current profile name and strategy for session management
@@ -419,12 +423,25 @@ export class NodeExecutor {
   async getStagehand(options = {}) {
     const { profileName, persistStrategy } = options;
     
+    console.log(`[GETSSTAGEHAND-${this.instanceId}] Called with options:`, {
+      profileName,
+      persistStrategy,
+      currentProfileName: this.currentProfileName,
+      hasExistingInstance: !!this.stagehandInstance
+    });
+    
     // Clean up existing instance if switching profiles
-    if (this.stagehandInstance && profileName !== this.currentProfileName) {
+    // Only cleanup if we're explicitly requesting a different profile (not when profileName is undefined)
+    if (this.stagehandInstance && profileName !== undefined && profileName !== this.currentProfileName) {
+      console.log(`[GETSSTAGEHAND-${this.instanceId}] Cleanup triggered - profile switch detected:`, {
+        requestedProfile: profileName,
+        currentProfile: this.currentProfileName
+      });
       await this.cleanup();
     }
     
     if (!this.stagehandInstance) {
+      console.log(`[GETSSTAGEHAND-${this.instanceId}] Creating new Stagehand instance`);
       const stagehandConfig = {
         env: 'LOCAL',
         headless: false,
@@ -2632,6 +2649,10 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
 
   async cleanup() {
     if (this.stagehandInstance) {
+      console.log('[CLEANUP] Destroying StageHand instance', {
+        currentProfile: this.currentProfileName,
+        persistStrategy: this.persistStrategy
+      });
       await this.stagehandInstance.close();
       this.stagehandInstance = null;
       // Clear tab tracking
@@ -2751,14 +2772,22 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
    * @throws {Error} If session not found or load fails
    */
   async loadBrowserSession(name, persistStrategy = 'storageState') {
+    console.log('[LOAD_SESSION] Loading browser session:', {
+      name,
+      persistStrategy
+    });
+    
     if (persistStrategy === 'profileDir') {
       // Switch to profile-based browser
+      console.log('[LOAD_SESSION] Using profileDir strategy - switching to profile-based browser');
       await this.cleanup();
       await this.getStagehand({ 
         profileName: name, 
         persistStrategy: 'profileDir' 
       });
-      await this.initializeBrowser();
+      if (this.initializeBrowser) {
+        await this.initializeBrowser();
+      }
       return { strategy: 'profileDir' };
     }
     
