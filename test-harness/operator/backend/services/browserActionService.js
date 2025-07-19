@@ -49,8 +49,6 @@ export class BrowserActionService {
           return await this.listTabs(config);
           
         // State observation
-        case 'screenshot':
-          return await this.screenshot(config);
         case 'getCurrentUrl':
           return await this.getCurrentUrl(config);
         case 'getTitle':
@@ -340,36 +338,6 @@ export class BrowserActionService {
   }
 
   // ===== State Observation =====
-
-  async screenshot(config) {
-    const { tabName, path, fullPage = true, selector } = config;
-    const page = await this.resolveTargetPage(tabName);
-    
-    const screenshotOptions = { 
-      path,
-      fullPage
-    };
-    
-    if (selector) {
-      // Screenshot specific element
-      const element = await page.$(selector);
-      if (!element) {
-        throw new Error(`Element not found: ${selector}`);
-      }
-      await element.screenshot(screenshotOptions);
-      return { 
-        screenshot: path || 'captured',
-        element: selector
-      };
-    } else {
-      // Screenshot full page
-      await page.screenshot(screenshotOptions);
-      return { 
-        screenshot: path || 'captured',
-        fullPage
-      };
-    }
-  }
 
   async getCurrentUrl(config) {
     const { tabName } = config;

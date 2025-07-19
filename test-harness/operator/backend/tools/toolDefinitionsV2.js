@@ -101,7 +101,7 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'screenshot', 'listTabs', 'getCurrentTab', 'keypress', 'saveSession', 'loadSession', 'listSessions'],
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'saveSession', 'loadSession', 'listSessions'],
               description: 'The deterministic browser action to perform. Note: click and type actions have been moved to browser_ai_action node type.'
             },
             url: {
@@ -123,15 +123,11 @@ export function createToolDefinitions() {
             },
             name: {
               type: 'string',
-              description: 'For openNewTab: REQUIRED tab name (tabs cannot be tracked without names). For screenshot: file name.'
+              description: 'For openNewTab: REQUIRED tab name (tabs cannot be tracked without names).'
             },
             key: {
               type: 'string',
               description: 'For keypress: Key to press (e.g., "Enter", "Escape", "Tab")'
-            },
-            fullPage: {
-              type: 'boolean',
-              description: 'For screenshot: Whether to capture full page (default: false)'
             },
             store_variable: {
               type: 'boolean',
@@ -914,9 +910,11 @@ export function createToolDefinitions() {
                 // Tab management  
                 'openTab', 'closeTab', 'switchTab', 'listTabs',
                 // State observation
-                'screenshot', 'getCurrentUrl', 'getTitle',
+                'getCurrentUrl', 'getTitle',
                 // Interaction
-                'click', 'type', 'keypress'
+                'click', 'type', 'keypress',
+                // Session management
+                'saveSession', 'loadSession', 'listSessions'
               ],
               description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI).'
             },
@@ -975,14 +973,21 @@ export function createToolDefinitions() {
                   description: 'For openTab: Name for the new tab'
                 },
                 
-                // Screenshot
-                path: {
+                // Session management
+                sessionName: {
                   type: 'string',
-                  description: 'For screenshot: File path (optional)'
+                  description: 'For saveSession/loadSession: Unique identifier for the browser session (e.g., "gmail-work", "jira-prod")',
+                  pattern: '^[a-z0-9-]+$'
                 },
-                fullPage: {
-                  type: 'boolean',
-                  description: 'For screenshot: Capture full page (default: true)'
+                scope: {
+                  type: 'string',
+                  enum: ['origin', 'browser'],
+                  description: 'For saveSession: Save cookies/storage for current origin only or entire browser (default: "origin")'
+                },
+                persistStrategy: {
+                  type: 'string',
+                  enum: ['storageState', 'profileDir'],
+                  description: 'For save/loadSession: How to persist the session. storageState = lightweight JSON (default), profileDir = full Chrome profile'
                 }
               },
               additionalProperties: false

@@ -180,7 +180,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 ## 6. The 8 Core Node Types
 
 **Execution Layer:**
-1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, screenshot, keypress, session management)
+1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, keypress, session management)
    - Fast, predictable, no AI involvement
    - Session management: saveSession, loadSession, listSessions (skip login on subsequent runs)
 2. \`browser_ai_action\` - AI-powered UI interactions (click, type, act)
@@ -261,6 +261,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 4. **Test incrementally** - Execute after each build cycle
 5. **🔴 NO API CALLS** - Pure UI automation only
 6. **🔴 Direct exploration is now your primary tool** - Use \`browser_action\` for actions and DOM tools for analysis
+7. **🔴 Fail gracefully after 3 attempts** - If you find yourself calling the same function with the same/similar parameters 3 times without success, STOP immediately. Report back to the user with: what you were trying to do, what went wrong, and potential solutions. Never get stuck in infinite retry loops.
 
 ## 9. Common Patterns
 
@@ -315,9 +316,6 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 }}
 {type: "browser_action", alias: "wait_for_element", config: {
   action: "wait", type: "selector", value: "#loginForm"
-}}
-{type: "browser_action", alias: "take_screenshot", config: {
-  action: "screenshot", name: "login_page"
 }}
 {type: "browser_action", alias: "press_enter", config: {
   action: "keypress", key: "Enter"
