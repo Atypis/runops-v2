@@ -822,29 +822,6 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
-        name: 'send_scout',
-        description: 'Deploy an AI scout to explore pages and answer questions about UI structure. Scout has access to browser inspection and interaction tools. Use for complex exploration, finding selectors, understanding dynamic behavior, or any browser-related questions.',
-        parameters: {
-          type: 'object',
-          properties: {
-            instruction: {
-              type: 'string',
-              description: 'Natural language mission description for the scout. Be specific about what information you need.'
-            },
-            tabName: {
-              type: 'string',
-              description: 'Optional: specific tab to scout (default: active tab)'
-            }
-          },
-          required: ['instruction'],
-          additionalProperties: false
-        },
-        strict: true
-      }
-    },
-    {
-      type: 'function',
-      function: {
         name: 'get_current_plan',
         description: 'Get the current workflow plan with phases, tasks, and progress. Returns null if no plan exists.',
         parameters: {
@@ -904,13 +881,109 @@ export function createToolDefinitions() {
         strict: true
       }
     },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_action',
+        description: 'Execute deterministic browser actions for scouting and exploration without creating workflow nodes. Actions execute immediately on the current browser state.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: [
+                // Navigation
+                'navigate', 'back', 'forward', 'refresh',
+                // Explicit wait
+                'wait',
+                // Tab management  
+                'openTab', 'closeTab', 'switchTab', 'listTabs',
+                // State observation
+                'screenshot', 'getCurrentUrl', 'getTitle',
+                // Interaction
+                'click', 'type', 'keypress'
+              ],
+              description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI).'
+            },
+            config: {
+              type: 'object',
+              properties: {
+                // Universal
+                tabName: { 
+                  type: 'string',
+                  description: 'Tab to act on (default: current active tab)' 
+                },
+                timeout: {
+                  type: 'number',
+                  description: 'Max wait time in ms for elements to appear (default: 10000)'
+                },
+                
+                // Navigation
+                url: { 
+                  type: 'string',
+                  description: 'For navigate/openTab: URL to navigate to' 
+                },
+                waitUntil: {
+                  type: 'string',
+                  enum: ['load', 'domcontentloaded', 'networkidle'],
+                  description: 'For navigate: When to consider navigation complete (default: domcontentloaded)'
+                },
+                
+                // Wait
+                waitType: {
+                  type: 'string',
+                  enum: ['time', 'selector', 'navigation'],
+                  description: 'For wait: Type of wait'
+                },
+                waitValue: {
+                  type: ['string', 'number'],
+                  description: 'For wait: Milliseconds (number) or CSS selector (string)'
+                },
+                
+                // Interaction
+                selector: {
+                  type: 'string',
+                  description: 'For click/type: CSS selector of element'
+                },
+                text: {
+                  type: 'string', 
+                  description: 'For type: Text to type'
+                },
+                key: {
+                  type: 'string',
+                  description: 'For keypress: Key to press (e.g., "Enter", "Escape")'
+                },
+                
+                // Tab management
+                name: {
+                  type: 'string',
+                  description: 'For openTab: Name for the new tab'
+                },
+                
+                // Screenshot
+                path: {
+                  type: 'string',
+                  description: 'For screenshot: File path (optional)'
+                },
+                fullPage: {
+                  type: 'boolean',
+                  description: 'For screenshot: Capture full page (default: true)'
+                }
+              },
+              additionalProperties: false
+            },
+            reason: {
+              type: 'string',
+              description: 'Required audit trail explaining why this action is being performed'
+            }
+          },
+          required: ['action', 'reason'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
     // DOM Exploration Tools - Token-efficient page exploration
     ...domTools
-    // Note: The following tools are implemented in the codebase but not exposed to Director:
-    // - inspect_tab: DOM structure inspection
-    // - expand_dom_selector: Detailed element inspection  
-    // - debug_navigate, debug_click, debug_type, debug_wait: Browser manipulation
-    // - debug_open_tab, debug_close_tab, debug_switch_tab: Tab management
-    // These are available to the scout agent internally
   ];
 }

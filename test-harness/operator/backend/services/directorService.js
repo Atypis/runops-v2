@@ -2243,6 +2243,41 @@ export class DirectorService {
   }
 
   /**
+   * Consolidated browser action handler
+   */
+  async callBrowserAction(args, workflowId) {
+    try {
+      const { action, config = {}, reason } = args;
+      
+      console.log(`[BROWSER_ACTION] ${reason}: ${action} with config:`, config);
+      
+      // Import and create browser action service
+      const { BrowserActionService } = await import('./browserActionService.js');
+      const browserActionService = new BrowserActionService(
+        this.nodeExecutor,
+        workflowId,
+        this.browserStateService
+      );
+      
+      // Execute the action
+      const result = await browserActionService.execute(action, config);
+      
+      return {
+        success: true,
+        ...result,
+        reason
+      };
+      
+    } catch (error) {
+      console.error('[BROWSER_ACTION] Failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Debug navigation methods - for exploration without creating workflow nodes
    */
   
@@ -3659,6 +3694,11 @@ export class DirectorService {
           break;
         case 'debug_switch_tab':
           result = await this.debugSwitchTab(args, workflowId);
+          break;
+          
+        // Consolidated Browser Action Tool
+        case 'browser_action':
+          result = await this.callBrowserAction(args, workflowId);
           break;
           
         // DOM Exploration Tools

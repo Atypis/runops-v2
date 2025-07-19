@@ -241,6 +241,32 @@ export class ScoutService {
       this.tabInspectionService = TabInspectionService;
     }
 
+    // Handle browser_action tool
+    if (toolName === 'browser_action') {
+      try {
+        const { BrowserActionService } = await import('./browserActionService.js');
+        const browserActionService = new BrowserActionService(
+          nodeExecutor,
+          workflowId,
+          browserState
+        );
+        
+        const { action, config = {}, reason } = args;
+        const result = await browserActionService.execute(action, config);
+        
+        return {
+          success: true,
+          ...result,
+          reason
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+
     switch (toolName) {
       case 'inspect_tab':
         return await this.tabInspectionService.inspectTab(
@@ -482,6 +508,43 @@ export class ScoutService {
   getScoutToolsForResponsesAPI() {
     // Tools in Responses API format (not Chat Completions format)
     return [
+      {
+        type: 'function',
+        name: 'browser_action',
+        description: 'Execute deterministic browser actions for exploration. All actions are CSS selector based (no AI).',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['navigate', 'back', 'forward', 'refresh', 'wait', 'openTab', 'closeTab', 'switchTab', 'listTabs', 'screenshot', 'getCurrentUrl', 'getTitle', 'click', 'type', 'keypress'],
+              description: 'The browser action to perform'
+            },
+            config: {
+              type: 'object',
+              properties: {
+                tabName: { type: 'string' },
+                timeout: { type: 'number' },
+                url: { type: 'string' },
+                waitUntil: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle'] },
+                waitType: { type: 'string', enum: ['time', 'selector', 'navigation'] },
+                waitValue: { type: ['string', 'number'] },
+                selector: { type: 'string' },
+                text: { type: 'string' },
+                key: { type: 'string' },
+                name: { type: 'string' },
+                path: { type: 'string' },
+                fullPage: { type: 'boolean' }
+              }
+            },
+            reason: {
+              type: 'string',
+              description: 'Why performing this action'
+            }
+          },
+          required: ['action', 'reason']
+        }
+      },
       {
         type: 'function',
         name: 'inspect_tab',
@@ -798,6 +861,22 @@ Provide a concise, structured report with:
     if (result.success === false) return `Failed: ${result.message || 'Unknown error'}`;
     
     switch(toolName) {
+      case 'browser_action':
+        // Summarize based on the action performed
+        if (result.navigated) return `Navigated to ${result.navigated}`;
+        if (result.clicked) return `Clicked ${result.clicked}`;
+        if (result.typed) return `Typed text in ${result.selector}`;
+        if (result.waited) return `Waited ${result.waited}`;
+        if (result.opened) return `Opened tab ${result.opened}`;
+        if (result.closed) return `Closed tab ${result.closed}`;
+        if (result.switchedTo) return `Switched to tab ${result.switchedTo}`;
+        if (result.screenshot) return `Captured screenshot`;
+        if (result.url) return `Current URL: ${result.url}`;
+        if (result.title) return `Page title: ${result.title}`;
+        if (result.pressed) return `Pressed key ${result.pressed}`;
+        if (result.tabs) return `Found ${result.tabs.length} tabs`;
+        return 'Action completed';
+        
       case 'inspect_tab':
         const elementCount = result.elements?.length || 0;
         return `Found ${elementCount} elements`;
