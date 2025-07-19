@@ -47,3 +47,6 @@ sop_orchestrator/screenshots/*/timeline_export_*.json
 *.temp
 app_frontend/tsconfig.tsbuildinfo
 test-harness/operator/temp/screenshots/
+
+# Browser profiles for session persistence
+test-harness/browser-profiles/

@@ -101,7 +101,7 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'screenshot', 'listTabs', 'getCurrentTab', 'keypress'],
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'screenshot', 'listTabs', 'getCurrentTab', 'keypress', 'saveSession', 'loadSession', 'listSessions'],
               description: 'The deterministic browser action to perform. Note: click and type actions have been moved to browser_ai_action node type.'
             },
             url: {
@@ -136,6 +136,21 @@ export function createToolDefinitions() {
             store_variable: {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+            },
+            sessionName: {
+              type: 'string',
+              description: 'For saveSession/loadSession: Unique identifier for the browser session (e.g., "gmail-work", "jira-prod"). Format: lowercase letters, numbers, hyphens only.',
+              pattern: '^[a-z0-9-]+$'
+            },
+            scope: {
+              type: 'string',
+              enum: ['origin', 'browser'],
+              description: 'For saveSession only: Save cookies/storage for current origin only (default: "origin") or entire browser. Origin = current domain only (safer). Browser = all domains (more complete).'
+            },
+            persistStrategy: {
+              type: 'string',
+              enum: ['storageState', 'profileDir'],
+              description: 'For save/loadSession: How to persist the session. storageState = lightweight JSON with cookies/storage (default, works for 95% of sites). profileDir = full Chrome profile directory (for Gmail, banks, high-security sites).'
             }
           },
           required: ['action'],

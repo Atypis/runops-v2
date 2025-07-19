@@ -34,7 +34,9 @@ The `browser_action` tool is Director's primary interface for interacting with w
             // State observation
             'screenshot', 'getCurrentUrl', 'getTitle',
             // Interaction
-            'click', 'type', 'keypress'
+            'click', 'type', 'keypress',
+            // Session management
+            'saveSession', 'loadSession', 'listSessions'
           ]
         },
         config: {
@@ -260,6 +262,141 @@ browser_action({
   reason: "Submitting form with Enter key"
 })
 ```
+
+### Session Management
+
+#### saveSession
+Save the current browser state (cookies, localStorage, sessionStorage) for later reuse.
+
+```javascript
+// Simple save (default: current origin only)
+browser_action({
+  action: "saveSession",
+  config: {
+    sessionName: "jira-work"  // Required: unique identifier
+  },
+  reason: "Saving authenticated Jira session"
+})
+// Returns: {saved: true, sessionName: "jira-work", sizeKB: 12, expires: "2024-02-01T..."}
+
+// Save with options
+browser_action({
+  action: "saveSession",
+  config: {
+    sessionName: "gmail-work",
+    scope: "browser",  // Save all domains (default: "origin")
+    persistStrategy: "profileDir"  // Use Chrome profile for Gmail
+  },
+  reason: "Saving Gmail session with profile persistence"
+})
+```
+
+**Parameters:**
+- `sessionName` (required): Unique identifier, lowercase letters/numbers/hyphens only
+- `scope`: "origin" (current domain) or "browser" (all domains) 
+- `persistStrategy`: "storageState" (JSON) or "profileDir" (Chrome profile)
+
+#### loadSession  
+Restore a previously saved browser session.
+
+```javascript
+// Simple load
+browser_action({
+  action: "loadSession",
+  config: {
+    sessionName: "jira-work"
+  },
+  reason: "Restoring Jira session to skip login"
+})
+// Returns: {loaded: true, valid: true, sessionName: "jira-work"}
+// Or: {loaded: false, valid: false, error: "Session not found"}
+
+// Load with profile directory
+browser_action({
+  action: "loadSession", 
+  config: {
+    sessionName: "gmail-work",
+    persistStrategy: "profileDir"
+  },
+  reason: "Loading Gmail with persistent profile"
+})
+```
+
+**Parameters:**
+- `sessionName` (required): Session to load
+- `persistStrategy`: Must match how session was saved
+
+#### listSessions
+List all available saved sessions.
+
+```javascript
+browser_action({
+  action: "listSessions",
+  config: {},
+  reason: "Checking available sessions"
+})
+// Returns: {
+//   sessions: [
+//     {
+//       name: "jira-work",
+//       createdAt: "2024-01-15T10:30:00Z",
+//       scope: "origin",
+//       persistStrategy: "storageState",
+//       sizeKB: 12
+//     },
+//     {
+//       name: "gmail-work",
+//       createdAt: "2024-01-14T09:00:00Z", 
+//       scope: "browser",
+//       persistStrategy: "profileDir",
+//       sizeKB: 0  // Profiles don't report size
+//     }
+//   ]
+// }
+```
+
+**Common Session Patterns:**
+
+```javascript
+// Pattern 1: Skip login if session exists
+browser_action({
+  action: "loadSession",
+  config: {sessionName: "app-session"},
+  reason: "Attempting to restore session"
+})
+
+// Check if loaded successfully
+if (result.loaded && result.valid) {
+  // Continue with workflow
+} else {
+  // Do login flow
+  // ... login steps ...
+  
+  // Save session after login
+  browser_action({
+    action: "saveSession",
+    config: {sessionName: "app-session"},
+    reason: "Saving session after successful login"
+  })
+}
+
+// Pattern 2: High-security site with profile
+browser_action({
+  action: "loadSession",
+  config: {
+    sessionName: "banking-app",
+    persistStrategy: "profileDir"  // Full browser profile
+  },
+  reason: "Loading banking session with full profile"
+})
+```
+
+**Storage Strategy Comparison:**
+
+| Strategy | Use For | Storage | Size | Persistence |
+|----------|---------|---------|------|-------------|
+| storageState | Most sites (95%) | JSON in database | ~10-100KB | Cookies + storage |
+| profileDir | Gmail, banks | Chrome profile on disk | 50-500MB | Everything including extensions |
 
 ## Integration with DOM Tools
 

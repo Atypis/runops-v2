@@ -27,6 +27,9 @@ export class NodeExecutor {
     console.log(`[NodeExecutor] Using ${sharedBrowserStateService ? 'shared' : 'new'} BrowserStateService instance`);
     // Track current workflow ID for browser state updates
     this.currentWorkflowId = null;
+    // Track current profile name and strategy for session management
+    this.currentProfileName = null;
+    this.persistStrategy = 'storageState';
   }
 
   // StageHand logging control:
@@ -413,9 +416,16 @@ export class NodeExecutor {
     return resolved;
   }
 
-  async getStagehand() {
+  async getStagehand(options = {}) {
+    const { profileName, persistStrategy } = options;
+    
+    // Clean up existing instance if switching profiles
+    if (this.stagehandInstance && profileName !== this.currentProfileName) {
+      await this.cleanup();
+    }
+    
     if (!this.stagehandInstance) {
-      this.stagehandInstance = new Stagehand({
+      const stagehandConfig = {
         env: 'LOCAL',
         headless: false,
         enableCaching: true,
@@ -438,7 +448,28 @@ export class NodeExecutor {
           const timestamp = new Date().toISOString();
           console.log(`${timestamp}::[${logLine.category || 'stagehand'}] ${logLine.message}`);
         }
-      });
+      };
+      
+      // Add profile directory support
+      if (profileName && persistStrategy === 'profileDir') {
+        const path = await import('path');
+        const profilePath = path.join(
+          process.cwd(),
+          'browser-profiles',
+          profileName
+        );
+        
+        stagehandConfig.localBrowserLaunchOptions = {
+          userDataDir: profilePath,
+          preserveUserDataDir: true
+        };
+        
+        this.currentProfileName = profileName;
+        this.persistStrategy = 'profileDir';
+        console.log(`[NodeExecutor] Using profile directory: ${profilePath}`);
+      }
+      
+      this.stagehandInstance = new Stagehand(stagehandConfig);
       await this.stagehandInstance.init();
       
       // Initialize tab tracking and store the main page reference
@@ -2564,46 +2595,88 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
   }
 
   // Browser session management methods
-  async saveBrowserSession(name, description = null) {
+  /**
+   * Save current browser session
+   * @param {string} name - Unique session identifier
+   * @param {string} scope - 'origin' or 'browser'
+   * @param {string} persistStrategy - 'storageState' or 'profileDir'
+   * @returns {Object} {sizeKB: number, expires: string|null}
+   */
+  async saveBrowserSession(name, scope = 'origin', persistStrategy = 'storageState') {
     if (!this.stagehandInstance) {
       throw new Error('No browser instance to save');
     }
-
+    
+    if (persistStrategy === 'profileDir') {
+      // Profile directories auto-save continuously
+      console.log(`[BROWSER_SESSION] Profile-based session "${name}" continuously saves`);
+      return {
+        sizeKB: 0,  // Not applicable for profiles
+        expires: null  // Profiles don't expire
+      };
+    }
+    
     try {
-      // Get cookies from the browser context
-      const cookies = await this.stagehandInstance.page.context().cookies();
+      // Database storage implementation
+      const currentUrl = this.stagehandInstance.page.url();
+      const origin = new URL(currentUrl).origin;
+      // Get browser state
+      const context = this.stagehandInstance.page.context();
+      let cookies = await context.cookies();
       
-      // Get localStorage and sessionStorage from the main page
-      const storageData = await this.stagehandInstance.page.evaluate(() => {
-        const local = {};
-        const session = {};
-        
-        // Extract localStorage
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          local[key] = localStorage.getItem(key);
+      // Apply scope filtering
+      if (scope === 'origin') {
+        const hostname = new URL(origin).hostname;
+        cookies = cookies.filter(c => 
+          c.domain.includes(hostname) || 
+          c.domain === `.${hostname}`
+        );
+      }
+      
+      // Extract storage
+      const localStorage = await this.stagehandInstance.page.evaluate((scope, origin) => {
+        const storage = {};
+        if (scope === 'origin') {
+          storage[origin] = {...window.localStorage};
+        } else {
+          // For 'browser' scope, we only get current origin
+          // (would need to visit all tabs to get all origins)
+          storage[window.location.origin] = {...window.localStorage};
         }
-        
-        // Extract sessionStorage
-        for (let i = 0; i < sessionStorage.length; i++) {
-          const key = sessionStorage.key(i);
-          session[key] = sessionStorage.getItem(key);
+        return storage;
+      }, scope, origin);
+      
+      const sessionStorage = await this.stagehandInstance.page.evaluate((scope, origin) => {
+        const storage = {};
+        if (scope === 'origin') {
+          storage[origin] = {...window.sessionStorage};
+        } else {
+          storage[window.location.origin] = {...window.sessionStorage};
         }
-        
-        return { localStorage: local, sessionStorage: session };
-      });
+        return storage;
+      }, scope, origin);
+      
+      // Calculate expiration (earliest cookie expiry)
+      const expires = cookies
+        .filter(c => c.expires > 0)
+        .map(c => new Date(c.expires * 1000))
+        .sort((a, b) => a - b)[0];
 
-      // Upsert to database
+      // Save to database
+      const sessionData = {
+        name,
+        cookies,
+        local_storage: localStorage,
+        session_storage: sessionStorage,
+        scope,
+        persist_strategy: persistStrategy,
+        origin: scope === 'origin' ? origin : null,
+        last_used_at: new Date()
+      };
+      
       const { data, error } = await supabase
         .from('browser_sessions')
-        .upsert({
-          name,
-          description,
-          cookies,
-          local_storage: storageData.localStorage,
-          session_storage: storageData.sessionStorage,
-          last_used_at: new Date()
-        }, { onConflict: 'name' })
+        .upsert(sessionData, { onConflict: 'name' })
         .select()
         .single();
 
@@ -2613,16 +2686,37 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       }
 
       console.log(`[BROWSER_SESSION] Saved session "${name}" with ${cookies.length} cookies`);
-      return data;
+      
+      return {
+        sizeKB: Math.round(JSON.stringify(sessionData).length / 1024),
+        expires: expires ? expires.toISOString() : null
+      };
     } catch (error) {
       console.error('[BROWSER_SESSION] Failed to save browser session:', error);
       throw error;
     }
   }
 
-  async loadBrowserSession(name) {
+  /**
+   * Load a saved browser session
+   * @param {string} name - Session identifier to load
+   * @param {string} persistStrategy - 'storageState' or 'profileDir'
+   * @throws {Error} If session not found or load fails
+   */
+  async loadBrowserSession(name, persistStrategy = 'storageState') {
+    if (persistStrategy === 'profileDir') {
+      // Switch to profile-based browser
+      await this.cleanup();
+      await this.getStagehand({ 
+        profileName: name, 
+        persistStrategy: 'profileDir' 
+      });
+      await this.initializeBrowser();
+      return { strategy: 'profileDir' };
+    }
+    
     try {
-      // Get session from database
+      // Load from database
       const { data: session, error } = await supabase
         .from('browser_sessions')
         .select('*')
@@ -2650,55 +2744,61 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         console.log(`[BROWSER_SESSION] Loaded ${session.cookies.length} cookies`);
       }
 
-      // Navigate to a page to set localStorage/sessionStorage
-      // We need to be on a page to set storage
+      // Navigate to origin and restore storage
       if (session.cookies && session.cookies.length > 0) {
-        // Navigate to the domain of the first cookie to set storage
         const firstCookie = session.cookies[0];
-        const url = `${firstCookie.secure ? 'https' : 'http'}://${firstCookie.domain}`;
+        const url = `https://${firstCookie.domain.replace(/^\./, '')}`;
         await stagehand.page.goto(url, { waitUntil: 'domcontentloaded' });
-
-        // Restore localStorage and sessionStorage
-        await stagehand.page.evaluate((storageData) => {
-          // Clear existing storage
-          localStorage.clear();
-          sessionStorage.clear();
-
-          // Restore localStorage
-          if (storageData.local_storage) {
-            Object.entries(storageData.local_storage).forEach(([key, value]) => {
-              localStorage.setItem(key, value);
-            });
-          }
-
-          // Restore sessionStorage
-          if (storageData.session_storage) {
-            Object.entries(storageData.session_storage).forEach(([key, value]) => {
-              sessionStorage.setItem(key, value);
-            });
-          }
-        }, session);
+      }
+      
+      // Restore storage
+      if (session.local_storage) {
+        await stagehand.page.evaluate((storage) => {
+          Object.entries(storage).forEach(([origin, items]) => {
+            if (window.location.origin === origin) {
+              Object.entries(items).forEach(([key, value]) => {
+                window.localStorage.setItem(key, value);
+              });
+            }
+          });
+        }, session.local_storage);
+      }
+      
+      if (session.session_storage) {
+        await stagehand.page.evaluate((storage) => {
+          Object.entries(storage).forEach(([origin, items]) => {
+            if (window.location.origin === origin) {
+              Object.entries(items).forEach(([key, value]) => {
+                window.sessionStorage.setItem(key, value);
+              });
+            }
+          });
+        }, session.session_storage);
       }
 
       // Update last used timestamp
       await supabase
         .from('browser_sessions')
         .update({ last_used_at: new Date() })
-        .eq('id', session.id);
+        .eq('name', name);
 
       console.log(`[BROWSER_SESSION] Loaded session "${name}"`);
-      return session;
+      return { strategy: 'storageState' };
     } catch (error) {
       console.error('[BROWSER_SESSION] Failed to load browser session:', error);
       throw error;
     }
   }
 
+  /**
+   * List all saved browser sessions
+   * @returns {Array} Array of session objects
+   */
   async listBrowserSessions() {
     try {
       const { data: sessions, error } = await supabase
         .from('browser_sessions')
-        .select('id, name, description, created_at, updated_at, last_used_at')
+        .select('name, description, created_at, scope, persist_strategy, last_used_at')
         .order('last_used_at', { ascending: false });
 
       if (error) {
