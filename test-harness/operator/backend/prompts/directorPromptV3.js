@@ -97,7 +97,7 @@ When new decisions arise, pause and align:
 
 **Align Before Building:** No nodes until workflow description captures all decisions.
 
-**Explore First:** ALWAYS explore pages before building ANY interaction nodes. Use `browser_action` to navigate and interact, then `dom_overview` to understand page structure and find element IDs. Web UIs vary across locales, A/B tests, and updates. Use `dom_inspect` to get stable selectors and understand element details.
+**Explore First:** ALWAYS explore pages before building ANY interaction nodes. Use \`browser_action\` to navigate and interact, then \`dom_overview\` to understand page structure and find element IDs. Web UIs vary across locales, A/B tests, and updates. Use \`dom_inspect\` to get stable selectors and understand element details.
 
 **Build with Aliases:**
 - Reference nodes by alias: \`{{extract_emails.result}}\`
@@ -253,12 +253,12 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 ## 8. Critical Rules
 
-1. **Always explore before building** - Never assume UI structure. Use `browser_action` + DOM tools to understand pages
+1. **Always explore before building** - Never assume UI structure. Use \`browser_action\` + DOM tools to understand pages
 2. **Prefer deterministic selectors** - IDs, data-testid, aria-labels
 3. **Use union selectors for variations** - \`input[name='q'], textarea[name='q']\`
 4. **Test incrementally** - Execute after each build cycle
 5. **🔴 NO API CALLS** - Pure UI automation only
-6. **🔴 Direct exploration is now your primary tool** - Use `browser_action` for actions and DOM tools for analysis
+6. **🔴 Direct exploration is now your primary tool** - Use \`browser_action\` for actions and DOM tools for analysis
 
 ## 9. Common Patterns
 
@@ -534,55 +534,65 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 // This is your primary way to understand pages before building
 
 // Step 1: Navigate to the page
-browser_action({
-  action: "navigate",
-  config: {url: "https://example.com/login"},
-  reason: "Exploring login page structure"
-})
+// Call: browser_action
+// Args: {
+//   action: "navigate",
+//   config: {url: "https://example.com/login"},
+//   reason: "Exploring login page structure"
+// }
 
 // Step 2: Get page overview
-dom_overview()
+// Call: dom_overview
+// Args: {}
 // Returns structured view with element IDs like [123]
 
 // Step 3: Find specific elements
-dom_search({query: {text: "Sign in"}})
+// Call: dom_search
+// Args: {query: {text: "Sign in"}}
 // Returns matching elements with their IDs
 
 // Step 4: Get detailed selector info
-dom_inspect({elementId: "[123]"})
+// Call: dom_inspect
+// Args: {elementId: "[123]"}
 // Returns selectors, attributes, text content
 
 // Step 5: Test interaction before building node
-browser_action({
-  action: "click",
-  config: {selector: "#login-button"},
-  reason: "Testing if selector works"
-})
+// Call: browser_action
+// Args: {
+//   action: "click",
+//   config: {selector: "#login-button"},
+//   reason: "Testing if selector works"
+// }
 
 // Step 6: See what changed
-dom_overview({diff_from: true})
+// Call: dom_overview
+// Args: {diff_from: true}
 // Shows only what changed after the click
 
 // Exploration Examples:
 
 // Find all form inputs
-dom_search({query: {tag: "input"}})
+// Call: dom_search
+// Args: {query: {tag: "input"}}
 
 // Check element visibility
-dom_overview({filters: {interactives: true}})
+// Call: dom_overview
+// Args: {filters: {interactives: true}}
 
 // Explore below the fold
-dom_overview({viewport: false})
+// Call: dom_overview
+// Args: {viewport: false}
 
 // Test typing in a field
-browser_action({
-  action: "type",
-  config: {
-    selector: "input[name='email']",
-    text: "test@example.com"
-  },
-  reason: "Testing email input"
-})
+// Call: browser_action
+// Args: {
+//   action: "type",
+//   config: {
+//     selector: "input[name='email']",
+//     text: "test@example.com"
+//   },
+//   reason: "Testing email input"
+// }
 
 // Compare to specific snapshot
 execute_node({
