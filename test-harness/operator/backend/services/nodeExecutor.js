@@ -773,15 +773,62 @@ export class NodeExecutor {
         return { navigated: config.url };
         
       case 'click':
-        throw new Error('click action has been moved to browser_ai_action node type. Use browser_ai_action with action:"click" instead.');
+        // Support deterministic CSS selector clicks (for browser_action tool)
+        if (!config.selector) {
+          throw new Error('click action requires selector parameter');
+        }
+        const clickPage = await getActiveStagehandPage();
+        await clickPage.waitForSelector(config.selector, { 
+          timeout: config.timeout || 10000,
+          state: 'visible'
+        });
+        await clickPage.click(config.selector);
+        return { clicked: config.selector };
         
       case 'type':
-        throw new Error('type action has been moved to browser_ai_action node type. Use browser_ai_action with action:"type" instead.');
+        // Support deterministic typing (for browser_action tool)
+        if (!config.selector || config.text === undefined) {
+          throw new Error('type action requires selector and text parameters');
+        }
+        const typePage = await getActiveStagehandPage();
+        await typePage.waitForSelector(config.selector, { 
+          timeout: config.timeout || 10000,
+          state: 'visible' 
+        });
+        // Clear existing text and type new
+        await typePage.click(config.selector, { clickCount: 3 });
+        await typePage.type(config.selector, config.text);
+        return { typed: config.text, selector: config.selector };
         
       case 'wait':
         const waitPage = await getActiveStagehandPage();
-        await waitPage.waitForTimeout(config.duration || 1000);
-        return { waited: config.duration || 1000 };
+        
+        // Support both new format (waitType/waitValue) and legacy format (duration)
+        if (config.waitType && config.waitValue !== undefined) {
+          switch (config.waitType) {
+            case 'time':
+              const ms = parseInt(config.waitValue);
+              await waitPage.waitForTimeout(ms);
+              return { waited: `${ms}ms` };
+              
+            case 'selector':
+              await waitPage.waitForSelector(config.waitValue, { timeout: 30000 });
+              return { waited: `for selector "${config.waitValue}"` };
+              
+            case 'navigation':
+              await waitPage.waitForNavigation({ 
+                waitUntil: config.waitValue || 'domcontentloaded' 
+              });
+              return { waited: 'for navigation' };
+              
+            default:
+              throw new Error(`Unknown wait type: ${config.waitType}`);
+          }
+        } else {
+          // Legacy duration-based wait for backward compatibility
+          await waitPage.waitForTimeout(config.duration || 1000);
+          return { waited: config.duration || 1000 };
+        }
         
       case 'openNewTab':
         // Validate that name is provided - required for tab tracking
