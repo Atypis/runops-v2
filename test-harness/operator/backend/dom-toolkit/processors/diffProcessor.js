@@ -40,8 +40,8 @@ export class DiffProcessor {
           changes.modified.push({
             id: `[${nodeId}]`,
             tag: currNode.tag,
-            changes: modifications,
-            current: this.createNodeSummary(currNode)
+            changes: modifications
+            // Don't include full node summary to save tokens
           });
         }
       }
@@ -185,99 +185,171 @@ export class DiffProcessor {
   }
 
   /**
-   * Create a summary for a node (for added/removed lists)
+   * Create a compact summary for a node (matching dom_overview format)
+   * This replaces the verbose summaries with the same format used in regular overview
    */
   createNodeSummary(node) {
     const summary = {
       id: `[${node.id}]`,
-      tag: node.tag,
-      text: node.text
+      tag: node.tag
     };
 
-    // Add key attributes
-    if (node.attributes) {
-      const keyAttrs = {};
-      const importantAttrs = ['id', 'class', 'name', 'type', 'role', 'href', 'aria-label'];
-      
-      for (const attr of importantAttrs) {
-        if (node.attributes[attr]) {
-          keyAttrs[attr] = node.attributes[attr];
-        }
+    // Match the format from InteractivesFilter.formatInteractiveElement
+    if (node.tag === 'button' || node.tag === 'a' || node.attributes?.role === 'button') {
+      if (node.text) {
+        summary.text = this.truncateText(node.text, 50);
       }
-      
-      if (Object.keys(keyAttrs).length > 0) {
-        summary.attributes = keyAttrs;
+    }
+    
+    // For inputs, add placeholder or name
+    if (node.tag === 'input' || node.tag === 'textarea' || node.tag === 'select') {
+      if (node.attributes?.placeholder) {
+        summary.placeholder = this.truncateText(node.attributes.placeholder, 40);
+      } else if (node.attributes?.name) {
+        summary.name = node.attributes.name;
       }
     }
 
-    // Add visibility info
-    summary.visible = node.visible;
-    summary.inViewport = node.inViewport;
+    // Add key identifying attributes (compact format)
+    if (node.attributes?.id) {
+      summary.id_attr = node.attributes.id;
+    } else if (node.attributes?.class) {
+      // First class only, like in overview
+      summary.class = node.attributes.class.split(' ')[0];
+    }
+    
+    // Only add href for links (truncated)
+    if (node.tag === 'a' && node.attributes?.href) {
+      const href = node.attributes.href;
+      if (href.length <= 30) {
+        summary.href = href;
+      } else if (href.startsWith('/')) {
+        summary.href = href.substring(0, 20) + '...';
+      }
+    }
 
     return summary;
   }
 
   /**
-   * Filter changes to only include elements that would pass overview filters
+   * Truncate text helper
    */
-  filterChanges(changes, filters, snapshot) {
+  truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 3) + '...';
+  }
+
+  /**
+   * Filter changes using bi-temporal filtering
+   * Uses the same filters as dom_overview but considers both snapshots
+   */
+  filterChanges(changes, filters, filterInstances, oldSnapshot, newSnapshot, options = {}) {
+    const { visible = true, viewport = true } = options;
     const filtered = {
       added: [],
       removed: [],
       modified: []
     };
 
-    // For added/modified nodes, check if they pass current filters
-    if (changes.added.length > 0 || changes.modified.length > 0) {
-      const nodeMap = new Map();
-      snapshot.nodes.forEach(node => nodeMap.set(node.id, node));
+    // Pre-compute which nodes pass filters in each snapshot for O(1) lookup
+    const passesInOld = this.computeFilteredNodes(oldSnapshot, filters, filterInstances, { visible, viewport });
+    const passesInNew = this.computeFilteredNodes(newSnapshot, filters, filterInstances, { visible, viewport });
 
-      // Filter added nodes
-      for (const summary of changes.added) {
-        const nodeId = parseInt(summary.id.replace(/[\[\]]/g, ''));
-        const node = nodeMap.get(nodeId);
-        if (node && this.passesFilters(node, filters)) {
-          filtered.added.push(summary);
-        }
-      }
-
-      // Filter modified nodes
-      for (const change of changes.modified) {
-        const nodeId = parseInt(change.id.replace(/[\[\]]/g, ''));
-        const node = nodeMap.get(nodeId);
-        if (node && this.passesFilters(node, filters)) {
-          filtered.modified.push(change);
-        }
+    // Filter added nodes - check if they pass filters in NEW snapshot
+    for (const summary of changes.added) {
+      const nodeId = parseInt(summary.id.replace(/[\[\]]/g, ''));
+      if (passesInNew.has(nodeId)) {
+        filtered.added.push(summary);
       }
     }
 
-    // Removed nodes are always included if they previously passed filters
-    filtered.removed = changes.removed;
+    // Filter removed nodes - check if they passed filters in OLD snapshot
+    for (const summary of changes.removed) {
+      const nodeId = parseInt(summary.id.replace(/[\[\]]/g, ''));
+      if (passesInOld.has(nodeId)) {
+        filtered.removed.push(summary);
+      }
+    }
+
+    // Filter modified nodes - include if they pass in EITHER snapshot
+    // OR if it's a visibility change on a relevant element type
+    for (const change of changes.modified) {
+      const nodeId = parseInt(change.id.replace(/[\[\]]/g, ''));
+      const oldNode = oldSnapshot.nodeMap.get(nodeId);
+      const newNode = newSnapshot.nodeMap.get(nodeId);
+      
+      // Include if relevant in either temporal state
+      if (passesInOld.has(nodeId) || passesInNew.has(nodeId)) {
+        filtered.modified.push(change);
+      }
+      // Special case: visibility flip on relevant element type
+      else if (change.changes.visibility && this.isRelevantElementType(newNode || oldNode)) {
+        filtered.modified.push(change);
+      }
+    }
 
     return filtered;
   }
 
   /**
-   * Check if a node passes the overview filters
+   * Compute which nodes pass the overview filters for a given snapshot
+   * Returns a Set of node IDs for O(1) lookup
    */
-  passesFilters(node, filters) {
-    // This will be called with actual filter instances
-    // For now, simplified check based on node type
+  computeFilteredNodes(snapshot, filters, filterInstances, options) {
+    const passingNodes = new Set();
     
-    // Always include interactive elements
-    const interactiveTags = ['button', 'a', 'input', 'select', 'textarea'];
+    if (!snapshot || !snapshot.nodes) return passingNodes;
+
+    // Run each enabled filter and collect the node IDs
+    if (filters.outline && filterInstances.outline) {
+      const result = filterInstances.outline.filter(snapshot, options);
+      result.elements.forEach(elem => {
+        const nodeId = parseInt(elem.id.replace(/[\[\]]/g, ''));
+        passingNodes.add(nodeId);
+      });
+    }
+
+    if (filters.interactives && filterInstances.interactives) {
+      const result = filterInstances.interactives.filter(snapshot, options);
+      result.elements.forEach(elem => {
+        const nodeId = parseInt(elem.id.replace(/[\[\]]/g, ''));
+        passingNodes.add(nodeId);
+      });
+    }
+
+    if (filters.headings && filterInstances.headings) {
+      const result = filterInstances.headings.filter(snapshot, options);
+      result.elements.forEach(elem => {
+        const nodeId = parseInt(elem.id.replace(/[\[\]]/g, ''));
+        passingNodes.add(nodeId);
+      });
+    }
+
+    return passingNodes;
+  }
+
+  /**
+   * Check if element type is relevant for visibility change tracking
+   */
+  isRelevantElementType(node) {
+    if (!node) return false;
+    
+    // Interactive elements
+    const interactiveTags = ['button', 'a', 'input', 'select', 'textarea', 'form'];
     if (interactiveTags.includes(node.tag)) return true;
-
-    // Include headings
+    
+    // Headings and text
     if (/^h[1-6]$/.test(node.tag)) return true;
-
-    // Include major structural elements
-    if (node.childIds && node.childIds.length > 5) return true;
-
-    // Include elements with key roles
-    const importantRoles = ['navigation', 'button', 'link', 'textbox', 'main', 'search'];
-    if (node.attributes?.role && importantRoles.includes(node.attributes.role)) return true;
-
+    if (node.tag === 'p' && node.text && node.text.length > 50) return true;
+    
+    // Elements with interactive roles
+    const interactiveRoles = ['button', 'link', 'textbox', 'navigation', 'main', 'search'];
+    if (node.attributes?.role && interactiveRoles.includes(node.attributes.role)) return true;
+    
+    // Error messages, alerts, etc.
+    const alertRoles = ['alert', 'alertdialog', 'status', 'log'];
+    if (node.attributes?.role && alertRoles.includes(node.attributes.role)) return true;
+    
     return false;
   }
 }

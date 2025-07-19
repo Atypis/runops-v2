@@ -321,8 +321,15 @@ export class DOMToolkit {
     // Compute raw diff
     const rawChanges = this.diffProcessor.computeDiff(previousSnapshot, currentSnapshot);
     
-    // Filter changes based on overview filters
-    const filteredChanges = this.diffProcessor.filterChanges(rawChanges, filters, currentSnapshot);
+    // Filter changes using bi-temporal filtering with the same filters as dom_overview
+    const filteredChanges = this.diffProcessor.filterChanges(
+      rawChanges, 
+      filters, 
+      this.filters,  // Pass the actual filter instances
+      previousSnapshot, 
+      currentSnapshot,
+      { visible, viewport }
+    );
     
     // Safety limit: cap the number of changes to prevent token explosion
     const maxChanges = max_rows * 3; // Allow 3x max_rows for diffs

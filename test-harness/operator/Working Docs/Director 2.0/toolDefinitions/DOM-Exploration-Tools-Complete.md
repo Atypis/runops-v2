@@ -125,19 +125,20 @@ dom-toolkit/
 {
   success: boolean,
   snapshotId: string,           // Current snapshot ID
+  tabName: string,
+  url: string,
   diff: {
     added: [{                   // Elements that appeared
       id: "[401]",
       tag: "button",
-      text: "Pay Now",
-      attributes: { class: "btn-primary" },
-      visible: true,
-      inViewport: true
+      text: "Pay Now",             // Compact format, same as overview
+      class: "btn-primary"          // First class only
     }],
-    removed: [{                 // Elements that disappeared
+    removed: [{                 // Elements that disappeared  
       id: "[345]",
       tag: "a",
-      text: "Upgrade Plan"
+      text: "Upgrade Plan",
+      href: "/upgrade"              // Truncated if needed
     }],
     modified: [{                // Elements that changed
       id: "[278]",
@@ -148,15 +149,17 @@ dom-toolkit/
           class: { old: "price", new: "price sale" }
         },
         visibility: { old: false, new: true }
-      },
-      current: { /* current element state */ }
+      }
+      // Note: No 'current' field to save tokens
     }]
   },
   summary: {
     baseline: "prevSnapId",     // Previous snapshot ID
-    totalChanges: 5,            // Sum of added + removed + modified
-    totalRawChanges: 12,        // Changes before filtering
-    filteredOutChanges: 7       // Changes hidden by filters
+    totalChanges: 5,            // Filtered changes shown
+    totalRawChanges: 12,        // All changes before filtering
+    filteredOutChanges: 7,      // Changes hidden by filters
+    truncated: false,           // true if hit max_rows limit
+    maxChangesPerType: 90       // Safety limit (3x max_rows)
   }
   // If include_full: true, also includes sections: {...}
 }
@@ -600,7 +603,56 @@ const newItems = page2.sections.interactives.filter(
 );
 ```
 
-### Pattern 5: Complex Navigation
+### Pattern 5: Tracking Page Changes with Diff Mode
+```javascript
+// 1. Take baseline snapshot before user action
+const baseline = await dom_overview({ 
+  filters: { interactives: true, headings: true } 
+});
+console.log(`Baseline snapshot: ${baseline.snapshotId}`);
+
+// 2. Perform user action (e.g., submit form)
+await execute_nodes({ nodeSelection: "submit-form" });
+await browser_action({ action: "wait", type: "time", value: "1000" });
+
+// 3. Get diff to see what changed
+const changes = await dom_overview({ 
+  diff_from: true,  // Compare to last snapshot
+  filters: { interactives: true, headings: true }
+});
+
+// 4. Analyze changes
+if (changes.diff.added.length > 0) {
+  // New elements appeared (e.g., success message, new buttons)
+  const newButtons = changes.diff.added.filter(el => el.tag === 'button');
+  const messages = changes.diff.added.filter(el => 
+    el.text && el.text.includes('Success')
+  );
+}
+
+if (changes.diff.removed.length > 0) {
+  // Elements disappeared (e.g., form was replaced)
+  const removedForm = changes.diff.removed.find(el => el.tag === 'form');
+}
+
+if (changes.diff.modified.length > 0) {
+  // Elements changed (e.g., button text, visibility)
+  const visibilityChanges = changes.diff.modified.filter(el => 
+    el.changes.visibility
+  );
+  const textChanges = changes.diff.modified.filter(el => 
+    el.changes.text
+  );
+}
+
+// 5. Make decisions based on changes
+if (changes.summary.totalChanges > 50) {
+  // Major page change - might need full re-exploration
+  const newOverview = await dom_overview({ include_full: true });
+}
+```
+
+### Pattern 6: Complex Navigation
 ```javascript
 // 1. Find navigation menu
 const nav = await dom_search({ 
@@ -854,11 +906,13 @@ Need to understand page? → dom_overview
 Need specific element? → dom_search  
 Need element details? → dom_inspect
 Need page structure? → dom_structure
+Need to track changes? → dom_overview with diff_from
 
 Exploring new page? → dom_overview first
 Know what you want? → dom_search directly
 Building selectors? → dom_inspect the element
 Debugging issues? → dom_inspect with all options
+Tracking state changes? → dom_overview before/after with diff_from
 ```
 
 ## Tips & Tricks
@@ -893,13 +947,27 @@ const structure = await dom_structure({ depth: 3 });
 
 ### 4. Efficient State Checking
 ```javascript
-// Use snapshotId for change detection
+// Option 1: Quick change detection with snapshotId
 const before = await dom_overview();
 // ... perform action ...
 const after = await dom_overview();
 
 if (before.snapshotId === after.snapshotId) {
   // DOM hasn't changed - action may have failed
+}
+
+// Option 2: Detailed change tracking with diff
+const before = await dom_overview();
+// ... perform action ...
+const diff = await dom_overview({ diff_from: true });
+
+if (diff.summary.totalChanges === 0) {
+  // No relevant changes detected
+} else {
+  // Analyze specific changes
+  console.log(`Added: ${diff.diff.added.length}`);
+  console.log(`Removed: ${diff.diff.removed.length}`);
+  console.log(`Modified: ${diff.diff.modified.length}`);
 }
 ```
 
@@ -918,6 +986,100 @@ const submitButton = await dom_search({
 });
 ```
 
+## Diff Mode Deep Dive
+
+### How Diff Mode Works
+
+The diff mode uses **bi-temporal filtering** to ensure consistency with regular `dom_overview`:
+
+1. **Snapshot Comparison**: Compares full DOM snapshots by node ID
+2. **Smart Filtering**: Applies the same filters as regular overview, but:
+   - **Added elements**: Must pass filters in the NEW snapshot
+   - **Removed elements**: Must have passed filters in the OLD snapshot  
+   - **Modified elements**: Included if they pass filters in EITHER snapshot
+   - **Special case**: Visibility changes on relevant elements always included
+3. **Compact Format**: Uses same concise format as regular overview (not verbose JSON)
+4. **Token Safety**: Hard limit of 3x max_rows per change type (default: 90 each)
+
+### Edge Cases Handled Correctly
+
+| Scenario | Detected? | Why |
+|----------|-----------|-----|
+| Hidden button becomes visible | ✅ Yes | Added to "added" if now passes filters |
+| Visible button becomes hidden | ✅ Yes | Added to "removed" if previously passed filters |
+| Button text changes | ✅ Yes | Modified if button passes filters |
+| Element scrolls into view | ✅ Yes | Viewport filter applied per snapshot |
+| Whole page navigation | ✅ Yes | Up to 90 added + 90 removed (truncated) |
+| Form input value changes | ✅ Yes | Text/value changes tracked |
+| CSS class changes | ✅ Yes | Attribute changes tracked |
+| Minor position shifts | ❌ No | Layout changes need >1px difference |
+
+### Diff Mode Best Practices
+
+```javascript
+// ✅ Good: Take baseline before action
+const before = await dom_overview();
+await performAction();
+const diff = await dom_overview({ diff_from: true });
+
+// ❌ Bad: No baseline to compare
+const diff = await dom_overview({ diff_from: true });
+// Returns empty diff with note
+
+// ✅ Good: Use same filters for consistency  
+const before = await dom_overview({ 
+  filters: { interactives: true } 
+});
+// ... action ...
+const diff = await dom_overview({ 
+  diff_from: true,
+  filters: { interactives: true }  // Same filters!
+});
+
+// ✅ Good: Handle major changes gracefully
+if (diff.summary.totalChanges > 100) {
+  // Major change - get fresh overview
+  const fresh = await dom_overview();
+}
+```
+
+### Understanding Diff Results
+
+```javascript
+// Added elements - NEW in the DOM
+diff.added = [
+  { id: "[234]", tag: "div", class: "alert" },
+  { id: "[235]", tag: "button", text: "OK" }
+];
+
+// Removed elements - NO LONGER in the DOM
+diff.removed = [
+  { id: "[123]", tag: "form", id_attr: "login-form" }
+];
+
+// Modified elements - CHANGED properties
+diff.modified = [
+  {
+    id: "[456]",
+    tag: "button",
+    changes: {
+      text: { old: "Submit", new: "Submitting..." },
+      attributes: {
+        disabled: { old: null, new: "true" }
+      }
+    }
+  }
+];
+```
+
+### Performance Impact
+
+- **First overview**: Creates snapshot (one CDP call)
+- **Subsequent overview**: Uses 30-second cache
+- **Diff operation**: Pure computation, no CDP calls
+- **Token usage**: ~400-1000 tokens for typical diffs
+- **Large changes**: Capped at ~2000 tokens worst case
+
 ## Implementation Details
 
 ### DOM Capture Strategy
@@ -931,6 +1093,7 @@ const submitButton = await dom_search({
 - **Interactives**: Tag matching + ARIA role detection
 - **Headings**: h1-h6 tags + long paragraphs (>50 chars)
 - **Search**: Multi-criteria matching with scoring
+- **Diff**: Bi-temporal filtering with change-aware logic
 
 ### Grouping Logic
 Elements are grouped when:
@@ -956,6 +1119,7 @@ The DOM Exploration Toolkit provides Director with efficient, progressive tools 
 - 🔍 **Progressive**: Start broad, drill down as needed
 - 🛡️ **Robust**: Handles dynamic content, large pages
 - 🧩 **Composable**: Tools work together seamlessly
+- 🔄 **Change Tracking**: Bi-temporal diff mode for state monitoring
 
 **Remember**:
 - Always start with `dom_overview` for context
@@ -964,3 +1128,4 @@ The DOM Exploration Toolkit provides Director with efficient, progressive tools 
 - Element IDs are `[123]` format, not HTML ids
 - Check truncation and adjust max_rows as needed
 - Combine search criteria for precision
+- Use diff mode to track changes between states
