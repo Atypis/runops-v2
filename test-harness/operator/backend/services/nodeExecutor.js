@@ -1005,6 +1005,61 @@ export class NodeExecutor {
       case 'act':
         throw new Error('act action has been moved to browser_ai_action node type. Use browser_ai_action with action:"act" instead.');
         
+      case 'saveSession':
+        const { sessionName, scope = 'origin', persistStrategy = 'storageState' } = config;
+        if (!sessionName) {
+          throw new Error('saveSession requires sessionName parameter');
+        }
+        const saveResult = await this.saveBrowserSession(sessionName, scope, persistStrategy);
+        return { 
+          saved: true, 
+          sessionName,
+          scope,
+          persistStrategy,
+          ...saveResult
+        };
+        
+      case 'loadSession':
+        const loadSessionName = config.sessionName;
+        const loadPersistStrategy = config.persistStrategy || 'storageState';
+        if (!loadSessionName) {
+          throw new Error('loadSession requires sessionName parameter');
+        }
+        try {
+          const loadResult = await this.loadBrowserSession(loadSessionName, loadPersistStrategy);
+          return { 
+            loaded: true, 
+            sessionName: loadSessionName,
+            ...loadResult
+          };
+        } catch (error) {
+          return { 
+            loaded: false, 
+            sessionName: loadSessionName,
+            error: error.message 
+          };
+        }
+        
+      case 'listSessions':
+        const { data: sessions, error } = await supabase
+          .from('browser_sessions')
+          .select('name, created_at, scope, persist_strategy, session_data')
+          .order('created_at', { ascending: false });
+          
+        if (error) {
+          throw error;
+        }
+        
+        return {
+          sessions: sessions.map(s => ({
+            name: s.name,
+            createdAt: s.created_at,
+            scope: s.scope || 'origin',
+            persistStrategy: s.persist_strategy || 'storageState',
+            sizeKB: s.session_data ? Math.round(JSON.stringify(s.session_data).length / 1024) : 0
+          }))
+        };
+        
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
     }
@@ -2678,6 +2733,35 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     if (persistStrategy === 'profileDir') {
       // Profile directories auto-save continuously
       console.log(`[BROWSER_SESSION] Profile-based session "${name}" continuously saves`);
+      
+      // Still need to create a database record for tracking
+      const currentUrl = this.stagehandInstance.page.url();
+      const origin = scope === 'origin' ? new URL(currentUrl).origin : null;
+      
+      const { error } = await supabase
+        .from('browser_sessions')
+        .upsert({
+          name,
+          session_data: {}, // Profile data is stored on disk, not in DB
+          cookies: [],
+          local_storage: {},
+          session_storage: {},
+          scope,
+          persist_strategy: persistStrategy,
+          origin,
+          metadata: {
+            profile_path: `browser-profiles/${name}`,
+            created_from_url: currentUrl
+          }
+        }, { onConflict: 'name' });
+        
+      if (error) {
+        console.error('[BROWSER_SESSION] Failed to save profile session record:', error);
+        throw error;
+      }
+      
+      console.log(`[BROWSER_SESSION] Profile session "${name}" record saved to database`);
+      
       return {
         sizeKB: 0,  // Not applicable for profiles
         expires: null  // Profiles don't expire
