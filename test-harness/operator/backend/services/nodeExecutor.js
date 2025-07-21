@@ -1005,20 +1005,6 @@ export class NodeExecutor {
       case 'act':
         throw new Error('act action has been moved to browser_ai_action node type. Use browser_ai_action with action:"act" instead.');
         
-      case 'saveSession':
-        const { sessionName, scope = 'origin', persistStrategy = 'storageState' } = config;
-        if (!sessionName) {
-          throw new Error('saveSession requires sessionName parameter');
-        }
-        const saveResult = await this.saveBrowserSession(sessionName, scope, persistStrategy);
-        return { 
-          saved: true, 
-          sessionName,
-          scope,
-          persistStrategy,
-          ...saveResult
-        };
-        
       case 'loadSession':
         const loadSessionName = config.sessionName;
         const loadPersistStrategy = config.persistStrategy || 'storageState';
@@ -1040,25 +1026,11 @@ export class NodeExecutor {
           };
         }
         
-      case 'listSessions':
-        const { data: sessions, error } = await supabase
-          .from('browser_sessions')
-          .select('name, created_at, scope, persist_strategy, session_data')
-          .order('created_at', { ascending: false });
-          
-        if (error) {
-          throw error;
-        }
+      case 'saveSession':
+        throw new Error('saveSession is only available through the Director browser_action tool, not as a workflow node. Use the Director to save sessions before building workflows.');
         
-        return {
-          sessions: sessions.map(s => ({
-            name: s.name,
-            createdAt: s.created_at,
-            scope: s.scope || 'origin',
-            persistStrategy: s.persist_strategy || 'storageState',
-            sizeKB: s.session_data ? Math.round(JSON.stringify(s.session_data).length / 1024) : 0
-          }))
-        };
+      case 'listSessions':
+        throw new Error('listSessions is only available through the Director browser_action tool, not as a workflow node. Use the Director to list available sessions.');
         
       default:
         throw new Error(`Unknown browser action: ${config.action}`);

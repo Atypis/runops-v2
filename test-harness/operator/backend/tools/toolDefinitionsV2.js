@@ -101,7 +101,7 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'saveSession', 'loadSession', 'listSessions'],
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadSession'],
               description: 'The deterministic browser action to perform. Note: click and type actions have been moved to browser_ai_action node type.'
             },
             url: {
@@ -135,18 +135,13 @@ export function createToolDefinitions() {
             },
             sessionName: {
               type: 'string',
-              description: 'For saveSession/loadSession: Unique identifier for the browser session (e.g., "gmail-work", "jira-prod"). Format: lowercase letters, numbers, hyphens only.',
+              description: 'For loadSession: Unique identifier for the browser session to load (e.g., "gmail-work", "jira-prod"). Format: lowercase letters, numbers, hyphens only.',
               pattern: '^[a-z0-9-]+$'
-            },
-            scope: {
-              type: 'string',
-              enum: ['origin', 'browser'],
-              description: 'For saveSession only: Save cookies/storage for current origin only (default: "origin") or entire browser. Origin = current domain only (safer). Browser = all domains (more complete).'
             },
             persistStrategy: {
               type: 'string',
               enum: ['storageState', 'profileDir'],
-              description: 'For save/loadSession: How to persist the session. storageState = lightweight JSON with cookies/storage (default, works for 95% of sites). profileDir = full Chrome profile directory (for Gmail, banks, high-security sites).'
+              description: 'For loadSession: How the session was persisted. storageState = lightweight JSON (default), profileDir = full Chrome profile directory. Must match how the session was saved.'
             }
           },
           required: ['action'],
