@@ -909,7 +909,9 @@ export function createToolDefinitions() {
                 // Interaction
                 'click', 'type', 'keypress',
                 // Session management
-                'saveSession', 'loadSession', 'listSessions'
+                'saveSession', 'loadSession', 'listSessions',
+                // Profile management
+                'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile'
               ],
               description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI).'
             },
@@ -983,6 +985,13 @@ export function createToolDefinitions() {
                   type: 'string',
                   enum: ['storageState', 'profileDir'],
                   description: 'For save/loadSession: How to persist the session. storageState = lightweight JSON (default), profileDir = full Chrome profile'
+                },
+                
+                // Profile management
+                profileName: {
+                  type: 'string',
+                  description: 'For setProfile/snapshotProfile/restoreProfile: Name of the browser profile. Use null for default (no profile).',
+                  pattern: '^[a-z0-9-]+$'
                 }
               },
               additionalProperties: false

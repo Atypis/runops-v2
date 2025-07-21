@@ -70,6 +70,16 @@ export class BrowserActionService {
         case 'listSessions':
           return await this.listSessions(config);
           
+        // Profile management
+        case 'listProfiles':
+          return await this.listProfiles(config);
+        case 'setProfile':
+          return await this.setProfile(config);
+        case 'snapshotProfile':
+          return await this.snapshotProfile(config);
+        case 'restoreProfile':
+          return await this.restoreProfile(config);
+          
         default:
           throw new Error(`Unknown browser action: ${action}`);
       }
@@ -503,6 +513,87 @@ export class BrowserActionService {
         persistStrategy: s.persist_strategy || 'storageState',
         sizeKB: Math.round(JSON.stringify(s).length / 1024)
       }))
+    };
+  }
+
+  // ===== Profile Management =====
+
+  async listProfiles(config) {
+    // List available browser profiles on disk
+    const profiles = await this.nodeExecutor.listBrowserProfiles();
+    
+    return {
+      profiles,
+      count: profiles.length
+    };
+  }
+
+  async setProfile(config) {
+    const { profileName } = config;
+    
+    // If profileName is null, use default (no profile)
+    if (!profileName) {
+      console.log('[BrowserActionService] Switching to default browser (no profile)');
+      
+      // Restart browser without profile
+      await this.nodeExecutor.cleanup();
+      await this.nodeExecutor.getStagehand();
+      
+      return {
+        profile: null,
+        message: 'Using default browser (no profile)'
+      };
+    }
+    
+    // Switch to profile mode
+    console.log(`[BrowserActionService] Switching to profile "${profileName}"`);
+    
+    // This will restart browser with the profile
+    await this.nodeExecutor.cleanup();
+    await this.nodeExecutor.getStagehand({
+      profileName,
+      persistStrategy: 'profileDir'
+    });
+    
+    return {
+      profile: profileName,
+      message: `Browser restarted with profile "${profileName}"`
+    };
+  }
+
+  async snapshotProfile(config) {
+    const { profileName } = config;
+    
+    if (!profileName) {
+      throw new Error('profileName is required for snapshotProfile');
+    }
+    
+    // Create snapshot and upload to Supabase
+    const result = await this.nodeExecutor.snapshotBrowserProfile(profileName);
+    
+    return result;
+  }
+
+  async restoreProfile(config) {
+    const { profileName } = config;
+    
+    if (!profileName) {
+      throw new Error('profileName is required for restoreProfile');
+    }
+    
+    // Download and restore profile from Supabase
+    const result = await this.nodeExecutor.restoreBrowserProfile(profileName);
+    
+    // Restart browser with restored profile
+    await this.nodeExecutor.cleanup();
+    await this.nodeExecutor.getStagehand({
+      profileName,
+      persistStrategy: 'profileDir'
+    });
+    
+    return {
+      ...result,
+      browserRestarted: true
     };
   }
 }

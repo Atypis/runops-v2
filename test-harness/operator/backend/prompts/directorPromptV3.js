@@ -183,6 +183,8 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, keypress, session management)
    - Fast, predictable, no AI involvement
    - Session management: saveSession, loadSession, listSessions (skip login on subsequent runs)
+   - Two strategies: 'storageState' (default, saves cookies/storage) vs 'profileDir' (full Chrome profile)
+   - profileDir workflow: First save restarts browser with profile (loses current session), then log in, then it auto-saves
 2. \`browser_ai_action\` - AI-powered UI interactions (click, type, act)
    - Uses natural language to find and interact with elements
    - Slower, costs tokens, but handles complex/dynamic UIs
@@ -328,9 +330,16 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 {type: "browser_action", alias: "load_session", config: {
   action: "loadSession", sessionName: "jira-work"
 }}
-// For Gmail/banks use profileDir:
-{type: "browser_action", alias: "save_gmail", config: {
+
+// For Gmail/banks use profileDir - IMPORTANT WORKFLOW:
+// 1. First time: Save will restart browser with profile, you'll need to log in again
+{type: "browser_action", alias: "create_gmail_profile", config: {
   action: "saveSession", sessionName: "gmail-work", persistStrategy: "profileDir"
+}}
+// 2. After login: The profile auto-saves, no need to save again
+// 3. Next time: Load the profile to skip login
+{type: "browser_action", alias: "load_gmail_profile", config: {
+  action: "loadSession", sessionName: "gmail-work", persistStrategy: "profileDir"
 }}
 
 // browser_ai_action - AI-powered interactions

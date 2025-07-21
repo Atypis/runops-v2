@@ -4,6 +4,8 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import { supabase } from '../config/supabase.js';
 import { dirname, join } from 'path';
+import path from 'path';
+import fs from 'fs/promises';
 import BrowserStateService from './browserStateService.js';
 import visualObservationService from './visualObservationService.js';
 
@@ -2703,40 +2705,97 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     }
     
     if (persistStrategy === 'profileDir') {
-      // Profile directories auto-save continuously
-      console.log(`[BROWSER_SESSION] Profile-based session "${name}" continuously saves`);
-      
-      // Still need to create a database record for tracking
-      const currentUrl = this.stagehandInstance.page.url();
-      const origin = scope === 'origin' ? new URL(currentUrl).origin : null;
-      
-      const { error } = await supabase
-        .from('browser_sessions')
-        .upsert({
-          name,
-          cookies: [], // Profile stores cookies on disk
-          local_storage: {}, // Profile stores localStorage on disk
-          session_storage: {}, // Profile stores sessionStorage on disk
-          scope,
-          persist_strategy: persistStrategy,
-          origin,
-          metadata: {
-            profile_path: `browser-profiles/${name}`,
-            created_from_url: currentUrl
-          }
-        }, { onConflict: 'name' });
+      // Check if browser is currently using a profile directory
+      if (this.persistStrategy !== 'profileDir' || !this.currentProfileName) {
+        // Browser is not using a profile - we need to restart it with one
+        console.log(`[BROWSER_SESSION] Browser not using profile directory. Restarting with profile "${name}"...`);
         
-      if (error) {
-        console.error('[BROWSER_SESSION] Failed to save profile session record:', error);
-        throw error;
+        // Get current URL to navigate back to after restart
+        const currentUrl = this.stagehandInstance.page.url();
+        
+        // Restart browser with profile directory
+        await this.cleanup();
+        await this.getStagehand({ 
+          profileName: name, 
+          persistStrategy: 'profileDir' 
+        });
+        
+        // Navigate back to the original URL
+        if (currentUrl && currentUrl !== 'about:blank') {
+          await this.stagehandInstance.page.goto(currentUrl, { waitUntil: 'domcontentloaded' });
+          console.log(`[BROWSER_SESSION] Navigated back to ${currentUrl}`);
+        }
+        
+        // Create database record
+        const origin = scope === 'origin' ? new URL(currentUrl).origin : null;
+        const { error } = await supabase
+          .from('browser_sessions')
+          .upsert({
+            name,
+            cookies: [], // Profile stores cookies on disk
+            local_storage: {}, // Profile stores localStorage on disk
+            session_storage: {}, // Profile stores sessionStorage on disk
+            scope,
+            persist_strategy: persistStrategy,
+            origin,
+            metadata: {
+              profile_path: `browser-profiles/${name}`,
+              created_from_url: currentUrl
+            }
+          }, { onConflict: 'name' });
+          
+        if (error) {
+          console.error('[BROWSER_SESSION] Failed to save profile session record:', error);
+          throw error;
+        }
+        
+        console.log(`[BROWSER_SESSION] Browser restarted with profile "${name}". Session will auto-save.`);
+        console.log(`[BROWSER_SESSION] IMPORTANT: You need to log in again - the previous session was not saved.`);
+        
+        return {
+          restarted: true,
+          message: 'Browser restarted with profile directory. Please log in again to save your session.',
+          sizeKB: 0,
+          expires: null
+        };
       }
       
-      console.log(`[BROWSER_SESSION] Profile session "${name}" record saved to database`);
-      
-      return {
-        sizeKB: 0,  // Not applicable for profiles
-        expires: null  // Profiles don't expire
-      };
+      // Browser is already using the requested profile
+      if (this.currentProfileName === name) {
+        console.log(`[BROWSER_SESSION] Already using profile "${name}" - session continuously saves`);
+        
+        // Update database record
+        const currentUrl = this.stagehandInstance.page.url();
+        const origin = scope === 'origin' ? new URL(currentUrl).origin : null;
+        
+        const { error } = await supabase
+          .from('browser_sessions')
+          .upsert({
+            name,
+            scope,
+            persist_strategy: persistStrategy,
+            origin,
+            last_used_at: new Date(),
+            metadata: {
+              profile_path: `browser-profiles/${name}`,
+              last_url: currentUrl
+            }
+          }, { onConflict: 'name' });
+          
+        if (error) {
+          console.error('[BROWSER_SESSION] Failed to update profile session record:', error);
+          throw error;
+        }
+        
+        return {
+          sizeKB: 0,  // Profile size on disk (could calculate if needed)
+          expires: null,  // Profiles don't expire
+          message: `Profile "${name}" is active and auto-saving`
+        };
+      } else {
+        // Browser is using a different profile
+        throw new Error(`Cannot save to profile "${name}" - browser is currently using profile "${this.currentProfileName}"`);
+      }
     }
     
     try {
@@ -2940,6 +2999,201 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       return sessions || [];
     } catch (error) {
       console.error('[BROWSER_SESSION] Failed to list browser sessions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * List available browser profiles on disk
+   * @returns {Array} List of profile names
+   */
+  async listBrowserProfiles() {
+    const profilesPath = path.join(process.cwd(), 'browser-profiles');
+    
+    try {
+      // Check if directory exists
+      await fs.access(profilesPath);
+      
+      // Read directory contents
+      const entries = await fs.readdir(profilesPath, { withFileTypes: true });
+      
+      // Filter for directories only
+      const profiles = entries
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+      
+      console.log(`[BROWSER_PROFILES] Found ${profiles.length} profiles:`, profiles);
+      return profiles;
+    } catch (error) {
+      console.log('[BROWSER_PROFILES] No profiles directory found');
+      return [];
+    }
+  }
+
+  /**
+   * Create a snapshot of a browser profile
+   * @param {string} profileName - Name of the profile to snapshot
+   * @returns {Object} Snapshot metadata
+   */
+  async snapshotBrowserProfile(profileName) {
+    const profilePath = path.join(process.cwd(), 'browser-profiles', profileName);
+    
+    // Check if profile exists
+    try {
+      await fs.access(profilePath);
+    } catch (error) {
+      throw new Error(`Profile "${profileName}" does not exist`);
+    }
+    
+    // For MVP, we'll use tar command (available on Mac/Linux)
+    const tarPath = path.join(process.cwd(), 'browser-profiles', `${profileName}-snapshot.tar.gz`);
+    
+    try {
+      console.log(`[BROWSER_SNAPSHOT] Creating snapshot of profile "${profileName}"...`);
+      
+      // Create tar.gz archive
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      
+      await execAsync(`tar -czf "${tarPath}" -C "${path.dirname(profilePath)}" "${profileName}"`);
+      
+      // Get file size
+      const stats = await fs.stat(tarPath);
+      const sizeMB = Math.round(stats.size / 1024 / 1024);
+      
+      console.log(`[BROWSER_SNAPSHOT] Created snapshot: ${sizeMB}MB`);
+      
+      // Upload to Supabase Storage
+      const fileBuffer = await fs.readFile(tarPath);
+      const fileName = `${profileName}-${Date.now()}.tar.gz`;
+      
+      const { data, error } = await supabase.storage
+        .from('browser-profiles')
+        .upload(fileName, fileBuffer, {
+          contentType: 'application/gzip',
+          upsert: true
+        });
+      
+      if (error) {
+        console.error('[BROWSER_SNAPSHOT] Upload failed:', error);
+        throw error;
+      }
+      
+      // Clean up local tar file
+      await fs.unlink(tarPath);
+      
+      // Save metadata to database
+      const { error: dbError } = await supabase
+        .from('browser_sessions')
+        .upsert({
+          name: profileName,
+          persist_strategy: 'profileSnapshot',
+          metadata: {
+            snapshot_file: fileName,
+            size_mb: sizeMB,
+            created_at: new Date()
+          }
+        }, { onConflict: 'name' });
+      
+      if (dbError) {
+        console.error('[BROWSER_SNAPSHOT] Database update failed:', dbError);
+      }
+      
+      return {
+        success: true,
+        profileName,
+        sizeMB,
+        fileName,
+        message: `Profile snapshot created: ${sizeMB}MB`
+      };
+    } catch (error) {
+      // Clean up tar file if it exists
+      try {
+        await fs.unlink(tarPath);
+      } catch {}
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Restore a browser profile from snapshot
+   * @param {string} profileName - Name of the profile to restore
+   * @returns {Object} Restore result
+   */
+  async restoreBrowserProfile(profileName) {
+    // Get snapshot metadata from database
+    const { data: session, error } = await supabase
+      .from('browser_sessions')
+      .select('*')
+      .eq('name', profileName)
+      .eq('persist_strategy', 'profileSnapshot')
+      .single();
+    
+    if (error || !session) {
+      throw new Error(`No snapshot found for profile "${profileName}"`);
+    }
+    
+    const fileName = session.metadata?.snapshot_file;
+    if (!fileName) {
+      throw new Error(`No snapshot file recorded for profile "${profileName}"`);
+    }
+    
+    console.log(`[BROWSER_RESTORE] Restoring profile "${profileName}" from ${fileName}...`);
+    
+    // Download from Supabase Storage
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from('browser-profiles')
+      .download(fileName);
+    
+    if (downloadError) {
+      throw downloadError;
+    }
+    
+    // Save to temp file
+    const tempPath = path.join(process.cwd(), 'browser-profiles', `${profileName}-restore.tar.gz`);
+    const buffer = await fileData.arrayBuffer();
+    await fs.writeFile(tempPath, Buffer.from(buffer));
+    
+    // Extract archive
+    const profilePath = path.join(process.cwd(), 'browser-profiles', profileName);
+    
+    try {
+      // Remove existing profile if it exists
+      try {
+        await fs.rm(profilePath, { recursive: true, force: true });
+      } catch {}
+      
+      // Extract tar.gz
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      
+      await execAsync(`tar -xzf "${tempPath}" -C "${path.dirname(profilePath)}"`);
+      
+      // Clean up temp file
+      await fs.unlink(tempPath);
+      
+      console.log(`[BROWSER_RESTORE] Profile "${profileName}" restored successfully`);
+      
+      // Update last_used_at
+      await supabase
+        .from('browser_sessions')
+        .update({ last_used_at: new Date() })
+        .eq('name', profileName);
+      
+      return {
+        success: true,
+        profileName,
+        message: `Profile restored from snapshot`
+      };
+    } catch (error) {
+      // Clean up temp file if it exists
+      try {
+        await fs.unlink(tempPath);
+      } catch {}
+      
       throw error;
     }
   }
