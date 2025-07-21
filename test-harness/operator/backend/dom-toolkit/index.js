@@ -91,13 +91,30 @@ export class DOMToolkit {
       const overview = await this.buildFullOverview(snapshot, { filters, visible, viewport, max_rows: safeMaxRows, page });
 
       // Build response
-      return {
+      const response = {
         success: true,
         snapshotId: snapshot.id,
         tabName,
         url: await page.url(),
         ...overview
       };
+      
+      // Safety check: Limit response size
+      const MAX_RESPONSE_CHARS = 100000; // ~25k tokens
+      const responseStr = JSON.stringify(response);
+      if (responseStr.length > MAX_RESPONSE_CHARS) {
+        console.error(`[DOMToolkit] Overview response too large: ${responseStr.length} chars`);
+        
+        return {
+          success: false,
+          error: `Response too large: ${responseStr.length} chars exceeded ${MAX_RESPONSE_CHARS} limit. Use more specific filters or smaller max_rows.`,
+          snapshotId: snapshot.id,
+          tabName,
+          url: await page.url()
+        };
+      }
+      
+      return response;
     } catch (error) {
       console.error('[DOMToolkit] Error in domOverview:', error);
       return {
@@ -372,11 +389,37 @@ export class DOMToolkit {
 
     // Include full overview if requested
     if (include_full) {
+      // Log warning about token usage
+      console.warn('[DOMToolkit] Warning: include_full=true doubles response size and token usage');
+      
       const fullOverview = await this.buildFullOverview(currentSnapshot, { filters, visible, viewport, max_rows, page });
       diffResponse.sections = fullOverview.sections;
       diffResponse.summary = { ...diffResponse.summary, ...fullOverview.summary };
+      
+      // Add warning to response
+      diffResponse.summary.warning = 'include_full=true significantly increases token usage. Consider using diff_from without include_full for efficiency.';
     }
 
+    // Safety check: Limit response size to prevent token explosion
+    const MAX_RESPONSE_CHARS = 100000; // ~25k tokens
+    const responseStr = JSON.stringify(diffResponse);
+    if (responseStr.length > MAX_RESPONSE_CHARS) {
+      console.error(`[DOMToolkit] Response too large: ${responseStr.length} chars. Truncating sections.`);
+      
+      // Return minimal diff without sections
+      return {
+        success: true,
+        snapshotId: currentSnapshot.id,
+        url: await page.url(),
+        tabName: tabId.split('-').pop(),
+        diff: diffResponse.diff,
+        summary: {
+          ...diffResponse.summary,
+          error: `Response truncated: ${responseStr.length} chars exceeded ${MAX_RESPONSE_CHARS} limit. Use more specific filters or smaller max_rows.`
+        }
+      };
+    }
+    
     return diffResponse;
   }
 

@@ -27,15 +27,33 @@ export class DOMToolkitService {
         page._workflowId = nodeExecutor.currentWorkflow.id;
       }
       
+      // Apply smart defaults for diffs to prevent token explosion
+      if (options.diff_from) {
+        options.max_rows = Math.min(options.max_rows || 10, 15); // Max 15 changes per type for diffs
+        // Force filtering for diffs
+        if (!options.filters) {
+          options.filters = { interactives: true }; // Only show interactive changes by default
+        }
+      }
+      
       // Call toolkit implementation
       const result = await domToolkit.domOverview(page, options);
       
-      // Format response for consistency
-      if (result.success && options.format !== 'raw') {
-        result.formatted = domToolkit.formatter.formatResponse(result);
+      // ALWAYS return only formatted string to prevent token explosion
+      if (result.success) {
+        const formatted = domToolkit.formatter.formatResponse(result);
+        return {
+          success: true,
+          output: formatted,
+          snapshotId: result.snapshotId
+        };
       }
       
-      return result;
+      return {
+        success: false,
+        error: result.error || 'Unknown error',
+        tabName: options.tabName || 'main'
+      };
     } catch (error) {
       console.error('[DOMToolkitService] Error in domOverview:', error);
       return {
@@ -60,15 +78,23 @@ export class DOMToolkitService {
       
       const result = await domToolkit.domStructure(page, options);
       
-      if (result.success && options.format !== 'raw') {
+      if (result.success) {
         // Format structure tree
         const lines = ['=== DOM STRUCTURE ===', ''];
         lines.push(...domToolkit.formatter.formatStructureTree(result.structure));
         lines.push('', `Total nodes: ${result.summary.total_nodes}`);
-        result.formatted = lines.join('\n');
+        
+        return {
+          success: true,
+          output: lines.join('\n')
+        };
       }
       
-      return result;
+      return {
+        success: false,
+        error: result.error || 'Failed to get DOM structure',
+        tabName: options.tabName || 'main'
+      };
     } catch (error) {
       return {
         success: false,
@@ -92,15 +118,23 @@ export class DOMToolkitService {
       
       const result = await domToolkit.domSearch(page, options);
       
-      // Add formatted output
-      if (result.success && options.format !== 'raw') {
-        result.formatted = this.searchFormatter.formatSearchResults({
+      if (result.success) {
+        const formatted = this.searchFormatter.formatSearchResults({
           ...result,
           query: options.query
         });
+        
+        return {
+          success: true,
+          output: formatted
+        };
       }
       
-      return result;
+      return {
+        success: false,
+        error: result.error || 'Search failed',
+        tabName: options.tabName || 'main'
+      };
     } catch (error) {
       return {
         success: false,
@@ -124,12 +158,20 @@ export class DOMToolkitService {
       
       const result = await domToolkit.domInspect(page, options);
       
-      // Add formatted output
-      if (result.success && options.format !== 'raw') {
-        result.formatted = this.inspectFormatter.formatInspectResults(result);
+      if (result.success) {
+        const formatted = this.inspectFormatter.formatInspectResults(result);
+        
+        return {
+          success: true,
+          output: formatted
+        };
       }
       
-      return result;
+      return {
+        success: false,
+        error: result.error || 'Inspect failed',
+        tabName: options.tabName || 'main'
+      };
     } catch (error) {
       return {
         success: false,

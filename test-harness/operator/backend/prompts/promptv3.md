@@ -625,11 +625,11 @@ execute_node({
   args: {diff_from: "snap123"}
 })
 
-// Get diff AND full overview
+// Get diff from previous snapshot
 execute_node({
   type: "function",
   name: "dom_overview",
-  args: {diff_from: true, include_full: true}
+  args: {diff_from: true}
 })
 
 // dom_search - Find specific elements by text or selector
