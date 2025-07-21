@@ -101,8 +101,8 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress'],
-              description: 'The deterministic browser action to perform. Note: click and type actions have been moved to browser_ai_action node type.'
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type'],
+              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. loadProfile intelligently loads from local or cloud.'
             },
             url: {
               type: 'string',
@@ -128,6 +128,19 @@ export function createToolDefinitions() {
             key: {
               type: 'string',
               description: 'For keypress: Key to press (e.g., "Enter", "Escape", "Tab")'
+            },
+            profileName: {
+              type: 'string',
+              description: 'For loadProfile: Name of the browser profile to load. Checks local first, then restores from cloud if needed. Returns {profile: string, source: "local"|"cloud", message: string} on success. For other profile actions: Name of the browser profile.',
+              pattern: '^[a-z0-9-]+$'
+            },
+            selector: {
+              type: 'string',
+              description: 'For click/type: CSS selector of the element to interact with'
+            },
+            text: {
+              type: 'string',
+              description: 'For type: Text to type into the element'
             },
             store_variable: {
               type: 'boolean',
@@ -899,7 +912,7 @@ export function createToolDefinitions() {
                 // Interaction
                 'click', 'type', 'keypress',
                 // Profile management
-                'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile'
+                'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile', 'loadProfile'
               ],
               description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI).'
             },
@@ -961,7 +974,7 @@ export function createToolDefinitions() {
                 // Profile management
                 profileName: {
                   type: 'string',
-                  description: 'For setProfile/snapshotProfile/restoreProfile: Name of the browser profile. Use null for default (no profile).',
+                  description: 'For setProfile/snapshotProfile/restoreProfile/loadProfile: Name of the browser profile. Use null for default (no profile).',
                   pattern: '^[a-z0-9-]+$'
                 }
               },

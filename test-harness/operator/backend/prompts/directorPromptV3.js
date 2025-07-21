@@ -182,7 +182,7 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 **Execution Layer:**
 1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, keypress, profile management)
    - Fast, predictable, no AI involvement
-   - Profile management: listProfiles, setProfile, snapshotProfile, restoreProfile
+   - Profile management: listProfiles, setProfile, snapshotProfile, restoreProfile, loadProfile
    - Profiles provide complete browser state persistence for high-security sites
 2. \`browser_ai_action\` - AI-powered UI interactions (click, type, act)
    - Uses natural language to find and interact with elements
@@ -307,6 +307,19 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 
 **Complete Node Examples:**
 
+**Start with Profile Loading (Recommended):**
+\`\`\`javascript
+// IMPORTANT: Start workflows with loadProfile node to ensure correct session
+{type: "browser_action", alias: "load_profile", config: {
+  action: "loadProfile", profileName: "gmail-work"
+}}
+// This node will:
+// 1. Check if profile exists locally → use it
+// 2. If not local → download from cloud and restore
+// 3. If nowhere → error with clear message
+// Always results in browser restart with the profile loaded
+\`\`\`
+
 \`\`\`javascript
 // browser_action - Deterministic navigation and waits
 {type: "browser_action", alias: "go_to_site", config: {
@@ -344,6 +357,12 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   action: "setProfile", profileName: "gmail-work"
 }}
 // Already logged in!
+
+// NEW: Unified profile loading (checks local first, then cloud)
+{type: "browser_action", alias: "load_gmail", config: {
+  action: "loadProfile", profileName: "gmail-work"
+}}
+// Automatically uses local if available, restores from cloud if not
 
 // browser_ai_action - AI-powered interactions
 {type: "browser_ai_action", alias: "click_accept", config: {
@@ -660,6 +679,33 @@ execute_node({
 // 4. browser_ai_action to interact with element
 // 5. dom_overview({diff_from: true}) → See what changed
 \`\`\`
+
+## Workflow Best Practice: Always Start with Profile
+
+For workflows that need persistent sessions, ALWAYS start with a loadProfile node:
+
+\`\`\`javascript
+// Example: Gmail automation workflow
+[
+  {type: "browser_action", alias: "load_gmail_profile", config: {
+    action: "loadProfile", profileName: "gmail-work"
+  }},
+  {type: "browser_action", alias: "navigate_gmail", config: {
+    action: "navigate", url: "https://gmail.com"
+  }},
+  // User is already logged in thanks to the profile!
+  {type: "browser_ai_query", alias: "get_unread_count", config: {
+    instruction: "How many unread emails are in the inbox?",
+    schema: {type: "object", properties: {unread: {type: "number"}}}
+  }}
+]
+\`\`\`
+
+This ensures:
+- Workflow always starts with correct session state
+- Works on any machine (local or cloud)
+- No manual profile management needed
+- Clear error if profile doesn't exist
 
 ## Route Node Best Practices
 

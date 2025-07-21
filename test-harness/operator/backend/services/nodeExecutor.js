@@ -1034,6 +1034,60 @@ export class NodeExecutor {
       case 'listSessions':
         throw new Error('listSessions is only available through the Director browser_action tool, not as a workflow node. Use the Director to list available sessions.');
         
+      case 'loadProfile':
+        // Load profile - checks local first, then cloud
+        const profileName = config.profileName;
+        if (!profileName) {
+          throw new Error('loadProfile requires profileName parameter');
+        }
+        
+        console.log(`[BROWSER ACTION] Loading profile "${profileName}"...`);
+        
+        // Check if profile exists locally
+        const localProfiles = await this.listBrowserProfiles();
+        const existsLocally = localProfiles.includes(profileName);
+        
+        if (existsLocally) {
+          console.log(`[BROWSER ACTION] Profile "${profileName}" found locally, switching to it`);
+          
+          // Profile exists locally, restart browser with it
+          await this.cleanup();
+          await this.getStagehand({
+            profileName,
+            persistStrategy: 'profileDir'
+          });
+          
+          return {
+            profile: profileName,
+            source: 'local',
+            message: `Loaded profile "${profileName}" from local storage`
+          };
+        } else {
+          console.log(`[BROWSER ACTION] Profile "${profileName}" not found locally, attempting cloud restore`);
+          
+          try {
+            // Try to restore from cloud
+            const result = await this.restoreBrowserProfile(profileName);
+            
+            // Restart browser with restored profile
+            await this.cleanup();
+            await this.getStagehand({
+              profileName,
+              persistStrategy: 'profileDir'
+            });
+            
+            return {
+              profile: profileName,
+              source: 'cloud',
+              message: `Restored profile "${profileName}" from cloud snapshot`,
+              snapshotFile: result.snapshotFile
+            };
+          } catch (error) {
+            // Profile doesn't exist locally or in cloud
+            throw new Error(`Profile "${profileName}" not found locally or in cloud. Create it first with setProfile.`);
+          }
+        }
+        
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
     }

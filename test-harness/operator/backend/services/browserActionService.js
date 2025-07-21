@@ -71,6 +71,8 @@ export class BrowserActionService {
           return await this.snapshotProfile(config);
         case 'restoreProfile':
           return await this.restoreProfile(config);
+        case 'loadProfile':
+          return await this.loadProfile(config);
           
         default:
           throw new Error(`Unknown browser action: ${action}`);
@@ -510,6 +512,61 @@ export class BrowserActionService {
       ...result,
       browserRestarted: true
     };
+  }
+
+  async loadProfile(config) {
+    const { profileName } = config;
+    
+    if (!profileName) {
+      throw new Error('profileName is required for loadProfile');
+    }
+    
+    console.log(`[BrowserActionService] Loading profile "${profileName}"...`);
+    
+    // Check if profile exists locally
+    const localProfiles = await this.nodeExecutor.listBrowserProfiles();
+    const existsLocally = localProfiles.includes(profileName);
+    
+    if (existsLocally) {
+      console.log(`[BrowserActionService] Profile "${profileName}" found locally, using setProfile`);
+      
+      // Profile exists locally, just switch to it
+      await this.nodeExecutor.cleanup();
+      await this.nodeExecutor.getStagehand({
+        profileName,
+        persistStrategy: 'profileDir'
+      });
+      
+      return {
+        profile: profileName,
+        source: 'local',
+        message: `Loaded profile "${profileName}" from local storage`
+      };
+    } else {
+      console.log(`[BrowserActionService] Profile "${profileName}" not found locally, attempting cloud restore`);
+      
+      try {
+        // Try to restore from cloud
+        const result = await this.nodeExecutor.restoreBrowserProfile(profileName);
+        
+        // Restart browser with restored profile
+        await this.nodeExecutor.cleanup();
+        await this.nodeExecutor.getStagehand({
+          profileName,
+          persistStrategy: 'profileDir'
+        });
+        
+        return {
+          profile: profileName,
+          source: 'cloud',
+          message: `Restored profile "${profileName}" from cloud snapshot`,
+          snapshotFile: result.snapshotFile
+        };
+      } catch (error) {
+        // Profile doesn't exist locally or in cloud
+        throw new Error(`Profile "${profileName}" not found locally or in cloud. Create it first with setProfile.`);
+      }
+    }
   }
 }
 
