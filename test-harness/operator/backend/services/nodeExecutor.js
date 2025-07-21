@@ -2714,10 +2714,9 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         .from('browser_sessions')
         .upsert({
           name,
-          session_data: {}, // Profile data is stored on disk, not in DB
-          cookies: [],
-          local_storage: {},
-          session_storage: {},
+          cookies: [], // Profile stores cookies on disk
+          local_storage: {}, // Profile stores localStorage on disk
+          session_storage: {}, // Profile stores sessionStorage on disk
           scope,
           persist_strategy: persistStrategy,
           origin,
