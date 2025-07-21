@@ -49,4 +49,4 @@ app_frontend/tsconfig.tsbuildinfo
 test-harness/operator/temp/screenshots/
 
 # Browser profiles for session persistence
-test-harness/browser-profiles/
+test-harness/operator/browser-profiles/
