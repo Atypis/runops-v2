@@ -3088,7 +3088,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         .from('browser_sessions')
         .upsert({
           name: profileName,
-          persist_strategy: 'profileSnapshot',
+          persist_strategy: 'profileDir',
           metadata: {
             snapshot_file: fileName,
             size_mb: sizeMB,
@@ -3128,7 +3128,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       .from('browser_sessions')
       .select('*')
       .eq('name', profileName)
-      .eq('persist_strategy', 'profileSnapshot')
+      .eq('persist_strategy', 'profileDir')
       .single();
     
     if (error || !session) {
