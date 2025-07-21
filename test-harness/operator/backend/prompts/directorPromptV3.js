@@ -180,11 +180,10 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
 ## 6. The 8 Core Node Types
 
 **Execution Layer:**
-1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, keypress, session management)
+1. \`browser_action\` - Deterministic UI interactions (navigate, wait, tab management, keypress, profile management)
    - Fast, predictable, no AI involvement
-   - Session management: saveSession, loadSession, listSessions (skip login on subsequent runs)
-   - Two strategies: 'storageState' (default, saves cookies/storage) vs 'profileDir' (full Chrome profile)
-   - profileDir workflow: First save restarts browser with profile (loses current session), then log in, then it auto-saves
+   - Profile management: listProfiles, setProfile, snapshotProfile, restoreProfile
+   - Profiles provide complete browser state persistence for high-security sites
 2. \`browser_ai_action\` - AI-powered UI interactions (click, type, act)
    - Uses natural language to find and interact with elements
    - Slower, costs tokens, but handles complex/dynamic UIs
@@ -323,24 +322,28 @@ Persist anything important in the workflow itself or retrieve it via tools. The 
   action: "keypress", key: "Enter"
 }}
 
-// Session management - Save/load browser state
-{type: "browser_action", alias: "save_session", config: {
-  action: "saveSession", sessionName: "jira-work"
-}}
-{type: "browser_action", alias: "load_session", config: {
-  action: "loadSession", sessionName: "jira-work"
+// Profile management - Browser state persistence
+// Step 1: List available profiles
+{type: "browser_action", alias: "list_profiles", config: {
+  action: "listProfiles"
 }}
 
-// For Gmail/banks use profileDir - IMPORTANT WORKFLOW:
-// 1. First time: Save will restart browser with profile, you'll need to log in again
-{type: "browser_action", alias: "create_gmail_profile", config: {
-  action: "saveSession", sessionName: "gmail-work", persistStrategy: "profileDir"
+// Step 2: Create or use a profile
+{type: "browser_action", alias: "use_gmail_profile", config: {
+  action: "setProfile", profileName: "gmail-work"
 }}
-// 2. After login: The profile auto-saves, no need to save again
-// 3. Next time: Load the profile to skip login
-{type: "browser_action", alias: "load_gmail_profile", config: {
-  action: "loadSession", sessionName: "gmail-work", persistStrategy: "profileDir"
+// Browser restarts with profile, navigate and login
+
+// Step 3: (Optional) Save snapshot for cloud deployment
+{type: "browser_action", alias: "save_snapshot", config: {
+  action: "snapshotProfile", profileName: "gmail-work"
 }}
+
+// Step 4: In future workflows, just set the profile
+{type: "browser_action", alias: "restore_gmail", config: {
+  action: "setProfile", profileName: "gmail-work"
+}}
+// Already logged in!
 
 // browser_ai_action - AI-powered interactions
 {type: "browser_ai_action", alias: "click_accept", config: {

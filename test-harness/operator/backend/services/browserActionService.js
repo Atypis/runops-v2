@@ -62,14 +62,6 @@ export class BrowserActionService {
         case 'keypress':
           return await this.keypress(config);
           
-        // Session management
-        case 'saveSession':
-          return await this.saveSession(config);
-        case 'loadSession':
-          return await this.loadSession(config);
-        case 'listSessions':
-          return await this.listSessions(config);
-          
         // Profile management
         case 'listProfiles':
           return await this.listProfiles(config);
@@ -436,83 +428,6 @@ export class BrowserActionService {
     return { 
       pressed: key,
       tab: tabName || this.nodeExecutor.activeTabName || 'main'
-    };
-  }
-
-  // ===== Session Management =====
-
-  async saveSession(config) {
-    const { sessionName, scope = 'origin', persistStrategy = 'storageState' } = config;
-    
-    // Validate required parameter
-    if (!sessionName) {
-      throw new Error('sessionName is required for saveSession');
-    }
-    
-    // Validate sessionName format
-    if (!/^[a-z0-9-]+$/.test(sessionName)) {
-      throw new Error('sessionName must contain only lowercase letters, numbers, and hyphens');
-    }
-    
-    const result = await this.nodeExecutor.saveBrowserSession(
-      sessionName, 
-      scope, 
-      persistStrategy
-    );
-    
-    // Return consistent structure
-    return {
-      saved: true,
-      sessionName,
-      scope,
-      persistStrategy,
-      sizeKB: result.sizeKB || 0,
-      expires: result.expires || null
-    };
-  }
-
-  async loadSession(config) {
-    const { sessionName, persistStrategy = 'storageState' } = config;
-    
-    if (!sessionName) {
-      throw new Error('sessionName is required for loadSession');
-    }
-    
-    try {
-      const result = await this.nodeExecutor.loadBrowserSession(
-        sessionName, 
-        persistStrategy
-      );
-      
-      return {
-        loaded: true,
-        valid: true,  // Session exists and was loaded
-        sessionName,
-        persistStrategy
-      };
-    } catch (error) {
-      // Don't throw - let Director handle the error
-      return {
-        loaded: false,
-        valid: false,
-        sessionName,
-        error: error.message
-      };
-    }
-  }
-
-  async listSessions(config) {
-    // No parameters needed - lists all sessions
-    const sessions = await this.nodeExecutor.listBrowserSessions();
-    
-    return {
-      sessions: sessions.map(s => ({
-        name: s.name,
-        createdAt: s.created_at,
-        scope: s.scope || 'origin',
-        persistStrategy: s.persist_strategy || 'storageState',
-        sizeKB: Math.round(JSON.stringify(s).length / 1024)
-      }))
     };
   }
 

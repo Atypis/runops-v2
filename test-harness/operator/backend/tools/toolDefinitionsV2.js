@@ -101,7 +101,7 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadSession'],
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress'],
               description: 'The deterministic browser action to perform. Note: click and type actions have been moved to browser_ai_action node type.'
             },
             url: {
@@ -132,16 +132,6 @@ export function createToolDefinitions() {
             store_variable: {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
-            },
-            sessionName: {
-              type: 'string',
-              description: 'For loadSession: Unique identifier for the browser session to load (e.g., "gmail-work", "jira-prod"). Format: lowercase letters, numbers, hyphens only.',
-              pattern: '^[a-z0-9-]+$'
-            },
-            persistStrategy: {
-              type: 'string',
-              enum: ['storageState', 'profileDir'],
-              description: 'For loadSession: How the session was persisted. storageState = lightweight JSON (default), profileDir = full Chrome profile directory. Must match how the session was saved.'
             }
           },
           required: ['action'],
@@ -908,8 +898,6 @@ export function createToolDefinitions() {
                 'getCurrentUrl', 'getTitle',
                 // Interaction
                 'click', 'type', 'keypress',
-                // Session management
-                'saveSession', 'loadSession', 'listSessions',
                 // Profile management
                 'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile'
               ],
@@ -968,23 +956,6 @@ export function createToolDefinitions() {
                 name: {
                   type: 'string',
                   description: 'For openTab: Name for the new tab'
-                },
-                
-                // Session management
-                sessionName: {
-                  type: 'string',
-                  description: 'For saveSession/loadSession: Unique identifier for the browser session (e.g., "gmail-work", "jira-prod")',
-                  pattern: '^[a-z0-9-]+$'
-                },
-                scope: {
-                  type: 'string',
-                  enum: ['origin', 'browser'],
-                  description: 'For saveSession: Save cookies/storage for current origin only or entire browser (default: "origin")'
-                },
-                persistStrategy: {
-                  type: 'string',
-                  enum: ['storageState', 'profileDir'],
-                  description: 'For save/loadSession: How to persist the session. storageState = lightweight JSON (default), profileDir = full Chrome profile'
                 },
                 
                 // Profile management
