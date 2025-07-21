@@ -125,14 +125,76 @@ Gmail specifically checks all of these - partial extraction fails.
 ### Snapshot Timing
 The key insight: Snapshot immediately after login when all auth tokens are fresh. The profile can accumulate junk afterwards - we don't care, we always restore from the clean snapshot.
 
+## Current Implementation
+
+### Key Files
+
+1. **browserActionService.js** (`/test-harness/operator/backend/services/browserActionService.js`)
+   - Added methods: `listProfiles()`, `setProfile()`, `snapshotProfile()`, `restoreProfile()`
+   - Routes browser actions to appropriate nodeExecutor methods
+   - Handles browser restart when switching profiles
+
+2. **nodeExecutor.js** (`/test-harness/operator/backend/services/nodeExecutor.js`)
+   - Core implementation of profile management
+   - `listBrowserProfiles()` - Lists directories in browser-profiles/
+   - `snapshotBrowserProfile()` - Creates tar.gz and uploads to Supabase
+   - `restoreBrowserProfile()` - Downloads and extracts profile
+   - `getStagehand()` - Modified to support profileName and persistStrategy options
+   - `saveBrowserSession()` - Updated to handle profileDir strategy properly
+
+3. **toolDefinitionsV2.js** (`/test-harness/operator/backend/tools/toolDefinitionsV2.js`)
+   - Added new actions to browser_action enum: 'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile'
+   - Added profileName parameter definition with pattern validation
+
+4. **directorPromptV3.js** (`/test-harness/operator/backend/prompts/directorPromptV3.js`)
+   - Updated documentation for profile management
+   - Added examples of profile workflow
+   - Clarified profileDir vs storageState approaches
+
+### Directory Structure
+
+```
+test-harness/operator/
+├── browser-profiles/          # Local profile storage (gitignored)
+│   ├── gmail-work/           # Example profile directory
+│   └── bank-chase/           # Another profile
+└── backend/
+    └── services/
+        ├── browserActionService.js
+        └── nodeExecutor.js
+```
+
+### Database Schema
+
+**browser_sessions table** - Used for profile metadata:
+- `name` - Profile name (e.g., "gmail-work")
+- `persist_strategy` - Set to "profileSnapshot" for snapshots
+- `metadata` - JSON containing snapshot_file, size_mb, created_at
+
+### Supabase Storage
+
+**Bucket: browser-profiles**
+- Stores .tar.gz snapshots of profiles
+- File naming: `{profileName}-{timestamp}.tar.gz`
+- Max file size: 500MB
+
+### Implementation Notes
+
+1. **MVP Approach**: Uses native `tar` command for compression (Mac/Linux only)
+2. **Profile Path**: `./browser-profiles/{profileName}`
+3. **Snapshot Process**: Profile → tar.gz → Upload to Supabase → Save metadata
+4. **Restore Process**: Download from Supabase → Extract tar.gz → Replace profile directory
+5. **Browser Restart**: Required when switching profiles or after restore
+
 ## Implementation Status
 
 - [x] Profile directory support
 - [x] setProfile/listProfiles actions
-- [ ] snapshotProfile action (in progress)
-- [ ] restoreProfile action (in progress)
+- [x] snapshotProfile action
+- [x] restoreProfile action
 - [ ] Compression optimization (future)
 - [ ] Incremental snapshots (future)
+- [ ] Windows support (future - needs different archive approach)
 
 ## Migration Path
 
