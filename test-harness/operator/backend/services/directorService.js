@@ -810,15 +810,14 @@ export class DirectorService {
       case 'browser_action':
         if (!config.action) throw new Error('browser_action requires "action" field');
         break;
-      case 'browser_ai_action':
-        if (!config.action || !config.instruction) throw new Error('browser_ai_action requires "action" and "instruction" fields');
-        break;
       case 'browser_query':
         if (!config.method) throw new Error('browser_query requires "method" field');
-        if (config.method !== 'validate') throw new Error('browser_query only supports "validate" method. Use browser_ai_query for AI-powered data extraction.');
-        break;
-      case 'browser_ai_query':
-        if (!config.instruction || !config.schema) throw new Error('browser_ai_query requires "instruction" and "schema" fields');
+        if (!['validate', 'deterministic_extract'].includes(config.method)) {
+          throw new Error('browser_query supports "validate" and "deterministic_extract" methods');
+        }
+        if (config.method === 'deterministic_extract' && !config.selector) {
+          throw new Error('browser_query with deterministic_extract method requires "selector" field');
+        }
         break;
       case 'memory':
         if (!config.operation || !config.key) throw new Error('memory requires "operation" and "key" fields');
@@ -1752,22 +1751,15 @@ export class DirectorService {
             errors.push(`Node at index ${index}: browser_action requires 'action' field in config`);
           }
           break;
-        case 'browser_ai_action':
-          if (!node.config.action || !node.config.instruction) {
-            errors.push(`Node at index ${index}: browser_ai_action requires 'action' and 'instruction' fields in config`);
-          }
-          break;
         case 'browser_query':
           if (!node.config.method) {
             errors.push(`Node at index ${index}: browser_query requires 'method' field in config`);
           }
-          if (node.config.method !== 'validate') {
-            errors.push(`Node at index ${index}: browser_query only supports 'validate' method. Use browser_ai_query for AI-powered data extraction.`);
+          if (!['validate', 'deterministic_extract'].includes(node.config.method)) {
+            errors.push(`Node at index ${index}: browser_query supports 'validate' and 'deterministic_extract' methods`);
           }
-          break;
-        case 'browser_ai_query':
-          if (!node.config.instruction || !node.config.schema) {
-            errors.push(`Node at index ${index}: browser_ai_query requires 'instruction' and 'schema' fields in config`);
+          if (node.config.method === 'deterministic_extract' && !node.config.selector) {
+            errors.push(`Node at index ${index}: browser_query with deterministic_extract method requires 'selector' field`);
           }
           break;
         case 'iterate':
