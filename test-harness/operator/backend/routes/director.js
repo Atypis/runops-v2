@@ -5,6 +5,7 @@ import { PlanService } from '../services/planService.js';
 import { WorkflowDescriptionService } from '../services/workflowDescriptionService.js';
 import { ConversationService } from '../services/conversationService.js';
 import { VariableManagementService } from '../services/variableManagementService.js';
+import { supabase } from '../config/supabase.js';
 
 const router = express.Router();
 const directorService = new DirectorService();
@@ -35,6 +36,114 @@ router.post('/chat', async (req, res, next) => {
     console.log('Director response:', JSON.stringify(response, null, 2));
     res.json(response);
   } catch (error) {
+    next(error);
+  }
+});
+
+// Fork conversation from a specific message
+router.post('/workflows/:id/fork', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    const { messageId, newContent, model } = req.body;
+    
+    console.log('[FORK BACKEND] === Fork request received ===');
+    console.log('[FORK BACKEND] workflowId:', workflowId);
+    console.log('[FORK BACKEND] messageId:', messageId, 'type:', typeof messageId);
+    console.log('[FORK BACKEND] newContent length:', newContent?.length);
+    console.log('[FORK BACKEND] model:', model);
+    
+    if (!messageId || !newContent) {
+      console.error('[FORK BACKEND] Missing required fields:', { messageId: !!messageId, newContent: !!newContent });
+      return res.status(400).json({ 
+        error: 'messageId and newContent are required' 
+      });
+    }
+    
+    console.log(`[FORK BACKEND] Fork requested for workflow: ${workflowId} from message: ${messageId}`);
+    
+    // Deactivate messages after the fork point
+    console.log('[FORK BACKEND] Step 1: Deactivating messages after messageId:', messageId);
+    const deactivated = await conversationService.deactivateMessagesAfter(workflowId, messageId);
+    console.log('[FORK BACKEND] Deactivation result:', deactivated);
+    
+    if (!deactivated) {
+      console.error('[FORK BACKEND] Failed to deactivate messages');
+      return res.status(500).json({ 
+        error: 'Failed to prepare fork' 
+      });
+    }
+    
+    // Also deactivate the original message itself (since we're replacing it with edited content)
+    console.log('[FORK BACKEND] Step 1b: Deactivating the original message:', messageId);
+    const { error: deactivateOriginalError } = await supabase
+      .from('conversations')
+      .update({ is_active: false })
+      .eq('workflow_id', workflowId)
+      .eq('id', messageId);
+    
+    if (deactivateOriginalError) {
+      console.error('[FORK BACKEND] Error deactivating original message:', deactivateOriginalError);
+    }
+    
+    // Get the message being edited and find the right fork point
+    console.log('[FORK BACKEND] Step 2: Looking up message with ID:', messageId);
+    const { data: messageToEdit, error: fetchError } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .eq('id', messageId)
+      .single();
+    
+    console.log('[FORK BACKEND] Message lookup result:', {
+      found: !!messageToEdit,
+      error: fetchError,
+      messageRole: messageToEdit?.role,
+      messageId: messageToEdit?.id
+    });
+    
+    if (fetchError || !messageToEdit) {
+      console.error('[FORK BACKEND] Error fetching message for fork:', fetchError);
+      return res.status(404).json({ 
+        error: 'Message not found' 
+      });
+    }
+    
+    // For user messages, we need to find the last assistant message BEFORE this one
+    let forkFromResponseId = null;
+    
+    if (messageToEdit.role === 'user') {
+      // Get the last assistant message before this user message
+      const { data: previousMessages } = await supabase
+        .from('conversations')
+        .select('response_id')
+        .eq('workflow_id', workflowId)
+        .eq('role', 'assistant')
+        .eq('is_active', true)
+        .lt('timestamp', messageToEdit.timestamp)
+        .order('timestamp', { ascending: false })
+        .limit(1);
+      
+      if (previousMessages && previousMessages.length > 0) {
+        forkFromResponseId = previousMessages[0].response_id;
+      }
+    }
+    
+    console.log(`[DIRECTOR ROUTE] Forking from response ID: ${forkFromResponseId || 'start'} for message: ${messageId}`);
+    
+    // Process the new message with Clean Context, forking from the specified response ID
+    const response = await directorService.processMessageClean({
+      message: newContent,
+      workflowId,
+      conversationHistory: [], // Not needed with Clean Context
+      mockMode: req.body.mockMode || false,
+      selectedModel: model || 'o4-mini',
+      forkFromResponseId // Pass the fork point
+    });
+    
+    console.log(`[DIRECTOR ROUTE] Fork completed for workflow: ${workflowId}`);
+    res.json(response);
+  } catch (error) {
+    console.error('[DIRECTOR ROUTE] Error in fork:', error);
     next(error);
   }
 });

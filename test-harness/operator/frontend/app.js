@@ -252,6 +252,8 @@ function App() {
   const [workflows, setWorkflows] = useState([]);
   const [executionLogs, setExecutionLogs] = useState([]);
   const [workflowNodes, setWorkflowNodes] = useState([]);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingContent, setEditingContent] = useState('');
   const [showLogs, setShowLogs] = useState(false);
   const [mockMode, setMockMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -338,6 +340,13 @@ function App() {
       const response = await fetch(`${API_BASE}/workflows/${workflowId}/conversations`);
       if (response.ok) {
         const history = await response.json();
+        
+        // Debug: Log the first few messages to check if they have IDs
+        console.log('[DEBUG] Loaded conversation history:', history.slice(0, 3).map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content?.substring(0, 50) + '...'
+        })));
         
         // Preserve any temporary messages that might be in progress
         setMessages(prev => {
@@ -1303,6 +1312,126 @@ function App() {
     } catch (error) {
       console.error('Failed to compress context:', error);
       addMessage('error', `Failed to compress context: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fork conversation from a specific message
+  const handleFork = async (messageId, newContent) => {
+    console.log('[FORK] === Starting fork operation ===');
+    console.log('[FORK] messageId:', messageId, 'type:', typeof messageId);
+    console.log('[FORK] newContent:', newContent.substring(0, 50) + '...');
+    console.log('[FORK] Current messages count:', messages.length);
+    console.log('[FORK] Messages with IDs:', messages.map((m, i) => ({ 
+      index: i, 
+      id: m.id, 
+      role: m.role, 
+      hasId: !!m.id 
+    })));
+    
+    if (!currentWorkflow) {
+      addMessage('error', 'No workflow selected');
+      return;
+    }
+
+    if (!newContent.trim()) {
+      return;
+    }
+
+    // Find the message being edited
+    const messageIndex = messages.findIndex((msg, index) => {
+      const matches = msg.id === messageId || index === messageId;
+      console.log(`[FORK] Checking message at index ${index}: id=${msg.id}, matches=${matches}`);
+      return matches;
+    });
+    
+    console.log('[FORK] Found message at index:', messageIndex);
+    
+    if (messageIndex === -1) {
+      console.error('[FORK] Message not found!');
+      addMessage('error', 'Message not found');
+      return;
+    }
+
+    // Get the actual message
+    const messageToEdit = messages[messageIndex];
+    console.log('[FORK] Message to edit:', { 
+      id: messageToEdit.id, 
+      role: messageToEdit.role, 
+      content: messageToEdit.content?.substring(0, 50) + '...' 
+    });
+
+    // Step 1: Immediately update UI - hide messages after edit point
+    console.log('[FORK] Step 1: Hiding messages after index', messageIndex);
+    setMessages(prev => {
+      const kept = prev.slice(0, messageIndex + 1);
+      kept[messageIndex] = { ...kept[messageIndex], content: newContent };
+      console.log(`[FORK] Keeping ${kept.length} messages, removed ${prev.length - kept.length} messages`);
+      return kept;
+    });
+
+    setIsLoading(true);
+    setEditingMessageId(null);
+    
+    try {
+      // Step 2: If message has no ID, we need to reload first to get IDs
+      let actualMessageId = messageToEdit.id;
+      
+      if (!actualMessageId) {
+        console.log('[FORK] Message has no ID, need to find it from backend...');
+        
+        // We can't use messageIndex after reload because the messages state won't be updated yet
+        // Instead, we'll just send the request with the current message content to identify it
+        throw new Error('Message has no ID - please refresh the page and try again');
+      }
+
+      console.log('[FORK] Step 2: Sending fork request with messageId:', actualMessageId);
+      
+      const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/fork`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: actualMessageId,
+          newContent: newContent.trim(),
+          model: selectedModel
+        })
+      });
+
+      console.log('[FORK] Fork response status:', response.status);
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('[FORK] Fork failed with error:', error);
+        throw new Error(error.error || 'Fork failed');
+      }
+
+      const data = await response.json();
+      console.log('[FORK] Fork successful, response:', {
+        hasMessage: !!data.message,
+        hasToolCalls: !!data.toolCalls,
+        responseId: data.responseId
+      });
+      
+      // Step 3: Reload conversation to get updated state
+      console.log('[FORK] Step 3: Reloading conversation to get updated messages...');
+      await loadConversationHistory(currentWorkflow.id);
+      
+      console.log('[FORK] Final messages count:', messages.length);
+      
+      // Handle tool calls if any
+      if (data.toolCalls?.length > 0) {
+        console.log('[FORK] Processing tool calls...');
+        await processToolCalls(data.toolCalls);
+      }
+      
+      console.log('[FORK] === Fork operation complete ===');
+    } catch (error) {
+      console.error('[FORK] Fork failed:', error);
+      addMessage('error', `Fork failed: ${error.message}`);
+      
+      // Reload to restore proper state
+      await loadConversationHistory(currentWorkflow.id);
     } finally {
       setIsLoading(false);
     }
@@ -4300,16 +4429,20 @@ function App() {
         if (data.toolCalls.some(tc => nodeTools.includes(tc.toolName))) {
           await loadWorkflowNodes(workflowId);
         }
-        
-        // Refresh plan if update_plan was called
-        if (data.toolCalls.some(tc => tc.toolName === 'update_plan')) {
+      }
+      
+      // Reload conversation history to get database IDs for the new messages
+      console.log('[SEND MESSAGE] Reloading conversation to get message IDs...');
+      await loadConversationHistory(workflowId);
+      
+      // Refresh plan if update_plan was called
+      if (data.toolCalls && data.toolCalls.some(tc => tc.toolName === 'update_plan')) {
           await loadCurrentPlan(workflowId);
         }
         
-        // Refresh description if update_workflow_description was called
-        if (data.toolCalls.some(tc => tc.toolName === 'update_workflow_description')) {
-          await loadCurrentDescription(workflowId);
-        }
+      // Refresh description if update_workflow_description was called
+      if (data.toolCalls && data.toolCalls.some(tc => tc.toolName === 'update_workflow_description')) {
+        await loadCurrentDescription(workflowId);
       }
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -4727,7 +4860,7 @@ function App() {
           )}
           
           {messages.map((message, index) => (
-            <div key={index}>
+            <div key={message.id || index}>
               {/* Show archived messages separator */}
               {index === 0 && message.isArchived && (
                 <div className="mx-4 my-4 text-center text-xs text-gray-500">
@@ -4777,9 +4910,9 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} ${message.isArchived ? 'opacity-50' : ''}`}>
+                <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} ${message.isArchived ? 'opacity-50' : ''} group`}>
                   <div
-                    className={`max-w-3xl px-4 py-2 rounded-lg ${
+                    className={`max-w-3xl px-4 py-2 rounded-lg relative ${
                       message.role === 'user'
                         ? message.isArchived ? 'bg-blue-400 text-white' : 'bg-blue-600 text-white'
                         : message.role === 'system'
@@ -4801,7 +4934,62 @@ function App() {
                   </div>
                 )}
                 
-                <div className="whitespace-pre-wrap">{message.content || '(No message - tool calls only)'}</div>
+                {/* Edit mode for user messages */}
+                {editingMessageId === (message.id || index) && message.role === 'user' ? (
+                  <div>
+                    <textarea
+                      value={editingContent}
+                      onChange={(e) => setEditingContent(e.target.value)}
+                      className="w-full p-2 text-gray-800 rounded border border-gray-300 resize-none"
+                      rows="3"
+                      autoFocus
+                    />
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => handleFork(message.id || index, editingContent)}
+                        disabled={!editingContent.trim() || isLoading}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 text-sm"
+                      >
+                        Save & Regenerate
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingMessageId(null);
+                          setEditingContent('');
+                        }}
+                        className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{message.content || '(No message - tool calls only)'}</div>
+                )}
+                
+                {/* Edit button for user messages */}
+                {message.role === 'user' && !message.isArchived && editingMessageId !== (message.id || index) && (
+                  <button
+                    onClick={() => {
+                      console.log('[DEBUG] Edit button clicked for message:', {
+                        messageId: message.id,
+                        index: index,
+                        fallbackValue: message.id || index,
+                        messageRole: message.role,
+                        messageContent: message.content?.substring(0, 50) + '...'
+                      });
+                      setEditingMessageId(message.id || index);
+                      setEditingContent(message.content);
+                    }}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-blue-700 rounded"
+                    title="Edit message"
+                  >
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </button>
+                )}
                 
                 {/* Display pending tool calls with animation */}
                 {message.pendingToolCalls && Object.entries(message.pendingToolCalls).map(([callId, toolCall]) => 

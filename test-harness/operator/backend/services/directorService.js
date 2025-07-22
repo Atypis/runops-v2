@@ -141,7 +141,8 @@ export class DirectorService {
           workflowId, 
           'assistant', 
           assistantResponse.message,
-          metadata
+          metadata,
+          assistantResponse.responseId
         );
       }
     } catch (error) {
@@ -645,7 +646,7 @@ export class DirectorService {
     return finalResponse;
   }
 
-  async processMessageClean({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
+  async processMessageClean({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel, forkFromResponseId = null }) {
     // Start execution tracking for cancellation support
     const signal = this.startExecution(workflowId);
     
@@ -676,9 +677,13 @@ export class DirectorService {
       // Determine if using background mode
       const useBackgroundMode = selectedModel === 'o3';
       
-      // Get previous response ID for stateful context - but if we had a cancellation, get the last completed one
-      const previousResponseId = await this.getLastCompletedResponseId(workflowId);
+      // Get previous response ID for stateful context
+      // Use forkFromResponseId if provided (for message editing), otherwise get the last completed one
+      const previousResponseId = forkFromResponseId || await this.getLastCompletedResponseId(workflowId);
       console.log('[CLEAN CONTEXT] Previous response ID:', previousResponseId || 'None (fresh start)');
+      if (forkFromResponseId) {
+        console.log('[CLEAN CONTEXT] Forking from specified response ID:', forkFromResponseId);
+      }
       
       // Convert tools to Responses API format
       const responsesTools = this.convertToolsForResponsesAPI(createToolDefinitions());
