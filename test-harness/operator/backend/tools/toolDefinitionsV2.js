@@ -6,6 +6,48 @@ export function createToolDefinitions() {
   
   // Define node schemas with type-specific required fields using anyOf
   const nodeSchemas = [
+    // browser_ai_extract - AI-powered text extraction from fuzzy content zones
+    {
+      type: 'object',
+      properties: {
+        type: { const: 'browser_ai_extract' },
+        config: {
+          type: 'object',
+          properties: {
+            instruction: {
+              type: 'string',
+              description: 'Natural language instruction describing what text/content to extract from the current page or element. Focus on extracting human-readable content, not DOM structure.'
+            },
+            schema: {
+              type: 'object',
+              description: 'Required JSON schema defining the output format. Use {type: "string"} for simple text extraction, or define an object with properties for structured content.',
+              additionalProperties: true
+            },
+            targetElement: {
+              type: 'string',
+              description: 'Optional CSS selector to scope extraction to a specific element. If not provided, extracts from the entire visible page.'
+            },
+            store_variable: {
+              type: 'boolean',
+              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+            }
+          },
+          required: ['instruction', 'schema'],
+          additionalProperties: false
+        },
+        description: {
+          type: 'string',
+          description: 'Human-readable description of what this node does'
+        },
+        alias: {
+          type: 'string',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
+          pattern: '^[a-z][a-z0-9_]*$'
+        }
+      },
+      required: ['type', 'config', 'alias'],
+      additionalProperties: false
+    },
     // browser_action - requires action
     {
       type: 'object',

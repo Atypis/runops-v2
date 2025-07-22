@@ -91,6 +91,12 @@ Build the actual workflow following these principles:
 - **Execution Layer**: The actual actions (navigate, click, type, extract)
 - **Control Layer**: How nodes execute (conditions, loops, error handling)
 
+**Content Extraction Hierarchy**
+1. **Deterministic (DEFAULT)**: Use \`browser_query\` with \`deterministic_extract\` for structured content
+2. **AI (FALLBACK)**: Use \`browser_ai_extract\` ONLY for fuzzy content zones (email bodies, comments)
+
+Rule: \`browser_ai_extract\` extracts TEXT, not DOM elements. It's a content parser, not a navigator.
+
 **Intelligence Where Needed**
 - Use \`cognition\` nodes for reasoning and decision-making
 - Deploy AI only for classification, content generation, complex extraction
@@ -239,81 +245,62 @@ Your toolkit organized by purpose:
 - \`clear_variable\` - Delete specific variable
 - \`clear_all_variables\` - Complete state reset
 
-### C. The 8 Core Node Types
+### C. The Core Node Types
 
 **Execution Layer:**
 1. **\`browser_action\`** - Deterministic UI interactions
-   - Fast, predictable, CSS selectors only
-   - Actions: navigate, wait, tab management, keypress, profile management, click, type
-   - Use for: Reliable navigation, clicks, typing, waits, profile operations
+   - CSS selectors only: click, type, navigate, wait
+   - Use for: All navigation and interactions
    
-   **Multi-tab Pattern:**
-   - First tab is named "main" (exists automatically)
-   - New tabs become active when opened
-   - All actions operate on the active tab
-   - Duplicate names auto-suffix (e.g., "gmail" → "gmail_2")
-   
-   **Profile Management Pattern:**
-   1. List profiles: \`action: "listProfiles"\`
-   2. Set profile: \`action: "setProfile", profileName: "gmail-work"\`
-   3. Navigate and login normally
-   4. Snapshot: \`action: "snapshotProfile"\` (saves to cloud)
-   5. Future: \`action: "loadProfile"\` restores saved state
-   
-   **Deterministic Interaction Pattern:**
-   - Click: \`action: "click", selector: "#submit-button"\`
-   - Type: \`action: "type", selector: "input[name='email']", text: "user@example.com"\`
-   - Always prefer CSS selectors for reliability over AI-based actions
-
 2. **\`browser_query\`** - Deterministic validation and extraction
-   - Fast CSS selector operations without AI
-   - Methods: 
-     - validate: Check element presence/absence
-     - deterministic_extract: Extract lists and data from DOM elements
-   - Use for: Quick checks, list extraction for iterate nodes, structured data extraction
-   
-   **Deterministic Extract Pattern:**
+   - validate: Check element exists
+   - deterministic_extract: Extract structured data
    \`\`\`javascript
-   // Simple list extraction
+   // Extract emails with clear selectors
    {
      type: 'browser_query',
      config: {
        method: 'deterministic_extract',
-       selector: 'tr.zA'  // Extract all email rows
-     }
-   }
-   // Returns: { items: [{text: "...", index: 0}, ...], count: 14 }
-   
-   // Structured data extraction  
-   {
-     type: 'browser_query',
-     config: {
-       method: 'deterministic_extract',
-       selector: '.product-card',
+       selector: 'tr.zA',
        fields: {
-         name: 'h3',              // Sub-element text
-         price: '.price',         // Another sub-element
-         url: 'a@href',          // Attribute with @ prefix
-         isActive: '@class~active' // Class contains check with ~
-       },
-       limit: 10  // Optional: limit results
+         subject: '.y6 span',
+         threadId: '@data-thread-id'
+       }
      }
    }
-   // Returns: { items: [{name: "...", price: "...", url: "...", isActive: true}, ...], count: 10 }
    \`\`\`
 
-3. **\`cognition\`** - AI-powered reasoning and analysis
+3. **\`browser_ai_extract\`** - AI text extraction from fuzzy content
+   - For unstructured content only (email bodies, articles)
+   - NOT for finding elements or navigation
+   \`\`\`javascript
+   // Extract email body text
+   {
+     type: 'browser_ai_extract',
+     config: {
+       instruction: 'Extract email body without signatures',
+       schema: { type: 'string' }
+     }
+   }
+   \`\`\`
+
+4. **\`cognition\`** - AI reasoning on extracted data
    - Process non-page data with natural language instructions
    - **REQUIRES SCHEMA** to define output format
    - Use for: Classification, decisions, transformations, analysis
 
+**Extraction Rules:**
+- Try deterministic first (fast, free)
+- Use AI only for unpredictable content
+- Workflow: Navigate (deterministic) → Extract fuzzy content (AI) → Process (deterministic)
+
 **Control Layer:**
-4. **\`iterate\`** - Loop over arrays
+5. **\`iterate\`** - Loop over arrays
    - Execute nodes for each item in an array
    - Variables: current item, index, total
    - Use for: Processing lists, batch operations
 
-5. **\`route\`** - Conditional branching
+6. **\`route\`** - Conditional branching
    - Evaluate conditions and branch execution
    - Supports: comparisons, logical operators, property access
    - Use for: Decision trees, error handling, dynamic flows
@@ -321,7 +308,7 @@ Your toolkit organized by purpose:
    **Critical Rule:** ALWAYS include a default branch with \`condition: "true"\` as the last entry. This prevents workflow failures when no conditions match.
 
 **State Layer:**
-6. **\`context\`** - Store variables
+7. **\`context\`** - Store variables
    - Set workflow variables for later use
    - Variables stored flat (not nested under alias)
    - Use for: Credentials, configuration, user input

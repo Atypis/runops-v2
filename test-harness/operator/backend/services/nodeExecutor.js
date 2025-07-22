@@ -563,6 +563,9 @@ export class NodeExecutor {
         case 'browser_ai_query':
           result = await this.executeBrowserAIQuery(resolvedParams);
           break;
+        case 'browser_ai_extract':
+          result = await this.executeBrowserAIExtract(resolvedParams);
+          break;
         case 'transform':
           result = await this.executeTransform(resolvedParams, workflowId);
           break;
@@ -1319,6 +1322,98 @@ export class NodeExecutor {
         
       default:
         throw new Error(`Unknown browser_ai_action: ${config.action}`);
+    }
+  }
+
+  async executeBrowserAIExtract(config) {
+    console.log(`[BROWSER_AI_EXTRACT] Extracting text with instruction: ${config.instruction}`);
+    
+    const stagehand = await this.getStagehand();
+    
+    // Helper to get the active StagehandPage
+    const getActiveStagehandPage = async () => {
+      if (this.activeTabName === 'main') {
+        return this.mainPage;
+      }
+      if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+        return this.stagehandPages[this.activeTabName];
+      }
+      return this.mainPage;
+    };
+
+    const activePage = await getActiveStagehandPage();
+
+    // Schema is always required
+    if (!config.schema || typeof config.schema !== 'object') {
+      throw new Error('Schema is required for browser_ai_extract. Use {type: "string"} for simple text extraction, or define an object with properties for structured content.');
+    }
+    
+    console.log(`[BROWSER_AI_EXTRACT] Schema provided:`, JSON.stringify(config.schema, null, 2));
+    
+    // Handle primitive schemas and arrays by wrapping them in an object
+    // Stagehand only supports object schemas, so we auto-wrap non-objects
+    let effectiveSchema = config.schema;
+    let isPrimitiveOrArraySchema = false;
+    
+    // Check for primitive types or arrays
+    const nonObjectTypes = ['string', 'number', 'boolean', 'array'];
+    if (config.schema.type && nonObjectTypes.includes(config.schema.type)) {
+      console.log(`[BROWSER_AI_EXTRACT] Detected ${config.schema.type} schema. Wrapping in object for Stagehand compatibility.`);
+      isPrimitiveOrArraySchema = true;
+      effectiveSchema = {
+        type: 'object',
+        properties: {
+          value: config.schema
+        },
+        required: ['value']
+      };
+    }
+    
+    // Convert schema to Zod
+    let zodSchema;
+    try {
+      zodSchema = this.convertJsonSchemaToZod(effectiveSchema);
+      if (!zodSchema) {
+        throw new Error('Failed to convert schema to Zod format');
+      }
+    } catch (error) {
+      console.error(`[BROWSER_AI_EXTRACT] Schema conversion error:`, error);
+      throw new Error(`Invalid schema format: ${error.message}`);
+    }
+    
+    // Enhanced instruction emphasizing text extraction, not DOM navigation
+    const enhancedInstruction = `${config.instruction}
+
+IMPORTANT: Extract only the human-readable text content that is visible on the page. This is for content extraction, not for finding DOM elements or selectors. DO NOT hallucinate or generate example data. If no matching content is found, return null or empty strings.`;
+    
+    const extractOptions = {
+      instruction: enhancedInstruction,
+      schema: zodSchema
+    };
+    
+    // If targetElement is specified, we could potentially scope the extraction
+    // For now, Stagehand's extract works on the whole page
+    if (config.targetElement) {
+      console.log(`[BROWSER_AI_EXTRACT] Note: targetElement selector provided (${config.targetElement}) but Stagehand extract currently works on full page`);
+    }
+    
+    console.log(`[BROWSER_AI_EXTRACT] Calling extract with Zod schema`);
+    
+    try {
+      const extractResult = await activePage.extract(extractOptions);
+      console.log(`[BROWSER_AI_EXTRACT] Extract result:`, JSON.stringify(extractResult, null, 2));
+      
+      // If we wrapped a primitive or array schema, unwrap the result
+      if (isPrimitiveOrArraySchema && extractResult && typeof extractResult === 'object' && 'value' in extractResult) {
+        console.log(`[BROWSER_AI_EXTRACT] Unwrapping result from object wrapper`);
+        return extractResult.value;
+      }
+      
+      return extractResult;
+    } catch (error) {
+      console.error(`[BROWSER_AI_EXTRACT] Extract failed:`, error);
+      console.error(`[BROWSER_AI_EXTRACT] Error stack:`, error.stack);
+      throw new Error(`Failed to extract content: ${error.message}`);
     }
   }
 

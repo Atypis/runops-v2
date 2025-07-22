@@ -819,6 +819,9 @@ export class DirectorService {
           throw new Error('browser_query with deterministic_extract method requires "selector" field');
         }
         break;
+      case 'browser_ai_extract':
+        if (!config.instruction || !config.schema) throw new Error('browser_ai_extract requires "instruction" and "schema" fields');
+        break;
       case 'memory':
         if (!config.operation || !config.key) throw new Error('memory requires "operation" and "key" fields');
         break;
@@ -1760,6 +1763,11 @@ export class DirectorService {
           }
           if (node.config.method === 'deterministic_extract' && !node.config.selector) {
             errors.push(`Node at index ${index}: browser_query with deterministic_extract method requires 'selector' field`);
+          }
+          break;
+        case 'browser_ai_extract':
+          if (!node.config.instruction || !node.config.schema) {
+            errors.push(`Node at index ${index}: browser_ai_extract requires 'instruction' and 'schema' fields in config`);
           }
           break;
         case 'iterate':
