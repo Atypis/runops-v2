@@ -39,6 +39,42 @@ router.post('/chat', async (req, res, next) => {
   }
 });
 
+// Cancel ongoing Director conversation
+router.post('/workflows/:id/cancel', async (req, res, next) => {
+  try {
+    const { id: workflowId } = req.params;
+    
+    console.log(`[DIRECTOR ROUTE] Cancellation requested for workflow: ${workflowId}`);
+    
+    // Cancel the active execution
+    const cancelled = directorService.cancelExecution(workflowId);
+    
+    if (cancelled) {
+      // Mark current response as incomplete if needed
+      // This will be implemented in the response ID tracking update
+      
+      // Notify via SSE that execution was cancelled
+      await directorService.broadcastReasoningUpdate(workflowId, {
+        type: 'execution_cancelled',
+        timestamp: new Date().toISOString()
+      });
+      
+      res.json({ 
+        success: true, 
+        message: 'Execution cancelled successfully' 
+      });
+    } else {
+      res.json({ 
+        success: false, 
+        message: 'No active execution found for this workflow' 
+      });
+    }
+  } catch (error) {
+    console.error('[DIRECTOR ROUTE] Error cancelling execution:', error);
+    next(error);
+  }
+});
+
 // Upload mock nodes to Supabase
 router.post('/upload-mock-nodes', async (req, res, next) => {
   try {

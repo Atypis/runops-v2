@@ -527,6 +527,9 @@ function App() {
                 timestamp: data.timestamp
               } 
             }));
+          } else if (data.type === 'execution_cancelled') {
+            console.log('[SSE] Received execution cancelled event');
+            setIsLoading(false);
           }
         } catch (error) {
           console.error('[SSE] Error parsing event:', error);
@@ -4093,6 +4096,46 @@ function App() {
     );
   };
 
+  // Add ref for abort controller
+  const abortControllerRef = useRef(null);
+
+  const stopExecution = async () => {
+    console.log('[Stop] Stopping Director execution...');
+    
+    // 1. Abort the current request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // 2. Call the cancel endpoint
+    if (currentWorkflow?.id) {
+      try {
+        await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/cancel`, {
+          method: 'POST'
+        });
+      } catch (error) {
+        console.error('[Stop] Failed to call cancel endpoint:', error);
+      }
+    }
+    
+    // 3. Close SSE connections if any
+    if (browserStateSourceRef.current) {
+      browserStateSourceRef.current.close();
+    }
+    
+    if (toolCallSourceRef.current) {
+      toolCallSourceRef.current.close();
+    }
+    
+    // 4. Close WebSocket connection if any
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    
+    // 5. Update UI state
+    setIsLoading(false);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -4101,6 +4144,10 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    // Create abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       // Create workflow if none exists
@@ -4189,6 +4236,7 @@ function App() {
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortController.signal,
         body: JSON.stringify({
           message: messageText,
           workflowId,
@@ -4264,28 +4312,46 @@ function App() {
         }
       }
     } catch (error) {
-      console.error('Failed to send message:', error);
-      
-      // Update the temporary message with error content
-      setMessages(prev => {
-        const updated = [...prev];
-        const lastMessage = updated[updated.length - 1];
-        if (lastMessage && lastMessage.isTemporary) {
-          updated[updated.length - 1] = {
-            ...lastMessage,
-            content: 'Sorry, I encountered an error. Please try again.',
-            isTemporary: false
-          };
-        } else {
-          // Fallback: add new error message if temp message not found
-          updated.push({
-            role: 'assistant',
-            content: 'Sorry, I encountered an error. Please try again.'
-          });
-        }
-        return updated;
-      });
+      if (error.name === 'AbortError') {
+        console.log('Request cancelled by user');
+        // Update the temporary message to show cancellation
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMessage = updated[updated.length - 1];
+          if (lastMessage && lastMessage.isTemporary) {
+            updated[updated.length - 1] = {
+              ...lastMessage,
+              content: 'Request cancelled by user',
+              isTemporary: false
+            };
+          }
+          return updated;
+        });
+      } else {
+        console.error('Failed to send message:', error);
+        
+        // Update the temporary message with error content
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMessage = updated[updated.length - 1];
+          if (lastMessage && lastMessage.isTemporary) {
+            updated[updated.length - 1] = {
+              ...lastMessage,
+              content: 'Sorry, I encountered an error. Please try again.',
+              isTemporary: false
+            };
+          } else {
+            // Fallback: add new error message if temp message not found
+            updated.push({
+              role: 'assistant',
+              content: 'Sorry, I encountered an error. Please try again.'
+            });
+          }
+          return updated;
+        });
+      }
     } finally {
+      abortControllerRef.current = null;
       setIsLoading(false);
       setCurrentReasoningMessageIndex(null); // Clear reasoning tracking
       currentReasoningMessageIndexRef.current = null; // Clear ref too
@@ -4825,13 +4891,28 @@ function App() {
               rows="2"
               disabled={isLoading}
             />
-            <button
-              onClick={sendMessage}
-              disabled={isLoading || !input.trim()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              Send
-            </button>
+            {isLoading ? (
+              <button
+                onClick={stopExecution}
+                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                </svg>
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim()}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                Send
+              </button>
+            )}
           </div>
         </div>
         </div>

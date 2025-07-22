@@ -50,6 +50,9 @@ export class DirectorService {
     
     // SSE connections for live tool call streaming
     this.toolCallSSEConnections = new Map(); // workflowId -> [response objects]
+    
+    // Track active executions for cancellation support
+    this.activeExecutions = new Map(); // workflowId -> { abortController, startTime, responseId }
   }
 
   // SSE connection management methods for tool call streaming
@@ -87,6 +90,31 @@ export class DirectorService {
     
     // Clean up dead connections
     deadConnections.forEach(conn => this.removeToolCallSSEConnection(workflowId, conn));
+  }
+
+  // Execution tracking methods for cancellation support
+  startExecution(workflowId) {
+    const abortController = new AbortController();
+    this.activeExecutions.set(workflowId, {
+      abortController,
+      startTime: Date.now(),
+      responseId: null
+    });
+    return abortController.signal;
+  }
+
+  cancelExecution(workflowId) {
+    const execution = this.activeExecutions.get(workflowId);
+    if (execution) {
+      execution.abortController.abort();
+      this.activeExecutions.delete(workflowId);
+      return true;
+    }
+    return false;
+  }
+
+  getActiveExecution(workflowId) {
+    return this.activeExecutions.get(workflowId);
   }
 
   async saveConversationMessages(workflowId, userMessage, assistantResponse) {
@@ -381,7 +409,7 @@ export class DirectorService {
     }
   }
 
-  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId, accumulatedToolResults = []) {
+  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId, accumulatedToolResults = [], signal) {
     // Process the response from the Responses API
     const output = response.output || [];
     
@@ -440,6 +468,16 @@ export class DirectorService {
       
       // Execute tools and prepare outputs for Responses API
       for (const callItem of functionCallItems) {
+        // Check for cancellation before each tool
+        if (signal?.aborted) {
+          console.log('[CLEAN CONTEXT] Tool execution cancelled by user');
+          // Mark the response as cancelled before throwing
+          if (responseId) {
+            await this.saveResponseId(workflowId, responseId, 'cancelled');
+          }
+          throw new Error('Tool execution cancelled by user');
+        }
+        
         // Extract the correct fields based on the structure
         // IMPORTANT: Use call_id, not id!
         const callId = callItem.call_id;  // This is what OpenAI expects back
@@ -524,6 +562,16 @@ export class DirectorService {
       
       // If we have tool outputs, we need to continue the conversation with them
       if (toolOutputs.length > 0 && response.id) {
+        // Check if we were cancelled during tool execution
+        if (signal?.aborted) {
+          console.log('[CLEAN CONTEXT] Skipping tool output submission due to cancellation');
+          // Mark the original response as cancelled
+          if (responseId) {
+            await this.saveResponseId(workflowId, responseId, 'cancelled');
+          }
+          throw new Error('Tool execution cancelled by user');
+        }
+        
         try {
           console.log(`[CLEAN CONTEXT] Submitting ${toolOutputs.length} tool outputs`);
           // Log tool outputs (truncate if too long)
@@ -550,15 +598,13 @@ export class DirectorService {
           // Make the follow-up request with tool outputs
           const toolResponse = await this.openai.responses.create(toolResponseParams);
           
-          // Save the new response ID for future conversations
-          if (toolResponse.id) {
-            await this.saveResponseId(workflowId, toolResponse.id);
-            console.log('[CLEAN CONTEXT] Saved tool response ID:', toolResponse.id);
-          }
+          // Don't save intermediate response IDs - they will be saved at the top level
+          // when the entire conversation turn is complete
+          console.log(`[CLEAN CONTEXT] Processing tool response: ${toolResponse.id}`);
           
           // Process the response recursively, passing accumulated tool results
           const allToolResults = [...accumulatedToolResults, ...toolResults];
-          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id, allToolResults);
+          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id, allToolResults, signal);
         } catch (error) {
           console.error('[CLEAN CONTEXT] Error submitting tool outputs:', error);
           // Fall through to return current results
@@ -569,6 +615,18 @@ export class DirectorService {
     // Combine accumulated results with current results
     const allToolResults = [...accumulatedToolResults, ...toolResults];
     
+    // Save response ID only if this is a final response (no pending tool calls)
+    // This prevents intermediate tool responses from being used as conversation checkpoints
+    if (response.id && functionCallItems.length === 0) {
+      // This is a final response with no more tool calls
+      await this.saveResponseId(workflowId, response.id, 'completed');
+      console.log('[CLEAN CONTEXT] Saved final response ID (no pending tools):', response.id);
+    } else if (response.id && functionCallItems.length > 0 && signal?.aborted) {
+      // Cancelled during tool execution
+      await this.saveResponseId(workflowId, response.id, 'cancelled');
+      console.log('[CLEAN CONTEXT] Saved cancelled response ID:', response.id);
+    }
+    
     // Prepare response
     const finalResponse = {
       message: assistantContent || 'I completed the requested actions.',
@@ -576,7 +634,8 @@ export class DirectorService {
       reasoning_summary: reasoningSummary,
       input_tokens: tokenUsage.input_tokens,
       output_tokens: tokenUsage.output_tokens,
-      reasoning_tokens: tokenUsage.reasoning_tokens
+      reasoning_tokens: tokenUsage.reasoning_tokens,
+      responseId: response.id  // Include the final response ID
     };
     
     if (allToolResults.length > 0) {
@@ -587,6 +646,9 @@ export class DirectorService {
   }
 
   async processMessageClean({ message, workflowId, conversationHistory = [], mockMode = false, isCompressionRequest = false, selectedModel }) {
+    // Start execution tracking for cancellation support
+    const signal = this.startExecution(workflowId);
+    
     try {
       console.log('[CLEAN CONTEXT] Processing message with Clean Context 2.0');
       
@@ -614,8 +676,8 @@ export class DirectorService {
       // Determine if using background mode
       const useBackgroundMode = selectedModel === 'o3';
       
-      // Get previous response ID for stateful context
-      const previousResponseId = await this.getLastResponseId(workflowId);
+      // Get previous response ID for stateful context - but if we had a cancellation, get the last completed one
+      const previousResponseId = await this.getLastCompletedResponseId(workflowId);
       console.log('[CLEAN CONTEXT] Previous response ID:', previousResponseId || 'None (fresh start)');
       
       // Convert tools to Responses API format
@@ -642,24 +704,21 @@ export class DirectorService {
         console.log('[CLEAN CONTEXT] Using background mode for o3');
       }
       
-      // Make API request
-      const response = await this.openai.responses.create(requestParams);
+      // Make API request with signal support
+      const response = await this.callOpenAIWithSignal(requestParams, signal, 'responses');
       
       // Handle background job polling if needed
       let finalResponse = response;
       if (useBackgroundMode && response.id && response.status) {
         console.log('[CLEAN CONTEXT] Polling background job:', response.id);
-        finalResponse = await this.pollBackgroundJob(response.id);
-      }
-      
-      // Save response ID for next conversation
-      if (finalResponse.id) {
-        await this.saveResponseId(workflowId, finalResponse.id);
-        console.log('[CLEAN CONTEXT] Saved response ID:', finalResponse.id);
+        finalResponse = await this.pollBackgroundJob(response.id, workflowId);
       }
       
       // Process response with control loop
-      const result = await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId);
+      const result = await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId, [], signal);
+      
+      // The response saving is now handled within processResponsesAPIWithControlLoop
+      // to ensure we only save responses that don't have pending tool calls
       
       // Save the assistant response (unless it's a compression request)
       if (!isCompressionRequest) {
@@ -668,8 +727,26 @@ export class DirectorService {
       
       return result;
     } catch (error) {
+      if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('cancelled by user')) {
+        console.log('[CLEAN CONTEXT] Request cancelled by user');
+        
+        // If we have a response ID from before the cancellation, mark it as cancelled
+        if (response?.id) {
+          await this.saveResponseId(workflowId, response.id, 'cancelled');
+          console.log('[CLEAN CONTEXT] Marked response as cancelled:', response.id);
+        }
+        
+        return {
+          message: 'Request cancelled by user',
+          cancelled: true,
+          workflowId
+        };
+      }
       console.error('[CLEAN CONTEXT] Error in processMessageClean:', error);
       throw error;
+    } finally {
+      // Clean up execution tracking
+      this.activeExecutions.delete(workflowId);
     }
   }
 
@@ -2976,9 +3053,10 @@ export class DirectorService {
   /**
    * Poll background job until completion
    * @param {string} jobId - The background job ID to poll
+   * @param {string} workflowId - The workflow ID for cancellation checking
    * @returns {Promise<Object>} The completed job response
    */
-  async pollBackgroundJob(jobId) {
+  async pollBackgroundJob(jobId, workflowId) {
     let pollInterval = 2000; // Start with 2 seconds
     const maxInterval = 30000; // Max 30 seconds between polls
     let attempts = 0;
@@ -2987,6 +3065,13 @@ export class DirectorService {
     console.log(`[BACKGROUND MODE] Starting to poll job ${jobId}`);
     
     while (attempts < maxAttempts) {
+      // Check for cancellation
+      const execution = this.getActiveExecution(workflowId);
+      if (execution?.abortController.signal.aborted) {
+        console.log(`[BACKGROUND MODE] Job polling cancelled by user for job ${jobId}`);
+        throw new Error('Background job polling cancelled by user');
+      }
+      
       try {
         // Retrieve job status
         const job = await this.openai.responses.retrieve(jobId);
@@ -3030,6 +3115,72 @@ export class DirectorService {
     }
     
     throw new Error(`Background job ${jobId} timed out after ${attempts} attempts`);
+  }
+
+  /**
+   * Call OpenAI API with abort signal support
+   * @param {Object} params - API parameters
+   * @param {AbortSignal} signal - Abort signal for cancellation
+   * @param {string} apiType - 'responses' or 'chat' to determine which API to use
+   * @returns {Promise<Object>} API response
+   */
+  async callOpenAIWithSignal(params, signal, apiType = 'chat') {
+    try {
+      // First try with the SDK if it supports signals
+      if (apiType === 'responses') {
+        // Try with signal parameter if supported
+        const response = await this.openai.responses.create({
+          ...params,
+          signal
+        });
+        return response;
+      } else {
+        // For chat completions
+        const response = await this.openai.chat.completions.create({
+          ...params,
+          signal
+        });
+        return response;
+      }
+    } catch (error) {
+      // If signal is not supported by SDK, fallback to fetch
+      if (error.message?.includes('signal') || !error.response) {
+        console.log('[OPENAI] SDK does not support abort signal, falling back to fetch');
+        return this.callOpenAIViaFetch(params, signal, apiType);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Fallback method to call OpenAI API directly via fetch with abort signal
+   * @param {Object} params - API parameters
+   * @param {AbortSignal} signal - Abort signal for cancellation
+   * @param {string} apiType - 'responses' or 'chat'
+   * @returns {Promise<Object>} API response
+   */
+  async callOpenAIViaFetch(params, signal, apiType) {
+    const endpoint = apiType === 'responses' 
+      ? 'https://api.openai.com/v1/responses'
+      : 'https://api.openai.com/v1/chat/completions';
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        ...(process.env.OPENAI_ORG_ID && { 'OpenAI-Organization': process.env.OPENAI_ORG_ID })
+      },
+      body: JSON.stringify(params),
+      signal
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || `OpenAI API error: ${response.status}`);
+    }
+    
+    return response.json();
   }
 
   /**
@@ -3542,7 +3693,7 @@ export class DirectorService {
         if (useBackgroundMode && finalResponse.id) {
           // For background mode, store the response ID for next conversation
           console.log(`[BACKGROUND MODE] Storing response ID for future context: ${finalResponse.id}`);
-          await this.saveResponseId(workflowId, finalResponse.id);
+          await this.saveResponseId(workflowId, finalResponse.id, 'completed');
         } else if (encryptedBlobs.length > 0 && tokenUsage) {
           // For non-background mode, store encrypted reasoning context
           console.log(`[REASONING_STORAGE] Storing ${encryptedBlobs.length} encrypted blobs from initial call`);
@@ -3946,22 +4097,58 @@ export class DirectorService {
   }
 
   /**
-   * Save response ID for future context (used for background mode)
+   * Get the last completed response ID for a workflow (for forking after cancellation)
    */
-  async saveResponseId(workflowId, responseId) {
+  async getLastCompletedResponseId(workflowId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('workflow_response_ids')
+        .select('response_id, status')
+        .eq('workflow_id', workflowId)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No completed rows found - fall back to any response ID
+          console.log('[FORK SUPPORT] No completed response found, falling back to any response');
+          return this.getLastResponseId(workflowId);
+        }
+        console.error('[FORK SUPPORT] Error loading last completed response ID:', error);
+        return null;
+      }
+      
+      console.log(`[FORK SUPPORT] Found last completed response ID: ${data?.response_id || 'none'}`);
+      return data?.response_id || null;
+    } catch (error) {
+      console.error('[FORK SUPPORT] Error getting last completed response ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save response ID for future context (used for background mode)
+   * @param {string} workflowId - The workflow ID
+   * @param {string} responseId - The response ID from OpenAI
+   * @param {string} status - The status of the response ('completed', 'incomplete', 'cancelled')
+   */
+  async saveResponseId(workflowId, responseId, status = 'completed') {
     try {
       const { error } = await this.supabase
         .from('workflow_response_ids')
         .insert({
           workflow_id: workflowId,
           response_id: responseId,
+          status: status,
           created_at: new Date().toISOString()
         });
 
       if (error) {
         console.error('[BACKGROUND MODE] Error saving response ID:', error);
       } else {
-        console.log(`[BACKGROUND MODE] Saved response ID ${responseId} for workflow ${workflowId}`);
+        console.log(`[BACKGROUND MODE] Saved response ID ${responseId} for workflow ${workflowId} with status ${status}`);
       }
     } catch (error) {
       console.error('[BACKGROUND MODE] Error saving response ID:', error);
