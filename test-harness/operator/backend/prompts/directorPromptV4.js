@@ -84,7 +84,7 @@ Build the actual workflow following these principles:
 **Deterministic UI Automation First**
 - Use \`browser_action\` with CSS selectors for clicks, typing, and navigation
 - Extract and insert data through precise DOM targeting
-- Reserve AI nodes (\`browser_ai_action\`) only for truly dynamic elements
+- Use deterministic selectors whenever possible
 - If you can identify a stable selector, ALWAYS use deterministic actions
 
 **Two-Layer Architecture**
@@ -265,34 +265,55 @@ Your toolkit organized by purpose:
    - Type: \`action: "type", selector: "input[name='email']", text: "user@example.com"\`
    - Always prefer CSS selectors for reliability over AI-based actions
 
-2. **\`browser_ai_action\`** - AI-powered UI interactions
-   - Uses natural language to find and interact with elements
-   - Actions: click, type, act (complex interactions)
-   - Use for: Dynamic UIs, hard-to-select elements, complex actions
-   - **Only use when CSS selectors aren't reliable** - deterministic browser_action is preferred
+2. **\`browser_query\`** - Deterministic validation and extraction
+   - Fast CSS selector operations without AI
+   - Methods: 
+     - validate: Check element presence/absence
+     - deterministic_extract: Extract lists and data from DOM elements
+   - Use for: Quick checks, list extraction for iterate nodes, structured data extraction
+   
+   **Deterministic Extract Pattern:**
+   \`\`\`javascript
+   // Simple list extraction
+   {
+     type: 'browser_query',
+     config: {
+       method: 'deterministic_extract',
+       selector: 'tr.zA'  // Extract all email rows
+     }
+   }
+   // Returns: { items: [{text: "...", index: 0}, ...], count: 14 }
+   
+   // Structured data extraction  
+   {
+     type: 'browser_query',
+     config: {
+       method: 'deterministic_extract',
+       selector: '.product-card',
+       fields: {
+         name: 'h3',              // Sub-element text
+         price: '.price',         // Another sub-element
+         url: 'a@href',          // Attribute with @ prefix
+         isActive: '@class~active' // Class contains check with ~
+       },
+       limit: 10  // Optional: limit results
+     }
+   }
+   // Returns: { items: [{name: "...", price: "...", url: "...", isActive: true}, ...], count: 10 }
+   \`\`\`
 
-3. **\`browser_query\`** - Deterministic validation
-   - Fast CSS selector checks only
-   - Methods: validate with element_exists/element_absent rules
-   - Use for: Quick presence/absence checks
-
-4. **\`browser_ai_query\`** - AI-powered data extraction
-   - Extract any content from the page using natural language
-   - **REQUIRES SCHEMA** to define output format
-   - Use for: Complex data extraction, content analysis
-
-5. **\`cognition\`** - AI-powered reasoning and analysis
+3. **\`cognition\`** - AI-powered reasoning and analysis
    - Process non-page data with natural language instructions
    - **REQUIRES SCHEMA** to define output format
    - Use for: Classification, decisions, transformations, analysis
 
 **Control Layer:**
-6. **\`iterate\`** - Loop over arrays
+4. **\`iterate\`** - Loop over arrays
    - Execute nodes for each item in an array
    - Variables: current item, index, total
    - Use for: Processing lists, batch operations
 
-7. **\`route\`** - Conditional branching
+5. **\`route\`** - Conditional branching
    - Evaluate conditions and branch execution
    - Supports: comparisons, logical operators, property access
    - Use for: Decision trees, error handling, dynamic flows
@@ -300,7 +321,7 @@ Your toolkit organized by purpose:
    **Critical Rule:** ALWAYS include a default branch with \`condition: "true"\` as the last entry. This prevents workflow failures when no conditions match.
 
 **State Layer:**
-8. **\`context\`** - Store variables
+6. **\`context\`** - Store variables
    - Set workflow variables for later use
    - Variables stored flat (not nested under alias)
    - Use for: Credentials, configuration, user input

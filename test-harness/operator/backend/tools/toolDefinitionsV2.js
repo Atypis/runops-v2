@@ -6,91 +6,6 @@ export function createToolDefinitions() {
   
   // Define node schemas with type-specific required fields using anyOf
   const nodeSchemas = [
-    // browser_ai_query - uses AI to get content from the page with required schema
-    {
-      type: 'object',
-      properties: {
-        type: { const: 'browser_ai_query' },
-        config: {
-          type: 'object',
-          properties: {
-            instruction: {
-              type: 'string',
-              description: 'Natural language instruction describing what to get from the page'
-            },
-            schema: {
-              type: 'object',
-              description: 'Required JSON schema in proper JSON Schema format. Must use type definitions. Examples: {type: "object", properties: {title: {type: "string"}}} for objects, {type: "array", items: {type: "string"}} for arrays, {type: "boolean"} for booleans. Always specify types explicitly.',
-              additionalProperties: true
-            },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
-            }
-          },
-          required: ['instruction', 'schema'],
-          additionalProperties: false
-        },
-        description: {
-          type: 'string',
-          description: 'Human-readable description of what this node does'
-        },
-        alias: {
-          type: 'string',
-          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
-          pattern: '^[a-z][a-z0-9_]*$'
-        }
-      },
-      required: ['type', 'config', 'alias'],
-      additionalProperties: false
-    },
-    // browser_ai_action - requires action and instruction
-    {
-      type: 'object',
-      properties: {
-        type: { const: 'browser_ai_action' },
-        config: {
-          type: 'object',
-          properties: {
-            action: {
-              type: 'string',
-              enum: ['click', 'type', 'act'],
-              description: 'The AI-powered action to perform'
-            },
-            instruction: {
-              type: 'string',
-              description: 'Natural language instruction describing what to do'
-            },
-            text: {
-              type: 'string',
-              description: 'For type action: The text to type into the element'
-            },
-            constraints: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Optional constraints or hints to guide the AI'
-            },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
-            }
-          },
-          required: ['action', 'instruction'],
-          additionalProperties: false
-        },
-        description: {
-          type: 'string',
-          description: 'Human-readable description of what this node does'
-        },
-        alias: {
-          type: 'string',
-          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
-          pattern: '^[a-z][a-z0-9_]*$'
-        }
-      },
-      required: ['type', 'config', 'alias'],
-      additionalProperties: false
-    },
     // browser_action - requires action
     {
       type: 'object',
@@ -173,12 +88,12 @@ export function createToolDefinitions() {
           properties: {
             method: {
               type: 'string',
-              enum: ['validate'],
-              description: 'The query method - browser_query only supports validate. Note: extract and observe methods have been moved to browser_ai_query node type.'
+              enum: ['validate', 'deterministic_extract'],
+              description: 'The query method. validate: Check element presence/absence. deterministic_extract: Extract data from DOM elements without AI (fast, token-free). Note: AI-powered extract/observe methods are in browser_ai_query node type.'
             },
             rules: {
               type: 'array',
-              description: 'Array of validation rules',
+              description: 'Array of validation rules (for validate method)',
               items: {
                 type: 'object',
                 properties: {
@@ -200,6 +115,23 @@ export function createToolDefinitions() {
                 additionalProperties: false
               }
             },
+            selector: {
+              type: 'string',
+              description: 'For deterministic_extract: CSS selector to match elements (e.g., "tr.zA", ".product-card")'
+            },
+            fields: {
+              type: 'object',
+              description: 'For deterministic_extract: Field mappings to extract from each element. Use CSS selectors for sub-elements, @attribute for attributes, @attribute~value for contains checks',
+              additionalProperties: {
+                type: 'string',
+                description: 'CSS selector or @attribute notation. Examples: ".title" for text, "@href" for attribute, "@class~active" for class contains'
+              }
+            },
+            limit: {
+              type: 'number',
+              description: 'For deterministic_extract: Maximum number of elements to extract (default: all)',
+              minimum: 1
+            },
             onFailure: {
               type: 'string',
               enum: ['stop_workflow', 'continue_with_error'],
@@ -210,8 +142,18 @@ export function createToolDefinitions() {
               description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
             }
           },
-          required: ['method', 'rules'],
-          additionalProperties: false
+          required: ['method'],
+          additionalProperties: false,
+          allOf: [
+            {
+              if: { properties: { method: { const: 'validate' } } },
+              then: { required: ['rules'] }
+            },
+            {
+              if: { properties: { method: { const: 'deterministic_extract' } } },
+              then: { required: ['selector'] }
+            }
+          ]
         },
         description: {
           type: 'string',

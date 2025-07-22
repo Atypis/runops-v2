@@ -488,7 +488,16 @@ export class DirectorService {
           
           // Prepare tool output for Responses API
           // The output must be a string, max 512 tokens
-          const outputString = JSON.stringify(result);
+          let outputString;
+          
+          // Check if result has a pre-formatted output string (DOM toolkit methods)
+          if (result.output && typeof result.output === 'string') {
+            outputString = result.output;
+          } else {
+            // Otherwise stringify the result
+            outputString = JSON.stringify(result);
+          }
+          
           toolOutputs.push({
             type: 'function_call_output',
             call_id: callId,
@@ -3476,7 +3485,9 @@ export class DirectorService {
           followUps.push({
             type: 'function_call_output',
             call_id: call.call_id,
-            output: JSON.stringify(toolResult)
+            output: (toolResult.output && typeof toolResult.output === 'string') 
+              ? toolResult.output 
+              : JSON.stringify(toolResult)
           });
           
         } catch (toolError) {

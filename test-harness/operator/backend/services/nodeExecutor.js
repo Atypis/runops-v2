@@ -1194,6 +1194,75 @@ export class NodeExecutor {
       }
       
       return results;
+    } else if (config.method === 'deterministic_extract') {
+      // Deterministic data extraction using CSS selectors
+      const activePage = await getActiveStagehandPage();
+      console.log(`[BROWSER_QUERY] Extracting elements with selector: ${config.selector}`);
+      
+      try {
+        // Use page.evaluate for deterministic extraction
+        const extractedData = await activePage.evaluate((selector, fields, limit) => {
+          const items = [];
+          const elements = document.querySelectorAll(selector);
+          const count = elements.length;
+          const maxItems = limit || elements.length;
+          
+          for (let i = 0; i < Math.min(elements.length, maxItems); i++) {
+            const element = elements[i];
+            const item = {};
+            
+            if (fields) {
+              // Extract specified fields
+              for (const [fieldName, fieldSelector] of Object.entries(fields)) {
+                try {
+                  let value = '';
+                  
+                  if (fieldSelector.startsWith('@')) {
+                    // Attribute extraction
+                    const attrParts = fieldSelector.substring(1).split('~');
+                    const attrName = attrParts[0];
+                    const attrValue = element.getAttribute(attrName) || '';
+                    
+                    if (attrParts.length > 1) {
+                      // Contains check (e.g., @class~active)
+                      value = attrValue.includes(attrParts[1]);
+                    } else {
+                      value = attrValue;
+                    }
+                  } else if (fieldSelector === '.' || fieldSelector === '') {
+                    // Current element's text
+                    value = element.textContent?.trim() || '';
+                  } else {
+                    // Sub-element selector
+                    const subElement = element.querySelector(fieldSelector);
+                    value = subElement?.textContent?.trim() || '';
+                  }
+                  
+                  item[fieldName] = value;
+                } catch (fieldError) {
+                  console.warn(`Failed to extract field ${fieldName}:`, fieldError);
+                  item[fieldName] = '';
+                }
+              }
+            } else {
+              // No fields specified - extract text and index
+              item.text = element.textContent?.trim() || '';
+              item.index = i;
+            }
+            
+            items.push(item);
+          }
+          
+          return { items, count };
+        }, config.selector, config.fields || null, config.limit || null);
+        
+        console.log(`[BROWSER_QUERY] Extracted ${extractedData.items.length} items (total found: ${extractedData.count})`);
+        
+        return extractedData;
+      } catch (error) {
+        console.error(`[BROWSER_QUERY] Extraction error:`, error);
+        throw new Error(`Failed to extract elements: ${error.message}`);
+      }
     } else {
       throw new Error(`Unknown browser_query method: ${config.method}`);
     }
