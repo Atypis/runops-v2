@@ -1200,8 +1200,9 @@ export class NodeExecutor {
       console.log(`[BROWSER_QUERY] Extracting elements with selector: ${config.selector}`);
       
       try {
-        // Use page.evaluate for deterministic extraction
-        const extractedData = await activePage.evaluate((selector, fields, limit) => {
+        // Use page.evaluate for deterministic extraction - wrap arguments in single object
+        const extractedData = await activePage.evaluate((args) => {
+          const { selector, fields, limit } = args;
           const items = [];
           const elements = document.querySelectorAll(selector);
           const count = elements.length;
@@ -1254,7 +1255,7 @@ export class NodeExecutor {
           }
           
           return { items, count };
-        }, config.selector, config.fields || null, config.limit || null);
+        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null });
         
         console.log(`[BROWSER_QUERY] Extracted ${extractedData.items.length} items (total found: ${extractedData.count})`);
         
