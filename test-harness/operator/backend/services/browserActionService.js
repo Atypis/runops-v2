@@ -591,6 +591,11 @@ export class BrowserActionService {
     while (attempt < maxScrollAttempts && (Date.now() - startTime) < timeout) {
       attempt++;
       
+      // Wait for virtualized content to render (except first attempt)
+      if (attempt > 1) {
+        await page.waitForTimeout(100); // Give time for React-Virtualized to paint
+      }
+      
       try {
         // Check if element appeared
         const exists = await page.evaluate((sel) => {
