@@ -59,7 +59,7 @@ export function createToolDefinitions() {
             action: {
               type: 'string',
               enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type', 'scrollIntoView', 'scrollToRow'],
-              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. scrollIntoView/scrollToRow handle virtualized content. loadProfile intelligently loads from local or cloud.'
+              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. scrollIntoView progressively scrolls until element exists (for virtualized content). scrollToRow scrolls to specific row index - provide rowHeight for precise single-jump scrolling. loadProfile intelligently loads from local or cloud.'
             },
             url: {
               type: 'string',
@@ -101,7 +101,7 @@ export function createToolDefinitions() {
             },
             scrollIntoViewSelector: {
               type: 'string',
-              description: 'For scrollIntoView: CSS selector of element to scroll into view. Action will progressively scroll until element exists and is visible.'
+              description: 'For scrollIntoView: CSS selector of element to scroll into view. Handles virtualized content by progressively scrolling until element renders in DOM. Use with scrollContainer for nested scrollable areas (e.g. ".ReactVirtualized__Grid").'
             },
             scrollContainer: {
               type: 'string',
@@ -137,6 +137,11 @@ export function createToolDefinitions() {
               description: 'For scrollIntoView/scrollToRow: Maximum scroll attempts before failing (default: 30)',
               minimum: 1,
               maximum: 100
+            },
+            scrollDirection: {
+              type: 'string',
+              enum: ['up', 'down', 'both'],
+              description: 'For scrollIntoView: Direction to scroll when searching for element. "both" will try down first, then up if not found (default: down)'
             },
             store_variable: {
               type: 'boolean',
@@ -1029,6 +1034,11 @@ export function createToolDefinitions() {
                   description: 'For scrollIntoView/scrollToRow: Maximum attempts (default: 30)',
                   minimum: 1,
                   maximum: 100
+                },
+                scrollDirection: {
+                  type: 'string',
+                  enum: ['up', 'down', 'both'],
+                  description: 'For scrollIntoView: Scroll direction. Use "up" for reverse timelines, "both" to search in both directions'
                 },
                 
                 // Tab management

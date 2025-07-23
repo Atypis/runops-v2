@@ -441,13 +441,88 @@ export class BrowserActionService {
 
   // ===== Scrolling Actions =====
 
+  /**
+   * Auto-detect common scroll containers on the page
+   */
+  async detectScrollContainer(page) {
+    const containers = await page.evaluate(() => {
+      // Common scroll container patterns
+      const selectors = [
+        // React Virtualized
+        '.ReactVirtualized__Grid',
+        '.ReactVirtualized__List',
+        '.ReactVirtualized__Table',
+        '.ReactVirtualized__Collection',
+        
+        // AG-Grid
+        '.ag-body-viewport',
+        '.ag-center-cols-viewport',
+        
+        // Generic virtualized/infinite scroll
+        '[role="grid"]',
+        '[data-virtualized="true"]',
+        '.virtual-scroll',
+        '.infinite-scroll',
+        '.scrollable-container',
+        
+        // Common UI frameworks
+        '.ant-table-body',  // Ant Design
+        '.MuiDataGrid-virtualScroller',  // Material UI
+        '.el-table__body-wrapper',  // Element UI
+        
+        // Custom patterns
+        '[style*="overflow: auto"]',
+        '[style*="overflow-y:auto"]',
+        '[style*="overflow-y: auto"]',
+        '[style*="overflow:auto"]'
+      ];
+      
+      // Find first matching container that has scrollable content
+      for (const selector of selectors) {
+        try {
+          const elements = document.querySelectorAll(selector);
+          for (const el of elements) {
+            // Check if element is scrollable
+            if (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) {
+              // Verify it's not the body/html
+              if (el !== document.body && el !== document.documentElement) {
+                return {
+                  found: true,
+                  selector,
+                  info: {
+                    scrollHeight: el.scrollHeight,
+                    clientHeight: el.clientHeight,
+                    hasVerticalScroll: el.scrollHeight > el.clientHeight,
+                    hasHorizontalScroll: el.scrollWidth > el.clientWidth
+                  }
+                };
+              }
+            }
+          }
+        } catch (e) {
+          // Invalid selector, continue
+        }
+      }
+      
+      return { found: false };
+    });
+    
+    if (containers.found) {
+      console.log(`[BrowserActionService] Auto-detected scroll container: ${containers.selector}`, containers.info);
+      return containers.selector;
+    }
+    
+    return null;
+  }
+
   async scrollIntoView(config) {
-    const { 
+    let { 
       scrollIntoViewSelector, 
       scrollContainer,
       scrollBehavior = 'smooth',
       scrollBlock = 'start', 
       scrollInline = 'nearest',
+      scrollDirection = 'down',  // NEW: 'up', 'down', or 'both'
       tabName,
       timeout = 10000,
       maxScrollAttempts = 30
@@ -459,6 +534,15 @@ export class BrowserActionService {
     
     const page = await this.resolveTargetPage(tabName);
     const startTime = Date.now();
+    
+    // Auto-detect scroll container if not provided
+    if (!scrollContainer) {
+      const detected = await this.detectScrollContainer(page);
+      if (detected) {
+        scrollContainer = detected;
+        console.log(`[BrowserActionService] Using auto-detected container: ${scrollContainer}`);
+      }
+    }
     
     // Strategy 1: Try direct scrollIntoView if element exists
     try {
@@ -500,6 +584,8 @@ export class BrowserActionService {
     // Strategy 2: Progressive container scrolling for virtualized content
     let attempt = 0;
     const scrollStep = 500; // pixels per scroll
+    let currentDirection = scrollDirection === 'both' ? 'down' : scrollDirection;
+    let hasReversed = false;
     
     while (attempt < maxScrollAttempts && (Date.now() - startTime) < timeout) {
       attempt++;
@@ -534,15 +620,61 @@ export class BrowserActionService {
             method: 'progressive',
             attempts: attempt,
             behavior: scrollBehavior,
+            direction: scrollDirection,
             tab: tabName || this.nodeExecutor.activeTabName || 'main'
           };
         }
       } catch (checkError) {
         // Element still not found, continue scrolling
-        console.log(`[BrowserActionService] Scroll attempt ${attempt}/${maxScrollAttempts}: element not found yet`);
+        console.log(`[BrowserActionService] Scroll attempt ${attempt}/${maxScrollAttempts}: element not found yet (direction: ${currentDirection})`);
       }
       
-      // Scroll container or viewport
+      // Check if we've reached the end and should reverse direction
+      if (scrollDirection === 'both' && !hasReversed) {
+        const atBoundary = await page.evaluate((params) => {
+          const { containerSel, direction } = params;
+          if (containerSel) {
+            const container = document.querySelector(containerSel);
+            if (container) {
+              if (direction === 'down') {
+                return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+              } else {
+                return container.scrollTop <= 10;
+              }
+            }
+          } else {
+            if (direction === 'down') {
+              return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+            } else {
+              return window.scrollY <= 10;
+            }
+          }
+        }, { containerSel: scrollContainer, direction: currentDirection });
+        
+        if (atBoundary) {
+          console.log(`[BrowserActionService] Reached ${currentDirection} boundary, reversing direction`);
+          currentDirection = currentDirection === 'down' ? 'up' : 'down';
+          hasReversed = true;
+          // Reset to opposite end
+          if (scrollContainer) {
+            await page.evaluate((params) => {
+              const { containerSel, direction } = params;
+              const container = document.querySelector(containerSel);
+              if (container) {
+                container.scrollTop = direction === 'down' ? 0 : container.scrollHeight;
+              }
+            }, { containerSel: scrollContainer, direction: currentDirection });
+          } else {
+            await page.evaluate((direction) => {
+              window.scrollTo(0, direction === 'down' ? 0 : document.documentElement.scrollHeight);
+            }, currentDirection);
+          }
+        }
+      }
+      
+      // Scroll in the current direction
+      const scrollAmount = currentDirection === 'up' ? -scrollStep : scrollStep;
+      
       if (scrollContainer) {
         const containerExists = await page.evaluate((containerSel) => {
           return !!document.querySelector(containerSel);
@@ -558,12 +690,12 @@ export class BrowserActionService {
           if (container) {
             container.scrollTop += step;
           }
-        }, { containerSel: scrollContainer, step: scrollStep });
+        }, { containerSel: scrollContainer, step: scrollAmount });
       } else {
         // Scroll main viewport
         await page.evaluate((step) => {
           window.scrollBy(0, step);
-        }, scrollStep);
+        }, scrollAmount);
       }
       
       // Brief pause for DOM updates in virtualized grids
@@ -587,7 +719,7 @@ export class BrowserActionService {
   }
 
   async scrollToRow(config) {
-    const {
+    let {
       scrollContainer,
       rowIndex,
       rowHeight,  // NEW: Optional row height for precise scrolling
@@ -601,11 +733,18 @@ export class BrowserActionService {
       throw new Error('scrollToRow action requires rowIndex parameter');
     }
     
-    if (!scrollContainer) {
-      throw new Error('scrollToRow action requires scrollContainer parameter');
-    }
-    
     const page = await this.resolveTargetPage(tabName);
+    
+    // Auto-detect scroll container if not provided
+    if (!scrollContainer) {
+      const detected = await this.detectScrollContainer(page);
+      if (detected) {
+        scrollContainer = detected;
+        console.log(`[BrowserActionService] Using auto-detected container for scrollToRow: ${scrollContainer}`);
+      } else {
+        throw new Error('scrollToRow requires scrollContainer parameter or a detectable scroll container on the page');
+      }
+    }
     
     // Wait for container to exist
     await page.waitForSelector(scrollContainer, { timeout, state: 'visible' });
@@ -657,8 +796,22 @@ export class BrowserActionService {
       
       // Detect common virtualized grid patterns
       const isAgGrid = !!container.querySelector('.ag-center-cols-viewport');
+      const isReactVirtualized = container.classList.contains('ReactVirtualized__Grid') || 
+                                  container.classList.contains('ReactVirtualized__List');
       const isReactWindow = !!container.querySelector('[style*="position: absolute"]');
       const isAirtable = !!container.classList.contains('gridView') || !!container.querySelector('.gridView');
+      
+      // Try to detect row height for React-Virtualized if not provided
+      if (!rowHeight && isReactVirtualized) {
+        const firstRow = container.querySelector('[style*="position: absolute"][style*="top:"]');
+        if (firstRow) {
+          const heightMatch = firstRow.getAttribute('style').match(/height:\s*(\d+)px/);
+          if (heightMatch) {
+            rowHeight = parseInt(heightMatch[1]);
+            console.log(`Detected React-Virtualized row height: ${rowHeight}px`);
+          }
+        }
+      }
       
       // Try AG Grid API
       if (isAgGrid) {
@@ -692,15 +845,35 @@ export class BrowserActionService {
       const scrollStep = Math.max(200, container.clientHeight * 0.5); // 50% of viewport per step
       let attempts = 0;
       
-      // Common row selectors
+      // Common row selectors - expanded to support more grid types
       const rowSelectors = [
+        // AG-Grid and similar
         `[data-rowindex="${targetRow}"]`,
         `[data-row-index="${targetRow}"]`,
+        `[row-index="${targetRow}"]`,
         `[data-row="${targetRow}"]`,
+        
+        // Tanstack Virtual and generic
         `[data-index="${targetRow}"]`,
         `.row[data-index="${targetRow}"]`,
+        
+        // ARIA accessibility patterns
+        `[aria-rowindex="${targetRow + 1}"]`, // aria-rowindex is 1-based
+        
+        // Traditional HTML tables
         `tr:nth-child(${targetRow + 1})`, // nth-child is 1-based
-        `.dataRow:nth-child(${targetRow + 1})`
+        `.dataRow:nth-child(${targetRow + 1})`,
+        
+        // Class-based patterns
+        `.row-${targetRow}`,
+        `#row-${targetRow}`,
+        
+        // React-Virtualized style-based pattern (when rowHeight is known)
+        ...(rowHeight > 0 ? [
+          `div[style*="top: ${targetRow * rowHeight}px"]`,
+          `[style*="top:${targetRow * rowHeight}px"]`,
+          `[style*="top: ${targetRow * rowHeight}px;"]`
+        ] : [])
       ];
       
       while (attempts < maxAttempts) {

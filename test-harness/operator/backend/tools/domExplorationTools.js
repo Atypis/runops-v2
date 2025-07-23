@@ -67,6 +67,10 @@ export function createDOMExplorationTools() {
               description: 'Maximum distance to scroll in pixels when autoScroll is enabled (default: 5000)',
               minimum: 500,
               maximum: 50000
+            },
+            scrollContainer: {
+              type: 'string',
+              description: 'CSS selector for the scrollable container when autoScroll is enabled. If not provided, scrolls the main viewport.'
             }
           },
           additionalProperties: false

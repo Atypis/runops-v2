@@ -52,7 +52,8 @@ export class DOMToolkit {
       diff_from = null,
       include_full = false,
       autoScroll = false,
-      maxScrollDistance = 5000
+      maxScrollDistance = 5000,
+      scrollContainer = null
     } = options;
     
     // Safety check: ensure max_rows is reasonable
@@ -97,7 +98,8 @@ export class DOMToolkit {
           visible,
           viewport,
           max_rows: safeMaxRows,
-          maxScrollDistance
+          maxScrollDistance,
+          scrollContainer
         });
       }
 
@@ -509,10 +511,11 @@ export class DOMToolkit {
       visible,
       viewport,
       max_rows,
-      maxScrollDistance
+      maxScrollDistance,
+      scrollContainer  // NEW: Support for nested scroll containers
     } = options;
 
-    console.log('[DOMToolkit] Starting auto-scroll capture');
+    console.log('[DOMToolkit] Starting auto-scroll capture', scrollContainer ? `in container: ${scrollContainer}` : 'in viewport');
     
     // Build initial overview
     let mergedOverview = await this.buildFullOverview(initialSnapshot, { 
@@ -524,22 +527,53 @@ export class DOMToolkit {
     
     // Add initial elements to seen set
     ['outline', 'interactives', 'headings'].forEach(category => {
-      if (mergedOverview[category]) {
-        mergedOverview[category].forEach(el => {
+      if (mergedOverview.sections && mergedOverview.sections[category]) {
+        mergedOverview.sections[category].forEach(el => {
           const key = `${el.tag}-${el.text || ''}-${el.attributes?.href || ''}`;
           seenElements.add(key);
         });
       }
     });
     
+    // Get initial scroll position
+    const startScrollPos = await page.evaluate((containerSel) => {
+      if (containerSel) {
+        const container = document.querySelector(containerSel);
+        return container ? container.scrollTop : 0;
+      }
+      return window.scrollY;
+    }, scrollContainer);
+    
     // Progressive scrolling
     let scrolled = 0;
     const scrollStep = 500;
-    const startScrollY = await page.evaluate(() => window.scrollY);
     
     while (scrolled < maxScrollDistance) {
       // Scroll down
-      await page.evaluate(step => window.scrollBy(0, step), scrollStep);
+      if (scrollContainer) {
+        // Verify container exists
+        const containerExists = await page.evaluate((sel) => {
+          return !!document.querySelector(sel);
+        }, scrollContainer);
+        
+        if (!containerExists) {
+          console.error(`[DOMToolkit] Scroll container "${scrollContainer}" not found`);
+          break;
+        }
+        
+        // Scroll the container
+        await page.evaluate((params) => {
+          const { sel, step } = params;
+          const container = document.querySelector(sel);
+          if (container) {
+            container.scrollTop += step;
+          }
+        }, { sel: scrollContainer, step: scrollStep });
+      } else {
+        // Scroll viewport
+        await page.evaluate(step => window.scrollBy(0, step), scrollStep);
+      }
+      
       scrolled += scrollStep;
       
       // Wait for DOM updates
@@ -553,39 +587,58 @@ export class DOMToolkit {
       
       // Merge unique elements
       ['outline', 'interactives', 'headings'].forEach(category => {
-        if (newOverview[category] && mergedOverview[category]) {
-          newOverview[category].forEach(el => {
+        if (newOverview.sections && newOverview.sections[category] && 
+            mergedOverview.sections && mergedOverview.sections[category]) {
+          newOverview.sections[category].forEach(el => {
             const key = `${el.tag}-${el.text || ''}-${el.attributes?.href || ''}`;
             if (!seenElements.has(key)) {
               seenElements.add(key);
-              mergedOverview[category].push(el);
+              mergedOverview.sections[category].push(el);
             }
           });
         }
       });
       
       // Check if we've reached the bottom
-      const atBottom = await page.evaluate(() => {
+      const atBottom = await page.evaluate((containerSel) => {
+        if (containerSel) {
+          const container = document.querySelector(containerSel);
+          return container ? 
+            container.scrollTop + container.clientHeight >= container.scrollHeight - 10 : 
+            true;
+        }
         return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
-      });
+      }, scrollContainer);
       
       if (atBottom) {
-        console.log('[DOMToolkit] Reached bottom of page');
+        console.log('[DOMToolkit] Reached bottom of', scrollContainer || 'page');
         break;
       }
     }
     
     // Restore original scroll position
-    await page.evaluate(scrollY => window.scrollTo(0, scrollY), startScrollY);
+    if (scrollContainer) {
+      await page.evaluate((params) => {
+        const { sel, scrollPos } = params;
+        const container = document.querySelector(sel);
+        if (container) {
+          container.scrollTop = scrollPos;
+        }
+      }, { sel: scrollContainer, scrollPos: startScrollPos });
+    } else {
+      await page.evaluate(scrollY => window.scrollTo(0, scrollY), startScrollPos);
+    }
     
     // Apply max_rows limits to merged results
-    ['outline', 'interactives', 'headings'].forEach(category => {
-      if (mergedOverview[category] && mergedOverview[category].length > max_rows) {
-        mergedOverview[category] = mergedOverview[category].slice(0, max_rows);
-      }
-    });
+    if (mergedOverview.sections) {
+      ['outline', 'interactives', 'headings'].forEach(category => {
+        if (mergedOverview.sections[category] && mergedOverview.sections[category].length > max_rows) {
+          mergedOverview.sections[category] = mergedOverview.sections[category].slice(0, max_rows);
+        }
+      });
+    }
     
-    console.log(`[DOMToolkit] Auto-scroll complete. Scrolled ${scrolled}px`);
+    console.log(`[DOMToolkit] Auto-scroll complete. Scrolled ${scrolled}px in ${scrollContainer || 'viewport'}`);
     return mergedOverview;
   }
 
