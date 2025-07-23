@@ -203,6 +203,10 @@ export function createToolDefinitions() {
                   description: {
                     type: 'string',
                     description: 'Human-readable description of what we\'re checking'
+                  },
+                  useShadowDOM: {
+                    type: 'boolean',
+                    description: 'Enable shadow DOM piercing for this rule. When true, selectors will traverse shadow boundaries using >> syntax.'
                   }
                 },
                 required: ['type', 'selector'],
@@ -225,6 +229,10 @@ export function createToolDefinitions() {
               type: 'number',
               description: 'For deterministic_extract: Maximum number of elements to extract (default: all)',
               minimum: 1
+            },
+            useShadowDOM: {
+              type: 'boolean',
+              description: 'For deterministic_extract: Enable shadow DOM piercing. When true, selectors will traverse shadow boundaries using >> syntax.'
             },
             onFailure: {
               type: 'string',
@@ -998,6 +1006,10 @@ export function createToolDefinitions() {
                   type: 'string', 
                   description: 'For type: Text to type'
                 },
+                useShadowDOM: {
+                  type: 'boolean',
+                  description: 'For click/type: Enable shadow DOM piercing. When true, selectors will traverse shadow boundaries using Playwright\'s >> syntax. Example: "shadow-host >> button" will find buttons inside shadow roots.'
+                },
                 key: {
                   type: 'string',
                   description: 'For keypress: Key to press (e.g., "F", "Enter", "Escape")'
@@ -1055,6 +1067,12 @@ export function createToolDefinitions() {
                   type: 'string',
                   enum: ['up', 'down', 'both'],
                   description: 'For scrollIntoView: Scroll direction. Use "up" for reverse timelines, "both" to search in both directions'
+                },
+                
+                // Shadow DOM support for scrolling
+                useShadowDOM: {
+                  type: 'boolean',
+                  description: 'For scrollIntoView: Enable shadow DOM piercing when finding elements to scroll to. When true, selectors will traverse shadow boundaries using >> syntax.'
                 },
                 
                 // Tab management

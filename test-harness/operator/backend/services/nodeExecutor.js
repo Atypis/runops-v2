@@ -1358,19 +1358,31 @@ export class NodeExecutor {
           switch (rule.type) {
             case 'element_exists':
               // Check if element exists using Playwright
-              const elementExists = await activePage.$(rule.selector);
+              // Handle shadow DOM if useShadowDOM is enabled
+              let elementSelector = rule.selector;
+              if (rule.useShadowDOM && !rule.selector.includes('>>')) {
+                // Convert selector to pierce shadow DOM
+                elementSelector = rule.selector.split(' ').join(' >> ');
+              }
+              const elementExists = await activePage.$(elementSelector);
               ruleResult.passed = !!elementExists;
               if (!ruleResult.passed) {
-                ruleResult.error = `Element not found: ${rule.selector}`;
+                ruleResult.error = `Element not found: ${rule.selector}${rule.useShadowDOM ? ' (with shadow DOM piercing)' : ''}`;
               }
               break;
               
             case 'element_absent':
               // Check if element does NOT exist
-              const elementAbsent = await activePage.$(rule.selector);
+              // Handle shadow DOM if useShadowDOM is enabled
+              let absentSelector = rule.selector;
+              if (rule.useShadowDOM && !rule.selector.includes('>>')) {
+                // Convert selector to pierce shadow DOM
+                absentSelector = rule.selector.split(' ').join(' >> ');
+              }
+              const elementAbsent = await activePage.$(absentSelector);
               ruleResult.passed = !elementAbsent;
               if (!ruleResult.passed) {
-                ruleResult.error = `Element should not exist but found: ${rule.selector}`;
+                ruleResult.error = `Element should not exist but found: ${rule.selector}${rule.useShadowDOM ? ' (with shadow DOM piercing)' : ''}`;
               }
               break;
               
@@ -1414,9 +1426,32 @@ export class NodeExecutor {
       try {
         // Use page.evaluate for deterministic extraction - wrap arguments in single object
         const extractedData = await activePage.evaluate((args) => {
-          const { selector, fields, limit } = args;
+          const { selector, fields, limit, useShadowDOM } = args;
           const items = [];
-          const elements = document.querySelectorAll(selector);
+          
+          // Helper function to query with shadow DOM support
+          const queryElements = (sel) => {
+            if (!useShadowDOM || !sel.includes('>>')) {
+              return document.querySelectorAll(sel);
+            }
+            
+            // Handle shadow DOM piercing with >> syntax
+            const parts = sel.split('>>').map(p => p.trim());
+            let elements = [document];
+            
+            for (const part of parts) {
+              const newElements = [];
+              for (const el of elements) {
+                const root = el.shadowRoot || el;
+                newElements.push(...root.querySelectorAll(part));
+              }
+              elements = newElements;
+            }
+            
+            return elements;
+          };
+          
+          const elements = queryElements(selector);
           const count = elements.length;
           const maxItems = limit || elements.length;
           
@@ -1467,7 +1502,7 @@ export class NodeExecutor {
           }
           
           return { items, count };
-        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null });
+        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null, useShadowDOM: config.useShadowDOM || false });
         
         console.log(`[BROWSER_QUERY] Extracted ${extractedData.items.length} items (total found: ${extractedData.count})`);
         

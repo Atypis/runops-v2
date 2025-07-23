@@ -14,6 +14,102 @@ export class BrowserActionService {
   }
 
   /**
+   * Process selector for shadow DOM piercing
+   * @param {string} selector - The original selector
+   * @param {boolean} useShadowDOM - Whether to enable shadow DOM piercing
+   * @returns {string} The processed selector
+   */
+  processShadowDOMSelector(selector, useShadowDOM) {
+    // If useShadowDOM is false, return original selector
+    if (!useShadowDOM) {
+      return selector;
+    }
+
+    // Check if selector already has pierce prefix
+    if (selector.startsWith('pierce/')) {
+      return selector;
+    }
+
+    // Check if selector uses Playwright's >> syntax for shadow piercing
+    if (selector.includes('>>')) {
+      return selector;
+    }
+
+    // Add pierce prefix for shadow DOM traversal
+    // In Playwright, we use >> to pierce shadow boundaries
+    // Convert standard selectors to shadow-piercing selectors
+    // Example: "div.shadow-host button" becomes "div.shadow-host >> button"
+    
+    // Parse selector to handle attribute selectors correctly
+    // We need to avoid splitting spaces inside [], (), or quotes
+    const parts = [];
+    let current = '';
+    let inBrackets = 0;
+    let inParens = 0;
+    let inQuotes = null;
+    let escaped = false;
+    
+    for (let i = 0; i < selector.length; i++) {
+      const char = selector[i];
+      
+      if (escaped) {
+        current += char;
+        escaped = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        escaped = true;
+        current += char;
+        continue;
+      }
+      
+      // Track quotes
+      if ((char === '"' || char === "'") && !inQuotes) {
+        inQuotes = char;
+        current += char;
+        continue;
+      } else if (char === inQuotes) {
+        inQuotes = null;
+        current += char;
+        continue;
+      }
+      
+      // Track brackets and parens (only when not in quotes)
+      if (!inQuotes) {
+        if (char === '[') inBrackets++;
+        else if (char === ']') inBrackets--;
+        else if (char === '(') inParens++;
+        else if (char === ')') inParens--;
+        
+        // Split on space only if not inside brackets, parens, or quotes
+        if (char === ' ' && inBrackets === 0 && inParens === 0) {
+          if (current.trim()) {
+            parts.push(current.trim());
+            current = '';
+          }
+          continue;
+        }
+      }
+      
+      current += char;
+    }
+    
+    // Add last part
+    if (current.trim()) {
+      parts.push(current.trim());
+    }
+    
+    // If only one part, no need for shadow piercing
+    if (parts.length <= 1) {
+      return selector;
+    }
+    
+    // Join with >> for shadow piercing
+    return parts.join(' >> ');
+  }
+
+  /**
    * Execute a browser action
    * @param {string} action - The action to perform
    * @param {object} config - Action-specific configuration
@@ -372,7 +468,7 @@ export class BrowserActionService {
   // ===== Interaction Actions =====
 
   async click(config) {
-    const { selector, tabName, timeout = 10000 } = config;
+    const { selector, tabName, timeout = 10000, useShadowDOM = false } = config;
     
     if (!selector) {
       throw new Error('click action requires selector parameter');
@@ -380,23 +476,27 @@ export class BrowserActionService {
     
     const page = await this.resolveTargetPage(tabName);
     
+    // Handle shadow DOM piercing
+    const effectiveSelector = this.processShadowDOMSelector(selector, useShadowDOM);
+    
     // Wait for element to be clickable
-    await page.waitForSelector(selector, { 
+    await page.waitForSelector(effectiveSelector, { 
       timeout,
       state: 'visible'
     });
     
     // Click the element
-    await page.click(selector);
+    await page.click(effectiveSelector);
     
     return { 
       clicked: selector,
+      effectiveSelector: effectiveSelector !== selector ? effectiveSelector : undefined,
       tab: tabName || this.nodeExecutor.activeTabName || 'main'
     };
   }
 
   async type(config) {
-    const { selector, text, tabName, timeout = 10000 } = config;
+    const { selector, text, tabName, timeout = 10000, useShadowDOM = false } = config;
     
     if (!selector || text === undefined) {
       throw new Error('type action requires selector and text parameters');
@@ -404,19 +504,23 @@ export class BrowserActionService {
     
     const page = await this.resolveTargetPage(tabName);
     
+    // Handle shadow DOM piercing
+    const effectiveSelector = this.processShadowDOMSelector(selector, useShadowDOM);
+    
     // Wait for element
-    await page.waitForSelector(selector, { 
+    await page.waitForSelector(effectiveSelector, { 
       timeout,
       state: 'visible' 
     });
     
     // Clear existing text and type new
-    await page.click(selector, { clickCount: 3 });
-    await page.type(selector, text);
+    await page.click(effectiveSelector, { clickCount: 3 });
+    await page.type(effectiveSelector, text);
     
     return { 
       typed: text,
       selector,
+      effectiveSelector: effectiveSelector !== selector ? effectiveSelector : undefined,
       tab: tabName || this.nodeExecutor.activeTabName || 'main'
     };
   }
@@ -702,7 +806,8 @@ export class BrowserActionService {
       scrollDirection = 'down',  // NEW: 'up', 'down', or 'both'
       tabName,
       timeout = 10000,
-      maxScrollAttempts = 30
+      maxScrollAttempts = 30,
+      useShadowDOM = false
     } = config;
     
     if (!scrollIntoViewSelector) {
@@ -732,31 +837,56 @@ export class BrowserActionService {
       }
     }
     
+    // Handle shadow DOM piercing
+    const effectiveSelector = this.processShadowDOMSelector(scrollIntoViewSelector, useShadowDOM);
+    
     // Strategy 1: Try direct scrollIntoView if element exists
     try {
-      await page.waitForSelector(scrollIntoViewSelector, { timeout: 2000, state: 'attached' });
+      await page.waitForSelector(effectiveSelector, { timeout: 2000, state: 'attached' });
       
       const scrolled = await page.evaluate((params) => {
-        const { sel, options } = params;
-        const element = document.querySelector(sel);
+        const { sel, options, useShadowDOM } = params;
+        
+        // Helper to query with shadow DOM support
+        const findElement = (selector) => {
+          if (!useShadowDOM || !selector.includes('>>')) {
+            return document.querySelector(selector);
+          }
+          
+          // Handle shadow DOM piercing
+          const parts = selector.split('>>').map(p => p.trim());
+          let current = document;
+          
+          for (const part of parts) {
+            if (!current) return null;
+            current = current.querySelector ? 
+              current.querySelector(part) : 
+              (current.shadowRoot ? current.shadowRoot.querySelector(part) : null);
+          }
+          
+          return current;
+        };
+        
+        const element = findElement(sel);
         if (element) {
           element.scrollIntoView(options);
           return true;
         }
         return false;
       }, {
-        sel: scrollIntoViewSelector,
+        sel: effectiveSelector,
         options: {
           behavior: scrollBehavior,
           block: scrollBlock, 
           inline: scrollInline
-        }
+        },
+        useShadowDOM
       });
       
       if (scrolled) {
         // Wait for scroll animation to complete and element to be visible
         await page.waitForTimeout(300); // Brief pause for smooth scrolling
-        await page.waitForSelector(scrollIntoViewSelector, { timeout: timeout - 2300, state: 'visible' });
+        await page.waitForSelector(effectiveSelector, { timeout: timeout - 2300, state: 'visible' });
         
         return {
           scrolledIntoView: scrollIntoViewSelector,

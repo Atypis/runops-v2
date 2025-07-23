@@ -43,7 +43,9 @@ export class DOMCapture {
         includeDOMRects: true,
         includeTextColorOpacities: false,
         includeBlendedBackgroundColors: false,
-        captureAreaScreenshot: false
+        captureAreaScreenshot: false,
+        includeShadowTree: true,  // Enable shadow DOM capture
+        includeShadowRoots: true  // Include shadow root nodes
       });
 
       // Process the raw snapshot into our optimized format
