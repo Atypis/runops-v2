@@ -1025,12 +1025,184 @@ export class NodeExecutor {
         };
         
       case 'keypress':
-        // Native keyboard press - faster than using act for simple keys
-        console.log(`[KEYPRESS] Pressing key: ${config.key}`);
+        // Enhanced keyboard press with modifier support and focus management
+        const { key, modifiers = [] } = config;
+        const keyCombo = modifiers.length > 0 ? `${modifiers.join('+')}+${key}` : key;
+        console.log(`[KEYPRESS] Pressing key combination: ${keyCombo}`);
+        
         const keypressPage = await getActiveStagehandPage();
-        await keypressPage.keyboard.press(config.key);
-        console.log(`[KEYPRESS] Key pressed: ${config.key}`);
-        return { pressed: config.key };
+        
+        // Ensure page has focus for reliable key event handling
+        await keypressPage.bringToFront();
+        
+        // Try to focus body as fallback if no element is focused
+        const currentFocus = await keypressPage.evaluate(() => document.activeElement?.tagName);
+        if (!currentFocus || currentFocus === 'HTML') {
+          try {
+            await keypressPage.focus('body');
+          } catch (focusError) {
+            // Fallback: click body to ensure focus
+            await keypressPage.click('body');
+          }
+        }
+        
+        // Multi-tier approach for maximum headless compatibility
+        console.log(`[KEYPRESS] Attempting keypress: ${keyCombo}`);
+        
+        try {
+          // Method 1: Locator-based approach (recommended by Playwright)
+          const bodyLocator = keypressPage.locator('body');
+          await bodyLocator.press(keyCombo);
+          console.log('[KEYPRESS] Locator press succeeded');
+        } catch (locatorError) {
+          console.log('[KEYPRESS] Locator press failed, trying page keyboard:', locatorError.message);
+          
+          try {
+            // Method 2: Page-level keyboard press
+            await keypressPage.keyboard.press(keyCombo);
+            console.log('[KEYPRESS] Page keyboard press succeeded');
+          } catch (keyboardError) {
+            console.log('[KEYPRESS] Page keyboard failed, using direct event dispatch:', keyboardError.message);
+            
+            // Method 3: CDP Raw Input (generates trusted events)
+            try {
+              console.log('[KEYPRESS] Using CDP Raw Input for trusted events');
+              const client = await keypressPage.context().newCDPSession(keypressPage);
+              
+              // Parse the key combination
+              const parts = keyCombo.split('+');
+              const key = parts[parts.length - 1];
+              const modifiers = parts.slice(0, -1);
+              
+              // Build modifier flags for CDP
+              const modifierFlags = [];
+              if (modifiers.includes('Alt')) modifierFlags.push('Alt');
+              if (modifiers.includes('Control') || modifiers.includes('ControlOrMeta')) modifierFlags.push('Ctrl');
+              if (modifiers.includes('Meta') || modifiers.includes('ControlOrMeta')) modifierFlags.push('Meta');
+              if (modifiers.includes('Shift')) modifierFlags.push('Shift');
+              
+              // Map key to CDP key code
+              const getKeyCode = (key) => {
+                if (key.length === 1) {
+                  return key.toUpperCase().charCodeAt(0);
+                }
+                const keyMap = {
+                  'Enter': 13, 'Escape': 27, 'Tab': 9, 'Space': 32,
+                  'ArrowUp': 38, 'ArrowDown': 40, 'ArrowLeft': 37, 'ArrowRight': 39,
+                  'F1': 112, 'F2': 113, 'F3': 114, 'F4': 115, 'F5': 116,
+                  'F6': 117, 'F7': 118, 'F8': 119, 'F9': 120, 'F10': 121,
+                  'F11': 122, 'F12': 123
+                };
+                return keyMap[key] || key.charCodeAt(0);
+              };
+              
+              const keyCode = getKeyCode(key);
+              const keyText = key.length === 1 ? key : '';
+              
+              const modifierBits = modifierFlags.reduce((acc, mod) => {
+                const modMap = { Alt: 1, Ctrl: 2, Meta: 4, Shift: 8 };
+                return acc | (modMap[mod] || 0);
+              }, 0);
+              
+              const code = key.length === 1 ? `Key${key.toUpperCase()}` : key;
+              
+              // 1️⃣ rawKeyDown → becomes DOM keydown (CRITICAL FIX)
+              await client.send('Input.dispatchKeyEvent', {
+                type: 'rawKeyDown',  // Changed from 'keyDown' to 'rawKeyDown'
+                key: key,
+                code: code,
+                keyCode: keyCode,
+                windowsVirtualKeyCode: keyCode,
+                modifiers: modifierBits
+              });
+              
+              // 2️⃣ char → becomes DOM keypress (for printable characters)
+              if (key.length === 1) {
+                await client.send('Input.dispatchKeyEvent', {
+                  type: 'char',
+                  key: key,
+                  code: code,
+                  text: keyText,
+                  unmodifiedText: keyText,  // Added unmodifiedText field
+                  keyCode: keyCode,
+                  windowsVirtualKeyCode: keyCode,
+                  modifiers: modifierBits
+                });
+              }
+              
+              // 3️⃣ keyUp → becomes DOM keyup
+              await client.send('Input.dispatchKeyEvent', {
+                type: 'keyUp',
+                key: key,
+                code: code,
+                keyCode: keyCode,
+                windowsVirtualKeyCode: keyCode,
+                modifiers: modifierBits
+              });
+              
+              await client.detach();
+              console.log('[KEYPRESS] CDP Raw Input completed successfully');
+              
+            } catch (cdpError) {
+              console.log('[KEYPRESS] CDP failed, falling back to direct dispatch:', cdpError.message);
+              
+              // Method 4: Enhanced JavaScript event dispatch (with full sequence)
+              await keypressPage.evaluate((keyCombo) => {
+                // Parse the key combination
+                const parts = keyCombo.split('+');
+                const key = parts[parts.length - 1];
+                const modifiers = parts.slice(0, -1);
+                
+                const eventOptions = {
+                  key: key,
+                  code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
+                  keyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : 
+                          key === 'Enter' ? 13 : key === 'Escape' ? 27 : 0,
+                  ctrlKey: modifiers.includes('Control') || modifiers.includes('ControlOrMeta'),
+                  altKey: modifiers.includes('Alt'),
+                  shiftKey: modifiers.includes('Shift'),
+                  metaKey: modifiers.includes('Meta') || modifiers.includes('ControlOrMeta'),
+                  bubbles: true,
+                  cancelable: true
+                };
+                
+                const target = document.activeElement || document.body;
+                
+                // Dispatch full three-phase sequence
+                target.dispatchEvent(new KeyboardEvent('keydown', eventOptions));
+                
+                // Add keypress for character keys (deprecated but some sites still use)
+                if (key.length === 1) {
+                  target.dispatchEvent(new KeyboardEvent('keypress', eventOptions));
+                }
+                
+                target.dispatchEvent(new KeyboardEvent('keyup', eventOptions));
+                
+                console.log('Enhanced keyboard events dispatched to:', target.tagName, eventOptions);
+              }, keyCombo);
+              console.log('[KEYPRESS] Enhanced event dispatch completed');
+            }
+          }
+        }
+        
+        // Capture debugging information
+        const debugInfo = await keypressPage.evaluate(() => ({
+          activeElement: {
+            tag: document.activeElement?.tagName || 'none',
+            id: document.activeElement?.id || '',
+            className: document.activeElement?.className || ''
+          },
+          hasFocus: document.hasFocus(),
+          url: window.location.href
+        }));
+        
+        console.log(`[KEYPRESS] Key combination pressed: ${keyCombo}`, debugInfo);
+        return { 
+          pressed: keyCombo, 
+          key, 
+          modifiers: modifiers || [],
+          focus: debugInfo
+        };
         
       case 'act':
         throw new Error('act action has been moved to browser_ai_action node type. Use browser_ai_action with action:"act" instead.');

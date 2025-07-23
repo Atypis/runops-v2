@@ -84,7 +84,15 @@ export function createToolDefinitions() {
             },
             key: {
               type: 'string',
-              description: 'For keypress: Key to press (e.g., "Enter", "Escape", "Tab")'
+              description: 'For keypress: Key to press (e.g., "F", "Enter", "Escape", "Tab")'
+            },
+            modifiers: {
+              type: 'array',
+              items: { 
+                type: 'string', 
+                enum: ['Shift', 'Alt', 'Control', 'Meta', 'ControlOrMeta'] 
+              },
+              description: 'For keypress: Optional modifier keys. ControlOrMeta = Cmd on Mac, Ctrl on Windows/Linux. Can combine multiple modifiers.'
             },
             profileName: {
               type: 'string',
@@ -992,7 +1000,15 @@ export function createToolDefinitions() {
                 },
                 key: {
                   type: 'string',
-                  description: 'For keypress: Key to press (e.g., "Enter", "Escape")'
+                  description: 'For keypress: Key to press (e.g., "F", "Enter", "Escape")'
+                },
+                modifiers: {
+                  type: 'array',
+                  items: { 
+                    type: 'string', 
+                    enum: ['Shift', 'Alt', 'Control', 'Meta', 'ControlOrMeta'] 
+                  },
+                  description: 'For keypress: Optional modifier keys. ControlOrMeta = Cmd on Mac, Ctrl on Windows/Linux. Can combine multiple modifiers.'
                 },
                 
                 // Scrolling
