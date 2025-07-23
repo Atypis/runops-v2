@@ -1092,6 +1092,18 @@ export class NodeExecutor {
           }
         }
         
+      case 'scrollIntoView':
+        // Import BrowserActionService to delegate scroll actions
+        const { BrowserActionService } = await import('./browserActionService.js');
+        const browserActionServiceForScroll = new BrowserActionService(this, workflowId, this.browserStateService);
+        return await browserActionServiceForScroll.scrollIntoView(config);
+        
+      case 'scrollToRow':
+        // Import BrowserActionService to delegate scroll actions
+        const { BrowserActionService: BAS } = await import('./browserActionService.js');
+        const browserActionServiceForRow = new BAS(this, workflowId, this.browserStateService);
+        return await browserActionServiceForRow.scrollToRow(config);
+        
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
     }

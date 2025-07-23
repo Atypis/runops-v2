@@ -57,6 +57,16 @@ export function createDOMExplorationTools() {
             include_full: {
               type: 'boolean',
               description: 'When using diff mode, also include the full overview sections (default: false)'
+            },
+            autoScroll: {
+              type: 'boolean',
+              description: 'Automatically scroll through the page to capture elements from virtualized content. When enabled, progressively scrolls and captures elements that only render when in view (default: false)'
+            },
+            maxScrollDistance: {
+              type: 'number',
+              description: 'Maximum distance to scroll in pixels when autoScroll is enabled (default: 5000)',
+              minimum: 500,
+              maximum: 50000
             }
           },
           additionalProperties: false
@@ -141,6 +151,20 @@ export function createDOMExplorationTools() {
             visible: {
               type: 'boolean',
               description: 'Only search visible elements (default: true)'
+            },
+            autoScroll: {
+              type: 'boolean',
+              description: 'Automatically scroll to search for elements not in current DOM. Useful for virtualized content where elements only exist when scrolled into view (default: false)'
+            },
+            maxScrollDistance: {
+              type: 'number',
+              description: 'Maximum distance to scroll in pixels when autoScroll is enabled (default: 5000)',
+              minimum: 500,
+              maximum: 50000
+            },
+            scrollContainer: {
+              type: 'string',
+              description: 'CSS selector for the scrollable container when autoScroll is enabled. If not provided, scrolls the main viewport.'
             }
           },
           required: ['query'],

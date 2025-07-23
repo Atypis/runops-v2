@@ -62,6 +62,12 @@ export class BrowserActionService {
         case 'keypress':
           return await this.keypress(config);
           
+        // Scrolling
+        case 'scrollIntoView':
+          return await this.scrollIntoView(config);
+        case 'scrollToRow':
+          return await this.scrollToRow(config);
+          
         // Profile management
         case 'listProfiles':
           return await this.listProfiles(config);
@@ -431,6 +437,359 @@ export class BrowserActionService {
       pressed: key,
       tab: tabName || this.nodeExecutor.activeTabName || 'main'
     };
+  }
+
+  // ===== Scrolling Actions =====
+
+  async scrollIntoView(config) {
+    const { 
+      scrollIntoViewSelector, 
+      scrollContainer,
+      scrollBehavior = 'smooth',
+      scrollBlock = 'start', 
+      scrollInline = 'nearest',
+      tabName,
+      timeout = 10000,
+      maxScrollAttempts = 30
+    } = config;
+    
+    if (!scrollIntoViewSelector) {
+      throw new Error('scrollIntoView action requires scrollIntoViewSelector parameter');
+    }
+    
+    const page = await this.resolveTargetPage(tabName);
+    const startTime = Date.now();
+    
+    // Strategy 1: Try direct scrollIntoView if element exists
+    try {
+      await page.waitForSelector(scrollIntoViewSelector, { timeout: 2000, state: 'attached' });
+      
+      const scrolled = await page.evaluate((params) => {
+        const { sel, options } = params;
+        const element = document.querySelector(sel);
+        if (element) {
+          element.scrollIntoView(options);
+          return true;
+        }
+        return false;
+      }, {
+        sel: scrollIntoViewSelector,
+        options: {
+          behavior: scrollBehavior,
+          block: scrollBlock, 
+          inline: scrollInline
+        }
+      });
+      
+      if (scrolled) {
+        // Wait for scroll animation to complete and element to be visible
+        await page.waitForTimeout(300); // Brief pause for smooth scrolling
+        await page.waitForSelector(scrollIntoViewSelector, { timeout: timeout - 2300, state: 'visible' });
+        
+        return {
+          scrolledIntoView: scrollIntoViewSelector,
+          method: 'direct',
+          behavior: scrollBehavior,
+          tab: tabName || this.nodeExecutor.activeTabName || 'main'
+        };
+      }
+    } catch (directError) {
+      console.log(`[BrowserActionService] Direct scrollIntoView failed, trying progressive scroll: ${directError.message}`);
+    }
+    
+    // Strategy 2: Progressive container scrolling for virtualized content
+    let attempt = 0;
+    const scrollStep = 500; // pixels per scroll
+    
+    while (attempt < maxScrollAttempts && (Date.now() - startTime) < timeout) {
+      attempt++;
+      
+      try {
+        // Check if element appeared
+        const exists = await page.evaluate((sel) => {
+          return !!document.querySelector(sel);
+        }, scrollIntoViewSelector);
+        
+        if (exists) {
+          // Element found! Now scroll it into view
+          await page.evaluate((params) => {
+            const { sel, options } = params;
+            const element = document.querySelector(sel);
+            if (element) {
+              element.scrollIntoView(options);
+            }
+          }, {
+            sel: scrollIntoViewSelector,
+            options: { behavior: scrollBehavior, block: scrollBlock, inline: scrollInline }
+          });
+          
+          await page.waitForTimeout(300); // Let scroll complete
+          await page.waitForSelector(scrollIntoViewSelector, { 
+            timeout: Math.max(1000, timeout - (Date.now() - startTime)), 
+            state: 'visible' 
+          });
+          
+          return {
+            scrolledIntoView: scrollIntoViewSelector,
+            method: 'progressive',
+            attempts: attempt,
+            behavior: scrollBehavior,
+            tab: tabName || this.nodeExecutor.activeTabName || 'main'
+          };
+        }
+      } catch (checkError) {
+        // Element still not found, continue scrolling
+        console.log(`[BrowserActionService] Scroll attempt ${attempt}/${maxScrollAttempts}: element not found yet`);
+      }
+      
+      // Scroll container or viewport
+      if (scrollContainer) {
+        const containerExists = await page.evaluate((containerSel) => {
+          return !!document.querySelector(containerSel);
+        }, scrollContainer);
+        
+        if (!containerExists) {
+          throw new Error(`Scroll container "${scrollContainer}" not found`);
+        }
+        
+        await page.evaluate((params) => {
+          const { containerSel, step } = params;
+          const container = document.querySelector(containerSel);
+          if (container) {
+            container.scrollTop += step;
+          }
+        }, { containerSel: scrollContainer, step: scrollStep });
+      } else {
+        // Scroll main viewport
+        await page.evaluate((step) => {
+          window.scrollBy(0, step);
+        }, scrollStep);
+      }
+      
+      // Brief pause for DOM updates in virtualized grids
+      await page.waitForTimeout(200);
+    }
+    
+    // Get final scroll position for diagnostics
+    const finalScrollInfo = await page.evaluate(() => {
+      return {
+        scrollY: window.scrollY,
+        scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight
+      };
+    });
+    
+    throw new Error(
+      `Failed to scroll element "${scrollIntoViewSelector}" into view after ${attempt} attempts. ` +
+      `Scrolled ${scrolled}px total. Final position: ${finalScrollInfo.scrollY}px / ${finalScrollInfo.scrollHeight}px total height. ` +
+      `Element may not exist or selector may be incorrect.`
+    );
+  }
+
+  async scrollToRow(config) {
+    const {
+      scrollContainer,
+      rowIndex,
+      rowHeight,  // NEW: Optional row height for precise scrolling
+      scrollBehavior = 'smooth',
+      tabName,
+      timeout = 10000,
+      maxScrollAttempts = 30
+    } = config;
+    
+    if (rowIndex === undefined || rowIndex === null) {
+      throw new Error('scrollToRow action requires rowIndex parameter');
+    }
+    
+    if (!scrollContainer) {
+      throw new Error('scrollToRow action requires scrollContainer parameter');
+    }
+    
+    const page = await this.resolveTargetPage(tabName);
+    
+    // Wait for container to exist
+    await page.waitForSelector(scrollContainer, { timeout, state: 'visible' });
+    
+    // Strategy: Progressive scrolling with grid type detection
+    const result = await page.evaluate(async (params) => {
+      const { containerSel, targetRow, rowHeight, behavior, maxAttempts } = params;
+      const container = document.querySelector(containerSel);
+      if (!container) return { success: false, error: 'Container not found' };
+      
+      // Helper function to wait
+      const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      
+      // If rowHeight is provided, use precise scrolling
+      if (rowHeight && rowHeight > 0) {
+        const targetScrollTop = targetRow * rowHeight;
+        
+        if (behavior === 'smooth') {
+          container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+        } else {
+          container.scrollTop = targetScrollTop;
+        }
+        
+        await wait(500); // Wait for scroll to complete
+        
+        // Verify if row is visible now
+        const rowSelectors = [
+          `[data-rowindex="${targetRow}"]`,
+          `[data-row-index="${targetRow}"]`,
+          `[data-row="${targetRow}"]`,
+          `tr:nth-child(${targetRow + 1})`
+        ];
+        
+        for (const selector of rowSelectors) {
+          const rowElement = container.querySelector(selector);
+          if (rowElement) {
+            return { 
+              success: true, 
+              method: 'precise-rowHeight', 
+              rowIndex: targetRow,
+              rowHeight: rowHeight,
+              scrollTop: targetScrollTop
+            };
+          }
+        }
+        
+        // If not found with precise scroll, continue with progressive approach
+      }
+      
+      // Detect common virtualized grid patterns
+      const isAgGrid = !!container.querySelector('.ag-center-cols-viewport');
+      const isReactWindow = !!container.querySelector('[style*="position: absolute"]');
+      const isAirtable = !!container.classList.contains('gridView') || !!container.querySelector('.gridView');
+      
+      // Try AG Grid API
+      if (isAgGrid) {
+        const gridElement = container.closest('.ag-root-wrapper');
+        if (gridElement && gridElement.__agGridReact) {
+          const gridApi = gridElement.__agGridReact.api;
+          if (gridApi && gridApi.ensureIndexVisible) {
+            gridApi.ensureIndexVisible(targetRow, 'middle');
+            await wait(500); // Wait for scroll animation
+            return { success: true, method: 'agGrid', rowIndex: targetRow };
+          }
+        }
+      }
+      
+      // Try Airtable-style scrolling
+      if (isAirtable) {
+        const estimatedRowHeight = 32; // Common Airtable row height
+        const targetScrollTop = targetRow * estimatedRowHeight;
+        
+        if (behavior === 'smooth') {
+          container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+        } else {
+          container.scrollTop = targetScrollTop;
+        }
+        
+        await wait(500);
+        return { success: true, method: 'airtable-estimated', rowIndex: targetRow, scrollTop: targetScrollTop };
+      }
+      
+      // Generic approach: Progressive scrolling
+      const scrollStep = Math.max(200, container.clientHeight * 0.5); // 50% of viewport per step
+      let attempts = 0;
+      
+      // Common row selectors
+      const rowSelectors = [
+        `[data-rowindex="${targetRow}"]`,
+        `[data-row-index="${targetRow}"]`,
+        `[data-row="${targetRow}"]`,
+        `[data-index="${targetRow}"]`,
+        `.row[data-index="${targetRow}"]`,
+        `tr:nth-child(${targetRow + 1})`, // nth-child is 1-based
+        `.dataRow:nth-child(${targetRow + 1})`
+      ];
+      
+      while (attempts < maxAttempts) {
+        // Check if target row is visible
+        for (const selector of rowSelectors) {
+          const rowElement = container.querySelector(selector);
+          if (rowElement) {
+            // Found it! Scroll into view
+            rowElement.scrollIntoView({ behavior, block: 'center' });
+            await wait(300);
+            return { 
+              success: true, 
+              method: 'progressive-found', 
+              rowIndex: targetRow, 
+              attempts: attempts + 1,
+              selector 
+            };
+          }
+        }
+        
+        // Not found, scroll further
+        container.scrollTop += scrollStep;
+        attempts++;
+        
+        // Wait for virtualized rendering
+        await wait(200);
+        
+        // Check if we've reached the end
+        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 10) {
+          // We're at the bottom, row doesn't exist
+          const visibleRows = container.querySelectorAll('[data-rowindex], [data-row-index], [data-row], tr, .row, .dataRow').length;
+          return { 
+            success: false, 
+            error: `Row ${targetRow} not found (reached end of scrollable content at scrollTop: ${container.scrollTop}px)`,
+            attempts,
+            diagnostics: {
+              containerHeight: container.clientHeight,
+              scrollHeight: container.scrollHeight,
+              finalScrollTop: container.scrollTop,
+              visibleRowCount: visibleRows
+            }
+          };
+        }
+      }
+      
+      // Final attempt failed - provide diagnostics
+      const visibleRows = container.querySelectorAll('[data-rowindex], [data-row-index], [data-row], tr, .row, .dataRow').length;
+      const estimatedCurrentRow = Math.floor(container.scrollTop / (scrollStep / attempts));
+      
+      return { 
+        success: false, 
+        error: `Row ${targetRow} not found after ${attempts} attempts. Estimated position: ~row ${estimatedCurrentRow}`,
+        diagnostics: {
+          containerHeight: container.clientHeight,
+          scrollHeight: container.scrollHeight,
+          finalScrollTop: container.scrollTop,
+          scrolledDistance: attempts * scrollStep,
+          visibleRowCount: visibleRows
+        }
+      };
+    }, {
+      containerSel: scrollContainer,
+      targetRow: rowIndex,
+      rowHeight: rowHeight,
+      behavior: scrollBehavior,
+      maxAttempts: maxScrollAttempts
+    });
+    
+    if (result.success) {
+      await this.updateBrowserState();
+      
+      return {
+        scrolledToRow: rowIndex,
+        container: scrollContainer, 
+        method: result.method,
+        attempts: result.attempts || 1,
+        selector: result.selector,
+        tab: tabName || this.nodeExecutor.activeTabName || 'main'
+      };
+    } else {
+      // Include diagnostics in error for better debugging
+      const errorMsg = result.error || `Failed to scroll to row ${rowIndex}`;
+      const error = new Error(errorMsg);
+      if (result.diagnostics) {
+        error.diagnostics = result.diagnostics;
+        console.log('[BrowserActionService] Scroll diagnostics:', result.diagnostics);
+      }
+      throw error;
+    }
   }
 
   // ===== Profile Management =====

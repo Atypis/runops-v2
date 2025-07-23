@@ -58,8 +58,8 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type'],
-              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. loadProfile intelligently loads from local or cloud.'
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type', 'scrollIntoView', 'scrollToRow'],
+              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. scrollIntoView/scrollToRow handle virtualized content. loadProfile intelligently loads from local or cloud.'
             },
             url: {
               type: 'string',
@@ -98,6 +98,45 @@ export function createToolDefinitions() {
             text: {
               type: 'string',
               description: 'For type: Text to type into the element'
+            },
+            scrollIntoViewSelector: {
+              type: 'string',
+              description: 'For scrollIntoView: CSS selector of element to scroll into view. Action will progressively scroll until element exists and is visible.'
+            },
+            scrollContainer: {
+              type: 'string',
+              description: 'For scrollIntoView/scrollToRow: Optional container selector to scroll within. If not provided, scrolls the main viewport.'
+            },
+            scrollBehavior: {
+              type: 'string',
+              enum: ['smooth', 'instant', 'auto'],
+              description: 'For scrollIntoView/scrollToRow: Scroll animation behavior (default: smooth)'
+            },
+            scrollBlock: {
+              type: 'string',
+              enum: ['start', 'center', 'end', 'nearest'],
+              description: 'For scrollIntoView: Vertical alignment of element after scrolling (default: start)'
+            },
+            scrollInline: {
+              type: 'string',
+              enum: ['start', 'center', 'end', 'nearest'],
+              description: 'For scrollIntoView: Horizontal alignment of element after scrolling (default: nearest)'
+            },
+            rowIndex: {
+              type: 'number',
+              description: 'For scrollToRow: Zero-based row index to scroll to. Supports common virtualized grids (AG-Grid, Airtable, etc.)',
+              minimum: 0
+            },
+            rowHeight: {
+              type: 'number',
+              description: 'For scrollToRow: Optional height of each row in pixels. If provided, enables precise single-jump scrolling. If omitted, uses progressive scrolling with estimation.',
+              minimum: 1
+            },
+            maxScrollAttempts: {
+              type: 'number',
+              description: 'For scrollIntoView/scrollToRow: Maximum scroll attempts before failing (default: 30)',
+              minimum: 1,
+              maximum: 100
             },
             store_variable: {
               type: 'boolean',
@@ -895,10 +934,12 @@ export function createToolDefinitions() {
                 'getCurrentUrl', 'getTitle',
                 // Interaction
                 'click', 'type', 'keypress',
+                // Scrolling
+                'scrollIntoView', 'scrollToRow',
                 // Profile management
                 'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile', 'loadProfile'
               ],
-              description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI).'
+              description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI). scrollIntoView/scrollToRow handle virtualized content.'
             },
             config: {
               type: 'object',
@@ -947,6 +988,47 @@ export function createToolDefinitions() {
                 key: {
                   type: 'string',
                   description: 'For keypress: Key to press (e.g., "Enter", "Escape")'
+                },
+                
+                // Scrolling
+                scrollIntoViewSelector: {
+                  type: 'string',
+                  description: 'For scrollIntoView: CSS selector of element to scroll into view'
+                },
+                scrollContainer: {
+                  type: 'string',
+                  description: 'For scrollIntoView/scrollToRow: Optional container selector. If not provided, scrolls main viewport'
+                },
+                scrollBehavior: {
+                  type: 'string',
+                  enum: ['smooth', 'instant', 'auto'],
+                  description: 'For scrollIntoView/scrollToRow: Scroll animation behavior (default: smooth)'
+                },
+                scrollBlock: {
+                  type: 'string',
+                  enum: ['start', 'center', 'end', 'nearest'],
+                  description: 'For scrollIntoView: Vertical alignment (default: start)'
+                },
+                scrollInline: {
+                  type: 'string',
+                  enum: ['start', 'center', 'end', 'nearest'],
+                  description: 'For scrollIntoView: Horizontal alignment (default: nearest)'
+                },
+                rowIndex: {
+                  type: 'number',
+                  description: 'For scrollToRow: Zero-based row index to scroll to',
+                  minimum: 0
+                },
+                rowHeight: {
+                  type: 'number',
+                  description: 'For scrollToRow: Optional row height in pixels for precise scrolling',
+                  minimum: 1
+                },
+                maxScrollAttempts: {
+                  type: 'number',
+                  description: 'For scrollIntoView/scrollToRow: Maximum attempts (default: 30)',
+                  minimum: 1,
+                  maximum: 100
                 },
                 
                 // Tab management

@@ -50,7 +50,9 @@ export class DOMToolkit {
       viewport = true,
       max_rows = 30,
       diff_from = null,
-      include_full = false
+      include_full = false,
+      autoScroll = false,
+      maxScrollDistance = 5000
     } = options;
     
     // Safety check: ensure max_rows is reasonable
@@ -87,8 +89,20 @@ export class DOMToolkit {
       // Store snapshot for future diffs
       this.snapshotStore.store(tabId, snapshot, snapshot.id);
 
-      // Build full overview
-      const overview = await this.buildFullOverview(snapshot, { filters, visible, viewport, max_rows: safeMaxRows, page });
+      // Handle autoScroll for virtualized content
+      let mergedOverview = null;
+      if (autoScroll && !diff_from) {
+        mergedOverview = await this.captureWithScroll(page, snapshot, {
+          filters,
+          visible,
+          viewport,
+          max_rows: safeMaxRows,
+          maxScrollDistance
+        });
+      }
+
+      // Build full overview (or use merged if we scrolled)
+      const overview = mergedOverview || await this.buildFullOverview(snapshot, { filters, visible, viewport, max_rows: safeMaxRows, page });
 
       // Build response
       const response = {
@@ -172,7 +186,10 @@ export class DOMToolkit {
       query = {},
       limit = 20,
       context = null,
-      visible = true
+      visible = true,
+      autoScroll = false,
+      maxScrollDistance = 5000,
+      scrollContainer = null
     } = options;
 
     try {
@@ -185,12 +202,26 @@ export class DOMToolkit {
       }
 
       // Use search filter
-      const searchResult = this.filters.search.search(snapshot, {
+      let searchResult = this.filters.search.search(snapshot, {
         query,
         limit,
         context,
         visible
       });
+
+      // If no matches and autoScroll is enabled, try progressive scrolling
+      if (autoScroll && searchResult.matchesFound === 0 && query.selector) {
+        const scrollResult = await this.searchWithScroll(page, {
+          query,
+          limit,
+          visible,
+          maxScrollDistance,
+          scrollContainer
+        });
+        if (scrollResult.success) {
+          searchResult = scrollResult.searchResult;
+        }
+      }
 
       // Generate selector hints for each match
       const matches = searchResult.elements.map(element => {
@@ -465,6 +496,199 @@ export class DOMToolkit {
           scroll_position: snapshot.viewport.scrollY,
           contentHeight: snapshot.viewport.contentHeight
         }
+      }
+    };
+  }
+
+  /**
+   * Capture DOM overview with progressive scrolling for virtualized content
+   */
+  async captureWithScroll(page, initialSnapshot, options) {
+    const {
+      filters,
+      visible,
+      viewport,
+      max_rows,
+      maxScrollDistance
+    } = options;
+
+    console.log('[DOMToolkit] Starting auto-scroll capture');
+    
+    // Build initial overview
+    let mergedOverview = await this.buildFullOverview(initialSnapshot, { 
+      filters, visible, viewport, max_rows, page 
+    });
+    
+    // Track unique elements to avoid duplicates
+    const seenElements = new Set();
+    
+    // Add initial elements to seen set
+    ['outline', 'interactives', 'headings'].forEach(category => {
+      if (mergedOverview[category]) {
+        mergedOverview[category].forEach(el => {
+          const key = `${el.tag}-${el.text || ''}-${el.attributes?.href || ''}`;
+          seenElements.add(key);
+        });
+      }
+    });
+    
+    // Progressive scrolling
+    let scrolled = 0;
+    const scrollStep = 500;
+    const startScrollY = await page.evaluate(() => window.scrollY);
+    
+    while (scrolled < maxScrollDistance) {
+      // Scroll down
+      await page.evaluate(step => window.scrollBy(0, step), scrollStep);
+      scrolled += scrollStep;
+      
+      // Wait for DOM updates
+      await page.waitForTimeout(200);
+      
+      // Capture new snapshot
+      const newSnapshot = await this.capture.captureSnapshot(page);
+      const newOverview = await this.buildFullOverview(newSnapshot, {
+        filters, visible: true, viewport: true, max_rows, page
+      });
+      
+      // Merge unique elements
+      ['outline', 'interactives', 'headings'].forEach(category => {
+        if (newOverview[category] && mergedOverview[category]) {
+          newOverview[category].forEach(el => {
+            const key = `${el.tag}-${el.text || ''}-${el.attributes?.href || ''}`;
+            if (!seenElements.has(key)) {
+              seenElements.add(key);
+              mergedOverview[category].push(el);
+            }
+          });
+        }
+      });
+      
+      // Check if we've reached the bottom
+      const atBottom = await page.evaluate(() => {
+        return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+      });
+      
+      if (atBottom) {
+        console.log('[DOMToolkit] Reached bottom of page');
+        break;
+      }
+    }
+    
+    // Restore original scroll position
+    await page.evaluate(scrollY => window.scrollTo(0, scrollY), startScrollY);
+    
+    // Apply max_rows limits to merged results
+    ['outline', 'interactives', 'headings'].forEach(category => {
+      if (mergedOverview[category] && mergedOverview[category].length > max_rows) {
+        mergedOverview[category] = mergedOverview[category].slice(0, max_rows);
+      }
+    });
+    
+    console.log(`[DOMToolkit] Auto-scroll complete. Scrolled ${scrolled}px`);
+    return mergedOverview;
+  }
+
+  /**
+   * Search with progressive scrolling for virtualized content
+   */
+  async searchWithScroll(page, options) {
+    const {
+      query,
+      limit,
+      visible,
+      maxScrollDistance,
+      scrollContainer
+    } = options;
+
+    console.log('[DOMToolkit] Starting scroll search for:', query);
+    
+    let scrolled = 0;
+    const scrollStep = 500;
+    const maxAttempts = Math.ceil(maxScrollDistance / scrollStep);
+    let attempt = 0;
+    
+    while (attempt < maxAttempts) {
+      attempt++;
+      
+      // Check if element exists
+      const exists = await page.evaluate((q) => {
+        if (q.selector) {
+          return !!document.querySelector(q.selector);
+        }
+        return false;
+      }, query);
+      
+      if (exists) {
+        // Element found! Capture snapshot and search
+        const snapshot = await this.capture.captureSnapshot(page);
+        const searchResult = this.filters.search.search(snapshot, {
+          query,
+          limit,
+          context: null,
+          visible
+        });
+        
+        if (searchResult.matchesFound > 0) {
+          console.log(`[DOMToolkit] Found element after ${attempt} scroll attempts`);
+          return {
+            success: true,
+            searchResult
+          };
+        }
+      }
+      
+      // Scroll container or viewport
+      if (scrollContainer) {
+        const containerExists = await page.evaluate((sel) => {
+          return !!document.querySelector(sel);
+        }, scrollContainer);
+        
+        if (!containerExists) {
+          console.error(`[DOMToolkit] Scroll container "${scrollContainer}" not found`);
+          break;
+        }
+        
+        await page.evaluate((params) => {
+          const { sel, step } = params;
+          const container = document.querySelector(sel);
+          if (container) {
+            container.scrollTop += step;
+          }
+        }, { sel: scrollContainer, step: scrollStep });
+      } else {
+        await page.evaluate(step => window.scrollBy(0, step), scrollStep);
+      }
+      
+      scrolled += scrollStep;
+      
+      // Wait for DOM updates
+      await page.waitForTimeout(200);
+      
+      // Check if we've reached the bottom
+      const atBottom = await page.evaluate((containerSel) => {
+        if (containerSel) {
+          const container = document.querySelector(containerSel);
+          return container ? 
+            container.scrollTop + container.clientHeight >= container.scrollHeight - 10 : 
+            true;
+        }
+        return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+      }, scrollContainer);
+      
+      if (atBottom) {
+        console.log('[DOMToolkit] Reached bottom, element not found');
+        break;
+      }
+    }
+    
+    return {
+      success: false,
+      searchResult: {
+        elements: [],
+        matchesFound: 0,
+        totalSearched: 0,
+        truncated: false
       }
     };
   }
