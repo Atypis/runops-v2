@@ -1,3 +1,3 @@
-import { DIRECTOR_SYSTEM_PROMPT_V3 } from './directorPromptV3.js';
+import { directorPromptV4 } from './directorPromptV4.js';
 
-export const CLEAN_DIRECTOR_SYSTEM_PROMPT = DIRECTOR_SYSTEM_PROMPT_V3;
+export const CLEAN_DIRECTOR_SYSTEM_PROMPT = directorPromptV4;

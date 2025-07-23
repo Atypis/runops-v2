@@ -20,7 +20,7 @@ export function createToolDefinitions() {
             },
             schema: {
               type: 'object',
-              description: 'Required JSON schema defining the output format. Use {type: "string"} for simple text extraction, or define an object with properties for structured content.',
+              description: 'Required JSON schema defining the output format. Use {type: "string"} for simple text extraction, or define an object with properties for structured content. AI outputs are automatically validated and coerced to match this schema (e.g., object→array conversion, string→number, case correction).',
               additionalProperties: true
             },
             targetElement: {
@@ -220,7 +220,7 @@ export function createToolDefinitions() {
           properties: {
             over: {
               type: 'string',
-              description: 'Reference to array to iterate over. Use {{alias.property}} syntax for stored variables (e.g., "{{extract_emails.emails}}"). Direct state paths also supported for backward compatibility (e.g., "state.items").'
+              description: 'Reference to array to iterate over. Use {{alias.property}} syntax for stored variables (e.g., "{{extract_emails.emails}}"). Direct state paths also supported for backward compatibility (e.g., "state.items"). Will throw a clear error if the value is not an array.'
             },
             variable: {
               type: 'string',
@@ -318,7 +318,7 @@ export function createToolDefinitions() {
             },
             schema: {
               type: 'object',
-              description: 'Required JSON Schema defining the output format. Must include at least a "type" property. Common examples: {type: "string"}, {type: "boolean"}, {type: "object", properties: {...}}, {type: "array", items: {...}}',
+              description: 'Required JSON Schema defining the output format. Must include at least a "type" property. Common examples: {type: "string"}, {type: "boolean"}, {type: "object", properties: {...}}, {type: "array", items: {...}}. AI outputs are automatically validated and coerced to match this schema (e.g., object→array conversion, string→number, case correction).',
               additionalProperties: true
             },
             store_variable: {

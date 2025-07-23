@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import BrowserStateService from './browserStateService.js';
 import visualObservationService from './visualObservationService.js';
+import { SchemaValidator } from './schemaValidator.js';
 
 export class NodeExecutor {
   constructor(sharedBrowserStateService = null) {
@@ -1400,8 +1401,32 @@ IMPORTANT: Extract only the human-readable text content that is visible on the p
     console.log(`[BROWSER_AI_EXTRACT] Calling extract with Zod schema`);
     
     try {
-      const extractResult = await activePage.extract(extractOptions);
+      let extractResult = await activePage.extract(extractOptions);
       console.log(`[BROWSER_AI_EXTRACT] Extract result:`, JSON.stringify(extractResult, null, 2));
+      
+      // NEW: Validate and coerce if schema exists
+      if (config.schema) {
+        const validation = SchemaValidator.validateAndCoerce(
+          extractResult,
+          effectiveSchema, // Use effectiveSchema since we may have wrapped it
+          {
+            nodeType: 'BROWSER_AI_EXTRACT',
+            nodeAlias: config.alias,
+            position: this.currentNodePosition
+          }
+        );
+        
+        if (!validation.success) {
+          throw new Error(validation.error);
+        }
+        
+        // Log coercion if it happened
+        if (validation.coerced) {
+          console.log(`[BROWSER_AI_EXTRACT] Type coercion applied for ${config.alias || `node${this.currentNodePosition}`}`);
+        }
+        
+        extractResult = validation.data;
+      }
       
       // If we wrapped a primitive or array schema, unwrap the result
       if (isPrimitiveOrArraySchema && extractResult && typeof extractResult === 'object' && 'value' in extractResult) {
@@ -1411,6 +1436,10 @@ IMPORTANT: Extract only the human-readable text content that is visible on the p
       
       return extractResult;
     } catch (error) {
+      // Enhanced error message for schema validation failures
+      if (error.message && error.message.includes('Schema validation failed')) {
+        throw error; // Already formatted
+      }
       console.error(`[BROWSER_AI_EXTRACT] Extract failed:`, error);
       console.error(`[BROWSER_AI_EXTRACT] Error stack:`, error.stack);
       throw new Error(`Failed to extract content: ${error.message}`);
@@ -1558,7 +1587,38 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
 
     const response = completion.choices[0].message.content;
     
-    return config.schema ? JSON.parse(response) : response;
+    // Parse JSON response if schema is provided
+    let parsedResponse = response;
+    if (config.schema) {
+      try {
+        parsedResponse = JSON.parse(response);
+      } catch (error) {
+        throw new Error(`Failed to parse JSON response from cognition: ${error.message}`);
+      }
+      
+      // NEW: Validate and coerce
+      const validation = SchemaValidator.validateAndCoerce(
+        parsedResponse,
+        config.schema,
+        {
+          nodeType: 'COGNITION',
+          nodeAlias: config.alias,
+          position: this.currentNodePosition
+        }
+      );
+      
+      if (!validation.success) {
+        throw new Error(validation.error);
+      }
+      
+      if (validation.coerced) {
+        console.log(`[COGNITION] Type coercion applied for ${config.alias || `node${this.currentNodePosition}`}`);
+      }
+      
+      parsedResponse = validation.data;
+    }
+    
+    return parsedResponse;
   }
 
   async executeMemory(config, workflowId) {
@@ -2367,7 +2427,19 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     }
     
     if (!Array.isArray(collection)) {
-      return { results: [], errors: [], processed: 0, total: 0 };
+      const actualType = collection === null ? 'null' : 
+                        collection === undefined ? 'undefined' :
+                        Array.isArray(collection) ? 'array' : 
+                        typeof collection;
+      const variableInfo = config.over;
+      
+      throw new Error(
+        `Iterate node expected an array but received ${actualType} for "${variableInfo}". ` +
+        `This often happens when AI extraction returns an object instead of an array. ` +
+        `Consider updating the extraction schema to ensure it returns an array, ` +
+        `or check if the variable exists and contains the expected data structure. ` +
+        `Received value: ${JSON.stringify(collection).substring(0, 100)}...`
+      );
     }
     
     

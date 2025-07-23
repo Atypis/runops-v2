@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { Stagehand } from '@browserbasehq/stagehand';
-import { DIRECTOR_SYSTEM_PROMPT_V3 as DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPromptV3.js';
+import { directorPromptV4 as DIRECTOR_SYSTEM_PROMPT } from '../prompts/directorPromptV4.js';
 import { CLEAN_DIRECTOR_SYSTEM_PROMPT } from '../prompts/cleanDirectorPrompt.js';
 import { createToolDefinitions } from '../tools/toolDefinitionsV2.js';
 import { NodeExecutor } from './nodeExecutor.js';
