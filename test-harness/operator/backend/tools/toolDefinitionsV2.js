@@ -93,7 +93,7 @@ export function createToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'For click/type: CSS selector of the element to interact with'
+              description: 'For click/type: Standard CSS selector that works with document.querySelector(). Pseudo-selectors like :has-text() are NOT supported. For text-based selection, use dom_search first to find the element.'
             },
             text: {
               type: 'string',
@@ -101,7 +101,7 @@ export function createToolDefinitions() {
             },
             scrollIntoViewSelector: {
               type: 'string',
-              description: 'For scrollIntoView: CSS selector of element to scroll into view. Handles virtualized content by progressively scrolling until element renders in DOM. Use with scrollContainer for nested scrollable areas (e.g. ".ReactVirtualized__Grid").'
+              description: 'For scrollIntoView: Standard CSS selector that works with document.querySelector(). Pseudo-selectors like :has-text() are NOT supported. For text-based selection, use dom_search first. Handles virtualized content by progressively scrolling until element renders in DOM.'
             },
             scrollContainer: {
               type: 'string',
@@ -984,7 +984,7 @@ export function createToolDefinitions() {
                 // Interaction
                 selector: {
                   type: 'string',
-                  description: 'For click/type: CSS selector of element'
+                  description: 'For click/type: Standard CSS selector that works with document.querySelector(). Pseudo-selectors like :has-text() are NOT supported.'
                 },
                 text: {
                   type: 'string', 
@@ -998,7 +998,7 @@ export function createToolDefinitions() {
                 // Scrolling
                 scrollIntoViewSelector: {
                   type: 'string',
-                  description: 'For scrollIntoView: CSS selector of element to scroll into view'
+                  description: 'For scrollIntoView: Standard CSS selector that works with document.querySelector(). Pseudo-selectors like :has-text() are NOT supported.'
                 },
                 scrollContainer: {
                   type: 'string',

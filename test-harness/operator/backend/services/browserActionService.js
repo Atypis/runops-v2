@@ -532,6 +532,17 @@ export class BrowserActionService {
       throw new Error('scrollIntoView action requires scrollIntoViewSelector parameter');
     }
     
+    // Check for common pseudo-selectors that won't work with querySelector
+    const pseudoSelectors = [':has-text(', ':text(', ':visible', ':hidden', ':contains('];
+    const foundPseudo = pseudoSelectors.find(pseudo => scrollIntoViewSelector.includes(pseudo));
+    if (foundPseudo) {
+      throw new Error(
+        `Playwright/jQuery pseudo-selectors like "${foundPseudo}" are not supported. ` +
+        `The selector must be valid CSS that works with document.querySelector(). ` +
+        `For text-based selection, use dom_search first to find the element, then use its ID or a standard CSS selector.`
+      );
+    }
+    
     const page = await this.resolveTargetPage(tabName);
     const startTime = Date.now();
     

@@ -800,6 +800,18 @@ export class NodeExecutor {
         if (!config.selector) {
           throw new Error('click action requires selector parameter');
         }
+        
+        // Check for pseudo-selectors that won't work with native querySelector
+        const clickPseudos = [':has-text(', ':text(', ':visible', ':hidden', ':contains('];
+        const foundClickPseudo = clickPseudos.find(pseudo => config.selector.includes(pseudo));
+        if (foundClickPseudo) {
+          throw new Error(
+            `Playwright/jQuery pseudo-selectors like "${foundClickPseudo}" are not supported. ` +
+            `Use standard CSS selectors that work with document.querySelector(). ` +
+            `For text-based selection, use dom_search first to find the element.`
+          );
+        }
+        
         const clickPage = await getActiveStagehandPage();
         await clickPage.waitForSelector(config.selector, { 
           timeout: config.timeout || 10000,
@@ -813,6 +825,18 @@ export class NodeExecutor {
         if (!config.selector || config.text === undefined) {
           throw new Error('type action requires selector and text parameters');
         }
+        
+        // Check for pseudo-selectors that won't work with native querySelector
+        const typePseudos = [':has-text(', ':text(', ':visible', ':hidden', ':contains('];
+        const foundTypePseudo = typePseudos.find(pseudo => config.selector.includes(pseudo));
+        if (foundTypePseudo) {
+          throw new Error(
+            `Playwright/jQuery pseudo-selectors like "${foundTypePseudo}" are not supported. ` +
+            `Use standard CSS selectors that work with document.querySelector(). ` +
+            `For text-based selection, use dom_search first to find the element.`
+          );
+        }
+        
         const typePage = await getActiveStagehandPage();
         await typePage.waitForSelector(config.selector, { 
           timeout: config.timeout || 10000,
