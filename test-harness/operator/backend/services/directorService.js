@@ -410,7 +410,7 @@ export class DirectorService {
     }
   }
 
-  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId, accumulatedToolResults = [], signal) {
+  async processResponsesAPIWithControlLoop(response, workflowId, model, previousResponseId, accumulatedToolResults = [], signal, isCompressionRequest = false) {
     // Process the response from the Responses API
     const output = response.output || [];
     
@@ -605,7 +605,7 @@ export class DirectorService {
           
           // Process the response recursively, passing accumulated tool results
           const allToolResults = [...accumulatedToolResults, ...toolResults];
-          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id, allToolResults, signal);
+          return await this.processResponsesAPIWithControlLoop(toolResponse, workflowId, model, toolResponse.id, allToolResults, signal, isCompressionRequest);
         } catch (error) {
           console.error('[CLEAN CONTEXT] Error submitting tool outputs:', error);
           // Fall through to return current results
@@ -616,16 +616,20 @@ export class DirectorService {
     // Combine accumulated results with current results
     const allToolResults = [...accumulatedToolResults, ...toolResults];
     
-    // Save response ID only if this is a final response (no pending tool calls)
+    // Save response ID only if this is a final response (no pending tool calls) AND not a compression request
     // This prevents intermediate tool responses from being used as conversation checkpoints
-    if (response.id && functionCallItems.length === 0) {
-      // This is a final response with no more tool calls
-      await this.saveResponseId(workflowId, response.id, 'completed');
-      console.log('[CLEAN CONTEXT] Saved final response ID (no pending tools):', response.id);
-    } else if (response.id && functionCallItems.length > 0 && signal?.aborted) {
-      // Cancelled during tool execution
-      await this.saveResponseId(workflowId, response.id, 'cancelled');
-      console.log('[CLEAN CONTEXT] Saved cancelled response ID:', response.id);
+    if (!isCompressionRequest) {
+      if (response.id && functionCallItems.length === 0) {
+        // This is a final response with no more tool calls
+        await this.saveResponseId(workflowId, response.id, 'completed');
+        console.log('[CLEAN CONTEXT] Saved final response ID (no pending tools):', response.id);
+      } else if (response.id && functionCallItems.length > 0 && signal?.aborted) {
+        // Cancelled during tool execution
+        await this.saveResponseId(workflowId, response.id, 'cancelled');
+        console.log('[CLEAN CONTEXT] Saved cancelled response ID:', response.id);
+      }
+    } else {
+      console.log('[CLEAN CONTEXT] Skipping response ID save for compression request');
     }
     
     // Prepare response
@@ -679,10 +683,17 @@ export class DirectorService {
       
       // Get previous response ID for stateful context
       // Use forkFromResponseId if provided (for message editing), otherwise get the last completed one
-      const previousResponseId = forkFromResponseId || await this.getLastCompletedResponseId(workflowId);
-      console.log('[CLEAN CONTEXT] Previous response ID:', previousResponseId || 'None (fresh start)');
-      if (forkFromResponseId) {
-        console.log('[CLEAN CONTEXT] Forking from specified response ID:', forkFromResponseId);
+      let previousResponseId;
+      if (isCompressionRequest) {
+        // Compression requests should start fresh - no previous context
+        previousResponseId = null;
+        console.log('[CLEAN CONTEXT] Compression request - starting fresh with no previous response ID');
+      } else {
+        previousResponseId = forkFromResponseId || await this.getLastCompletedResponseId(workflowId);
+        console.log('[CLEAN CONTEXT] Previous response ID:', previousResponseId || 'None (fresh start)');
+        if (forkFromResponseId) {
+          console.log('[CLEAN CONTEXT] Forking from specified response ID:', forkFromResponseId);
+        }
       }
       
       // Convert tools to Responses API format
@@ -697,6 +708,20 @@ export class DirectorService {
         stream: false,
         store: true  // Always store for stateful context
       };
+      
+      // Check if we need to inject context after compression
+      if (!previousResponseId && !isCompressionRequest) {
+        console.log('[CLEAN CONTEXT] No previous response ID - checking for compression context');
+        const enrichedContent = await this.buildPostCompressionContext(workflowId, message);
+        if (enrichedContent) {
+          requestParams.input[0].content = enrichedContent;
+          console.log('[CLEAN CONTEXT] Injected post-compression context');
+          console.log('[CLEAN CONTEXT] Original message length:', message.length);
+          console.log('[CLEAN CONTEXT] Enriched content length:', enrichedContent.length);
+        } else {
+          console.log('[CLEAN CONTEXT] No compression context to inject');
+        }
+      }
       
       // Add previous response ID if available
       if (previousResponseId) {
@@ -720,7 +745,7 @@ export class DirectorService {
       }
       
       // Process response with control loop
-      const result = await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId, [], signal);
+      const result = await this.processResponsesAPIWithControlLoop(finalResponse, workflowId, selectedModel, previousResponseId, [], signal, isCompressionRequest);
       
       // The response saving is now handled within processResponsesAPIWithControlLoop
       // to ensure we only save responses that don't have pending tool calls
@@ -4106,9 +4131,10 @@ export class DirectorService {
    */
   async getLastCompletedResponseId(workflowId) {
     try {
+      // Get the most recent completed response
       const { data, error } = await this.supabase
         .from('workflow_response_ids')
-        .select('response_id, status')
+        .select('response_id, status, created_at')
         .eq('workflow_id', workflowId)
         .eq('status', 'completed')
         .order('created_at', { ascending: false })
@@ -4117,11 +4143,17 @@ export class DirectorService {
       
       if (error) {
         if (error.code === 'PGRST116') {
-          // No completed rows found - fall back to any response ID
+          // No completed rows found
           console.log('[FORK SUPPORT] No completed response found, falling back to any response');
           return this.getLastResponseId(workflowId);
         }
         console.error('[FORK SUPPORT] Error loading last completed response ID:', error);
+        return null;
+      }
+      
+      // Check if this is a compression marker
+      if (data?.response_id?.startsWith('COMPRESSION_MARKER_')) {
+        console.log('[COMPRESSION] Found compression marker - starting fresh');
         return null;
       }
       
@@ -4238,5 +4270,118 @@ export class DirectorService {
       }
     }
     return '';
+  }
+
+  /**
+   * Reset response tracking after compression to start fresh
+   */
+  async resetResponseTracking(workflowId) {
+    try {
+      // Insert special marker to indicate fresh start after compression
+      // Use 'completed' status with special response_id pattern
+      const { error } = await this.supabase
+        .from('workflow_response_ids')
+        .insert({
+          workflow_id: workflowId,
+          response_id: 'COMPRESSION_MARKER_' + Date.now(),
+          status: 'completed',
+          created_at: new Date().toISOString()
+        });
+      
+      if (error) {
+        console.error('[COMPRESSION] Error resetting response tracking:', error);
+      } else {
+        console.log(`[COMPRESSION] Reset response tracking for workflow ${workflowId}`);
+      }
+    } catch (error) {
+      console.error('[COMPRESSION] Error resetting response tracking:', error);
+    }
+  }
+
+  /**
+   * Build context to inject after compression
+   */
+  async buildPostCompressionContext(workflowId, userMessage) {
+    try {
+      console.log('[COMPRESSION] Checking for compression context to inject...');
+      
+      // Check if there's a compression marker
+      const { data: compressionMarker } = await this.supabase
+        .from('workflow_response_ids')
+        .select('response_id, status, created_at')
+        .eq('workflow_id', workflowId)
+        .like('response_id', 'COMPRESSION_MARKER_%')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      console.log('[COMPRESSION] Compression marker check:', compressionMarker);
+      
+      if (!compressionMarker) {
+        console.log('[COMPRESSION] No compression marker found - no injection needed');
+        return null; // No context injection needed
+      }
+      
+      console.log('[COMPRESSION] Found compression marker - preparing context injection');
+      
+      // Get compressed summary
+      const { data: compression } = await this.supabase
+        .from('compressed_contexts')
+        .select('summary')
+        .eq('workflow_id', workflowId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (!compression) {
+        console.log('[COMPRESSION] No compressed context found');
+        return null;
+      }
+      
+      // Build context parts
+      const parts = [`[COMPRESSED CONTEXT]\n${compression.summary}`];
+      
+      // Add workflow description
+      const description = await this.workflowDescriptionService.getCurrentDescription(workflowId);
+      if (description) {
+        parts.push(`[WORKFLOW DESCRIPTION]\n${this.workflowDescriptionService.getDescriptionSummary(description.description_data)}`);
+      }
+      
+      // Add current plan
+      const plan = await this.planService.getCurrentPlan(workflowId);
+      if (plan) {
+        parts.push(`[CURRENT PLAN]\n${this.planService.getPlanSummary(plan.plan_data)}`);
+      }
+      
+      // Add workflow nodes
+      const workflowContext = await this.getWorkflowContext(workflowId);
+      if (workflowContext?.nodes?.length > 0) {
+        const nodesSummary = workflowContext.nodes
+          .map(n => `${n.position}. ${n.type} - ${n.description || 'No description'} (${n.status})`)
+          .join('\n');
+        parts.push(`[WORKFLOW NODES]\n${nodesSummary}`);
+      }
+      
+      // Combine with user message
+      console.log(`[COMPRESSION] Injecting ${parts.length} context sections`);
+      
+      // Mark compression as consumed by deleting the marker
+      // (we can't update the response_id, so we'll delete it)
+      console.log('[COMPRESSION] Deleting compression marker to prevent re-use');
+      const { error: deleteError } = await this.supabase
+        .from('workflow_response_ids')
+        .delete()
+        .eq('workflow_id', workflowId)
+        .like('response_id', 'COMPRESSION_MARKER_%');
+      
+      if (deleteError) {
+        console.error('[COMPRESSION] Error deleting marker:', deleteError);
+      }
+      
+      return parts.join('\n\n') + '\n\n[USER MESSAGE]\n' + userMessage;
+    } catch (error) {
+      console.error('[COMPRESSION] Error building post-compression context:', error);
+      return null;
+    }
   }
 }

@@ -1005,8 +1005,8 @@ router.post('/compress-context', async (req, res, next) => {
       .limit(1)
       .single();
     
-    // Build compression context
-    const compressionContext = await directorService.buildCompressionContext(workflowId);
+    // Note: We no longer need to build compression context since Clean Context 2.0 
+    // retrieves context on demand rather than injecting it
     
     // Create compression prompt
     const compressionPrompt = `You are the Director, an AI Workflow Automation Engineer who has been working with the user to build browser automations. 
@@ -1030,13 +1030,11 @@ YOUR CRITICAL TASK:
    - The current state of the work
    - What remains to be done
 
-IMPORTANT: The following context will persist and be shown to the next Director (so DON'T repeat these):
-1. System Prompt (your core instructions)
-2. Workflow Description (the requirements)
-3. Current Plan (implementation roadmap)  
-4. Workflow Snapshot (all created nodes)
-5. Workflow Variables (current state)
-6. Browser State (active tabs)
+IMPORTANT: The following context will be available to the next Director via context injection:
+1. Your compressed summary (injected automatically)
+2. Workflow Description (retrieved from database)
+3. Current Plan (retrieved from database)  
+4. Workflow Nodes (retrieved from database)
 
 WHAT TO EXTRACT FROM THE CONVERSATION:
 - The user's initial request and how it evolved
@@ -1055,20 +1053,15 @@ Write your summary as if briefing your replacement who needs to understand the F
 RECENT CONVERSATION HISTORY TO COMPRESS (${conversationHistory.length} messages since last compression):
 ================================================================================
 
-${conversationService.formatMessagesForDisplay(conversationHistory).map(msg => `${msg.role.toUpperCase()}: ${msg.content}`).join('\n\n')}
-
-================================================================================
-PERSISTENT CONTEXT (FYI - this will remain available):
-================================================================================
-
-${compressionContext}`;
+${conversationService.formatMessagesForDisplay(conversationHistory).map(msg => `${msg.role.toUpperCase()}: ${msg.content}`).join('\n\n')}`;
     
     // Process with Director
     const compressionResponse = await directorService.processMessage({
       message: compressionPrompt,
       workflowId,
       conversationHistory: [],
-      isCompressionRequest: true
+      isCompressionRequest: true,
+      selectedModel: req.body.selectedModel || 'gpt-4o'
     });
     
     // Save compressed context to database
@@ -1107,6 +1100,9 @@ ${compressionContext}`;
         .update({ is_archived: true })
         .in('id', messageIds);
     }
+    
+    // Reset response tracking for fresh start after compression
+    await directorService.resetResponseTracking(workflowId);
     
     // Save the compressed summary as a special message
     await conversationService.saveMessage(
