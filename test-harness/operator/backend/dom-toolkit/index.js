@@ -670,6 +670,7 @@ export class DOMToolkit {
     } = options;
 
     console.log('[DOMToolkit] Starting scroll search for:', query);
+    console.log(`[DOMToolkit] Max scroll distance: ${maxScrollDistance}px, container: ${scrollContainer || 'viewport'}`);
     
     let scrolled = 0;
     const scrollStep = 500;
@@ -680,32 +681,31 @@ export class DOMToolkit {
     while (attempt < maxAttempts) {
       attempt++;
       
-      // Check if element exists
-      const exists = await page.evaluate((q) => {
-        if (q.selector) {
-          return !!document.querySelector(q.selector);
-        }
-        return false;
-      }, query);
+      // For each scroll attempt, capture snapshot and search
+      const snapshot = await this.capture.captureSnapshot(page);
+      const searchResult = this.filters.search.search(snapshot, {
+        query,
+        limit,
+        context: null,
+        visible
+      });
       
-      if (exists) {
-        // Element found! Capture snapshot and search
-        const snapshot = await this.capture.captureSnapshot(page);
-        const searchResult = this.filters.search.search(snapshot, {
-          query,
-          limit,
-          context: null,
-          visible
-        });
-        
-        if (searchResult.matchesFound > 0) {
-          console.log(`[DOMToolkit] Found element after ${attempt} scroll attempts`);
-          return {
-            success: true,
-            searchResult
-          };
-        }
+      if (searchResult.matchesFound > 0) {
+        console.log(`[DOMToolkit] Found element after ${attempt} scroll attempts`);
+        return {
+          success: true,
+          searchResult
+        };
       }
+      
+      // Get scroll position before
+      const scrollBefore = await page.evaluate((containerSel) => {
+        if (containerSel) {
+          const container = document.querySelector(containerSel);
+          return container ? container.scrollTop : 0;
+        }
+        return window.scrollY;
+      }, scrollContainer);
       
       // Scroll container or viewport
       if (scrollContainer) {
@@ -729,7 +729,24 @@ export class DOMToolkit {
         await page.evaluate(step => window.scrollBy(0, step), scrollStep);
       }
       
-      scrolled += scrollStep;
+      // Get scroll position after
+      const scrollAfter = await page.evaluate((containerSel) => {
+        if (containerSel) {
+          const container = document.querySelector(containerSel);
+          return container ? container.scrollTop : 0;
+        }
+        return window.scrollY;
+      }, scrollContainer);
+      
+      // Track actual movement
+      const actualMovement = Math.abs(scrollAfter - scrollBefore);
+      scrolled += actualMovement;
+      
+      // If we're stuck, we've reached the end
+      if (actualMovement < 10) {
+        console.log(`[DOMToolkit] Scroll search stopped - no movement detected at position ${scrollAfter}`);
+        break;
+      }
       
       // Wait for DOM updates and check if new content rendered
       await page.waitForTimeout(300);

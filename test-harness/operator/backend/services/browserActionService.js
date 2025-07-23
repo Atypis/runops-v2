@@ -751,7 +751,8 @@ export class BrowserActionService {
     
     // Strategy: Progressive scrolling with grid type detection
     const result = await page.evaluate(async (params) => {
-      const { containerSel, targetRow, rowHeight, behavior, maxAttempts } = params;
+      const { containerSel, targetRow, behavior, maxAttempts } = params;
+      let { rowHeight } = params; // Make rowHeight mutable
       const container = document.querySelector(containerSel);
       if (!container) return { success: false, error: 'Container not found' };
       
