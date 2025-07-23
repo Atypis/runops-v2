@@ -762,6 +762,7 @@ export class DOMToolkit {
       
       // If element count changed, wait a bit more for render to complete
       if (currentElementCount > previousElementCount) {
+        console.log(`[DOMToolkit] New elements rendered, waiting for completion...`);
         await page.waitForTimeout(200);
         previousElementCount = currentElementCount;
       }
@@ -778,10 +779,18 @@ export class DOMToolkit {
       }, scrollContainer);
       
       if (atBottom) {
-        console.log('[DOMToolkit] Reached bottom, element not found');
+        console.log('[DOMToolkit] Reached bottom of scrollable area, element not found');
         break;
       }
     }
+    
+    console.log(`[DOMToolkit] Scroll search completed:`, {
+      attempts: attempt,
+      totalScrolled: scrolled,
+      maxScrollDistance,
+      reachedMax: scrolled >= maxScrollDistance,
+      query
+    });
     
     return {
       success: false,
@@ -790,6 +799,12 @@ export class DOMToolkit {
         matchesFound: 0,
         totalSearched: 0,
         truncated: false
+      },
+      diagnostics: {
+        attempts: attempt,
+        totalScrolled: scrolled,
+        maxScrollDistance,
+        reason: scrolled >= maxScrollDistance ? 'max-distance-reached' : 'element-not-found'
       }
     };
   }

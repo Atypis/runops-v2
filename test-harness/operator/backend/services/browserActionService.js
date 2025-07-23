@@ -756,6 +756,18 @@ export class BrowserActionService {
       const container = document.querySelector(containerSel);
       if (!container) return { success: false, error: 'Container not found' };
       
+      console.log('[scrollToRow] Starting scroll operation:', {
+        containerSelector: containerSel,
+        targetRow,
+        providedRowHeight: rowHeight,
+        behavior,
+        containerDimensions: {
+          clientHeight: container.clientHeight,
+          scrollHeight: container.scrollHeight,
+          scrollTop: container.scrollTop
+        }
+      });
+      
       // Helper function to wait
       const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
       
@@ -802,14 +814,87 @@ export class BrowserActionService {
       const isReactWindow = !!container.querySelector('[style*="position: absolute"]');
       const isAirtable = !!container.classList.contains('gridView') || !!container.querySelector('.gridView');
       
+      console.log('[scrollToRow] Grid detection results:', {
+        isAgGrid,
+        isReactVirtualized,
+        isReactWindow,
+        isAirtable,
+        containerClasses: container.className,
+        containerId: container.id
+      });
+      
       // Try to detect row height for React-Virtualized if not provided
       if (!rowHeight && isReactVirtualized) {
+        console.log('[scrollToRow] React-Virtualized detected, attempting row height detection...');
         const firstRow = container.querySelector('[style*="position: absolute"][style*="top:"]');
         if (firstRow) {
-          const heightMatch = firstRow.getAttribute('style').match(/height:\s*(\d+)px/);
+          const style = firstRow.getAttribute('style');
+          console.log('[scrollToRow] First row style:', style);
+          const heightMatch = style.match(/height:\s*(\d+)px/);
           if (heightMatch) {
             rowHeight = parseInt(heightMatch[1]);
-            console.log(`Detected React-Virtualized row height: ${rowHeight}px`);
+            console.log(`[scrollToRow] Successfully detected React-Virtualized row height: ${rowHeight}px`);
+          } else {
+            console.log('[scrollToRow] Could not extract height from style attribute');
+          }
+        } else {
+          console.log('[scrollToRow] No positioned rows found for height detection');
+          // Try alternative detection methods
+          const allRows = container.querySelectorAll('[style*="position: absolute"]');
+          console.log(`[scrollToRow] Found ${allRows.length} absolutely positioned elements`);
+          if (allRows.length > 0) {
+            // Log first few for debugging
+            for (let i = 0; i < Math.min(3, allRows.length); i++) {
+              console.log(`[scrollToRow] Row ${i} style:`, allRows[i].getAttribute('style'));
+            }
+          }
+        }
+        
+        // If we detected a rowHeight for React-Virtualized, try precise scrolling
+        if (isReactVirtualized && rowHeight && rowHeight > 0 && !providedRowHeight) {
+          console.log('[scrollToRow] Using detected rowHeight for precise scrolling');
+          const targetScrollTop = targetRow * rowHeight;
+          
+          console.log('[scrollToRow] Precise scroll calculation:', {
+            targetRow,
+            rowHeight,
+            targetScrollTop,
+            maxScroll: container.scrollHeight - container.clientHeight
+          });
+          
+          if (targetScrollTop <= container.scrollHeight) {
+            if (behavior === 'smooth') {
+              container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+            } else {
+              container.scrollTop = targetScrollTop;
+            }
+            
+            await wait(700); // Wait for scroll and render
+            
+            // Check React-Virtualized specific selectors
+            const rowSelectors = [
+              `div[style*="top: ${targetRow * rowHeight}px"]`,
+              `[style*="top:${targetRow * rowHeight}px"]`,
+              `[style*="top: ${targetRow * rowHeight}px;"]`
+            ];
+            
+            console.log('[scrollToRow] Looking for row with selectors:', rowSelectors);
+            
+            for (const selector of rowSelectors) {
+              const rowElement = container.querySelector(selector);
+              if (rowElement) {
+                console.log('[scrollToRow] Success! Found row with selector:', selector);
+                return { 
+                  success: true, 
+                  method: 'detected-precise', 
+                  rowIndex: targetRow,
+                  detectedRowHeight: rowHeight,
+                  scrollTop: targetScrollTop
+                };
+              }
+            }
+            
+            console.log('[scrollToRow] Row not found after precise scroll, continuing to progressive approach');
           }
         }
       }
@@ -832,6 +917,14 @@ export class BrowserActionService {
         const estimatedRowHeight = 32; // Common Airtable row height
         const targetScrollTop = targetRow * estimatedRowHeight;
         
+        console.log('[scrollToRow] Using Airtable scrolling strategy:', {
+          estimatedRowHeight,
+          targetRow,
+          targetScrollTop,
+          currentScrollTop: container.scrollTop,
+          maxScroll: container.scrollHeight - container.clientHeight
+        });
+        
         if (behavior === 'smooth') {
           container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
         } else {
@@ -839,12 +932,31 @@ export class BrowserActionService {
         }
         
         await wait(500);
+        
+        console.log('[scrollToRow] After Airtable scroll:', {
+          newScrollTop: container.scrollTop,
+          expectedScrollTop: targetScrollTop,
+          scrollSuccessful: Math.abs(container.scrollTop - targetScrollTop) < 10
+        });
+        
         return { success: true, method: 'airtable-estimated', rowIndex: targetRow, scrollTop: targetScrollTop };
       }
       
       // Generic approach: Progressive scrolling
       const scrollStep = Math.max(200, container.clientHeight * 0.5); // 50% of viewport per step
       let attempts = 0;
+      
+      // For React-Virtualized without detected rowHeight, use a better default
+      if (isReactVirtualized && !rowHeight) {
+        rowHeight = 30; // Common React-Virtualized demo row height
+        console.log('[scrollToRow] Using default React-Virtualized row height:', rowHeight);
+      }
+      
+      console.log('[scrollToRow] Using progressive scrolling approach:', {
+        scrollStep,
+        maxAttempts,
+        containerHeight: container.clientHeight
+      });
       
       // Common row selectors - expanded to support more grid types
       const rowSelectors = [
@@ -878,10 +990,27 @@ export class BrowserActionService {
       ];
       
       while (attempts < maxAttempts) {
+        attempts++;
+        console.log(`[scrollToRow] Progressive scroll attempt ${attempts}/${maxAttempts}:`, {
+          currentScrollTop: container.scrollTop,
+          scrollHeight: container.scrollHeight,
+          remainingScroll: container.scrollHeight - container.scrollTop - container.clientHeight
+        });
+        
         // Check if target row is visible
         for (const selector of rowSelectors) {
           const rowElement = container.querySelector(selector);
           if (rowElement) {
+            const rect = rowElement.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            console.log(`[scrollToRow] Found row with selector: ${selector}`, {
+              rowTop: rect.top,
+              rowBottom: rect.bottom,
+              containerTop: containerRect.top,
+              containerBottom: containerRect.bottom,
+              isVisible: rect.top >= containerRect.top && rect.bottom <= containerRect.bottom
+            });
+            
             // Found it! Scroll into view
             rowElement.scrollIntoView({ behavior, block: 'center' });
             await wait(300);
@@ -889,15 +1018,18 @@ export class BrowserActionService {
               success: true, 
               method: 'progressive-found', 
               rowIndex: targetRow, 
-              attempts: attempts + 1,
+              attempts: attempts,
               selector 
             };
           }
         }
         
         // Not found, scroll further
+        const previousScrollTop = container.scrollTop;
         container.scrollTop += scrollStep;
-        attempts++;
+        const actualScroll = container.scrollTop - previousScrollTop;
+        
+        console.log(`[scrollToRow] Scrolled by ${actualScroll}px (requested: ${scrollStep}px)`);
         
         // Wait for virtualized rendering
         await wait(200);
@@ -906,6 +1038,12 @@ export class BrowserActionService {
         if (container.scrollTop + container.clientHeight >= container.scrollHeight - 10) {
           // We're at the bottom, row doesn't exist
           const visibleRows = container.querySelectorAll('[data-rowindex], [data-row-index], [data-row], tr, .row, .dataRow').length;
+          console.log('[scrollToRow] Reached end of scrollable content:', {
+            scrollTop: container.scrollTop,
+            scrollHeight: container.scrollHeight,
+            visibleRows,
+            targetRow
+          });
           return { 
             success: false, 
             error: `Row ${targetRow} not found (reached end of scrollable content at scrollTop: ${container.scrollTop}px)`,
