@@ -586,6 +586,7 @@ export class BrowserActionService {
     const scrollStep = 500; // pixels per scroll
     let currentDirection = scrollDirection === 'both' ? 'down' : scrollDirection;
     let hasReversed = false;
+    let scrolled = 0; // Track total distance scrolled
     
     while (attempt < maxScrollAttempts && (Date.now() - startTime) < timeout) {
       attempt++;
@@ -674,6 +675,7 @@ export class BrowserActionService {
       
       // Scroll in the current direction
       const scrollAmount = currentDirection === 'up' ? -scrollStep : scrollStep;
+      scrolled += Math.abs(scrollAmount);
       
       if (scrollContainer) {
         const containerExists = await page.evaluate((containerSel) => {
