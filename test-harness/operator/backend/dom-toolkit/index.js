@@ -547,6 +547,7 @@ export class DOMToolkit {
     // Progressive scrolling
     let scrolled = 0;
     const scrollStep = 500;
+    let previousElementCount = 0;
     
     while (scrolled < maxScrollDistance) {
       // Scroll down
@@ -576,8 +577,22 @@ export class DOMToolkit {
       
       scrolled += scrollStep;
       
-      // Wait for DOM updates
-      await page.waitForTimeout(200);
+      // Wait for DOM updates - increased for virtualized grids
+      await page.waitForTimeout(300);
+      
+      // Additional wait if content is still rendering
+      const currentElementCount = await page.evaluate((containerSel) => {
+        if (containerSel) {
+          const container = document.querySelector(containerSel);
+          return container ? container.querySelectorAll('*').length : 0;
+        }
+        return document.body.querySelectorAll('*').length;
+      }, scrollContainer);
+      
+      if (currentElementCount > previousElementCount) {
+        await page.waitForTimeout(200);
+        previousElementCount = currentElementCount;
+      }
       
       // Capture new snapshot
       const newSnapshot = await this.capture.captureSnapshot(page);
@@ -660,6 +675,7 @@ export class DOMToolkit {
     const scrollStep = 500;
     const maxAttempts = Math.ceil(maxScrollDistance / scrollStep);
     let attempt = 0;
+    let previousElementCount = 0;
     
     while (attempt < maxAttempts) {
       attempt++;
@@ -715,8 +731,23 @@ export class DOMToolkit {
       
       scrolled += scrollStep;
       
-      // Wait for DOM updates
-      await page.waitForTimeout(200);
+      // Wait for DOM updates and check if new content rendered
+      await page.waitForTimeout(300);
+      
+      // Additional wait if content is still rendering (virtualized grids)
+      const currentElementCount = await page.evaluate((containerSel) => {
+        if (containerSel) {
+          const container = document.querySelector(containerSel);
+          return container ? container.querySelectorAll('*').length : 0;
+        }
+        return document.body.querySelectorAll('*').length;
+      }, scrollContainer);
+      
+      // If element count changed, wait a bit more for render to complete
+      if (currentElementCount > previousElementCount) {
+        await page.waitForTimeout(200);
+        previousElementCount = currentElementCount;
+      }
       
       // Check if we've reached the bottom
       const atBottom = await page.evaluate((containerSel) => {

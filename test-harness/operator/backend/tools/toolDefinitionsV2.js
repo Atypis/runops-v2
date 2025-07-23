@@ -59,7 +59,7 @@ export function createToolDefinitions() {
             action: {
               type: 'string',
               enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type', 'scrollIntoView', 'scrollToRow'],
-              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. scrollIntoView progressively scrolls until element exists (for virtualized content). scrollToRow scrolls to specific row index - provide rowHeight for precise single-jump scrolling. loadProfile intelligently loads from local or cloud.'
+              description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. scrollIntoView progressively scrolls until element exists (handles virtualized content, auto-detects containers). scrollToRow scrolls to specific row index with multi-framework support - provide rowHeight for precise scrolling. loadProfile intelligently loads from local or cloud.'
             },
             url: {
               type: 'string',
@@ -105,7 +105,7 @@ export function createToolDefinitions() {
             },
             scrollContainer: {
               type: 'string',
-              description: 'For scrollIntoView/scrollToRow: Optional container selector to scroll within. If not provided, scrolls the main viewport.'
+              description: 'For scrollIntoView/scrollToRow: CSS selector for scrollable container. Auto-detects common patterns (.ReactVirtualized__Grid, .ag-body-viewport, [role="grid"], etc.) if not provided. Falls back to main viewport if no container found.'
             },
             scrollBehavior: {
               type: 'string',
@@ -124,7 +124,7 @@ export function createToolDefinitions() {
             },
             rowIndex: {
               type: 'number',
-              description: 'For scrollToRow: Zero-based row index to scroll to. Supports common virtualized grids (AG-Grid, Airtable, etc.)',
+              description: 'For scrollToRow: Zero-based row index to scroll to. Supports React-Virtualized (style-based), AG-Grid (data-row-index), tables (tr:nth-child), ARIA grids (aria-rowindex), and more.',
               minimum: 0
             },
             rowHeight: {
@@ -1002,7 +1002,7 @@ export function createToolDefinitions() {
                 },
                 scrollContainer: {
                   type: 'string',
-                  description: 'For scrollIntoView/scrollToRow: Optional container selector. If not provided, scrolls main viewport'
+                  description: 'For scrollIntoView/scrollToRow: CSS selector for scrollable container. Auto-detects common patterns (.ReactVirtualized__Grid, .ag-body-viewport, [role="grid"], etc.) if not provided. Falls back to main viewport.'
                 },
                 scrollBehavior: {
                   type: 'string',
