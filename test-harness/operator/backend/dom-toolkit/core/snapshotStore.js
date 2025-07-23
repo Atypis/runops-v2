@@ -5,15 +5,18 @@
 export class SnapshotStore {
   constructor() {
     // Store snapshots by tab ID
-    // Structure: tabId -> { snapshot, timestamp, snapshotId }
+    // Structure: tabId -> Array of { snapshot, timestamp, snapshotId }
     this.snapshots = new Map();
     
     // Store snapshot metadata for lookups
-    // Structure: snapshotId -> { tabId, timestamp }
+    // Structure: snapshotId -> { tabId, timestamp, snapshot }
     this.snapshotIndex = new Map();
     
     // Maximum age for snapshots (5 minutes)
     this.maxAge = 5 * 60 * 1000;
+    
+    // Maximum snapshots per tab
+    this.maxSnapshotsPerTab = 5;
   }
 
   /**
@@ -22,17 +25,30 @@ export class SnapshotStore {
   store(tabId, snapshot, snapshotId) {
     const timestamp = Date.now();
     
-    // Store the snapshot
-    this.snapshots.set(tabId, {
+    // Get existing snapshots for this tab
+    let tabSnapshots = this.snapshots.get(tabId) || [];
+    
+    // Add new snapshot
+    tabSnapshots.push({
       snapshot,
       timestamp,
       snapshotId
     });
     
+    // Keep only recent snapshots
+    if (tabSnapshots.length > this.maxSnapshotsPerTab) {
+      const removed = tabSnapshots.shift();
+      this.snapshotIndex.delete(removed.snapshotId);
+    }
+    
+    // Store updated array
+    this.snapshots.set(tabId, tabSnapshots);
+    
     // Index for lookups
     this.snapshotIndex.set(snapshotId, {
       tabId,
-      timestamp
+      timestamp,
+      snapshot
     });
     
     // Clean up old snapshots
@@ -43,17 +59,56 @@ export class SnapshotStore {
    * Get the previous snapshot for a tab
    */
   getPreviousForTab(tabId) {
-    const stored = this.snapshots.get(tabId);
-    if (!stored) return null;
+    const tabSnapshots = this.snapshots.get(tabId);
+    if (!tabSnapshots || tabSnapshots.length === 0) return null;
+    
+    // Get the most recent snapshot
+    const stored = tabSnapshots[tabSnapshots.length - 1];
     
     // Check if snapshot is too old
     if (Date.now() - stored.timestamp > this.maxAge) {
-      this.snapshots.delete(tabId);
+      // Remove old snapshot
+      tabSnapshots.pop();
       this.snapshotIndex.delete(stored.snapshotId);
+      
+      if (tabSnapshots.length === 0) {
+        this.snapshots.delete(tabId);
+      }
+      
       return null;
     }
     
     return stored;
+  }
+  
+  /**
+   * Get all snapshots for a tab
+   */
+  getAllForTab(tabId) {
+    const tabSnapshots = this.snapshots.get(tabId);
+    if (!tabSnapshots) return [];
+    
+    // Filter out old snapshots
+    const now = Date.now();
+    const validSnapshots = tabSnapshots.filter(s => now - s.timestamp <= this.maxAge);
+    
+    // Update stored snapshots if any were filtered out
+    if (validSnapshots.length < tabSnapshots.length) {
+      if (validSnapshots.length === 0) {
+        this.snapshots.delete(tabId);
+      } else {
+        this.snapshots.set(tabId, validSnapshots);
+      }
+      
+      // Clean up index
+      tabSnapshots.forEach(s => {
+        if (!validSnapshots.includes(s)) {
+          this.snapshotIndex.delete(s.snapshotId);
+        }
+      });
+    }
+    
+    return validSnapshots;
   }
 
   /**
@@ -63,7 +118,14 @@ export class SnapshotStore {
     const meta = this.snapshotIndex.get(snapshotId);
     if (!meta) return null;
     
-    return this.snapshots.get(meta.tabId);
+    return meta.snapshot;
+  }
+  
+  /**
+   * Get a snapshot by ID (alias for backward compatibility)
+   */
+  get(snapshotId) {
+    return this.getBySnapshotId(snapshotId);
   }
 
   /**
@@ -71,18 +133,25 @@ export class SnapshotStore {
    */
   cleanup() {
     const now = Date.now();
-    const toDelete = [];
     
-    for (const [tabId, data] of this.snapshots) {
-      if (now - data.timestamp > this.maxAge) {
-        toDelete.push({ tabId, snapshotId: data.snapshotId });
+    for (const [tabId, tabSnapshots] of this.snapshots) {
+      // Filter out old snapshots
+      const validSnapshots = tabSnapshots.filter(s => now - s.timestamp <= this.maxAge);
+      
+      // Clean up index for removed snapshots
+      tabSnapshots.forEach(s => {
+        if (!validSnapshots.includes(s)) {
+          this.snapshotIndex.delete(s.snapshotId);
+        }
+      });
+      
+      // Update or remove tab entry
+      if (validSnapshots.length === 0) {
+        this.snapshots.delete(tabId);
+      } else if (validSnapshots.length < tabSnapshots.length) {
+        this.snapshots.set(tabId, validSnapshots);
       }
     }
-    
-    toDelete.forEach(({ tabId, snapshotId }) => {
-      this.snapshots.delete(tabId);
-      this.snapshotIndex.delete(snapshotId);
-    });
   }
 
   /**

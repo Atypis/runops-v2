@@ -211,6 +211,74 @@ export class DOMToolkitService {
   }
 
   /**
+   * dom_check_portals implementation
+   */
+  async domCheckPortals(options = {}, nodeExecutor) {
+    try {
+      const page = await this.getPageForTab(options.tabName || 'main', nodeExecutor);
+      
+      // Add workflow ID to page for caching
+      if (nodeExecutor?.currentWorkflow?.id) {
+        page._workflowId = nodeExecutor.currentWorkflow.id;
+      }
+      
+      const result = await domToolkit.domCheckPortals(page, options);
+      
+      if (result.success) {
+        // Format the response
+        const lines = ['=== PORTAL CHECK RESULTS ===', ''];
+        
+        if (result.newPortals.length === 0) {
+          lines.push('No new portal/overlay elements detected.');
+        } else {
+          lines.push(`Found ${result.newPortals.length} new portal element(s):`);
+          lines.push('');
+          
+          result.newPortals.forEach((portal, index) => {
+            lines.push(`${index + 1}. ${portal.type} ${portal.id}`);
+            if (portal.class) lines.push(`   Class: ${portal.class}`);
+            if (portal.role) lines.push(`   Role: ${portal.role}`);
+            if (portal.visible) lines.push(`   Visibility: ${portal.visible ? 'visible' : 'hidden'}`);
+            if (portal.selector_hints) {
+              lines.push(`   Selector: ${portal.selector_hints}`);
+            }
+            if (portal.contentPreview) {
+              lines.push('   Content preview:');
+              portal.contentPreview.forEach(item => {
+                lines.push(`     - <${item.tag}>${item.text ? ` "${item.text}"` : ''}`);
+              });
+            }
+            lines.push('');
+          });
+        }
+        
+        if (result.baseline) {
+          lines.push(`Compared against snapshot: ${result.baseline}`);
+        }
+        
+        return {
+          success: true,
+          output: lines.join('\n'),
+          portalCount: result.newPortals.length
+        };
+      }
+      
+      return {
+        success: false,
+        error: result.error || 'Failed to check for portals',
+        tabName: options.tabName || 'main'
+      };
+    } catch (error) {
+      console.error('[DOMToolkitService] Error in domCheckPortals:', error);
+      return {
+        success: false,
+        error: error.message,
+        tabName: options.tabName || 'main'
+      };
+    }
+  }
+
+  /**
    * Get cache statistics for debugging
    */
   getCacheStats() {

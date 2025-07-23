@@ -231,6 +231,32 @@ export function createDOMExplorationTools() {
         },
         strict: true
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'dom_check_portals',
+        description: 'Check for new portal/overlay elements that appeared after an interaction. Compares current DOM against a previous snapshot to find elements added at body level (React portals, modals, dropdowns). Use after clicking buttons that might open popups.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to check (defaults to active tab)'
+            },
+            sinceSnapshotId: {
+              type: 'string',
+              description: 'Compare against specific snapshot ID. If not provided, compares against the most recent snapshot for this tab.'
+            },
+            includeAll: {
+              type: 'boolean',
+              description: 'Include all body-level changes, not just portal patterns (default: false)'
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
     }
   ];
 }

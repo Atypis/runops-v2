@@ -3906,6 +3906,9 @@ export class DirectorService {
         case 'dom_inspect':
           result = await domToolkitService.domInspect(args, this.nodeExecutor);
           break;
+        case 'dom_check_portals':
+          result = await domToolkitService.domCheckPortals(args, this.nodeExecutor);
+          break;
           
         // Clean Context 2.0 - Context Retrieval Tools
         case 'get_current_plan': {

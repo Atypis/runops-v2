@@ -15,6 +15,7 @@ import { OutlineFilter } from './filters/outlineFilter.js';
 import { InteractivesFilter } from './filters/interactivesFilter.js';
 import { HeadingsFilter } from './filters/headingsFilter.js';
 import { SearchFilter } from './filters/searchFilter.js';
+import { PortalFilter } from './filters/portalFilter.js';
 import { GroupingProcessor } from './processors/groupingProcessor.js';
 import { SelectorHints } from './processors/selectorHints.js';
 import { ElementInspector } from './processors/elementInspector.js';
@@ -30,7 +31,8 @@ export class DOMToolkit {
       outline: new OutlineFilter(),
       interactives: new InteractivesFilter(),
       headings: new HeadingsFilter(),
-      search: new SearchFilter()
+      search: new SearchFilter(),
+      portal: new PortalFilter()
     };
     this.grouping = new GroupingProcessor();
     this.selectors = new SelectorHints();
@@ -486,6 +488,12 @@ export class DOMToolkit {
       if (headingElements.truncated) truncatedSections.push('headings');
     }
 
+    // Always check for portal roots at body level
+    const portalElements = this.filters.portal.findPortalRoots(snapshot, { includeHidden: true });
+    if (portalElements.portals.length > 0) {
+      sections.portals = portalElements.portals;
+    }
+
     return {
       sections,
       summary: {
@@ -655,6 +663,132 @@ export class DOMToolkit {
     
     console.log(`[DOMToolkit] Auto-scroll complete. Scrolled ${scrolled}px in ${scrollContainer || 'viewport'}`);
     return mergedOverview;
+  }
+
+  /**
+   * dom_check_portals - Find new portals/overlays after interaction
+   */
+  async domCheckPortals(page, options = {}) {
+    const {
+      tabName = 'main',
+      sinceSnapshotId = null,
+      includeAll = false
+    } = options;
+
+    try {
+      const cacheKey = `${page._workflowId}-${tabName}`;
+      
+      // Get current snapshot
+      const currentSnapshot = await this.capture.captureSnapshot(page);
+      
+      // Get baseline snapshot for comparison
+      let baselineSnapshot = null;
+      if (sinceSnapshotId) {
+        // Use specific snapshot
+        baselineSnapshot = this.snapshotStore.get(sinceSnapshotId);
+        if (!baselineSnapshot) {
+          return {
+            success: false,
+            error: `Baseline snapshot ${sinceSnapshotId} not found`
+          };
+        }
+      } else {
+        // Use most recent snapshot for this tab
+        const tabId = `${page._workflowId}-${tabName}`;
+        const snapshots = this.snapshotStore.getAllForTab(tabId);
+        if (snapshots.length > 0) {
+          // Get the most recent snapshot (before the current capture)
+          const mostRecentSnapshot = snapshots[snapshots.length - 1];
+          baselineSnapshot = mostRecentSnapshot.snapshot;
+        }
+      }
+
+      // If no baseline, just return current portals
+      if (!baselineSnapshot) {
+        const portalElements = this.filters.portal.findPortalRoots(currentSnapshot, { includeHidden: true });
+        
+        // Generate selector hints for each portal
+        const portalsWithSelectors = portalElements.portals.map(portal => {
+          const nodeId = parseInt(portal.id.replace(/[\[\]]/g, ''));
+          const node = currentSnapshot.nodeMap.get(nodeId);
+          if (node) {
+            portal.selector_hints = this.selectors.generate(node, currentSnapshot);
+          }
+          return portal;
+        });
+        
+        return {
+          success: true,
+          newPortals: portalsWithSelectors,
+          baseline: null,
+          message: 'No baseline snapshot available, showing all current portals'
+        };
+      }
+
+      // Find elements that are new at body level
+      const bodyNode = currentSnapshot.nodes.find(node => node.tag === 'body');
+      if (!bodyNode) {
+        return {
+          success: false,
+          error: 'Could not find body element in snapshot'
+        };
+      }
+
+      // Get body-level elements from both snapshots
+      const currentBodyChildren = currentSnapshot.nodes.filter(node => 
+        node.parentId === bodyNode.id && node.type === 1
+      );
+      
+      const baselineBodyNode = baselineSnapshot.nodes.find(node => node.tag === 'body');
+      const baselineBodyChildren = baselineBodyNode ? 
+        baselineSnapshot.nodes.filter(node => node.parentId === baselineBodyNode.id && node.type === 1) :
+        [];
+
+      // Find new elements (in current but not in baseline)
+      const baselineIds = new Set(baselineBodyChildren.map(n => `${n.tag}-${n.attributes.class || ''}-${n.attributes.id || ''}`));
+      const newElements = currentBodyChildren.filter(node => {
+        const nodeKey = `${node.tag}-${node.attributes.class || ''}-${node.attributes.id || ''}`;
+        return !baselineIds.has(nodeKey);
+      });
+
+      // Filter to portal-like elements unless includeAll
+      let portals = [];
+      if (includeAll) {
+        // Include all new body-level elements
+        portals = newElements.map(node => this.filters.portal.formatPortalElement(node, currentSnapshot));
+      } else {
+        // Only include elements that look like portals
+        portals = newElements
+          .filter(node => this.filters.portal.isPortalRoot(node))
+          .map(node => this.filters.portal.formatPortalElement(node, currentSnapshot));
+      }
+
+      // Generate selector hints for each portal
+      const portalsWithSelectors = portals.map(portal => {
+        const nodeId = parseInt(portal.id.replace(/[\[\]]/g, ''));
+        const node = currentSnapshot.nodeMap.get(nodeId);
+        if (node) {
+          portal.selector_hints = this.selectors.generate(node, currentSnapshot);
+        }
+        return portal;
+      });
+
+      // Store current snapshot for future comparisons
+      this.snapshotStore.store(`${page._workflowId}-${tabName}`, currentSnapshot, currentSnapshot.id);
+
+      return {
+        success: true,
+        newPortals: portalsWithSelectors,
+        baseline: baselineSnapshot.id,
+        currentSnapshot: currentSnapshot.id
+      };
+    } catch (error) {
+      console.error('[DOMToolkit] Error in domCheckPortals:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 
   /**

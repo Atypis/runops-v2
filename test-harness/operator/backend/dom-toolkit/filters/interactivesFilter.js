@@ -147,6 +147,12 @@ export class InteractivesFilter {
     // Add key attributes
     element.attributes = this.extractKeyAttributes(node);
 
+    // Add portal/shadow DOM hints
+    const hints = this.detectPortalHints(node);
+    if (hints.length > 0) {
+      element.hints = hints;
+    }
+
     return element;
   }
 
@@ -315,5 +321,96 @@ export class InteractivesFilter {
   truncateText(text, maxLength) {
     if (!text || text.length <= maxLength) return text;
     return text.substring(0, maxLength - 3) + '...';
+  }
+
+  /**
+   * Detect portal/shadow DOM hints for an element
+   */
+  detectPortalHints(node) {
+    const hints = [];
+
+    // Check for common portal trigger attributes
+    if (node.attributes['aria-haspopup']) {
+      hints.push('May open popup/portal (has aria-haspopup)');
+    }
+
+    if (node.attributes['data-toggle']) {
+      hints.push('May open popup/portal (has data-toggle)');
+    }
+
+    if (node.attributes['data-dropdown']) {
+      hints.push('May open dropdown portal (has data-dropdown)');
+    }
+
+    // Check for common dropdown/menu roles
+    if (node.attributes.role === 'menu' || node.attributes.role === 'combobox') {
+      hints.push(`May open portal (role="${node.attributes.role}")`);
+    }
+
+    // Check class names for common patterns
+    if (node.attributes.class) {
+      const classStr = node.attributes.class.toLowerCase();
+      
+      if (classStr.includes('dropdown')) {
+        hints.push('May open dropdown portal (class contains "dropdown")');
+      }
+      
+      if (classStr.includes('trigger')) {
+        hints.push('May trigger popup/portal (class contains "trigger")');
+      }
+      
+      if (classStr.includes('toggle')) {
+        hints.push('May toggle popup/portal (class contains "toggle")');
+      }
+
+      if (classStr.includes('menu-button') || classStr.includes('menu-trigger')) {
+        hints.push('May open menu portal (menu-related class)');
+      }
+    }
+
+    // Check for React/framework-specific attributes
+    if (node.attributes.onclick && node.attributes.onclick.includes('open')) {
+      hints.push('May open popup/portal (onclick handler)');
+    }
+
+    // Check for common icon indicators
+    if (node.text && (node.text.includes('▼') || node.text.includes('▾') || node.text.includes('⌄'))) {
+      hints.push('May open dropdown (contains dropdown arrow)');
+    }
+
+    // Check for text patterns that suggest portal/modal triggers
+    if (node.text) {
+      const textLower = node.text.toLowerCase();
+      
+      // Pattern matching for modal/dialog triggers
+      if (/(open|show|view|launch)\s*(modal|dialog|popup|overlay|menu|search)/i.test(textLower)) {
+        hints.push(`May open portal (text: "${node.text}")`);
+      }
+      
+      // Additional common patterns
+      if (/(more|options|settings|actions)/i.test(textLower) && node.tag === 'button') {
+        hints.push('May open options menu (button text pattern)');
+      }
+    }
+    
+    // Check aria-label for similar patterns
+    if (node.attributes['aria-label']) {
+      const ariaLabel = node.attributes['aria-label'].toLowerCase();
+      if (/(open|show|toggle|menu|search|options|settings)/i.test(ariaLabel)) {
+        hints.push(`May open portal (aria-label: "${node.attributes['aria-label']}")`);
+      }
+    }
+
+    // Check if element references another element that might be a portal
+    if (node.attributes['aria-controls']) {
+      hints.push(`Controls another element: ${node.attributes['aria-controls']}`);
+    }
+
+    // Check for shadow DOM host
+    if (node.shadowRoot) {
+      hints.push('Shadow DOM host element');
+    }
+
+    return hints;
   }
 }
