@@ -212,7 +212,7 @@ export class DOMToolkit {
       });
 
       // If no matches and autoScroll is enabled, try progressive scrolling
-      if (autoScroll && searchResult.matchesFound === 0 && query.selector) {
+      if (autoScroll && searchResult.matchesFound === 0) {
         const scrollResult = await this.searchWithScroll(page, {
           query,
           limit,
@@ -742,10 +742,25 @@ export class DOMToolkit {
       const actualMovement = Math.abs(scrollAfter - scrollBefore);
       scrolled += actualMovement;
       
-      // If we're stuck, we've reached the end
-      if (actualMovement < 10) {
-        console.log(`[DOMToolkit] Scroll search stopped - no movement detected at position ${scrollAfter}`);
-        break;
+      // Check if we're truly stuck (no movement AND at bottom)
+      if (actualMovement < 1) {
+        // Double-check if we're at the bottom before giving up
+        const isAtBottom = await page.evaluate((containerSel) => {
+          if (containerSel) {
+            const container = document.querySelector(containerSel);
+            return container ? 
+              container.scrollTop + container.clientHeight >= container.scrollHeight - 5 : 
+              true;
+          }
+          return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 5;
+        }, scrollContainer);
+        
+        if (isAtBottom) {
+          console.log(`[DOMToolkit] Scroll search stopped - reached bottom at position ${scrollAfter}`);
+          break;
+        } else {
+          console.log(`[DOMToolkit] Small movement (${actualMovement}px) but not at bottom, continuing...`);
+        }
       }
       
       // Wait for DOM updates and check if new content rendered

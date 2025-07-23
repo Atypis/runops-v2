@@ -851,7 +851,7 @@ export class BrowserActionService {
         }
         
         // If we detected a rowHeight for React-Virtualized, try precise scrolling
-        if (isReactVirtualized && rowHeight && rowHeight > 0 && !providedRowHeight) {
+        if (isReactVirtualized && rowHeight && rowHeight > 0) {
           console.log('[scrollToRow] Using detected rowHeight for precise scrolling');
           const targetScrollTop = targetRow * rowHeight;
           
@@ -1001,6 +1001,19 @@ export class BrowserActionService {
         for (const selector of rowSelectors) {
           const rowElement = container.querySelector(selector);
           if (rowElement) {
+            // For React-Virtualized style selectors, verify the content actually contains the row number
+            if (selector.includes('style*="top:')) {
+              const rowText = rowElement.textContent || '';
+              const expectedRowPattern = new RegExp(`row\\s*${targetRow}\\b`, 'i');
+              if (!expectedRowPattern.test(rowText)) {
+                console.log(`[scrollToRow] Style selector matched but content doesn't match row ${targetRow}:`, {
+                  selector,
+                  actualText: rowText.substring(0, 100)
+                });
+                continue; // Skip this match, it's not the right row
+              }
+            }
+            
             const rect = rowElement.getBoundingClientRect();
             const containerRect = container.getBoundingClientRect();
             console.log(`[scrollToRow] Found row with selector: ${selector}`, {
@@ -1008,7 +1021,8 @@ export class BrowserActionService {
               rowBottom: rect.bottom,
               containerTop: containerRect.top,
               containerBottom: containerRect.bottom,
-              isVisible: rect.top >= containerRect.top && rect.bottom <= containerRect.bottom
+              isVisible: rect.top >= containerRect.top && rect.bottom <= containerRect.bottom,
+              rowText: (rowElement.textContent || '').substring(0, 50)
             });
             
             // Found it! Scroll into view
