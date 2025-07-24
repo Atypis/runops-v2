@@ -929,18 +929,39 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'get_workflow_nodes',
-        description: 'Get detailed information about workflow nodes. Can filter by range or node type.',
+        description: 'Get detailed information about workflow nodes with optional hierarchical tree structure and verbosity controls. Supports filtering by range, type, parent node, and depth.',
         parameters: {
           type: 'object',
           properties: {
             range: {
               type: 'string',
-              description: 'Node range to retrieve: "all" (default), "recent" (last 10), or specific range like "1-10"',
+              description: 'Node range to retrieve: "all" (default), "recent" (last 10), specific range like "1-10", or comma-separated aliases/positions like "node1,node2,5"',
               default: 'all'
             },
             type: {
               type: 'string',
               description: 'Optional: filter by node type (e.g., "browser_action", "route", "iterate")'
+            },
+            tree: {
+              type: 'boolean',
+              description: 'Return hierarchical tree structure instead of flat array. Shows parent-child relationships with nesting (default: false)',
+              default: false
+            },
+            detailLevel: {
+              type: 'string',
+              enum: ['minimal', 'status', 'full'],
+              description: 'Level of detail in response. minimal: alias+type+children only. status: +execution status+errors+depth. full: complete node data (default)',
+              default: 'full'
+            },
+            parent: {
+              type: 'string',
+              description: 'Return only subtree of specified parent node (by alias or position). Useful for focusing on specific workflow sections.'
+            },
+            maxDepth: {
+              type: 'number',
+              minimum: 1,
+              maximum: 10,
+              description: 'Maximum depth to traverse in tree mode. Prevents excessive nesting display (default: 10)'
             }
           },
           additionalProperties: false

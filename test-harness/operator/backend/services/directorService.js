@@ -1979,6 +1979,232 @@ export class DirectorService {
     }
   }
 
+  /**
+   * Build hierarchical tree structure from flat node array
+   * Converts flat array with _parent_position references into nested tree
+   */
+  buildHierarchicalNodes(nodes, options = {}) {
+    const { maxDepth = 10 } = options;
+    const nodeMap = new Map();
+    const rootNodes = [];
+
+    // Create enhanced node objects with hierarchy metadata
+    nodes.forEach(node => {
+      nodeMap.set(node.position, {
+        ...node,
+        children: [],
+        depth: 0,
+        path: [node.position]
+      });
+    });
+
+    // Build parent-child relationships and calculate depth
+    nodes.forEach(node => {
+      const parentPos = node.params?._parent_position;
+      if (parentPos && nodeMap.has(parentPos)) {
+        const parent = nodeMap.get(parentPos);
+        const child = nodeMap.get(node.position);
+        
+        // Calculate depth and path
+        child.depth = parent.depth + 1;
+        child.path = [...parent.path, node.position];
+        
+        // Respect maxDepth limit
+        if (child.depth <= maxDepth) {
+          parent.children.push(child);
+        }
+      } else {
+        // Root node
+        const rootNode = nodeMap.get(node.position);
+        rootNodes.push(rootNode);
+      }
+    });
+
+    return rootNodes;
+  }
+
+  /**
+   * Apply verbosity level to node object
+   * Controls how much detail is included in the response
+   */
+  applyVerbosityLevel(node, level) {
+    const baseFields = { 
+      position: node.position, 
+      alias: node.alias, 
+      type: node.type 
+    };
+
+    switch (level) {
+      case 'minimal':
+        return {
+          ...baseFields,
+          children: node.children || []
+        };
+
+      case 'status':
+        return {
+          ...baseFields,
+          status: node.status || 'pending',
+          description: node.description || 'No description',
+          lastError: this.getLastError(node),
+          depth: node.depth,
+          path: node.path,
+          children: node.children || []
+        };
+
+      case 'full':
+      default:
+        return {
+          ...node,
+          children: node.children || []
+        };
+    }
+  }
+
+  /**
+   * Apply verbosity to entire tree recursively
+   */
+  applyVerbosityToTree(nodes, level) {
+    return nodes.map(node => {
+      const processedNode = this.applyVerbosityLevel(node, level);
+      if (node.children && node.children.length > 0) {
+        processedNode.children = this.applyVerbosityToTree(node.children, level);
+      }
+      return processedNode;
+    });
+  }
+
+  /**
+   * Extract last error from node for status display
+   */
+  getLastError(node) {
+    if (node.status === 'error' && node.result) {
+      return typeof node.result === 'string' ? node.result : node.result.error || null;
+    }
+    return null;
+  }
+
+  /**
+   * Find node by alias or position
+   */
+  findNodeByAliasOrPosition(nodes, reference) {
+    // Try to parse as number first
+    const numRef = parseInt(reference, 10);
+    if (!isNaN(numRef)) {
+      return nodes.find(n => n.position === numRef);
+    }
+    // Otherwise treat as alias
+    return nodes.find(n => n.alias === reference);
+  }
+
+  /**
+   * Get all nodes in a subtree starting from parent
+   */
+  getSubtreeNodes(allNodes, parentPosition) {
+    const subtreeNodes = [];
+    const visited = new Set();
+    
+    const collectChildren = (parentPos) => {
+      if (visited.has(parentPos)) return; // Prevent infinite loops
+      visited.add(parentPos);
+      
+      const parent = allNodes.find(n => n.position === parentPos);
+      if (parent) {
+        subtreeNodes.push(parent);
+        
+        // Find all children
+        const children = allNodes.filter(n => n.params?._parent_position === parentPos);
+        children.forEach(child => collectChildren(child.position));
+      }
+    };
+    
+    collectChildren(parentPosition);
+    return subtreeNodes;
+  }
+
+  /**
+   * Apply range filter to nodes
+   */
+  applyRangeFilter(nodes, range) {
+    if (range === 'all') return nodes;
+    
+    if (range === 'recent') {
+      return nodes.slice(-10);
+    }
+    
+    if (range.includes('-')) {
+      const [start, end] = range.split('-').map(Number);
+      return nodes.filter(n => n.position >= start && n.position <= end);
+    }
+    
+    // Handle comma-separated aliases or positions
+    if (range.includes(',')) {
+      const references = range.split(',').map(r => r.trim());
+      return nodes.filter(n => 
+        references.includes(n.alias) || 
+        references.includes(n.position.toString())
+      );
+    }
+    
+    return nodes;
+  }
+
+  /**
+   * Apply all node filters
+   */
+  applyNodeFilters(nodes, filters) {
+    let filtered = nodes;
+
+    // Type filter
+    if (filters.type) {
+      filtered = filtered.filter(n => n.type === filters.type);
+    }
+
+    // Parent filter (subtree only)
+    if (filters.parent) {
+      const parentNode = this.findNodeByAliasOrPosition(nodes, filters.parent);
+      if (parentNode) {
+        filtered = this.getSubtreeNodes(nodes, parentNode.position);
+      } else {
+        // Return empty if parent not found
+        return [];
+      }
+    }
+
+    // Range filter
+    filtered = this.applyRangeFilter(filtered, filters.range);
+
+    return filtered;
+  }
+
+  /**
+   * Generate workflow tree metadata
+   */
+  generateTreeMetadata(nodes, hierarchicalNodes) {
+    const nodeTypes = {};
+    let maxDepth = 0;
+
+    // Count node types and find max depth
+    const traverse = (nodeList) => {
+      nodeList.forEach(node => {
+        nodeTypes[node.type] = (nodeTypes[node.type] || 0) + 1;
+        maxDepth = Math.max(maxDepth, node.depth || 0);
+        if (node.children) {
+          traverse(node.children);
+        }
+      });
+    };
+
+    traverse(hierarchicalNodes);
+
+    return {
+      totalNodes: nodes.length,
+      topLevelNodes: hierarchicalNodes.length,
+      maxDepth: maxDepth,
+      nodeTypes: nodeTypes
+    };
+  }
+
   // Group functionality is now handled by the 'group' node type which executes a range of nodes
 
   /**
@@ -4017,33 +4243,73 @@ export class DirectorService {
         }
         
         case 'get_workflow_nodes': {
-          const { range = 'all', type } = args;
+          const { 
+            range = 'all', 
+            type, 
+            tree = false, 
+            detailLevel = 'full',
+            parent,
+            maxDepth = 10 
+          } = args;
+          
           const workflowContext = await this.getWorkflowContext(workflowId);
           const nodes = workflowContext?.nodes || [];
           
-          // Filter and format nodes
-          let filteredNodes = nodes;
-          if (type) {
-            filteredNodes = filteredNodes.filter(n => n.type === type);
-          }
+          // Apply filters using new filtering system
+          const filteredNodes = this.applyNodeFilters(nodes, { range, type, parent });
           
-          if (range !== 'all' && filteredNodes.length > 0) {
-            if (range === 'recent') {
-              filteredNodes = filteredNodes.slice(-10);
-            } else if (range.includes('-')) {
-              const [start, end] = range.split('-').map(Number);
-              filteredNodes = filteredNodes.filter(n => n.position >= start && n.position <= end);
-            }
+          if (tree) {
+            // Build hierarchical structure
+            const hierarchicalNodes = this.buildHierarchicalNodes(filteredNodes, { maxDepth });
+            
+            // Apply verbosity to tree
+            const processedNodes = this.applyVerbosityToTree(hierarchicalNodes, detailLevel);
+            
+            // Generate metadata
+            const metadata = this.generateTreeMetadata(filteredNodes, hierarchicalNodes);
+            
+            result = {
+              nodes: processedNodes,
+              metadata: metadata,
+              view: 'tree'
+            };
+          } else {
+            // Traditional flat response with verbosity control
+            const processedNodes = filteredNodes.map(node => {
+              // Add basic hierarchy metadata even in flat mode
+              const nodeWithMeta = {
+                ...node,
+                depth: 0,
+                path: [node.position],
+                children: []
+              };
+              
+              // Calculate depth for flat display
+              if (node.params?._parent_position) {
+                const parent = nodes.find(n => n.position === node.params._parent_position);
+                if (parent?.params?._parent_position) {
+                  // Simple depth calculation for flat mode
+                  let depth = 1;
+                  let currentParent = parent;
+                  while (currentParent && currentParent.params?._parent_position && depth < 10) {
+                    currentParent = nodes.find(n => n.position === currentParent.params._parent_position);
+                    depth++;
+                  }
+                  nodeWithMeta.depth = depth;
+                }
+              }
+              
+              return this.applyVerbosityLevel(nodeWithMeta, detailLevel);
+            });
+            
+            result = {
+              nodes: processedNodes,
+              metadata: {
+                totalNodes: filteredNodes.length,
+                view: 'flat'
+              }
+            };
           }
-          
-          result = filteredNodes.map(node => ({
-            position: node.position,
-            type: node.type,
-            description: node.description || 'No description',
-            status: node.status,
-            alias: node.alias,
-            result: node.result ? 'Has result' : 'No result'
-          }));
           break;
         }
         
