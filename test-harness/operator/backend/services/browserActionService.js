@@ -6,6 +6,76 @@
  * and ensures consistent behavior across all browser interactions.
  */
 
+// Shared shadow DOM traversal helpers
+const shadowDOMHelpers = {
+  // Deep selector that works across shadow boundaries
+  querySelectorDeep(selector, root = document) {
+    // Handle >> syntax for explicit shadow piercing
+    if (selector.includes('>>')) {
+      const parts = selector.split('>>').map(p => p.trim());
+      let elements = [root];
+      
+      for (const part of parts) {
+        const newElements = [];
+        for (const el of elements) {
+          const searchRoot = el.shadowRoot || el;
+          newElements.push(...searchRoot.querySelectorAll(part));
+        }
+        elements = newElements;
+      }
+      
+      return elements[0] || null;
+    }
+    
+    // Fast path: try in the current root
+    const lightMatch = root.querySelector(selector);
+    if (lightMatch) return lightMatch;
+    
+    // Slow path: descend into every shadow root
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.shadowRoot) {
+        const match = this.querySelectorDeep(selector, node.shadowRoot);
+        if (match) return match;
+      }
+    }
+    return null;
+  },
+
+  // Get scroll parent that crosses shadow boundaries
+  getScrollParentAcrossShadows(node) {
+    let cur = node;
+    while (cur && cur !== document.documentElement) {
+      const style = cur instanceof Element ? getComputedStyle(cur) : null;
+      if (
+        style &&
+        /(auto|scroll|overlay)/.test(style.overflowY) &&
+        cur.scrollHeight > cur.clientHeight
+      ) {
+        return cur;
+      }
+      // Step out through shadow boundary if needed
+      const root = cur.getRootNode();
+      cur = cur.parentElement || (root instanceof ShadowRoot ? root.host : null);
+    }
+    return document.scrollingElement || document.documentElement;
+  },
+
+  // Check if element is visible
+  isElementVisible(element) {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    
+    return rect.width > 0 && 
+           rect.height > 0 && 
+           style.display !== 'none' && 
+           style.visibility !== 'hidden' && 
+           style.opacity !== '0';
+  }
+};
+
 export class BrowserActionService {
   constructor(nodeExecutor, workflowId, browserStateService) {
     this.nodeExecutor = nodeExecutor;
@@ -157,6 +227,8 @@ export class BrowserActionService {
           return await this.type(config);
         case 'keypress':
           return await this.keypress(config);
+        case 'clickAndWaitForPortal':
+          return await this.clickAndWaitForPortal(config);
           
         // Scrolling
         case 'scrollIntoView':
@@ -485,8 +557,83 @@ export class BrowserActionService {
       state: 'visible'
     });
     
-    // Click the element
-    await page.click(effectiveSelector);
+    // For shadow DOM, we need to handle visibility-first matching
+    if (useShadowDOM) {
+      // Use evaluate to find and click the first visible element
+      const clicked = await page.evaluate((params) => {
+        const { sel, useShadowDOM } = params;
+        
+        // Helper to query all elements with shadow DOM support
+        const findAllElements = (selector) => {
+          if (!useShadowDOM || !selector.includes('>>')) {
+            return Array.from(document.querySelectorAll(selector));
+          }
+          
+          // Handle shadow DOM piercing
+          const parts = selector.split('>>').map(p => p.trim());
+          let elements = [document];
+          
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const newElements = [];
+            
+            for (const el of elements) {
+              if (i === parts.length - 1) {
+                // Last part - select all matching elements
+                const root = el.shadowRoot || el;
+                newElements.push(...root.querySelectorAll(part));
+              } else {
+                // Intermediate part - continue traversing
+                const root = el.shadowRoot || el;
+                const found = root.querySelector(part);
+                if (found) newElements.push(found);
+              }
+            }
+            elements = newElements;
+          }
+          
+          return elements;
+        };
+        
+        // Helper to check if element is visible
+        const isVisible = (element) => {
+          if (!element) return false;
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          
+          return rect.width > 0 && 
+                 rect.height > 0 && 
+                 style.display !== 'none' && 
+                 style.visibility !== 'hidden' && 
+                 style.opacity !== '0';
+        };
+        
+        // Find all matching elements
+        const elements = findAllElements(sel);
+        
+        // Find first visible element
+        const visibleElement = elements.find(el => isVisible(el));
+        
+        if (visibleElement) {
+          visibleElement.click();
+          return { success: true, count: elements.length, clickedIndex: elements.indexOf(visibleElement) };
+        }
+        
+        return { success: false, count: elements.length, error: 'No visible element found' };
+      }, { sel: effectiveSelector, useShadowDOM });
+      
+      if (!clicked.success) {
+        throw new Error(`Failed to click: ${clicked.error} (found ${clicked.count} elements)`);
+      }
+      
+      // Log if we clicked something other than the first element
+      if (clicked.clickedIndex > 0) {
+        console.log(`[BrowserActionService] Clicked element at index ${clicked.clickedIndex} (first ${clicked.clickedIndex} were not visible)`);
+      }
+    } else {
+      // Standard click for non-shadow DOM
+      await page.click(effectiveSelector);
+    }
     
     return { 
       clicked: selector,
@@ -513,9 +660,79 @@ export class BrowserActionService {
       state: 'visible' 
     });
     
-    // Clear existing text and type new
-    await page.click(effectiveSelector, { clickCount: 3 });
-    await page.type(effectiveSelector, text);
+    // For shadow DOM, we need visibility-first matching
+    if (useShadowDOM) {
+      // Use the same visibility-first logic as click
+      const typed = await page.evaluate((params) => {
+        const { sel, text, useShadowDOM } = params;
+        
+        // Reuse the same helper functions
+        const findAllElements = (selector) => {
+          if (!useShadowDOM || !selector.includes('>>')) {
+            return Array.from(document.querySelectorAll(selector));
+          }
+          
+          const parts = selector.split('>>').map(p => p.trim());
+          let elements = [document];
+          
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const newElements = [];
+            
+            for (const el of elements) {
+              if (i === parts.length - 1) {
+                const root = el.shadowRoot || el;
+                newElements.push(...root.querySelectorAll(part));
+              } else {
+                const root = el.shadowRoot || el;
+                const found = root.querySelector(part);
+                if (found) newElements.push(found);
+              }
+            }
+            elements = newElements;
+          }
+          
+          return elements;
+        };
+        
+        const isVisible = (element) => {
+          if (!element) return false;
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          
+          return rect.width > 0 && 
+                 rect.height > 0 && 
+                 style.display !== 'none' && 
+                 style.visibility !== 'hidden' && 
+                 style.opacity !== '0';
+        };
+        
+        // Find first visible element
+        const elements = findAllElements(sel);
+        const visibleElement = elements.find(el => isVisible(el));
+        
+        if (visibleElement) {
+          // Clear and type
+          visibleElement.focus();
+          visibleElement.select ? visibleElement.select() : visibleElement.setSelectionRange(0, visibleElement.value.length);
+          document.execCommand('delete');
+          visibleElement.value = text;
+          visibleElement.dispatchEvent(new Event('input', { bubbles: true }));
+          visibleElement.dispatchEvent(new Event('change', { bubbles: true }));
+          return { success: true, count: elements.length };
+        }
+        
+        return { success: false, count: elements.length, error: 'No visible element found' };
+      }, { sel: effectiveSelector, text, useShadowDOM });
+      
+      if (!typed.success) {
+        throw new Error(`Failed to type: ${typed.error} (found ${typed.count} elements)`);
+      }
+    } else {
+      // Standard type for non-shadow DOM
+      await page.click(effectiveSelector, { clickCount: 3 });
+      await page.type(effectiveSelector, text);
+    }
     
     return { 
       typed: text,
@@ -720,6 +937,206 @@ export class BrowserActionService {
     };
   }
 
+  // ===== Compound Actions =====
+
+  async clickAndWaitForPortal(config) {
+    const { 
+      selector, 
+      tabName, 
+      timeout = 10000, 
+      useShadowDOM = false,
+      waitTimeout = 1000,
+      portalWaitTimeout = 2000,
+      returnPortalSelector = true,
+      store_variable = false
+    } = config;
+    
+    if (!selector) {
+      throw new Error('clickAndWaitForPortal action requires selector parameter');
+    }
+    
+    const page = await this.resolveTargetPage(tabName);
+    
+    // Store baseline DOM state before click
+    const baselineSnapshot = await page.evaluate(() => {
+      // Get current body-level elements
+      const bodyChildren = [];
+      const body = document.body;
+      if (body) {
+        for (const child of body.children) {
+          if (child.nodeType === 1) { // Element node
+            bodyChildren.push({
+              tag: child.tagName.toLowerCase(),
+              id: child.id || '',
+              className: child.className || '',
+              key: `${child.tagName}-${child.id}-${child.className}`
+            });
+          }
+        }
+      }
+      return bodyChildren;
+    });
+    
+    // Perform the click
+    const clickResult = await this.click({
+      selector,
+      tabName,
+      timeout,
+      useShadowDOM
+    });
+    
+    // Wait for portal to appear
+    await page.waitForTimeout(waitTimeout);
+    
+    // Check for new portal elements
+    const portalCheck = await page.evaluate((baseline) => {
+      const newPortals = [];
+      const body = document.body;
+      
+      if (body) {
+        // Build set of baseline keys
+        const baselineKeys = new Set(baseline.map(el => el.key));
+        
+        // Check current body children
+        for (const child of body.children) {
+          if (child.nodeType === 1) {
+            const key = `${child.tagName}-${child.id}-${child.className}`;
+            
+            // Is this element new?
+            if (!baselineKeys.has(key)) {
+              // Check if it looks like a portal
+              const tag = child.tagName.toLowerCase();
+              const className = child.className || '';
+              const role = child.getAttribute('role') || '';
+              
+              const isPortal = 
+                // Class-based detection
+                /portal|modal|overlay|dialog|popup|dropdown|tooltip/i.test(className) ||
+                // Role-based detection
+                ['dialog', 'menu', 'listbox', 'tooltip', 'alertdialog'].includes(role) ||
+                // Style-based detection
+                (window.getComputedStyle(child).position === 'fixed' && 
+                 parseInt(window.getComputedStyle(child).zIndex) > 100);
+              
+              if (isPortal || newPortals.length === 0) { // Include first new element even if not portal-like
+                // Generate selector hints
+                let selector = tag;
+                if (child.id) {
+                  selector = `#${child.id}`;
+                } else if (child.className) {
+                  const firstClass = child.className.split(' ')[0];
+                  selector = `${tag}.${firstClass}`;
+                }
+                
+                newPortals.push({
+                  tag,
+                  id: child.id || '',
+                  className,
+                  role,
+                  selector,
+                  isPortal,
+                  visible: window.getComputedStyle(child).display !== 'none'
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      return newPortals;
+    }, baselineSnapshot);
+    
+    if (portalCheck.length === 0) {
+      // No new portals found, wait a bit more and check again
+      await page.waitForTimeout(portalWaitTimeout - waitTimeout);
+      
+      const secondCheck = await page.evaluate((baseline) => {
+        const newPortals = [];
+        const body = document.body;
+        
+        if (body) {
+          const baselineKeys = new Set(baseline.map(el => el.key));
+          
+          for (const child of body.children) {
+            if (child.nodeType === 1) {
+              const key = `${child.tagName}-${child.id}-${child.className}`;
+              
+              if (!baselineKeys.has(key)) {
+                const tag = child.tagName.toLowerCase();
+                const className = child.className || '';
+                const role = child.getAttribute('role') || '';
+                
+                const isPortal = 
+                  /portal|modal|overlay|dialog|popup|dropdown|tooltip/i.test(className) ||
+                  ['dialog', 'menu', 'listbox', 'tooltip', 'alertdialog'].includes(role) ||
+                  (window.getComputedStyle(child).position === 'fixed' && 
+                   parseInt(window.getComputedStyle(child).zIndex) > 100);
+                
+                if (isPortal || newPortals.length === 0) {
+                  let selector = tag;
+                  if (child.id) {
+                    selector = `#${child.id}`;
+                  } else if (child.className) {
+                    const firstClass = child.className.split(' ')[0];
+                    selector = `${tag}.${firstClass}`;
+                  }
+                  
+                  newPortals.push({
+                    tag,
+                    id: child.id || '',
+                    className,
+                    role,
+                    selector,
+                    isPortal,
+                    visible: window.getComputedStyle(child).display !== 'none'
+                  });
+                }
+              }
+            }
+          }
+        }
+        
+        return newPortals;
+      }, baselineSnapshot);
+      
+      if (secondCheck.length > 0) {
+        portalCheck.push(...secondCheck);
+      }
+    }
+    
+    // Build result
+    const result = {
+      clicked: clickResult.clicked,
+      portalsFound: portalCheck.length,
+      portals: portalCheck,
+      tab: tabName || this.nodeExecutor.activeTabName || 'main'
+    };
+    
+    // Add primary portal selector if requested
+    if (returnPortalSelector && portalCheck.length > 0) {
+      // Prefer visible portals that look like actual portals
+      const bestPortal = portalCheck.find(p => p.visible && p.isPortal) || 
+                         portalCheck.find(p => p.isPortal) ||
+                         portalCheck[0];
+      
+      result.portalSelector = bestPortal.selector;
+    }
+    
+    // Store in variable if requested
+    if (store_variable && this.nodeExecutor) {
+      // Check if storeVariable method exists (it might not in all contexts)
+      if (typeof this.nodeExecutor.storeVariable === 'function') {
+        await this.nodeExecutor.storeVariable('portal_result', result);
+      } else {
+        console.warn('[clickAndWaitForPortal] store_variable requested but storeVariable method not available');
+        // Add a note to the result that storage was requested but unavailable
+        result.variableStorageNote = 'Variable storage requested but not available in this context';
+      }
+    }
+    
+    return result;
+  }
+
   // ===== Scrolling Actions =====
 
   /**
@@ -844,35 +1261,67 @@ export class BrowserActionService {
     try {
       await page.waitForSelector(effectiveSelector, { timeout: 2000, state: 'attached' });
       
-      const scrolled = await page.evaluate((params) => {
+      const scrollResult = await page.evaluate((params) => {
         const { sel, options, useShadowDOM } = params;
         
-        // Helper to query with shadow DOM support
-        const findElement = (selector) => {
-          if (!useShadowDOM || !selector.includes('>>')) {
-            return document.querySelector(selector);
+        // Inline the deep selector function
+        const querySelectorDeep = (selector, root = document) => {
+          // Handle >> syntax for explicit shadow piercing
+          if (selector.includes('>>')) {
+            const parts = selector.split('>>').map(p => p.trim());
+            let elements = [root];
+            
+            for (const part of parts) {
+              const newElements = [];
+              for (const el of elements) {
+                const searchRoot = el.shadowRoot || el;
+                newElements.push(...searchRoot.querySelectorAll(part));
+              }
+              elements = newElements;
+            }
+            
+            return elements[0] || null;
           }
           
-          // Handle shadow DOM piercing
-          const parts = selector.split('>>').map(p => p.trim());
-          let current = document;
+          // Fast path: try in the current root
+          const lightMatch = root.querySelector(selector);
+          if (lightMatch) return lightMatch;
           
-          for (const part of parts) {
-            if (!current) return null;
-            current = current.querySelector ? 
-              current.querySelector(part) : 
-              (current.shadowRoot ? current.shadowRoot.querySelector(part) : null);
+          // Slow path: descend into every shadow root
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+          let node;
+          while ((node = walker.nextNode())) {
+            if (node.shadowRoot) {
+              const match = querySelectorDeep(selector, node.shadowRoot);
+              if (match) return match;
+            }
           }
-          
-          return current;
+          return null;
         };
         
-        const element = findElement(sel);
+        // Find element using appropriate method
+        const element = useShadowDOM ? 
+          querySelectorDeep(sel) :
+          document.querySelector(sel);
+        
         if (element) {
+          console.log('[scrollIntoView] Found element:', element.tagName, element.className);
+          
+          // Get the element's position before scroll
+          const rectBefore = element.getBoundingClientRect();
+          console.log('[scrollIntoView] Position before:', { top: rectBefore.top, bottom: rectBefore.bottom });
+          
           element.scrollIntoView(options);
-          return true;
+          
+          // Get position after scroll
+          const rectAfter = element.getBoundingClientRect();
+          console.log('[scrollIntoView] Position after:', { top: rectAfter.top, bottom: rectAfter.bottom });
+          
+          return { success: true, rectAfter };
         }
-        return false;
+        
+        console.log('[scrollIntoView] Element not found for selector:', sel);
+        return { success: false };
       }, {
         sel: effectiveSelector,
         options: {
@@ -883,7 +1332,7 @@ export class BrowserActionService {
         useShadowDOM
       });
       
-      if (scrolled) {
+      if (scrollResult.success) {
         // Wait for scroll animation to complete and element to be visible
         await page.waitForTimeout(300); // Brief pause for smooth scrolling
         await page.waitForSelector(effectiveSelector, { timeout: timeout - 2300, state: 'visible' });
@@ -892,6 +1341,7 @@ export class BrowserActionService {
           scrolledIntoView: scrollIntoViewSelector,
           method: 'direct',
           behavior: scrollBehavior,
+          finalPosition: scrollResult.rectAfter,
           tab: tabName || this.nodeExecutor.activeTabName || 'main'
         };
       }
@@ -900,146 +1350,197 @@ export class BrowserActionService {
     }
     
     // Strategy 2: Progressive container scrolling for virtualized content
-    let attempt = 0;
-    const scrollStep = 500; // pixels per scroll
-    let currentDirection = scrollDirection === 'both' ? 'down' : scrollDirection;
-    let hasReversed = false;
-    let scrolled = 0; // Track total distance scrolled
+    console.log('[BrowserActionService] Starting progressive scroll strategy');
     
-    while (attempt < maxScrollAttempts && (Date.now() - startTime) < timeout) {
-      attempt++;
+    const progressiveScrollResult = await page.evaluate(async (params) => {
+      const { sel, useShadowDOM, maxAttempts, scrollStep, scrollDirection, options } = params;
       
-      // Wait for virtualized content to render (except first attempt)
-      if (attempt > 1) {
-        await page.waitForTimeout(100); // Give time for React-Virtualized to paint
-      }
-      
-      try {
-        // Check if element appeared
-        const exists = await page.evaluate((sel) => {
-          return !!document.querySelector(sel);
-        }, scrollIntoViewSelector);
-        
-        if (exists) {
-          // Element found! Now scroll it into view
-          await page.evaluate((params) => {
-            const { sel, options } = params;
-            const element = document.querySelector(sel);
-            if (element) {
-              element.scrollIntoView(options);
-            }
-          }, {
-            sel: scrollIntoViewSelector,
-            options: { behavior: scrollBehavior, block: scrollBlock, inline: scrollInline }
-          });
+      // Inline all helper functions
+      const querySelectorDeep = (selector, root = document) => {
+        if (selector.includes('>>')) {
+          const parts = selector.split('>>').map(p => p.trim());
+          let elements = [root];
           
-          await page.waitForTimeout(300); // Let scroll complete
-          await page.waitForSelector(scrollIntoViewSelector, { 
-            timeout: Math.max(1000, timeout - (Date.now() - startTime)), 
-            state: 'visible' 
-          });
+          for (const part of parts) {
+            const newElements = [];
+            for (const el of elements) {
+              const searchRoot = el.shadowRoot || el;
+              newElements.push(...searchRoot.querySelectorAll(part));
+            }
+            elements = newElements;
+          }
           
-          return {
-            scrolledIntoView: scrollIntoViewSelector,
-            method: 'progressive',
-            attempts: attempt,
-            behavior: scrollBehavior,
-            direction: scrollDirection,
-            tab: tabName || this.nodeExecutor.activeTabName || 'main'
-          };
-        }
-      } catch (checkError) {
-        // Element still not found, continue scrolling
-        console.log(`[BrowserActionService] Scroll attempt ${attempt}/${maxScrollAttempts}: element not found yet (direction: ${currentDirection})`);
-      }
-      
-      // Check if we've reached the end and should reverse direction
-      if (scrollDirection === 'both' && !hasReversed) {
-        const atBoundary = await page.evaluate((params) => {
-          const { containerSel, direction } = params;
-          if (containerSel) {
-            const container = document.querySelector(containerSel);
-            if (container) {
-              if (direction === 'down') {
-                return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
-              } else {
-                return container.scrollTop <= 10;
-              }
-            }
-          } else {
-            if (direction === 'down') {
-              return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
-            } else {
-              return window.scrollY <= 10;
-            }
-          }
-        }, { containerSel: scrollContainer, direction: currentDirection });
-        
-        if (atBoundary) {
-          console.log(`[BrowserActionService] Reached ${currentDirection} boundary, reversing direction`);
-          currentDirection = currentDirection === 'down' ? 'up' : 'down';
-          hasReversed = true;
-          // Reset to opposite end
-          if (scrollContainer) {
-            await page.evaluate((params) => {
-              const { containerSel, direction } = params;
-              const container = document.querySelector(containerSel);
-              if (container) {
-                container.scrollTop = direction === 'down' ? 0 : container.scrollHeight;
-              }
-            }, { containerSel: scrollContainer, direction: currentDirection });
-          } else {
-            await page.evaluate((direction) => {
-              window.scrollTo(0, direction === 'down' ? 0 : document.documentElement.scrollHeight);
-            }, currentDirection);
-          }
-        }
-      }
-      
-      // Scroll in the current direction
-      const scrollAmount = currentDirection === 'up' ? -scrollStep : scrollStep;
-      scrolled += Math.abs(scrollAmount);
-      
-      if (scrollContainer) {
-        const containerExists = await page.evaluate((containerSel) => {
-          return !!document.querySelector(containerSel);
-        }, scrollContainer);
-        
-        if (!containerExists) {
-          throw new Error(`Scroll container "${scrollContainer}" not found`);
+          return elements[0] || null;
         }
         
-        await page.evaluate((params) => {
-          const { containerSel, step } = params;
-          const container = document.querySelector(containerSel);
-          if (container) {
-            container.scrollTop += step;
+        const lightMatch = root.querySelector(selector);
+        if (lightMatch) return lightMatch;
+        
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.shadowRoot) {
+            const match = querySelectorDeep(selector, node.shadowRoot);
+            if (match) return match;
           }
-        }, { containerSel: scrollContainer, step: scrollAmount });
-      } else {
-        // Scroll main viewport
-        await page.evaluate((step) => {
-          window.scrollBy(0, step);
-        }, scrollAmount);
-      }
-      
-      // Brief pause for DOM updates in virtualized grids
-      await page.waitForTimeout(200);
-    }
-    
-    // Get final scroll position for diagnostics
-    const finalScrollInfo = await page.evaluate(() => {
-      return {
-        scrollY: window.scrollY,
-        scrollHeight: document.documentElement.scrollHeight,
-        viewportHeight: window.innerHeight
+        }
+        return null;
       };
+      
+      const getScrollParentAcrossShadows = (node) => {
+        let cur = node;
+        while (cur && cur !== document.documentElement) {
+          const style = cur instanceof Element ? getComputedStyle(cur) : null;
+          if (
+            style &&
+            /(auto|scroll|overlay)/.test(style.overflowY) &&
+            cur.scrollHeight > cur.clientHeight
+          ) {
+            console.log('[Progressive] Found scroll parent:', cur.tagName, cur.className);
+            return cur;
+          }
+          // Step out through shadow boundary if needed
+          const root = cur.getRootNode();
+          cur = cur.parentElement || (root instanceof ShadowRoot ? root.host : null);
+        }
+        return document.scrollingElement || document.documentElement;
+      };
+      
+      const isElementInViewport = (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight;
+      };
+      
+      // Progressive scroll implementation
+      let attempt = 0;
+      let lastScrollPos = 0;
+      
+      while (attempt < maxAttempts) {
+        attempt++;
+        
+        // Try to find element
+        const element = useShadowDOM ? 
+          querySelectorDeep(sel) :
+          document.querySelector(sel);
+        
+        if (element) {
+          console.log(`[Progressive] Found element on attempt ${attempt}`);
+          const rect = element.getBoundingClientRect();
+          
+          // Check if already visible
+          if (isElementInViewport(element)) {
+            console.log('[Progressive] Element already in viewport');
+            return { success: true, attempts: attempt, rect, method: 'already-visible' };
+          }
+          
+          // Find the correct scroll parent
+          const scrollParent = getScrollParentAcrossShadows(element);
+          console.log('[Progressive] Scroll parent:', scrollParent === document.documentElement ? 'document' : scrollParent.tagName);
+          
+          // Scroll element into view
+          element.scrollIntoView(options);
+          
+          // Wait for scroll to complete
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Check final position
+          const finalRect = element.getBoundingClientRect();
+          console.log('[Progressive] Final position:', { top: finalRect.top, bottom: finalRect.bottom });
+          
+          if (isElementInViewport(element)) {
+            return { success: true, attempts: attempt, rect: finalRect, method: 'scrolled-into-view' };
+          }
+        }
+        
+        // Element not found yet, scroll to load more content
+        // Need to find appropriate scroll parent - might be inside a shadow DOM container
+        let scrollParent = document.scrollingElement || document.documentElement;
+        
+        // If we're using shadow DOM, try to find a scroll parent that might be in shadow DOM
+        if (useShadowDOM) {
+          // Look for common scroll container patterns
+          const possibleContainers = [
+            '.ag-center-cols-viewport', // ag-grid
+            '.ReactVirtualized__Grid',
+            '.ReactVirtualized__List',
+            '[data-viewport]',
+            '.viewport',
+            '.scroll-container',
+            '.scrollable'
+          ];
+          
+          for (const containerSel of possibleContainers) {
+            const container = querySelectorDeep(containerSel);
+            if (container && container.scrollHeight > container.clientHeight) {
+              scrollParent = container;
+              console.log('[Progressive] Found shadow DOM scroll container:', containerSel);
+              break;
+            }
+          }
+        }
+        
+        const currentScroll = scrollParent.scrollTop;
+        
+        if (scrollDirection === 'down' || scrollDirection === 'both') {
+          scrollParent.scrollTop += scrollStep;
+        } else {
+          scrollParent.scrollTop -= scrollStep;
+        }
+        
+        // Check if we actually scrolled
+        if (Math.abs(scrollParent.scrollTop - currentScroll) < 1) {
+          console.log('[Progressive] Cannot scroll further');
+          break;
+        }
+        
+        // Wait for content to render
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Final attempt to find element
+      const finalElement = useShadowDOM ? 
+        querySelectorDeep(sel) :
+        document.querySelector(sel);
+        
+      if (finalElement) {
+        const finalRect = finalElement.getBoundingClientRect();
+        return { 
+          success: false, 
+          attempts: attempt, 
+          rect: finalRect, 
+          message: `Element found but not in viewport. Position: ${finalRect.top}` 
+        };
+      }
+      
+      return { success: false, attempts: attempt, message: 'Element not found after progressive scroll' };
+    }, {
+      sel: effectiveSelector,
+      useShadowDOM,
+      maxAttempts: maxScrollAttempts,
+      scrollStep: 500,
+      scrollDirection,
+      options: {
+        behavior: scrollBehavior,
+        block: scrollBlock,
+        inline: scrollInline
+      }
     });
     
+    if (progressiveScrollResult.success) {
+      return {
+        scrolledIntoView: scrollIntoViewSelector,
+        method: 'progressive',
+        attempts: progressiveScrollResult.attempts,
+        behavior: scrollBehavior,
+        finalPosition: progressiveScrollResult.rect,
+        tab: tabName || this.nodeExecutor.activeTabName || 'main'
+      };
+    }
+    
+    // Progressive scroll failed
     throw new Error(
-      `Failed to scroll element "${scrollIntoViewSelector}" into view after ${attempt} attempts. ` +
-      `Scrolled ${scrolled}px total. Final position: ${finalScrollInfo.scrollY}px / ${finalScrollInfo.scrollHeight}px total height. ` +
-      `Element may not exist or selector may be incorrect.`
+      progressiveScrollResult.message || 
+      `Failed to scroll element into view after ${progressiveScrollResult.attempts} attempts`
     );
   }
 

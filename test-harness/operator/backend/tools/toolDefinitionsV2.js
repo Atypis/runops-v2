@@ -954,13 +954,13 @@ export function createToolDefinitions() {
                 // State observation
                 'getCurrentUrl', 'getTitle',
                 // Interaction
-                'click', 'type', 'keypress',
+                'click', 'type', 'keypress', 'clickAndWaitForPortal',
                 // Scrolling
                 'scrollIntoView', 'scrollToRow',
                 // Profile management
                 'listProfiles', 'setProfile', 'snapshotProfile', 'restoreProfile', 'loadProfile'
               ],
-              description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI). scrollIntoView/scrollToRow handle virtualized content.'
+              description: 'The browser action to perform. All actions are deterministic (CSS selectors only, no AI). scrollIntoView/scrollToRow handle virtualized content. clickAndWaitForPortal combines click with portal detection.'
             },
             config: {
               type: 'object',
@@ -1086,6 +1086,24 @@ export function createToolDefinitions() {
                   type: 'string',
                   description: 'For setProfile/snapshotProfile/restoreProfile/loadProfile: Name of the browser profile. Use null for default (no profile).',
                   pattern: '^[a-z0-9-]+$'
+                },
+                
+                // Compound action: clickAndWaitForPortal
+                waitTimeout: {
+                  type: 'number',
+                  description: 'For clickAndWaitForPortal: Initial wait time after click before checking for portals (ms, default: 1000)'
+                },
+                portalWaitTimeout: {
+                  type: 'number',
+                  description: 'For clickAndWaitForPortal: Total time to wait for portal appearance (ms, default: 2000)'
+                },
+                returnPortalSelector: {
+                  type: 'boolean',
+                  description: 'For clickAndWaitForPortal: Return the best portal selector in result (default: true)'
+                },
+                store_variable: {
+                  type: 'boolean',
+                  description: 'For clickAndWaitForPortal: Store the result in a workflow variable named "portal_result" (default: false)'
                 }
               },
               additionalProperties: false
