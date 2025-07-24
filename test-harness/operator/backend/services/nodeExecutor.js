@@ -99,6 +99,30 @@ export class NodeExecutor {
     return `${baseKey}@iter:${iterSuffix}`;
   }
 
+  // Resolve node reference (position or alias) to actual node
+  async resolveNodeReference(reference, workflowId) {
+    const query = supabase
+      .from('nodes')
+      .select('*')
+      .eq('workflow_id', workflowId);
+      
+    if (typeof reference === 'number') {
+      query.eq('position', reference);
+    } else if (typeof reference === 'string') {
+      query.eq('alias', reference);
+    } else {
+      return { data: null, error: new Error(`Invalid node reference: ${reference}`) };
+    }
+    
+    const result = await query.single();
+    
+    if (!result.data && typeof reference === 'string') {
+      console.error(`[NODE_RESOLUTION] Alias '${reference}' not found in workflow ${workflowId}`);
+    }
+    
+    return result;
+  }
+
   // Store node value update for frontend
   sendNodeValueUpdate(nodeId, position, value, storageKey) {
     const simplifiedValue = this.simplifyValue(value);
@@ -2038,28 +2062,24 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     
     // Execute the selected branch
     if (selectedBranch) {
-      // Check if this is the new format (array of positions) or old format (array of node objects)
+      // Check if this is the new format (array of positions/aliases) or old format (array of node objects)
       if (Array.isArray(selectedBranch)) {
-        if (selectedBranch.length > 0 && typeof selectedBranch[0] === 'number') {
-          // New format: array of node positions
-          console.log(`[ROUTE] Executing branch with ${selectedBranch.length} node positions: ${selectedBranch.join(', ')}`);
+        if (selectedBranch.length > 0 && (typeof selectedBranch[0] === 'number' || typeof selectedBranch[0] === 'string')) {
+          // New format: array of node positions or aliases
+          console.log(`[ROUTE] Executing branch with ${selectedBranch.length} node references: ${selectedBranch.join(', ')}`);
           const results = [];
           
-          for (const nodePosition of selectedBranch) {
-            // Fetch the node by position
-            const { data: node } = await supabase
-              .from('nodes')
-              .select('*')
-              .eq('workflow_id', workflowId)
-              .eq('position', nodePosition)
-              .single();
+          for (const nodeRef of selectedBranch) {
+            // Resolve the node reference (position or alias)
+            const { data: node } = await this.resolveNodeReference(nodeRef, workflowId);
               
             if (node) {
-              console.log(`[ROUTE] Executing node at position ${nodePosition}: ${node.type} - ${node.description}`);
+              const refType = typeof nodeRef === 'number' ? 'position' : 'alias';
+              console.log(`[ROUTE] Executing node by ${refType} ${nodeRef}: ${node.type} - ${node.description}`);
               const result = await this.execute(node.id, workflowId);
               results.push(result);
             } else {
-              console.log(`[ROUTE] Warning: Could not find node at position ${nodePosition}`);
+              console.log(`[ROUTE] Warning: Could not find node: ${nodeRef}`);
             }
           }
           return { path: selectedPath, results };
@@ -2076,24 +2096,20 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
           }
           return { path: selectedPath, results };
         }
-      } else if (typeof selectedBranch === 'number') {
-        // New format: single node position
-        console.log(`[ROUTE] Executing single node at position ${selectedBranch}`);
+      } else if (typeof selectedBranch === 'number' || typeof selectedBranch === 'string') {
+        // New format: single node position or alias
+        const refType = typeof selectedBranch === 'number' ? 'position' : 'alias';
+        console.log(`[ROUTE] Executing single node by ${refType} ${selectedBranch}`);
         
-        // Fetch the node by position
-        const { data: node } = await supabase
-          .from('nodes')
-          .select('*')
-          .eq('workflow_id', workflowId)
-          .eq('position', selectedBranch)
-          .single();
+        // Resolve the node reference (position or alias)
+        const { data: node } = await this.resolveNodeReference(selectedBranch, workflowId);
           
         if (node) {
-          console.log(`[ROUTE] Executing node at position ${selectedBranch}: ${node.type} - ${node.description}`);
+          console.log(`[ROUTE] Executing node by ${refType} ${selectedBranch}: ${node.type} - ${node.description}`);
           const result = await this.execute(node.id, workflowId);
           return { path: selectedPath, result };
         } else {
-          console.log(`[ROUTE] Warning: Could not find node at position ${selectedBranch}`);
+          console.log(`[ROUTE] Warning: Could not find node: ${selectedBranch}`);
           return { path: selectedPath, result: null };
         }
       } else if (selectedBranch && typeof selectedBranch === 'object') {
@@ -2777,28 +2793,24 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         // Execute body (single node or array of nodes)
         let result;
         
-        // Check if this is the new format (array of positions) or old format (array of node objects)
+        // Check if this is the new format (array of positions/aliases) or old format (array of node objects)
         if (Array.isArray(config.body)) {
-          if (config.body.length > 0 && typeof config.body[0] === 'number') {
-            // New format: array of node positions
+          if (config.body.length > 0 && (typeof config.body[0] === 'number' || typeof config.body[0] === 'string')) {
+            // New format: array of node positions or aliases
             result = [];
-            console.log(`[ITERATE] Executing body with ${config.body.length} node positions: ${config.body.join(', ')}`);
+            console.log(`[ITERATE] Executing body with ${config.body.length} node references: ${config.body.join(', ')}`);
             
-            for (const nodePosition of config.body) {
-              // Fetch the node by position
-              const { data: node } = await supabase
-                .from('nodes')
-                .select('*')
-                .eq('workflow_id', workflowId)
-                .eq('position', nodePosition)
-                .single();
+            for (const nodeRef of config.body) {
+              // Resolve the node reference (position or alias)
+              const { data: node } = await this.resolveNodeReference(nodeRef, workflowId);
                 
               if (node) {
-                console.log(`[ITERATE] Executing node at position ${nodePosition}: ${node.type} - ${node.description}`);
+                const refType = typeof nodeRef === 'number' ? 'position' : 'alias';
+                console.log(`[ITERATE] Executing node by ${refType} ${nodeRef}: ${node.type} - ${node.description}`);
                 const nodeResult = await this.execute(node.id, workflowId);
                 result.push(nodeResult);
               } else {
-                console.log(`[ITERATE] Warning: Could not find node at position ${nodePosition}`);
+                console.log(`[ITERATE] Warning: Could not find node: ${nodeRef}`);
               }
             }
           } else {
@@ -2813,22 +2825,18 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
               result.push(nodeResult);
             }
           }
-        } else if (typeof config.body === 'number') {
-          // New format: single node position
-          console.log(`[ITERATE] Executing single node at position ${config.body}`);
+        } else if (typeof config.body === 'number' || typeof config.body === 'string') {
+          // New format: single node position or alias
+          const refType = typeof config.body === 'number' ? 'position' : 'alias';
+          console.log(`[ITERATE] Executing single node by ${refType} ${config.body}`);
           
-          // Fetch the node by position
-          const { data: node } = await supabase
-            .from('nodes')
-            .select('*')
-            .eq('workflow_id', workflowId)
-            .eq('position', config.body)
-            .single();
+          // Resolve the node reference (position or alias)
+          const { data: node } = await this.resolveNodeReference(config.body, workflowId);
             
           if (node) {
             result = await this.execute(node.id, workflowId);
           } else {
-            console.log(`[ITERATE] Warning: Could not find node at position ${config.body}`);
+            console.log(`[ITERATE] Warning: Could not find node: ${config.body}`);
             result = null;
           }
         } else if (config.body && typeof config.body === 'object') {

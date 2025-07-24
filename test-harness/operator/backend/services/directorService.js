@@ -1192,6 +1192,9 @@ export class DirectorService {
       }
     }
     
+    // Validate node references for iterate and route nodes
+    await this.validateNodeReferences(nodes, workflowId);
+    
     console.log(`[ADD_OR_REPLACE_NODES] Target: ${target}, Nodes: ${nodes.length}`);
     
     // Determine operation based on target type
@@ -1669,7 +1672,7 @@ export class DirectorService {
       let needsUpdate = false;
       const updatedConfig = { ...node.config };
       
-      // Update route paths
+      // Update route paths (old format)
       if (node.type === 'route' && node.config?.paths) {
         for (const [pathName, positions] of Object.entries(node.config.paths)) {
           if (Array.isArray(positions)) {
@@ -1681,12 +1684,48 @@ export class DirectorService {
         }
       }
       
+      // Update route branches (new format)
+      if (node.type === 'route' && Array.isArray(node.config)) {
+        let branchUpdated = false;
+        const newBranches = node.config.map(branch => {
+          const updatedBranch = { ...branch };
+          
+          if (branch.branch) {
+            if (Array.isArray(branch.branch)) {
+              updatedBranch.branch = branch.branch.map(ref => {
+                // Only update numeric references (positions), leave string references (aliases) unchanged
+                if (typeof ref === 'number' && positionMap[ref] !== undefined) {
+                  branchUpdated = true;
+                  return positionMap[ref];
+                }
+                return ref;
+              });
+            } else if (typeof branch.branch === 'number' && positionMap[branch.branch] !== undefined) {
+              updatedBranch.branch = positionMap[branch.branch];
+              branchUpdated = true;
+            }
+            // Note: String references (aliases) don't need updating as they remain stable
+          }
+          
+          return updatedBranch;
+        });
+        
+        if (branchUpdated) {
+          Object.assign(updatedConfig, newBranches);
+          needsUpdate = true;
+        }
+      }
+      
       // Update iterate body
       if (node.type === 'iterate' && node.config?.body) {
         if (Array.isArray(node.config.body)) {
-          updatedConfig.body = node.config.body.map(pos => 
-            positionMap[pos] !== undefined ? positionMap[pos] : pos
-          );
+          updatedConfig.body = node.config.body.map(ref => {
+            // Only update numeric references (positions), leave string references (aliases) unchanged
+            if (typeof ref === 'number' && positionMap[ref] !== undefined) {
+              return positionMap[ref];
+            }
+            return ref;
+          });
           needsUpdate = true;
         } else if (typeof node.config.body === 'number') {
           const newPos = positionMap[node.config.body];
@@ -1695,6 +1734,7 @@ export class DirectorService {
             needsUpdate = true;
           }
         }
+        // Note: String references (aliases) don't need updating as they remain stable
       }
       
       // Update handle blocks
@@ -1891,6 +1931,52 @@ export class DirectorService {
     }
     
     return errors;
+  }
+
+  /**
+   * Validate node references in iterate and route nodes
+   * Ensures all referenced aliases exist in the workflow
+   */
+  async validateNodeReferences(nodes, workflowId) {
+    for (const node of nodes) {
+      if (node.type === 'iterate' && node.config?.body) {
+        await this.validateReferences(node.config.body, node.alias, 'body', workflowId);
+      }
+      
+      if (node.type === 'route' && node.config) {
+        for (const branch of node.config) {
+          if (branch.branch) {
+            await this.validateReferences(branch.branch, node.alias, `branch '${branch.name}'`, workflowId);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate individual references (positions or aliases)
+   */
+  async validateReferences(refs, nodeAlias, context, workflowId) {
+    const references = Array.isArray(refs) ? refs : [refs];
+    const aliasRefs = references.filter(r => typeof r === 'string');
+    
+    if (aliasRefs.length === 0) return;
+    
+    const { data: existingNodes } = await supabase
+      .from('nodes')
+      .select('alias')
+      .eq('workflow_id', workflowId)
+      .in('alias', aliasRefs);
+      
+    const found = new Set(existingNodes?.map(n => n.alias) || []);
+    const missing = aliasRefs.filter(a => !found.has(a));
+    
+    if (missing.length > 0) {
+      throw new Error(
+        `Node '${nodeAlias}' references non-existent nodes in ${context}: ${missing.join(', ')}. ` +
+        `Please create these nodes first or check the alias names.`
+      );
+    }
   }
 
   // Group functionality is now handled by the 'group' node type which executes a range of nodes

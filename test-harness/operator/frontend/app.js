@@ -341,6 +341,7 @@ function App() {
         const history = await response.json();
         
         // Debug: Log the first few messages to check if they have IDs
+        console.log('First 3 messages:', history.slice(0, 3).map(m => ({
           id: m.id,
           role: m.role,
           content: m.content?.substring(0, 50) + '...',

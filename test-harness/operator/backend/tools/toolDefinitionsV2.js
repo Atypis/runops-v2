@@ -288,9 +288,29 @@ export function createToolDefinitions() {
               pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
             },
             body: {
-              type: 'array',
-              items: { type: 'number' },
-              description: 'Node positions to execute for each iteration (e.g., [15, 16, 17]).'
+              anyOf: [
+                { 
+                  type: 'number',
+                  description: 'LEGACY: Single node position. Use alias instead.'
+                },
+                {
+                  type: 'array',
+                  items: {
+                    anyOf: [
+                      { 
+                        type: 'number',
+                        description: 'LEGACY: Node position'
+                      },
+                      { 
+                        type: 'string',
+                        pattern: '^[a-z][a-z0-9_]*$',
+                        description: 'Node alias (recommended)'
+                      }
+                    ]
+                  },
+                  description: 'Nodes to execute for each iteration. Use aliases (e.g., ["validate_email", "send_notification"]) for stable references. Position numbers are legacy and fragile.'
+                }
+              ]
             },
             limit: {
               type: 'number',
@@ -423,14 +443,34 @@ export function createToolDefinitions() {
               },
               branch: {
                 anyOf: [
-                  { type: 'number', description: 'Single node position to execute' },
                   { 
-                    type: 'array', 
-                    items: { type: 'number' },
-                    description: 'Array of node positions to execute in sequence'
+                    type: 'number', 
+                    description: 'LEGACY: Single node position. Use alias instead.' 
+                  },
+                  { 
+                    type: 'string',
+                    pattern: '^[a-z][a-z0-9_]*$',
+                    description: 'Single node alias to execute (recommended)'
+                  },
+                  { 
+                    type: 'array',
+                    items: {
+                      anyOf: [
+                        { 
+                          type: 'number',
+                          description: 'LEGACY: Node position'
+                        },
+                        { 
+                          type: 'string',
+                          pattern: '^[a-z][a-z0-9_]*$',
+                          description: 'Node alias'
+                        }
+                      ]
+                    },
+                    description: 'Array of nodes to execute in sequence. Use aliases for stable references. Position numbers are legacy.'
                   }
                 ],
-                description: 'Node position(s) to execute if condition is true'
+                description: 'Node(s) to execute if condition is true. Use aliases (e.g., "handle_error" or ["log_error", "notify_admin"]) for maintainability.'
               }
             },
             required: ['name', 'condition', 'branch'],
