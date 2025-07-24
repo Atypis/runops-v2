@@ -299,7 +299,6 @@ function App() {
   };
 
   useEffect(() => {
-    console.log('[MESSAGE DEBUG] Messages changed via useEffect, count:', messages.length);
     scrollToBottom();
   }, [messages]);
 
@@ -326,28 +325,22 @@ function App() {
 
   // Load conversation history
   const loadConversationHistory = async (workflowId) => {
-    console.log('[MESSAGE DEBUG] loadConversationHistory called with workflowId:', workflowId);
     if (!workflowId) {
-      console.log('[MESSAGE DEBUG] No workflowId, clearing messages');
       setMessages([]);
       return;
     }
     
     // Skip loading if we're currently sending a message
     if (isLoading) {
-      console.log('[MESSAGE DEBUG] Skipping conversation history load while sending message');
       return;
     }
     
     try {
-      console.log('[MESSAGE DEBUG] Fetching conversation history from API...');
       const response = await fetch(`${API_BASE}/workflows/${workflowId}/conversations?limit=500`);
       if (response.ok) {
         const history = await response.json();
-        console.log('[MESSAGE DEBUG] Received history with', history.length, 'messages');
         
         // Debug: Log the first few messages to check if they have IDs
-        console.log('[MESSAGE DEBUG] First few messages:', history.slice(0, 3).map(m => ({
           id: m.id,
           role: m.role,
           content: m.content?.substring(0, 50) + '...',
@@ -362,31 +355,23 @@ function App() {
           compressed: history.filter(m => m.isCompressed).length,
           active: history.filter(m => !m.isArchived && !m.isCompressed).length
         };
-        console.log('[MESSAGE DEBUG] Message counts:', counts);
         
         // Preserve any temporary messages that might be in progress
         setMessages(prev => {
-          console.log('[MESSAGE DEBUG] Previous messages count:', prev.length);
           const tempMessages = prev.filter(msg => msg.isTemporary);
-          console.log('[MESSAGE DEBUG] Found', tempMessages.length, 'temporary messages');
           if (tempMessages.length > 0) {
             // If we have temporary messages, append history before them
             const lastNonTemp = prev.findLastIndex(msg => !msg.isTemporary);
             const result = [...history, ...prev.slice(lastNonTemp + 1)];
-            console.log('[MESSAGE DEBUG] Returning', result.length, 'messages (history + temp)');
             return result;
           }
-          console.log('[MESSAGE DEBUG] Returning', history.length, 'messages from history');
           return history;
         });
         
-        console.log(`[MESSAGE DEBUG] Loaded ${history.length} messages from conversation history`);
       } else {
-        console.error('[MESSAGE DEBUG] Failed to load conversation history:', response.status);
         setMessages([]);
       }
     } catch (error) {
-      console.error('[MESSAGE DEBUG] Error loading conversation history:', error);
       setMessages([]);
     }
   };
@@ -1299,7 +1284,6 @@ function App() {
   };
 
   const compressContext = async () => {
-    console.log('[MESSAGE DEBUG] Starting compression...');
     setShowCompressConfirmation(false);
     setIsLoading(true);
 
@@ -1312,7 +1296,6 @@ function App() {
       }
 
       const messageCount = messages.filter(m => m.role === 'user' || m.role === 'assistant').length;
-      console.log('[MESSAGE DEBUG] Compressing', messageCount, 'messages');
 
       const response = await fetch(`${API_BASE}/compress-context`, {
         method: 'POST',
@@ -1329,10 +1312,8 @@ function App() {
       }
 
       const result = await response.json();
-      console.log('[MESSAGE DEBUG] Compression result:', result);
       
       // Reload conversation history to get updated archived status and compressed message
-      console.log('[MESSAGE DEBUG] Reloading conversation after compression...');
       await loadConversationHistory(workflowId);
       
       addMessage('system', `Context compressed successfully. Compressed ${result.originalMessageCount} new messages into the summary.`);
@@ -4293,16 +4274,12 @@ function App() {
   };
 
   const sendMessage = async () => {
-    console.log('[MESSAGE DEBUG] sendMessage called');
     if (!input.trim() || isLoading) return;
 
     const messageText = input; // Save the input before clearing it
     const userMessage = { role: 'user', content: messageText };
-    console.log('[MESSAGE DEBUG] Adding user message, current message count:', messages.length);
     setMessages(prev => {
-      console.log('[MESSAGE DEBUG] Previous messages:', prev.length);
       const newMessages = [...prev, userMessage];
-      console.log('[MESSAGE DEBUG] New messages array:', newMessages.length);
       return newMessages;
     });
     setInput('');
@@ -4335,28 +4312,22 @@ function App() {
       const newMessageIndex = messages.length + 1; // +1 because we already added user message
       setCurrentReasoningMessageIndex(newMessageIndex);
       currentReasoningMessageIndexRef.current = newMessageIndex; // Also set the ref
-      console.log('[MESSAGE DEBUG] Setting current reasoning message index to:', newMessageIndex);
       
       setMessages(prev => {
-        console.log('[MESSAGE DEBUG] Adding temp assistant message, prev count:', prev.length);
         const newMessages = [...prev, tempAssistantMessage];
-        console.log('[MESSAGE DEBUG] After adding temp assistant:', newMessages.length);
         return newMessages;
       });
 
       // Filter out debug_input and other large fields from conversation history
       // Also filter out archived messages - only send active messages to Director
-      console.log('[MESSAGE DEBUG] Filtering messages for API, total messages:', messages.length);
       const cleanConversationHistory = messages
         .filter(msg => {
           // Exclude archived messages
           if (msg.isArchived) {
-            console.log('[MESSAGE DEBUG] Excluding archived message');
             return false;
           }
           // Exclude the compressed context message itself (it's in Part 7)
           if (msg.isCompressed) {
-            console.log('[MESSAGE DEBUG] Excluding compressed message');
             return false;
           }
           return true;
@@ -4400,7 +4371,6 @@ function App() {
         };
       });
 
-      console.log('[MESSAGE DEBUG] Clean conversation history length:', cleanConversationHistory.length);
 
       console.log('[SendMessage] About to send message:', {
         message: messageText,
@@ -4431,15 +4401,12 @@ function App() {
       
 
       const data = await response.json();
-      console.log('[MESSAGE DEBUG] Received response from API, has message:', !!data.message);
       
       // Update the temporary message with actual response
       setMessages(prev => {
-        console.log('[MESSAGE DEBUG] Updating temp message with response, prev count:', prev.length);
         const updated = [...prev];
         const lastMessage = updated[updated.length - 1];
         if (lastMessage && lastMessage.isTemporary) {
-          console.log('[MESSAGE DEBUG] Found temp message to update');
           updated[updated.length - 1] = {
             ...lastMessage,
             content: data.message,
@@ -4460,9 +4427,7 @@ function App() {
             debug_input: data.debug_input
           };
         } else {
-          console.log('[MESSAGE DEBUG] No temp message found to update!');
         }
-        console.log('[MESSAGE DEBUG] After response update, message count:', updated.length);
         return updated;
       });
 
@@ -4486,10 +4451,7 @@ function App() {
       }
       
       // Reload conversation history to get database IDs for the new messages
-      console.log('[MESSAGE DEBUG] Reloading conversation to get message IDs...');
-      console.log('[MESSAGE DEBUG] Messages before reload:', messages.length);
       await loadConversationHistory(workflowId);
-      console.log('[MESSAGE DEBUG] Messages after reload:', messages.length);
       
       // Refresh plan if update_plan was called
       if (data.toolCalls && data.toolCalls.some(tc => tc.toolName === 'update_plan')) {
@@ -4915,7 +4877,6 @@ function App() {
             </div>
           )}
           
-          {console.log('[MESSAGE DEBUG] Rendering', messages.length, 'messages')}
           {messages.map((message, index) => (
             <div key={message.id || index}>
               {/* Show archived messages separator */}
