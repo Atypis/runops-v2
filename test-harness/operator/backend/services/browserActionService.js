@@ -565,34 +565,63 @@ export class BrowserActionService {
         
         // Helper to query all elements with shadow DOM support
         const findAllElements = (selector) => {
-          if (!useShadowDOM || !selector.includes('>>')) {
+          if (!useShadowDOM) {
             return Array.from(document.querySelectorAll(selector));
           }
           
-          // Handle shadow DOM piercing
-          const parts = selector.split('>>').map(p => p.trim());
-          let elements = [document];
-          
-          for (let i = 0; i < parts.length; i++) {
-            const part = parts[i];
-            const newElements = [];
+          // If selector has >> syntax, use explicit shadow piercing
+          if (selector.includes('>>')) {
+            const parts = selector.split('>>').map(p => p.trim());
+            let elements = [document];
             
-            for (const el of elements) {
-              if (i === parts.length - 1) {
-                // Last part - select all matching elements
-                const root = el.shadowRoot || el;
-                newElements.push(...root.querySelectorAll(part));
-              } else {
-                // Intermediate part - continue traversing
-                const root = el.shadowRoot || el;
-                const found = root.querySelector(part);
-                if (found) newElements.push(found);
+            for (let i = 0; i < parts.length; i++) {
+              const part = parts[i];
+              const newElements = [];
+              
+              for (const el of elements) {
+                if (i === parts.length - 1) {
+                  // Last part - select all matching elements
+                  const root = el.shadowRoot || el;
+                  newElements.push(...root.querySelectorAll(part));
+                } else {
+                  // Intermediate part - continue traversing
+                  const root = el.shadowRoot || el;
+                  const found = root.querySelector(part);
+                  if (found) newElements.push(found);
+                }
               }
+              elements = newElements;
             }
-            elements = newElements;
+            
+            return elements;
           }
           
-          return elements;
+          // For selectors without >>, do a deep search through all shadow roots
+          const results = [];
+          
+          // Helper to recursively search through shadow DOM
+          const searchDeep = (root) => {
+            // Search in current root
+            results.push(...root.querySelectorAll(selector));
+            
+            // Search in all shadow roots
+            const walker = document.createTreeWalker(
+              root,
+              NodeFilter.SHOW_ELEMENT,
+              null,
+              false
+            );
+            
+            let node;
+            while (node = walker.nextNode()) {
+              if (node.shadowRoot) {
+                searchDeep(node.shadowRoot);
+              }
+            }
+          };
+          
+          searchDeep(document);
+          return results;
         };
         
         // Helper to check if element is visible
@@ -601,15 +630,49 @@ export class BrowserActionService {
           const rect = element.getBoundingClientRect();
           const style = window.getComputedStyle(element);
           
-          return rect.width > 0 && 
-                 rect.height > 0 && 
-                 style.display !== 'none' && 
-                 style.visibility !== 'hidden' && 
-                 style.opacity !== '0';
+          // Basic visibility checks
+          if (rect.width <= 0 || 
+              rect.height <= 0 || 
+              style.display === 'none' || 
+              style.visibility === 'hidden' || 
+              style.opacity === '0') {
+            return false;
+          }
+          
+          // Check if element is within viewport
+          const inViewport = rect.top < window.innerHeight && 
+                           rect.bottom > 0 && 
+                           rect.left < window.innerWidth && 
+                           rect.right > 0;
+          
+          if (!inViewport) {
+            return false;
+          }
+          
+          // For shadow DOM elements, also check if the shadow host is visible
+          const root = element.getRootNode();
+          if (root instanceof ShadowRoot && root.host) {
+            return isVisible(root.host);
+          }
+          
+          return true;
         };
         
         // Find all matching elements
         const elements = findAllElements(sel);
+        console.log(`[Shadow DOM Click] Found ${elements.length} elements matching selector: ${sel}`);
+        
+        // Debug: log visibility status of each element
+        elements.forEach((el, index) => {
+          const visible = isVisible(el);
+          const rect = el.getBoundingClientRect();
+          console.log(`[Shadow DOM Click] Element ${index}: ${el.tagName}, visible=${visible}, rect=`, {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height
+          });
+        });
         
         // Find first visible element
         const visibleElement = elements.find(el => isVisible(el));
@@ -668,31 +731,58 @@ export class BrowserActionService {
         
         // Reuse the same helper functions
         const findAllElements = (selector) => {
-          if (!useShadowDOM || !selector.includes('>>')) {
+          if (!useShadowDOM) {
             return Array.from(document.querySelectorAll(selector));
           }
           
-          const parts = selector.split('>>').map(p => p.trim());
-          let elements = [document];
-          
-          for (let i = 0; i < parts.length; i++) {
-            const part = parts[i];
-            const newElements = [];
+          // If selector has >> syntax, use explicit shadow piercing
+          if (selector.includes('>>')) {
+            const parts = selector.split('>>').map(p => p.trim());
+            let elements = [document];
             
-            for (const el of elements) {
-              if (i === parts.length - 1) {
-                const root = el.shadowRoot || el;
-                newElements.push(...root.querySelectorAll(part));
-              } else {
-                const root = el.shadowRoot || el;
-                const found = root.querySelector(part);
-                if (found) newElements.push(found);
+            for (let i = 0; i < parts.length; i++) {
+              const part = parts[i];
+              const newElements = [];
+              
+              for (const el of elements) {
+                if (i === parts.length - 1) {
+                  const root = el.shadowRoot || el;
+                  newElements.push(...root.querySelectorAll(part));
+                } else {
+                  const root = el.shadowRoot || el;
+                  const found = root.querySelector(part);
+                  if (found) newElements.push(found);
+                }
               }
+              elements = newElements;
             }
-            elements = newElements;
+            
+            return elements;
           }
           
-          return elements;
+          // For selectors without >>, do a deep search through all shadow roots
+          const results = [];
+          
+          const searchDeep = (root) => {
+            results.push(...root.querySelectorAll(selector));
+            
+            const walker = document.createTreeWalker(
+              root,
+              NodeFilter.SHOW_ELEMENT,
+              null,
+              false
+            );
+            
+            let node;
+            while (node = walker.nextNode()) {
+              if (node.shadowRoot) {
+                searchDeep(node.shadowRoot);
+              }
+            }
+          };
+          
+          searchDeep(document);
+          return results;
         };
         
         const isVisible = (element) => {
@@ -700,11 +790,32 @@ export class BrowserActionService {
           const rect = element.getBoundingClientRect();
           const style = window.getComputedStyle(element);
           
-          return rect.width > 0 && 
-                 rect.height > 0 && 
-                 style.display !== 'none' && 
-                 style.visibility !== 'hidden' && 
-                 style.opacity !== '0';
+          // Basic visibility checks
+          if (rect.width <= 0 || 
+              rect.height <= 0 || 
+              style.display === 'none' || 
+              style.visibility === 'hidden' || 
+              style.opacity === '0') {
+            return false;
+          }
+          
+          // Check if element is within viewport
+          const inViewport = rect.top < window.innerHeight && 
+                           rect.bottom > 0 && 
+                           rect.left < window.innerWidth && 
+                           rect.right > 0;
+          
+          if (!inViewport) {
+            return false;
+          }
+          
+          // For shadow DOM elements, also check if the shadow host is visible
+          const root = element.getRootNode();
+          if (root instanceof ShadowRoot && root.host) {
+            return isVisible(root.host);
+          }
+          
+          return true;
         };
         
         // Find first visible element
