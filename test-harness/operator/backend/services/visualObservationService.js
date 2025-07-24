@@ -184,7 +184,8 @@ Examples of truncation:
    */
   isEnabled() {
     // Can be controlled via environment variable
-    return process.env.ENABLE_VISUAL_OBSERVATION !== 'false';
+    // Default to false unless explicitly enabled
+    return process.env.ENABLE_VISUAL_OBSERVATION === 'true';
   }
 
   /**
