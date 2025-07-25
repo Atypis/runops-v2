@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "director": {
+      "command": "node",
+      "args": [
+        "/Users/a1984/runops-v2/Johny Ive 3/test-harness/operator/backend/mcp/server.js"
+      ],
+      "env": {
+        "NODE_ENV": "development",
+        "DEFAULT_USER_ID": "default-user"
+      }
+    }
+  }
+}

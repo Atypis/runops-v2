@@ -53,6 +53,42 @@ export class DirectorService {
     
     // Track active executions for cancellation support
     this.activeExecutions = new Map(); // workflowId -> { abortController, startTime, responseId }
+    
+    // Initialize workflow and user IDs (for MCP server)
+    this.workflowId = null;
+    this.userId = null;
+  }
+
+  /**
+   * Initialize the DirectorService with a specific workflow and user
+   * Used by MCP server to set context
+   */
+  async initialize(workflowId, userId) {
+    this.workflowId = workflowId;
+    this.userId = userId || process.env.DEFAULT_USER_ID || 'default-user';
+    
+    // Set workflow ID in node executor for browser state tracking
+    this.nodeExecutor.setWorkflowId(workflowId);
+    
+    console.log(`[DirectorService] Initialized with workflow: ${workflowId}, user: ${this.userId}`);
+  }
+
+  /**
+   * Handle individual tool calls from MCP server
+   * This provides a simpler interface than processMessage for direct tool execution
+   */
+  async handleToolCall(toolName, args) {
+    if (!this.workflowId) {
+      throw new Error('DirectorService not initialized. Call initialize() first.');
+    }
+    
+    const toolCallItem = {
+      name: toolName,
+      arguments: typeof args === 'string' ? args : JSON.stringify(args),
+      call_id: `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    };
+    
+    return await this.executeToolCall(toolCallItem, this.workflowId);
   }
 
   // SSE connection management methods for tool call streaming
@@ -4386,5 +4422,71 @@ export class DirectorService {
       console.error('[COMPRESSION] Error building post-compression context:', error);
       return null;
     }
+  }
+
+  // ===== MCP Server Convenience Methods =====
+  // These methods provide simpler interfaces for the MCP server
+  
+  /**
+   * Get all workflow nodes
+   * Convenience method for MCP server
+   */
+  async getWorkflowNodes() {
+    if (!this.workflowId) {
+      throw new Error('DirectorService not initialized. Call initialize() first.');
+    }
+    
+    const workflowContext = await this.getWorkflowContext(this.workflowId);
+    return workflowContext?.nodes || [];
+  }
+  
+  /**
+   * Get all workflow variables
+   * Convenience method for MCP server
+   */
+  async getWorkflowVariables(variableName = 'all') {
+    if (!this.workflowId) {
+      throw new Error('DirectorService not initialized. Call initialize() first.');
+    }
+    
+    return await this.getWorkflowVariable({ variableName }, this.workflowId);
+  }
+  
+  /**
+   * Get current plan
+   * Convenience method for MCP server
+   */
+  async getCurrentPlan() {
+    if (!this.workflowId) {
+      throw new Error('DirectorService not initialized. Call initialize() first.');
+    }
+    
+    const plan = await this.planService.getCurrentPlan(this.workflowId);
+    return plan?.plan_data || null;
+  }
+  
+  /**
+   * Get workflow description
+   * Convenience method for MCP server
+   */
+  async getWorkflowDescription() {
+    if (!this.workflowId) {
+      throw new Error('DirectorService not initialized. Call initialize() first.');
+    }
+    
+    const description = await this.workflowDescriptionService.getCurrentDescription(this.workflowId);
+    return description?.description_data || null;
+  }
+  
+  /**
+   * Get browser state
+   * Convenience method for MCP server
+   */
+  async getBrowserState() {
+    if (!this.workflowId) {
+      throw new Error('DirectorService not initialized. Call initialize() first.');
+    }
+    
+    return await this.browserStateService.getBrowserStateContext(this.workflowId);
   }
 }
