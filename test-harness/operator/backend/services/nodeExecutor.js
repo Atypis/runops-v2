@@ -9,6 +9,10 @@ import fs from 'fs/promises';
 import BrowserStateService from './browserStateService.js';
 import visualObservationService from './visualObservationService.js';
 import { SchemaValidator } from './schemaValidator.js';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export class NodeExecutor {
   constructor(sharedBrowserStateService = null) {
@@ -250,6 +254,15 @@ export class NodeExecutor {
     console.log(`[BROWSER_STATE] Workflow ID set: ${workflowId}`);
   }
 
+  // Get the correct browser profiles base path regardless of where the code is running from
+  getBrowserProfilesBasePath() {
+    // The browser profiles are stored in test-harness/operator/browser-profiles
+    // We need to navigate from the services directory to the parent directory
+    const basePath = path.join(__dirname, '..', 'browser-profiles');
+    console.log(`[NodeExecutor] Browser profiles base path: ${basePath}`);
+    return basePath;
+  }
+
   // Resolve template variables in a value
   async resolveTemplateVariables(value, workflowId) {
     if (typeof value !== 'string') {
@@ -472,10 +485,8 @@ export class NodeExecutor {
       
       // Add profile directory support
       if (profileName && persistStrategy === 'profileDir') {
-        const path = await import('path');
         const profilePath = path.join(
-          process.cwd(),
-          'browser-profiles',
+          this.getBrowserProfilesBasePath(),
           profileName
         );
         
@@ -3542,7 +3553,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
    * @returns {Array} List of profile names
    */
   async listBrowserProfiles() {
-    const profilesPath = path.join(process.cwd(), 'browser-profiles');
+    const profilesPath = this.getBrowserProfilesBasePath();
     
     try {
       // Check if directory exists
@@ -3570,7 +3581,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
    * @returns {Object} Snapshot metadata
    */
   async snapshotBrowserProfile(profileName) {
-    const profilePath = path.join(process.cwd(), 'browser-profiles', profileName);
+    const profilePath = path.join(this.getBrowserProfilesBasePath(), profileName);
     
     // Check if profile exists
     try {
@@ -3580,7 +3591,7 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     }
     
     // For MVP, we'll use tar command (available on Mac/Linux)
-    const tarPath = path.join(process.cwd(), 'browser-profiles', `${profileName}-snapshot.tar.gz`);
+    const tarPath = path.join(this.getBrowserProfilesBasePath(), `${profileName}-snapshot.tar.gz`);
     
     try {
       console.log(`[BROWSER_SNAPSHOT] Creating snapshot of profile "${profileName}"...`);
@@ -3686,12 +3697,12 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     }
     
     // Save to temp file
-    const tempPath = path.join(process.cwd(), 'browser-profiles', `${profileName}-restore.tar.gz`);
+    const tempPath = path.join(this.getBrowserProfilesBasePath(), `${profileName}-restore.tar.gz`);
     const buffer = await fileData.arrayBuffer();
     await fs.writeFile(tempPath, Buffer.from(buffer));
     
     // Extract archive
-    const profilePath = path.join(process.cwd(), 'browser-profiles', profileName);
+    const profilePath = path.join(this.getBrowserProfilesBasePath(), profileName);
     
     try {
       // Remove existing profile if it exists

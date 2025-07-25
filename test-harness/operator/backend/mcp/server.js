@@ -352,8 +352,8 @@ class DirectorMCPServer {
     if (this.directorInstances.has(workflow_id)) {
       const oldDirector = this.directorInstances.get(workflow_id);
       // Clean up browser sessions if needed
-      if (oldDirector.browserStateService) {
-        await oldDirector.browserStateService.cleanup();
+      if (oldDirector.nodeExecutor && oldDirector.nodeExecutor.cleanup) {
+        await oldDirector.nodeExecutor.cleanup();
       }
       this.directorInstances.delete(workflow_id);
     }
@@ -555,8 +555,8 @@ class DirectorMCPServer {
     // Clean up all Director instances
     for (const [workflowId, director] of this.directorInstances) {
       console.error(`Cleaning up Director instance for workflow ${workflowId}`);
-      if (director.browserStateService) {
-        await director.browserStateService.cleanup();
+      if (director.nodeExecutor && director.nodeExecutor.cleanup) {
+        await director.nodeExecutor.cleanup();
       }
     }
     this.directorInstances.clear();

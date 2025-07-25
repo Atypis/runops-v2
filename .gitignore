@@ -50,3 +50,4 @@ test-harness/operator/temp/screenshots/
 
 # Browser profiles for session persistence
 test-harness/operator/browser-profiles/
+browser-profiles/
