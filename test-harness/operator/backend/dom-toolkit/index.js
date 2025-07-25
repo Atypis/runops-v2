@@ -306,6 +306,15 @@ export class DOMToolkit {
         };
       }
 
+      // Add occlusion detection if element has position
+      if (result.element.position) {
+        const occlusion = await this.checkOcclusion(page, result.element);
+        if (occlusion) {
+          result.element.evidence = result.element.evidence || {};
+          result.element.evidence.occlusion = occlusion;
+        }
+      }
+
       return {
         success: true,
         snapshotId: snapshot.id,
@@ -958,6 +967,73 @@ export class DOMToolkit {
         reason: scrolled >= maxScrollDistance ? 'max-distance-reached' : 'element-not-found'
       }
     };
+  }
+
+  /**
+   * Check if element is occluded by other elements
+   */
+  async checkOcclusion(page, element) {
+    try {
+      // Get element's position
+      const pos = element.position;
+      if (!pos) return null;
+
+      // Sample points to check
+      const points = [
+        [pos.x + pos.width / 2, pos.y + pos.height / 2], // center
+        [pos.x + 5, pos.y + 5],                           // top-left
+        [pos.x + pos.width - 5, pos.y + pos.height - 5], // bottom-right
+      ];
+
+      const occlusion = await page.evaluate((elementId, points) => {
+        // Extract numeric ID from format like "[123]"
+        const id = elementId.match(/\[(\d+)\]/)?.[1];
+        if (!id) return null;
+
+        // Try to find element by various means
+        let targetElement = null;
+        
+        // Try by ID attribute
+        const elements = document.querySelectorAll('*');
+        for (const el of elements) {
+          if (el.id === `:${id}` || el.getAttribute('id') === `:${id}`) {
+            targetElement = el;
+            break;
+          }
+        }
+
+        const results = points.map(([x, y]) => {
+          const topEl = document.elementFromPoint(x, y);
+          
+          return {
+            point: [x, y],
+            topElement: topEl ? {
+              tag: topEl.tagName.toLowerCase(),
+              id: topEl.id,
+              class: topEl.className,
+              selector: topEl.id ? `#${topEl.id}` : 
+                       topEl.className ? `.${topEl.className.split(' ')[0]}` : 
+                       topEl.tagName.toLowerCase()
+            } : null,
+            isTarget: topEl === targetElement
+          };
+        });
+
+        // Check if any point is blocked
+        const blocked = results.filter(r => !r.isTarget && r.topElement);
+        
+        return {
+          samples: results,
+          isOccluded: blocked.length > 0,
+          occludedBy: blocked.length > 0 ? blocked[0].topElement : null
+        };
+      }, element.id, points);
+
+      return occlusion;
+    } catch (error) {
+      console.error('[DOMToolkit] Occlusion check failed:', error);
+      return null;
+    }
   }
 }
 

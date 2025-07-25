@@ -55,9 +55,9 @@ export class InspectFormatter {
   formatElementDetails(element) {
     const lines = [];
     
-    // Basic info with actionability
+    // Basic info
     lines.push(`Type: ${element.type} (${element.tag})`);
-    lines.push(`Visible: ${element.visible} | In Viewport: ${element.inViewport} | Actionable: ${element.actionability?.isActionable || false}`);
+    lines.push(`Visible: ${element.visible} | In Viewport: ${element.inViewport}`);
 
     // Position if available
     if (element.position) {
@@ -71,33 +71,82 @@ export class InspectFormatter {
                  `(${element.interactive.enabled ? 'enabled' : 'disabled'})`);
     }
 
-    // Actionability analysis
-    if (element.actionability && element.actionability.issues.length > 0) {
+    // Evidence section
+    if (element.evidence) {
       lines.push('');
-      lines.push('[ACTIONABILITY ANALYSIS]');
+      lines.push('[EVIDENCE]');
       
-      // Issues
-      for (const issue of element.actionability.issues) {
-        lines.push(`❌ Not clickable: ${issue}`);
+      // Layout
+      lines.push('');
+      lines.push('Layout:');
+      if (element.evidence.layout) {
+        lines.push(`  bounds: [${element.evidence.layout.x}, ${element.evidence.layout.y}, ${element.evidence.layout.width}, ${element.evidence.layout.height}]`);
+      } else {
+        lines.push('  bounds: null (no layout info)');
       }
       
-      // Bounding box if available
-      if (element.position) {
-        lines.push(`📦 Bounding Box: {x: ${element.position.x}, y: ${element.position.y}, width: ${element.position.width}, height: ${element.position.height}}`);
-      }
-      
-      // Scroll container if detected
-      if (element.actionability.scrollContainer) {
-        lines.push(`📜 Scroll Container: ${element.actionability.scrollContainer}`);
-      }
-      
-      // Suggestions
-      if (element.actionability.suggestions.length > 0) {
+      // Computed styles
+      if (element.evidence.computedStyle && Object.keys(element.evidence.computedStyle).length > 0) {
         lines.push('');
-        lines.push('[SUGGESTED ACTIONS]');
-        element.actionability.suggestions.forEach((suggestion, i) => {
-          lines.push(`${i + 1}. ${suggestion}`);
+        lines.push('Computed Style:');
+        for (const [key, value] of Object.entries(element.evidence.computedStyle)) {
+          lines.push(`  ${key}: ${value}`);
+        }
+      }
+      
+      // Parent chain blockers
+      if (element.evidence.parentChain && element.evidence.parentChain.length > 0) {
+        lines.push('');
+        lines.push('Parent Chain:');
+        element.evidence.parentChain.forEach((parent, i) => {
+          const blockers = [];
+          if (!parent.visible) blockers.push('hidden');
+          if (!parent.layout) blockers.push('no-layout');
+          if (parent.style?.includes('pointer-events: none')) blockers.push('pointer-events:none');
+          if (parent.style?.includes('display: none')) blockers.push('display:none');
+          
+          let line = `  ${parent.id} ${parent.tag}`;
+          if (parent.class) line += `.${parent.class.split(' ')[0]}`;
+          if (blockers.length > 0) line += ` [${blockers.join(', ')}]`;
+          lines.push(line);
         });
+      }
+      
+      // Duplicates
+      if (element.evidence.duplicates && element.evidence.duplicates.length > 0) {
+        lines.push('');
+        lines.push('Duplicates:');
+        element.evidence.duplicates.forEach(dup => {
+          let line = `  ${dup.id}`;
+          const props = [];
+          if (dup.hasLayout) props.push('has-layout');
+          if (dup.visible) props.push('visible');
+          if (dup.inViewport) props.push('in-viewport');
+          if (props.length > 0) line += ` [${props.join(', ')}]`;
+          if (dup.bounds) line += ` bounds:[${dup.bounds.join(',')}]`;
+          lines.push(line);
+        });
+      }
+      
+      // Occlusion
+      if (element.evidence.occlusion) {
+        lines.push('');
+        lines.push('Occlusion:');
+        if (element.evidence.occlusion.isOccluded) {
+          lines.push(`  blocked: true`);
+          if (element.evidence.occlusion.occludedBy) {
+            const occ = element.evidence.occlusion.occludedBy;
+            lines.push(`  by: ${occ.selector} (${occ.tag})`);
+          }
+          // Show sample results
+          element.evidence.occlusion.samples.forEach((sample, i) => {
+            if (!sample.isTarget && sample.topElement) {
+              lines.push(`  sample${i}: [${sample.point[0]},${sample.point[1]}] → ${sample.topElement.selector}`);
+            }
+          });
+        } else {
+          lines.push('  blocked: false (element is clickable)');
+        }
       }
     }
 

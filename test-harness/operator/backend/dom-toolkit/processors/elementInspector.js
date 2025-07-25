@@ -106,10 +106,148 @@ export class ElementInspector {
       };
     }
 
-    // Add actionability analysis
-    info.actionability = this.analyzeActionability(node, nodeMap);
+    // Collect raw evidence instead of analysis
+    info.evidence = this.collectEvidence(node, nodeMap);
 
     return info;
+  }
+
+  /**
+   * Collect raw evidence about element actionability
+   */
+  collectEvidence(node, nodeMap) {
+    const evidence = {
+      // Basic layout and visibility
+      layout: node.layout || null,
+      computedStyle: this.getComputedStyles(node),
+      
+      // Parent chain with relevant properties
+      parentChain: this.getParentChainEvidence(node, nodeMap),
+      
+      // Find potential duplicates
+      duplicates: this.findDuplicates(node, nodeMap),
+      
+      // Note: Occlusion detection would require page context
+      // Adding placeholder for future implementation
+      occlusion: null
+    };
+
+    return evidence;
+  }
+
+  /**
+   * Get computed styles if available
+   */
+  getComputedStyles(node) {
+    // Use computed styles from CDP if available
+    if (node.computedStyle) {
+      return node.computedStyle;
+    }
+    
+    // Fallback to parsing inline styles
+    const styles = {};
+    
+    if (node.attributes?.style) {
+      // Parse inline styles
+      const styleStr = node.attributes.style;
+      const styleProps = styleStr.split(';').filter(s => s.trim());
+      
+      styleProps.forEach(prop => {
+        const [key, value] = prop.split(':').map(s => s.trim());
+        if (key && value) {
+          styles[key] = value;
+        }
+      });
+    }
+    
+    return styles;
+  }
+
+  /**
+   * Get parent chain with evidence
+   */
+  getParentChainEvidence(node, nodeMap) {
+    const chain = [];
+    let current = node;
+    let depth = 0;
+
+    while (current.parentId !== undefined && current.parentId !== null && depth < 10) {
+      const parent = nodeMap.get(current.parentId);
+      if (!parent) break;
+
+      chain.push({
+        id: `[${parent.id}]`,
+        tag: parent.tag,
+        class: parent.attributes?.class,
+        style: parent.attributes?.style,
+        layout: parent.layout || null,
+        visible: parent.visible,
+        inViewport: parent.inViewport,
+        computedStyle: this.getComputedStyles(parent)
+      });
+
+      current = parent;
+      depth++;
+
+      // Stop at body
+      if (parent.tag === 'body') break;
+    }
+
+    return chain;
+  }
+
+  /**
+   * Find duplicate elements with same content
+   */
+  findDuplicates(node, nodeMap) {
+    const duplicates = [];
+    const targetText = node.text?.trim();
+    const targetClass = node.attributes?.class;
+    
+    if (!targetText && !targetClass) return duplicates;
+
+    // Search through all nodes
+    for (const [id, other] of nodeMap) {
+      if (other.id === node.id) continue;
+      if (other.tag !== node.tag) continue;
+      
+      const sameContent = targetText && other.text?.trim() === targetText;
+      const sameClass = targetClass && other.attributes?.class === targetClass;
+      
+      if (sameContent || sameClass) {
+        duplicates.push({
+          id: `[${other.id}]`,
+          sameContent,
+          sameClass,
+          hasLayout: !!other.layout,
+          bounds: other.layout ? [
+            Math.round(other.layout.x),
+            Math.round(other.layout.y),
+            Math.round(other.layout.width),
+            Math.round(other.layout.height)
+          ] : null,
+          visible: other.visible,
+          inViewport: other.inViewport
+        });
+      }
+    }
+    
+    // Sort by likelihood of being the "real" element
+    return duplicates.sort((a, b) => {
+      // Prefer elements with layout
+      if (a.hasLayout && !b.hasLayout) return -1;
+      if (!a.hasLayout && b.hasLayout) return 1;
+      
+      // Prefer visible elements
+      if (a.visible && !b.visible) return -1;
+      if (!a.visible && b.visible) return 1;
+      
+      // Prefer in-viewport elements
+      if (a.inViewport && !b.inViewport) return -1;
+      if (!a.inViewport && b.inViewport) return 1;
+      
+      return 0;
+    });
   }
 
   /**

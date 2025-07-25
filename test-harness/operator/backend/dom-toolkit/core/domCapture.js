@@ -151,7 +151,8 @@ export class DOMCapture {
         attributes: this.extractAttributes(nodes.attributes?.[index], strings),
         layout: layout?.nodeIndex?.includes(index) ? 
           this.extractLayout(layout, index, viewport) : null,
-        text: null // Will be filled in third pass
+        text: null, // Will be filled in third pass
+        computedStyle: this.extractComputedStyles(doc, nodes, index) // Add computed styles
       };
 
       // Calculate visibility with computed styles if available
@@ -384,6 +385,30 @@ export class DOMCapture {
     
     // Check if any part of the element is in viewport
     return (y + height) > viewport.scrollY && y < viewportBottom;
+  }
+
+  /**
+   * Extract computed styles for a node
+   */
+  extractComputedStyles(doc, nodes, nodeIndex) {
+    if (!doc.computedStyles) return null;
+    
+    // Find the style index for this node
+    const styleIndex = nodes.nodeIndex?.indexOf(nodeIndex);
+    if (styleIndex < 0 || !doc.computedStyles[styleIndex]) return null;
+    
+    const styles = doc.computedStyles[styleIndex];
+    const propertyNames = doc.computedStyles.propertyNames || [];
+    const result = {};
+    
+    // Map property names to values
+    propertyNames.forEach((propName, idx) => {
+      if (styles[idx] !== undefined) {
+        result[propName] = styles[idx];
+      }
+    });
+    
+    return result;
   }
 
   /**
