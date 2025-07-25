@@ -24,11 +24,18 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 class DirectorMCPServer {
   constructor() {
-    this.server = new Server({
-      name: 'director',
-      version: '1.0.0',
-      description: 'MCP server for Director 2.0 workflow automation'
-    });
+    this.server = new Server(
+      {
+        name: 'director',
+        version: '1.0.0'
+      },
+      {
+        capabilities: {
+          tools: {},
+          resources: {}
+        }
+      }
+    );
     
     this.directorInstances = new Map();
     this.currentWorkflowId = null;
@@ -327,9 +334,8 @@ class DirectorMCPServer {
         .from('workflows')
         .insert({
           id: workflow_id,
-          user_id: this.currentUserId,
-          name: `Workflow ${workflow_id}`,
-          nodes: [],
+          goal: `Workflow ${workflow_id}`,
+          status: 'draft',
           created_at: new Date().toISOString()
         })
         .select()
@@ -405,8 +411,7 @@ class DirectorMCPServer {
     
     const { data: workflows, error } = await supabase
       .from('workflows')
-      .select('id, name, created_at, updated_at')
-      .eq('user_id', this.currentUserId || process.env.DEFAULT_USER_ID || 'default-user')
+      .select('id, goal, status, created_at, updated_at')
       .order('updated_at', { ascending: false })
       .limit(limit);
     
