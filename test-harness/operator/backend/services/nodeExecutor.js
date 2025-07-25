@@ -257,9 +257,11 @@ export class NodeExecutor {
   // Get the correct browser profiles base path regardless of where the code is running from
   getBrowserProfilesBasePath() {
     // The browser profiles are stored in test-harness/operator/browser-profiles
-    // We need to navigate from the services directory to the parent directory
-    const basePath = path.join(__dirname, '..', 'browser-profiles');
+    // We are at: /Users/a1984/runops-v2/Johny Ive 3/test-harness/operator/backend/services/
+    // So we need to go up 2 levels to reach operator, then into browser-profiles
+    const basePath = path.join(__dirname, '..', '..', 'browser-profiles');
     console.log(`[NodeExecutor] Browser profiles base path: ${basePath}`);
+    console.log(`[NodeExecutor] Resolved to: ${path.resolve(basePath)}`);
     return basePath;
   }
 
@@ -490,9 +492,22 @@ export class NodeExecutor {
           profileName
         );
         
+        console.log(`[NodeExecutor] Full profile path: ${profilePath}`);
+        
         stagehandConfig.localBrowserLaunchOptions = {
           userDataDir: profilePath,
-          preserveUserDataDir: true
+          preserveUserDataDir: true,
+          args: [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--allow-file-access-from-files",
+            "--allow-file-access",
+            "--allow-cross-origin-auth-prompt"
+          ]
         };
         
         this.currentProfileName = profileName;
