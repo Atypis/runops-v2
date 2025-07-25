@@ -31,6 +31,15 @@ export class SearchFilter {
 
     const matches = [];
     let totalSearched = 0;
+    
+    // Track visibility statistics
+    const visibilityStats = {
+      totalElements: 0,
+      visibleCount: 0,
+      hiddenCount: 0,
+      zeroHeightCount: 0,
+      notInViewportCount: 0
+    };
 
     // If context is provided, find the context element first
     let contextNode = null;
@@ -57,25 +66,104 @@ export class SearchFilter {
       // Skip non-element nodes
       if (node.type !== 1) continue;
 
-      // Apply visibility filter
-      if (visible && !node.visible) continue;
-
       // Check if node matches all criteria
       if (this.matchesQuery(node, query)) {
-        matches.push(this.formatSearchResult(node, query));
+        // Collect visibility stats for matching elements
+        visibilityStats.totalElements++;
         
-        if (matches.length >= limit) {
-          break;
+        if (node.visible) {
+          visibilityStats.visibleCount++;
+        } else {
+          visibilityStats.hiddenCount++;
+        }
+        
+        // Check for zero height
+        if (node.layout && node.layout.height === 0) {
+          visibilityStats.zeroHeightCount++;
+        }
+        
+        // Check viewport status
+        if (!node.inViewport) {
+          visibilityStats.notInViewportCount++;
+        }
+
+        // Apply visibility filter for results
+        if (!visible || node.visible) {
+          const searchResult = this.formatSearchResult(node, query);
+          
+          // Add visibility status to each result
+          searchResult.visibility = {
+            visible: node.visible,
+            inViewport: node.inViewport,
+            zeroHeight: node.layout && node.layout.height === 0,
+            dimensions: node.layout ? `${node.layout.width}x${node.layout.height}` : null
+          };
+          
+          matches.push(searchResult);
+          
+          if (matches.length >= limit) {
+            break;
+          }
         }
       }
     }
 
+    // Detect patterns
+    const patterns = this.detectVisibilityPatterns(visibilityStats, query);
+
     return {
       elements: matches,
       totalSearched,
-      matchesFound: matches.length,
+      matchesFound: visibilityStats.totalElements,
+      visibilityStats,
+      patterns,
       truncated: matches.length >= limit
     };
+  }
+
+  /**
+   * Detect common visibility patterns
+   */
+  detectVisibilityPatterns(stats, query) {
+    const patterns = [];
+    
+    // Virtual scrolling pattern
+    if (stats.zeroHeightCount > stats.totalElements * 0.5) {
+      patterns.push({
+        type: 'virtual_scrolling',
+        message: 'Virtual scrolling detected - many elements have zero height',
+        suggestion: 'Use scrollIntoView with appropriate scrollContainer before clicking'
+      });
+      
+      // Gmail-specific pattern
+      if (query.selector?.includes('tr.zA') || query.tag === 'tr') {
+        patterns.push({
+          type: 'gmail_pattern',
+          message: 'Gmail search results pattern detected',
+          suggestion: 'Use scrollContainer: "div.Cp" with scrollIntoView'
+        });
+      }
+    }
+    
+    // Hidden elements pattern
+    if (stats.hiddenCount > stats.totalElements * 0.7) {
+      patterns.push({
+        type: 'mostly_hidden',
+        message: 'Most matching elements are hidden',
+        suggestion: 'Check if elements need to be revealed through user interaction'
+      });
+    }
+    
+    // Off-screen pattern
+    if (stats.notInViewportCount > stats.totalElements * 0.8 && stats.zeroHeightCount === 0) {
+      patterns.push({
+        type: 'off_screen',
+        message: 'Elements exist but are outside viewport',
+        suggestion: 'Scroll to bring elements into view'
+      });
+    }
+    
+    return patterns;
   }
 
   /**

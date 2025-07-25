@@ -247,7 +247,9 @@ export class DOMToolkit {
         summary: {
           total_searched: searchResult.totalSearched,
           matches_found: searchResult.matchesFound,
-          truncated: searchResult.truncated
+          truncated: searchResult.truncated,
+          visibilityStats: searchResult.visibilityStats,
+          patterns: searchResult.patterns
         }
       };
     } catch (error) {

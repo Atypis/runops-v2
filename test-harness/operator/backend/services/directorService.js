@@ -955,11 +955,11 @@ export class DirectorService {
         break;
       case 'browser_query':
         if (!config.method) throw new Error('browser_query requires "method" field');
-        if (!['validate', 'deterministic_extract'].includes(config.method)) {
-          throw new Error('browser_query supports "validate" and "deterministic_extract" methods');
+        if (!['validate', 'deterministic_extract', 'count', 'debug_element'].includes(config.method)) {
+          throw new Error('browser_query supports "validate", "deterministic_extract", "count", and "debug_element" methods');
         }
-        if (config.method === 'deterministic_extract' && !config.selector) {
-          throw new Error('browser_query with deterministic_extract method requires "selector" field');
+        if ((config.method === 'deterministic_extract' || config.method === 'count' || config.method === 'debug_element') && !config.selector) {
+          throw new Error(`browser_query with ${config.method} method requires "selector" field`);
         }
         break;
       case 'browser_ai_extract':
@@ -1901,11 +1901,11 @@ export class DirectorService {
           if (!node.config.method) {
             errors.push(`Node at index ${index}: browser_query requires 'method' field in config`);
           }
-          if (!['validate', 'deterministic_extract'].includes(node.config.method)) {
-            errors.push(`Node at index ${index}: browser_query supports 'validate' and 'deterministic_extract' methods`);
+          if (!['validate', 'deterministic_extract', 'count', 'debug_element'].includes(node.config.method)) {
+            errors.push(`Node at index ${index}: browser_query supports 'validate', 'deterministic_extract', 'count', and 'debug_element' methods`);
           }
-          if (node.config.method === 'deterministic_extract' && !node.config.selector) {
-            errors.push(`Node at index ${index}: browser_query with deterministic_extract method requires 'selector' field`);
+          if ((node.config.method === 'deterministic_extract' || node.config.method === 'count' || node.config.method === 'debug_element') && !node.config.selector) {
+            errors.push(`Node at index ${index}: browser_query with ${node.config.method} method requires 'selector' field`);
           }
           break;
         case 'browser_ai_extract':

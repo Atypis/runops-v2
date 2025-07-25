@@ -1322,4 +1322,77 @@ router.post('/workflows/:workflowId/cleanup-iteration-vars', async (req, res, ne
   }
 });
 
+// RPC endpoints for MCP server
+router.post('/handleToolCall', async (req, res, next) => {
+  try {
+    const { toolName, args, workflowId, userId } = req.body;
+    
+    // Initialize director if needed
+    await directorService.initialize(workflowId, userId);
+    
+    // Handle the tool call
+    const result = await directorService.handleToolCall(toolName, args);
+    
+    res.json(result);
+  } catch (error) {
+    console.error(`[RPC handleToolCall] Error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/getWorkflowNodes', async (req, res, next) => {
+  try {
+    const { workflowId, userId } = req.body;
+    
+    await directorService.initialize(workflowId, userId);
+    const nodes = await directorService.getWorkflowNodes();
+    
+    res.json(nodes);
+  } catch (error) {
+    console.error(`[RPC getWorkflowNodes] Error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/getWorkflowVariables', async (req, res, next) => {
+  try {
+    const { workflowId, userId } = req.body;
+    
+    await directorService.initialize(workflowId, userId);
+    const variables = await directorService.getWorkflowVariables();
+    
+    res.json(variables);
+  } catch (error) {
+    console.error(`[RPC getWorkflowVariables] Error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/getBrowserState', async (req, res, next) => {
+  try {
+    const { workflowId, userId } = req.body;
+    
+    await directorService.initialize(workflowId, userId);
+    const state = await directorService.getBrowserState();
+    
+    res.json(state);
+  } catch (error) {
+    console.error(`[RPC getBrowserState] Error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/initialize', async (req, res, next) => {
+  try {
+    const { workflowId, userId } = req.body;
+    
+    await directorService.initialize(workflowId, userId);
+    
+    res.json({ success: true, workflowId, userId });
+  } catch (error) {
+    console.error(`[RPC initialize] Error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

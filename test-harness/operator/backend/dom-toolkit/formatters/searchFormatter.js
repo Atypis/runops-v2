@@ -14,15 +14,36 @@ export class SearchFormatter {
     lines.push(`Query: ${this.formatQuery(data.query)}`);
     lines.push('');
 
-    // Results
-    if (data.matches.length === 0) {
+    // Visibility stats and warnings
+    if (data.visibilityStats && data.visibilityStats.totalElements > 0) {
+      const stats = data.visibilityStats;
+      
+      // Show match summary with visibility breakdown
+      if (stats.zeroHeightCount > 0 || stats.hiddenCount > 0) {
+        lines.push(`[MATCHES - ${stats.totalElements} found, ${stats.visibleCount} visible, ${stats.zeroHeightCount} zero-height]`);
+      } else {
+        lines.push(`[MATCHES - ${stats.totalElements} found${data.summary.truncated ? '+' : ''}]`);
+      }
+      
+      // Show pattern warnings
+      if (data.patterns && data.patterns.length > 0) {
+        lines.push('');
+        for (const pattern of data.patterns) {
+          lines.push(`⚠️  WARNING: ${pattern.message}`);
+          lines.push(`💡 TIP: ${pattern.suggestion}`);
+        }
+      }
+      
+      lines.push('');
+    } else if (data.matches.length === 0) {
       lines.push('No matches found.');
     } else {
       lines.push(`[MATCHES - ${data.summary.matches_found} found${data.summary.truncated ? '+' : ''}]`);
-      
-      for (const match of data.matches) {
-        lines.push(this.formatMatch(match));
-      }
+    }
+
+    // Results with visibility indicators
+    for (const match of data.matches) {
+      lines.push(this.formatMatch(match));
     }
 
     // Summary
@@ -85,6 +106,19 @@ export class SearchFormatter {
     // Add first selector hint if available
     if (match.selector_hints && match.selector_hints[0]) {
       line += ` | ${match.selector_hints[0]}`;
+    }
+
+    // Add visibility indicator
+    if (match.visibility) {
+      if (match.visibility.zeroHeight) {
+        line += ' [hidden: zero-height]';
+      } else if (!match.visibility.visible) {
+        line += ' [hidden]';
+      } else if (!match.visibility.inViewport) {
+        line += ' [off-screen]';
+      } else {
+        line += ' [visible]';
+      }
     }
 
     return line;

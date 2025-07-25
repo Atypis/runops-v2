@@ -8,13 +8,13 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
-import { DirectorService } from '../services/directorService.js';
 import { createToolDefinitions } from '../tools/toolDefinitionsV2.js';
 import { supabase } from '../config/supabase.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import fetch from 'node-fetch';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -539,27 +539,58 @@ class DirectorMCPServer {
       throw new Error('No workflow selected. Use mcp_set_workflow_context first.');
     }
     
-    if (!this.directorInstances.has(this.currentWorkflowId)) {
-      console.error(`Creating new Director instance for workflow ${this.currentWorkflowId}`);
-      
-      const director = new DirectorService();
-      await director.initialize(this.currentWorkflowId, this.currentUserId);
-      
-      this.directorInstances.set(this.currentWorkflowId, director);
-    }
+    // Instead of managing Director instances, we'll use RPC
+    return {
+      // Proxy object that forwards all calls to the backend
+      handleToolCall: async (toolName, args) => {
+        return this.callBackendRPC('handleToolCall', { toolName, args });
+      },
+      getWorkflowNodes: async () => {
+        return this.callBackendRPC('getWorkflowNodes', {});
+      },
+      getWorkflowVariables: async () => {
+        return this.callBackendRPC('getWorkflowVariables', {});
+      },
+      getBrowserState: async () => {
+        return this.callBackendRPC('getBrowserState', {});
+      },
+      initialize: async (workflowId, userId) => {
+        return this.callBackendRPC('initialize', { workflowId, userId });
+      }
+    };
+  }
+
+  async callBackendRPC(method, params) {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3003';
     
-    return this.directorInstances.get(this.currentWorkflowId);
+    try {
+      const response = await fetch(`${backendUrl}/api/director/${method}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...params,
+          workflowId: this.currentWorkflowId,
+          userId: this.currentUserId || process.env.DEFAULT_USER_ID || 'default-user'
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Backend call failed: ${error}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error(`[RPC] Error calling ${method}:`, error);
+      throw error;
+    }
   }
 
   async cleanup() {
-    // Clean up all Director instances
-    for (const [workflowId, director] of this.directorInstances) {
-      console.error(`Cleaning up Director instance for workflow ${workflowId}`);
-      if (director.nodeExecutor && director.nodeExecutor.cleanup) {
-        await director.nodeExecutor.cleanup();
-      }
-    }
-    this.directorInstances.clear();
+    // No local cleanup needed - backend manages its own state
+    console.error('MCP Server cleanup complete');
   }
 
   async run() {

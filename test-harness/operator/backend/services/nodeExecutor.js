@@ -43,6 +43,32 @@ export class NodeExecutor {
     this.persistStrategy = 'storageState';
   }
 
+  /**
+   * Resolve index value supporting numbers, negative indices, and keywords
+   * @param {number|string} nth - The index value
+   * @param {number} totalElements - Total number of elements
+   * @returns {number} The resolved index
+   */
+  resolveIndex(nth, totalElements) {
+    // Handle keywords
+    if (nth === 'first') return 0;
+    if (nth === 'last') return totalElements - 1;
+    
+    // Handle numeric indices
+    const index = typeof nth === 'number' ? nth : parseInt(nth);
+    
+    if (isNaN(index)) {
+      throw new Error(`Invalid index value: ${nth}. Expected number, "first", or "last".`);
+    }
+    
+    // Handle negative indices (from end)
+    if (index < 0) {
+      return totalElements + index;
+    }
+    
+    return index;
+  }
+
   // StageHand logging control:
   // - Set STAGEHAND_VERBOSE=0 for minimal logging
   // - Set STAGEHAND_VERBOSE=2 for debug logging (includes OpenAI logs)
@@ -839,6 +865,22 @@ export class NodeExecutor {
         }
         
         const clickPage = await getActiveStagehandPage();
+        
+        // If nth is specified, handle element selection by index
+        if (config.nth !== undefined) {
+          const elements = await clickPage.$$(config.selector);
+          const index = this.resolveIndex(config.nth, elements.length);
+          
+          if (!elements[index]) {
+            throw new Error(
+              `No element at index ${config.nth} for selector: ${config.selector}. Found ${elements.length} elements.`
+            );
+          }
+          
+          await elements[index].click();
+          return { clicked: config.selector, nth: index };
+        }
+        
         await clickPage.waitForSelector(config.selector, { 
           timeout: config.timeout || 10000,
           state: 'visible'
@@ -864,6 +906,23 @@ export class NodeExecutor {
         }
         
         const typePage = await getActiveStagehandPage();
+        
+        // If nth is specified, handle element selection by index
+        if (config.nth !== undefined) {
+          const elements = await typePage.$$(config.selector);
+          const index = this.resolveIndex(config.nth, elements.length);
+          
+          if (!elements[index]) {
+            throw new Error(
+              `No element at index ${config.nth} for selector: ${config.selector}. Found ${elements.length} elements.`
+            );
+          }
+          
+          // Clear existing value and type new text
+          await elements[index].fill(config.text);
+          return { typed: config.text, selector: config.selector, nth: index };
+        }
+        
         await typePage.waitForSelector(config.selector, { 
           timeout: config.timeout || 10000,
           state: 'visible' 
@@ -1444,6 +1503,181 @@ export class NodeExecutor {
       }
       
       return results;
+    } else if (config.method === 'count') {
+      // Count elements matching selector with enhanced visibility stats
+      const activePage = await getActiveStagehandPage();
+      console.log(`[BROWSER_QUERY] Counting elements with selector: ${config.selector}`);
+      
+      try {
+        // Get all elements and their visibility stats
+        const elements = await activePage.$$(config.selector);
+        const count = elements.length;
+        
+        // Check visibility for each element
+        let visibleCount = 0;
+        let zeroHeightCount = 0;
+        let hiddenCount = 0;
+        
+        for (const element of elements) {
+          const boundingBox = await element.boundingBox();
+          const isVisible = await element.isVisible();
+          
+          if (boundingBox && boundingBox.height > 0 && boundingBox.width > 0) {
+            visibleCount++;
+          } else if (boundingBox && boundingBox.height === 0) {
+            zeroHeightCount++;
+          } else if (!isVisible) {
+            hiddenCount++;
+          }
+        }
+        
+        const result = {
+          count,
+          visibleCount,
+          hiddenCount,
+          zeroHeightCount
+        };
+        
+        // Add warning if there's a mismatch
+        if (visibleCount < count) {
+          result.warning = `Found ${count} elements but only ${visibleCount} are visible. ${zeroHeightCount} have zero height (likely virtual scrolling).`;
+        }
+        
+        console.log(`[BROWSER_QUERY] Count results:`, result);
+        return result;
+      } catch (error) {
+        console.error('[BROWSER_QUERY] Count error:', error);
+        throw new Error(`Failed to count elements: ${error.message}`);
+      }
+    } else if (config.method === 'debug_element') {
+      // Debug element actionability
+      const activePage = await getActiveStagehandPage();
+      console.log(`[BROWSER_QUERY] Debugging element: ${config.selector}`);
+      
+      try {
+        const elements = await activePage.$$(config.selector);
+        
+        if (elements.length === 0) {
+          return {
+            found: false,
+            error: `No elements found matching selector: ${config.selector}`,
+            suggestions: [
+              'Check if selector is correct',
+              'Element may not be loaded yet - try wait action first',
+              'Element may be in a different frame or shadow DOM'
+            ]
+          };
+        }
+        
+        // Get detailed info about first element (or nth if specified)
+        const index = config.nth || 0;
+        const element = elements[index] || elements[0];
+        
+        const boundingBox = await element.boundingBox();
+        const isVisible = await element.isVisible();
+        const isEnabled = await element.isEnabled();
+        
+        // Get computed styles and parent info
+        const elementInfo = await activePage.evaluate((sel, idx) => {
+          const elements = document.querySelectorAll(sel);
+          const el = elements[idx] || elements[0];
+          
+          if (!el) return null;
+          
+          const rect = el.getBoundingClientRect();
+          const styles = getComputedStyle(el);
+          
+          // Find scrollable parent
+          let scrollParent = null;
+          let parent = el.parentElement;
+          while (parent) {
+            const pStyle = getComputedStyle(parent);
+            if (pStyle.overflow === 'auto' || pStyle.overflow === 'scroll') {
+              scrollParent = {
+                selector: parent.className ? `.${parent.className.split(' ')[0]}` : 
+                         parent.id ? `#${parent.id}` : parent.tagName.toLowerCase(),
+                overflow: pStyle.overflow
+              };
+              break;
+            }
+            parent = parent.parentElement;
+          }
+          
+          return {
+            tagName: el.tagName,
+            id: el.id,
+            className: el.className,
+            display: styles.display,
+            visibility: styles.visibility,
+            opacity: styles.opacity,
+            position: styles.position,
+            zIndex: styles.zIndex,
+            rect: {
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              height: rect.height
+            },
+            scrollParent
+          };
+        }, config.selector, index);
+        
+        const result = {
+          found: true,
+          selector: config.selector,
+          totalElements: elements.length,
+          elementIndex: index,
+          element: elementInfo,
+          actionability: {
+            clickable: false,
+            reasons: [],
+            suggestions: []
+          },
+          dimensions: boundingBox || { x: 0, y: 0, width: 0, height: 0 },
+          visible: isVisible,
+          enabled: isEnabled
+        };
+        
+        // Determine clickability and reasons
+        if (!boundingBox || boundingBox.height === 0) {
+          result.actionability.reasons.push('Element has zero height');
+          result.actionability.suggestions.push(
+            elementInfo?.scrollParent ? 
+              `Use scrollIntoView with scrollContainer: "${elementInfo.scrollParent.selector}"` :
+              'Use scrollIntoView to make element visible'
+          );
+          
+          if (elements.length > 20) {
+            result.actionability.reasons.push('Many elements found - likely virtual scrolling');
+            result.actionability.suggestions.push('This appears to be a virtualized list');
+          }
+        } else if (!isVisible) {
+          result.actionability.reasons.push('Element is not visible');
+          result.actionability.suggestions.push('Check CSS display/visibility properties');
+        } else if (!isEnabled) {
+          result.actionability.reasons.push('Element is disabled');
+        } else {
+          result.actionability.clickable = true;
+        }
+        
+        // Add pattern-specific suggestions
+        if (config.selector.includes('tr.zA') && elements.length > 30) {
+          result.pattern = 'Gmail virtual scrolling detected';
+          result.actionability.suggestions.push(
+            'Gmail search results use virtual scrolling',
+            'Use scrollContainer: "div.Cp" with scrollIntoView'
+          );
+        }
+        
+        return result;
+        
+      } catch (error) {
+        console.error('[BROWSER_QUERY] Debug error:', error);
+        return {
+          found: false,
+          error: error.message
+        };
+      }
     } else if (config.method === 'deterministic_extract') {
       // Deterministic data extraction using CSS selectors
       const activePage = await getActiveStagehandPage();
@@ -3242,7 +3476,15 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         currentProfile: this.currentProfileName,
         persistStrategy: this.persistStrategy
       });
-      await this.stagehandInstance.close();
+      try {
+        // Check if stagehand is initialized before trying to close
+        if (this.stagehandInstance.page) {
+          await this.stagehandInstance.close();
+        }
+      } catch (error) {
+        console.log('[CLEANUP] Error closing StageHand instance:', error.message);
+        // Continue with cleanup even if close fails
+      }
       this.stagehandInstance = null;
       // Clear tab tracking
       this.stagehandPages = {};

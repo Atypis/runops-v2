@@ -55,9 +55,9 @@ export class InspectFormatter {
   formatElementDetails(element) {
     const lines = [];
     
-    // Basic info
+    // Basic info with actionability
     lines.push(`Type: ${element.type} (${element.tag})`);
-    lines.push(`Visible: ${element.visible} | In Viewport: ${element.inViewport}`);
+    lines.push(`Visible: ${element.visible} | In Viewport: ${element.inViewport} | Actionable: ${element.actionability?.isActionable || false}`);
 
     // Position if available
     if (element.position) {
@@ -69,6 +69,36 @@ export class InspectFormatter {
     if (element.interactive) {
       lines.push(`Interactive: ${element.interactive.type} ` +
                  `(${element.interactive.enabled ? 'enabled' : 'disabled'})`);
+    }
+
+    // Actionability analysis
+    if (element.actionability && element.actionability.issues.length > 0) {
+      lines.push('');
+      lines.push('[ACTIONABILITY ANALYSIS]');
+      
+      // Issues
+      for (const issue of element.actionability.issues) {
+        lines.push(`❌ Not clickable: ${issue}`);
+      }
+      
+      // Bounding box if available
+      if (element.position) {
+        lines.push(`📦 Bounding Box: {x: ${element.position.x}, y: ${element.position.y}, width: ${element.position.width}, height: ${element.position.height}}`);
+      }
+      
+      // Scroll container if detected
+      if (element.actionability.scrollContainer) {
+        lines.push(`📜 Scroll Container: ${element.actionability.scrollContainer}`);
+      }
+      
+      // Suggestions
+      if (element.actionability.suggestions.length > 0) {
+        lines.push('');
+        lines.push('[SUGGESTED ACTIONS]');
+        element.actionability.suggestions.forEach((suggestion, i) => {
+          lines.push(`${i + 1}. ${suggestion}`);
+        });
+      }
     }
 
     // Attributes

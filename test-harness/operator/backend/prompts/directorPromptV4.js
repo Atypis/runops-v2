@@ -206,6 +206,25 @@ Your toolkit organized by purpose:
 4. Inspect: \`dom_inspect\` to get selectors and details
 5. Test: \`browser_action\` to verify interactions work
 
+**Dynamic Element Selection Pattern (for lists/iterations):**
+1. **Count elements**: Use \`browser_query\` with method: "count"
+2. **Create index array**: Transform count to array of indices
+3. **Iterate with nth**: Use \`browser_action\` with nth: "{{index}}"
+\`\`\`javascript
+// Step 1: Count emails
+{ type: 'browser_query', config: { method: 'count', selector: 'tr.zA' } }
+// Step 2: Create indices [0, 1, 2, ...]  
+{ type: 'transform', config: { operation: 'code', code: 'return Array.from({length: input.count}, (_, i) => i);' } }
+// Step 3: Iterate and click each
+{ type: 'iterate', config: {
+    over: '{{indices}}',
+    variable: 'idx',
+    body: [
+      { type: 'browser_action', config: { action: 'click', selector: 'tr.zA', nth: '{{idx}}' } }
+    ]
+}}
+\`\`\`
+
 **Selector Hardening Strategies:**
 - **Prefer stable attributes**: id > data-testid > aria-label > unique classes > text content
 - **Union selectors**: Try multiple patterns: \`button[aria-label="Submit"], button:has-text("Submit"), .submit-btn\`
@@ -251,10 +270,37 @@ Your toolkit organized by purpose:
 1. **\`browser_action\`** - Deterministic UI interactions
    - CSS selectors only: click, type, navigate, wait
    - Use for: All navigation and interactions
+   - **NEW: nth parameter** - Select specific elements by index when multiple match
+     - Zero-based indexing: 0 = first element
+     - Negative indices: -1 = last element
+     - Keywords: "first", "last"
+     - Dynamic: "{{index}}" for iteration
+   \`\`\`javascript
+   // Click the 3rd email (0-indexed)
+   {
+     type: 'browser_action',
+     config: {
+       action: 'click',
+       selector: 'tr.zA',
+       nth: 2
+     }
+   }
+   
+   // Click each email in iteration
+   {
+     type: 'browser_action',
+     config: {
+       action: 'click',
+       selector: 'tr.zA',
+       nth: '{{emailIndex}}'
+     }
+   }
+   \`\`\`
    
 2. **\`browser_query\`** - Deterministic validation and extraction
    - validate: Check element exists
    - deterministic_extract: Extract structured data
+   - **NEW: count** - Count elements matching selector
    \`\`\`javascript
    // Extract emails with clear selectors
    {
@@ -268,6 +314,17 @@ Your toolkit organized by purpose:
        }
      }
    }
+   
+   // Count emails before processing
+   {
+     type: 'browser_query',
+     config: {
+       method: 'count',
+       selector: 'tr.zA',
+       store_variable: true
+     }
+   }
+   // Returns: { count: 14 }
    \`\`\`
 
 3. **\`browser_ai_extract\`** - AI text extraction from fuzzy content

@@ -34,6 +34,13 @@ export function createToolDefinitions() {
                   enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'screenshot', 'listTabs', 'getCurrentTab', 'keypress', 'click', 'type', 'act'],
                   description: 'For browser_action: navigate, wait, openNewTab, switchTab, closeTab, back, forward, refresh, screenshot, listTabs, getCurrentTab, keypress. For browser_ai_action: click, type, act'
                 },
+                nth: {
+                  oneOf: [
+                    { type: 'number' },
+                    { type: 'string' }
+                  ],
+                  description: 'For browser_action (click/type): Zero-based index of element to select when multiple elements match the selector. Supports negative indices (-1 = last element), keywords ("first", "last"), and variable references ("{{index}}"). Without nth, the first matching element is used.'
+                },
                 url: {
                   type: 'string',
                   description: 'For browser_action (navigate/openNewTab): URL to navigate to'
@@ -90,8 +97,8 @@ export function createToolDefinitions() {
                 // browser_query properties (deterministic validation)
                 method: {
                   type: 'string',
-                  enum: ['validate', 'extract', 'observe', 'assess'],
-                  description: 'For browser_query/browser_ai_query: The query method. browser_query only supports "validate"'
+                  enum: ['validate', 'extract', 'observe', 'assess', 'count'],
+                  description: 'For browser_query/browser_ai_query: The query method. browser_query supports "validate" and "count"'
                 },
                 rules: {
                   type: 'array',

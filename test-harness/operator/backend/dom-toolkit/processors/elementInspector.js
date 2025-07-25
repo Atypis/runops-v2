@@ -39,7 +39,7 @@ export class ElementInspector {
     // Build comprehensive element info
     const result = {
       success: true,
-      element: this.buildElementInfo(node, include),
+      element: this.buildElementInfo(node, include, snapshot.nodeMap),
       context: {}
     };
 
@@ -64,7 +64,7 @@ export class ElementInspector {
   /**
    * Build element information
    */
-  buildElementInfo(node, include) {
+  buildElementInfo(node, include, nodeMap) {
     const info = {
       id: `[${node.id}]`,
       tag: node.tag,
@@ -106,7 +106,164 @@ export class ElementInspector {
       };
     }
 
+    // Add actionability analysis
+    info.actionability = this.analyzeActionability(node, nodeMap);
+
     return info;
+  }
+
+  /**
+   * Analyze element actionability and provide suggestions
+   */
+  analyzeActionability(node, nodeMap) {
+    const analysis = {
+      isActionable: false,
+      issues: [],
+      suggestions: [],
+      scrollContainer: null
+    };
+
+    // Check basic actionability
+    if (!node.visible) {
+      analysis.issues.push('Element is not visible');
+      analysis.suggestions.push('Element may be hidden by CSS or parent visibility');
+    }
+
+    // Check for zero dimensions
+    if (node.layout) {
+      if (node.layout.height === 0) {
+        analysis.issues.push('Element has zero height (0px)');
+        analysis.suggestions.push('Element may be in a virtual scrolling container');
+        
+        // Find scroll container
+        const scrollContainer = this.findScrollContainer(node, nodeMap);
+        if (scrollContainer) {
+          analysis.scrollContainer = scrollContainer;
+          analysis.suggestions.push(`Use scrollIntoView with scrollContainer: "${scrollContainer}"`);
+        }
+        
+        // Gmail-specific pattern
+        if (node.tag === 'tr' && node.attributes?.class?.includes('zA')) {
+          analysis.suggestions.push('Pattern: Gmail virtual scrolling detected');
+          if (!scrollContainer) {
+            analysis.scrollContainer = 'div.Cp';
+            analysis.suggestions.push('Use scrollIntoView with scrollContainer: "div.Cp"');
+          }
+        }
+      }
+      
+      if (node.layout.width === 0) {
+        analysis.issues.push('Element has zero width (0px)');
+      }
+    } else {
+      analysis.issues.push('No layout information available');
+      analysis.suggestions.push('Element might not be rendered in the DOM');
+    }
+
+    // Check viewport status
+    if (!node.inViewport && node.visible) {
+      analysis.issues.push('Element is outside viewport');
+      analysis.suggestions.push('Scroll element into view before interacting');
+    }
+
+    // Check if element is disabled
+    if (node.attributes?.disabled) {
+      analysis.issues.push('Element is disabled');
+      analysis.suggestions.push('Element cannot be interacted with while disabled');
+    }
+
+    // Check if element is readonly
+    if (node.attributes?.readonly) {
+      analysis.issues.push('Element is readonly');
+      analysis.suggestions.push('Element content cannot be modified');
+    }
+
+    // Check pointer-events
+    if (node.attributes?.style?.includes('pointer-events: none')) {
+      analysis.issues.push('Element has pointer-events: none');
+      analysis.suggestions.push('Element cannot receive mouse events');
+    }
+
+    // Determine overall actionability
+    const canInteract = this.isInteractive(node);
+    const hasNoBlockingIssues = analysis.issues.length === 0 || 
+      (analysis.issues.length === 1 && analysis.issues[0] === 'Element is outside viewport');
+    
+    analysis.isActionable = canInteract && hasNoBlockingIssues;
+
+    // Add general suggestions based on element type
+    if (canInteract && !analysis.isActionable) {
+      if (node.tag === 'button' || node.tag === 'a') {
+        analysis.suggestions.push('Alternative: Click inner element like span or text');
+      }
+      
+      if (node.attributes?.class) {
+        analysis.suggestions.push(`Alternative: Try selector ".${node.attributes.class.split(' ')[0]}"`);
+      }
+    }
+
+    return analysis;
+  }
+
+  /**
+   * Find the nearest scrollable container in parent chain
+   */
+  findScrollContainer(node, nodeMap) {
+    let current = node;
+    let depth = 0;
+
+    while (current.parentId !== undefined && current.parentId !== null && depth < 10) {
+      const parent = nodeMap.get(current.parentId);
+      if (!parent) break;
+
+      // Check if parent has overflow scroll/auto
+      // Note: In real implementation, we'd check computed styles
+      // For now, use common patterns
+      if (parent.attributes?.class) {
+        // Gmail pattern
+        if (parent.attributes.class.includes('Cp') && parent.tag === 'div') {
+          return 'div.Cp';
+        }
+        
+        // Common scrollable container patterns
+        if (parent.attributes.class.includes('scroll') || 
+            parent.attributes.class.includes('overflow') ||
+            parent.attributes.class.includes('viewport')) {
+          return this.generateSelector(parent);
+        }
+      }
+
+      // Check style attribute
+      if (parent.attributes?.style && 
+          (parent.attributes.style.includes('overflow: auto') || 
+           parent.attributes.style.includes('overflow: scroll') ||
+           parent.attributes.style.includes('overflow-y: auto') ||
+           parent.attributes.style.includes('overflow-y: scroll'))) {
+        return this.generateSelector(parent);
+      }
+
+      current = parent;
+      depth++;
+
+      // Stop at body
+      if (parent.tag === 'body') break;
+    }
+
+    return null;
+  }
+
+  /**
+   * Generate a simple selector for an element
+   */
+  generateSelector(node) {
+    if (node.attributes?.id) {
+      return `#${node.attributes.id}`;
+    }
+    if (node.attributes?.class) {
+      const firstClass = node.attributes.class.split(' ')[0];
+      return `${node.tag}.${firstClass}`;
+    }
+    return node.tag;
   }
 
   /**

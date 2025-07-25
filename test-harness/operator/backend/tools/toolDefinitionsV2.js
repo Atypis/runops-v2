@@ -154,6 +154,13 @@ export function createToolDefinitions() {
             store_variable: {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+            },
+            nth: {
+              oneOf: [
+                { type: 'number' },
+                { type: 'string' }
+              ],
+              description: 'For click/type: Zero-based index of element to select when multiple elements match the selector. Supports negative indices (-1 = last element), keywords ("first", "last"), and variable references ("{{index}}"). Without nth, the first matching element is used.'
             }
           },
           required: ['action'],
@@ -182,8 +189,8 @@ export function createToolDefinitions() {
           properties: {
             method: {
               type: 'string',
-              enum: ['validate', 'deterministic_extract'],
-              description: 'The query method. validate: Check element presence/absence. deterministic_extract: Extract data from DOM elements without AI (fast, token-free). Note: AI-powered extract/observe methods are in browser_ai_query node type.'
+              enum: ['validate', 'deterministic_extract', 'count', 'debug_element'],
+              description: 'The query method. validate: Check element presence/absence. deterministic_extract: Extract data from DOM elements without AI (fast, token-free). count: Count number of elements matching selector. debug_element: Get comprehensive debugging info about element actionability. Note: AI-powered extract/observe methods are in browser_ai_query node type.'
             },
             rules: {
               type: 'array',
@@ -215,7 +222,7 @@ export function createToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'For deterministic_extract: CSS selector to match elements (e.g., "tr.zA", ".product-card")'
+              description: 'CSS selector to match elements. Used by: deterministic_extract, count, debug_element. Examples: "tr.zA", ".product-card", "button.submit"'
             },
             fields: {
               type: 'object',
@@ -242,6 +249,10 @@ export function createToolDefinitions() {
             store_variable: {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+            },
+            nth: {
+              type: 'number',
+              description: 'For debug_element: Index of element to debug when multiple match (default: 0)'
             }
           },
           required: ['method'],
@@ -253,6 +264,14 @@ export function createToolDefinitions() {
             },
             {
               if: { properties: { method: { const: 'deterministic_extract' } } },
+              then: { required: ['selector'] }
+            },
+            {
+              if: { properties: { method: { const: 'debug_element' } } },
+              then: { required: ['selector'] }
+            },
+            {
+              if: { properties: { method: { const: 'count' } } },
               then: { required: ['selector'] }
             }
           ]

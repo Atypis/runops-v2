@@ -84,6 +84,32 @@ export class BrowserActionService {
   }
 
   /**
+   * Resolve index value supporting numbers, negative indices, and keywords
+   * @param {number|string} nth - The index value
+   * @param {number} totalElements - Total number of elements
+   * @returns {number} The resolved index
+   */
+  resolveIndex(nth, totalElements) {
+    // Handle keywords
+    if (nth === 'first') return 0;
+    if (nth === 'last') return totalElements - 1;
+    
+    // Handle numeric indices
+    const index = typeof nth === 'number' ? nth : parseInt(nth);
+    
+    if (isNaN(index)) {
+      throw new Error(`Invalid index value: ${nth}. Expected number, "first", or "last".`);
+    }
+    
+    // Handle negative indices (from end)
+    if (index < 0) {
+      return totalElements + index;
+    }
+    
+    return index;
+  }
+
+  /**
    * Process selector for shadow DOM piercing
    * @param {string} selector - The original selector
    * @param {boolean} useShadowDOM - Whether to enable shadow DOM piercing
@@ -540,7 +566,7 @@ export class BrowserActionService {
   // ===== Interaction Actions =====
 
   async click(config) {
-    const { selector, tabName, timeout = 10000, useShadowDOM = false } = config;
+    const { selector, tabName, timeout = 10000, useShadowDOM = false, nth } = config;
     
     if (!selector) {
       throw new Error('click action requires selector parameter');
@@ -550,6 +576,49 @@ export class BrowserActionService {
     
     // Handle shadow DOM piercing
     const effectiveSelector = this.processShadowDOMSelector(selector, useShadowDOM);
+    
+    // If nth is specified, handle element selection by index
+    if (nth !== undefined) {
+      const elements = await page.$$(effectiveSelector);
+      const index = this.resolveIndex(nth, elements.length);
+      
+      if (!elements[index]) {
+        throw new Error(
+          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements.`
+        );
+      }
+      
+      // Check element visibility before clicking
+      const boundingBox = await elements[index].boundingBox();
+      if (!boundingBox || boundingBox.height === 0) {
+        // Try to find parent with overflow scroll
+        const scrollContainer = await page.evaluate((sel, idx) => {
+          const elements = document.querySelectorAll(sel);
+          const element = elements[idx];
+          let parent = element?.parentElement;
+          while (parent) {
+            const style = getComputedStyle(parent);
+            if (style.overflow === 'auto' || style.overflow === 'scroll') {
+              return parent.className || parent.id || parent.tagName;
+            }
+            parent = parent.parentElement;
+          }
+          return null;
+        }, effectiveSelector, index);
+        
+        throw new Error(
+          `Element at index ${nth} has zero height and cannot be clicked. ` +
+          `This often indicates virtual scrolling. ` +
+          (scrollContainer ? 
+            `Try using scrollIntoView with scrollContainer: "${scrollContainer}" before clicking.` :
+            `Try using scrollIntoView first to make the element visible.`) +
+          ` Alternative: click inner element like '${selector} span' instead.`
+        );
+      }
+      
+      await elements[index].click();
+      return { clicked: selector, nth: index };
+    }
     
     // Wait for element to be clickable
     await page.waitForSelector(effectiveSelector, { 
@@ -695,7 +764,54 @@ export class BrowserActionService {
       }
     } else {
       // Standard click for non-shadow DOM
-      await page.click(effectiveSelector);
+      try {
+        await page.click(effectiveSelector);
+      } catch (error) {
+        // Enhance error message with actionability info
+        if (error.message.includes('Timeout') && error.message.includes('exceeded')) {
+          const elements = await page.$$(effectiveSelector);
+          
+          if (elements.length === 0) {
+            throw new Error(`No elements found matching selector: ${selector}`);
+          }
+          
+          // Check first element for visibility issues
+          const firstElement = elements[0];
+          const boundingBox = await firstElement.boundingBox();
+          
+          if (!boundingBox || boundingBox.height === 0) {
+            // Try to find scroll container
+            const scrollContainer = await page.evaluate((sel) => {
+              const element = document.querySelector(sel);
+              let parent = element?.parentElement;
+              while (parent) {
+                const style = getComputedStyle(parent);
+                if (style.overflow === 'auto' || style.overflow === 'scroll') {
+                  return parent.className || parent.id || parent.tagName;
+                }
+                parent = parent.parentElement;
+              }
+              return null;
+            }, effectiveSelector);
+            
+            throw new Error(
+              `Found ${elements.length} elements but they have zero height (virtual scrolling). ` +
+              (scrollContainer ? 
+                `Solution: Use scrollIntoView with scrollContainer: "${scrollContainer}" before clicking. ` :
+                `Solution: Use scrollIntoView before clicking. `) +
+              `For Gmail search results: scrollContainer: "div.Cp"`
+            );
+          } else {
+            throw new Error(
+              `Found ${elements.length} elements but none are visible. ` +
+              `Element may be hidden or outside viewport. ` +
+              `Try using scrollIntoView first.`
+            );
+          }
+        }
+        
+        throw error;
+      }
     }
     
     return { 
@@ -706,7 +822,7 @@ export class BrowserActionService {
   }
 
   async type(config) {
-    const { selector, text, tabName, timeout = 10000, useShadowDOM = false } = config;
+    const { selector, text, tabName, timeout = 10000, useShadowDOM = false, nth } = config;
     
     if (!selector || text === undefined) {
       throw new Error('type action requires selector and text parameters');
@@ -716,6 +832,22 @@ export class BrowserActionService {
     
     // Handle shadow DOM piercing
     const effectiveSelector = this.processShadowDOMSelector(selector, useShadowDOM);
+    
+    // If nth is specified, handle element selection by index
+    if (nth !== undefined) {
+      const elements = await page.$$(effectiveSelector);
+      const index = this.resolveIndex(nth, elements.length);
+      
+      if (!elements[index]) {
+        throw new Error(
+          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements.`
+        );
+      }
+      
+      // Clear existing value and type new text
+      await elements[index].fill(text);
+      return { typed: text, selector, nth: index };
+    }
     
     // Wait for element
     await page.waitForSelector(effectiveSelector, { 

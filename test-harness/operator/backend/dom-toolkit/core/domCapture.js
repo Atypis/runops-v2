@@ -37,7 +37,17 @@ export class DOMCapture {
           'display',
           'opacity',
           'position',
-          'overflow'
+          'overflow',
+          'pointer-events',
+          'user-select',
+          'z-index',
+          'transform',
+          'clip-path',
+          'filter',
+          'mix-blend-mode',
+          'isolation',
+          'contain',
+          'content-visibility'
         ],
         includePaintOrder: true,
         includeDOMRects: true,

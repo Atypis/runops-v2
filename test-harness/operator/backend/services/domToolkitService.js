@@ -121,7 +121,9 @@ export class DOMToolkitService {
       if (result.success) {
         const formatted = this.searchFormatter.formatSearchResults({
           ...result,
-          query: options.query
+          query: options.query,
+          visibilityStats: result.summary.visibilityStats,
+          patterns: result.summary.patterns
         });
         
         return {
