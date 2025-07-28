@@ -235,6 +235,41 @@ export function createDOMExplorationTools() {
     {
       type: 'function',
       function: {
+        name: 'dom_actionable', 
+        description: 'Get aggressively filtered actionable elements using browser-use methodology. Your primary tool for understanding what the user can actually interact with on a page. Returns only truly clickable/typeable elements with optional screenshot.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to analyze (defaults to active tab)'
+            },
+            includeScreenshotUrl: {
+              type: 'boolean',
+              description: '⚠️ DEPRECATED: Use includeBoxes instead. Include screenshot with numbered highlights as file URL (~1k vision tokens). MCP users: Use Read tool with returned file path to view the image. Only enable when visual context is essential for reasoning.',
+              default: false
+            },
+            includeBoxes: {
+              type: 'boolean',
+              description: 'Include bounding box coordinates [x,y,w,h] for layout reasoning (+6 tokens per element)',
+              default: false
+            },
+            maxElements: {
+              type: 'number',
+              description: 'Maximum actionable elements to return (default: 50, unlimited: -1)',
+              default: 50,
+              minimum: -1,
+              maximum: 200
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'dom_check_portals',
         description: 'Check for new portal/overlay elements that appeared after an interaction. Compares current DOM against a previous snapshot to find elements added at body level (React portals, modals, dropdowns). Use after clicking buttons that might open popups.',
         parameters: {
@@ -253,6 +288,72 @@ export function createDOMExplorationTools() {
               description: 'Include all body-level changes, not just portal patterns (default: false)'
             }
           },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'dom_click_inspect',
+        description: 'Get detailed DOM information about the element at specific screen coordinates. Perfect for visual workflow building and debugging actionable detection. Bridges the gap between what you see in screenshots and programmatic DOM access.',
+        parameters: {
+          type: 'object',
+          properties: {
+            x: {
+              type: 'number',
+              description: 'X pixel coordinate (from screenshot or visual observation)',
+              minimum: 0
+            },
+            y: {
+              type: 'number', 
+              description: 'Y pixel coordinate (from screenshot or visual observation)',
+              minimum: 0
+            },
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to inspect (defaults to active tab)'
+            },
+            includeParentChain: {
+              type: 'boolean',
+              description: 'Include full parent element hierarchy (default: true)',
+              default: true
+            },
+            includeChildren: {
+              type: 'boolean',
+              description: 'Include immediate child elements (default: false)',
+              default: false
+            },
+            generateSelectors: {
+              type: 'boolean',
+              description: 'Generate multiple stable selector options (default: true)',
+              default: true
+            },
+            checkActionability: {
+              type: 'boolean',
+              description: 'Test element against actionable detection filters (default: true)',
+              default: true
+            },
+            includeNearbyElements: {
+              type: 'boolean',
+              description: 'Include elements within 50px radius for context (default: false)',
+              default: false
+            },
+            includeScreenshot: {
+              type: 'boolean',
+              description: '🔧 ADVANCED DEBUGGING: Include screenshot with target location highlighted. Only enable when visual confirmation is essential - adds ~1k tokens and processing time (default: false)',
+              default: false
+            },
+            searchRadius: {
+              type: 'number',
+              description: 'Pixel radius to search for nearby actionable elements when includeNearbyElements is true (default: 50)',
+              default: 50,
+              minimum: 0,
+              maximum: 200
+            }
+          },
+          required: ['x', 'y'],
           additionalProperties: false
         },
         strict: true

@@ -3942,6 +3942,12 @@ export class DirectorService {
         case 'dom_inspect':
           result = await domToolkitService.domInspect(args, this.nodeExecutor);
           break;
+        case 'dom_actionable':
+          result = await domToolkitService.domActionable(args, this.nodeExecutor);
+          break;
+        case 'dom_click_inspect':
+          result = await domToolkitService.domClickInspect(args, this.nodeExecutor);
+          break;
         case 'dom_check_portals':
           result = await domToolkitService.domCheckPortals(args, this.nodeExecutor);
           break;

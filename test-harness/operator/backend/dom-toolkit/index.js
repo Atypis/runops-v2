@@ -16,6 +16,7 @@ import { InteractivesFilter } from './filters/interactivesFilter.js';
 import { HeadingsFilter } from './filters/headingsFilter.js';
 import { SearchFilter } from './filters/searchFilter.js';
 import { PortalFilter } from './filters/portalFilter.js';
+import { ActionableFilter } from './filters/actionableFilter.js';
 import { GroupingProcessor } from './processors/groupingProcessor.js';
 import { SelectorHints } from './processors/selectorHints.js';
 import { ElementInspector } from './processors/elementInspector.js';
@@ -32,13 +33,17 @@ export class DOMToolkit {
       interactives: new InteractivesFilter(),
       headings: new HeadingsFilter(),
       search: new SearchFilter(),
-      portal: new PortalFilter()
+      portal: new PortalFilter(),
+      actionable: new ActionableFilter()
     };
     this.grouping = new GroupingProcessor();
     this.selectors = new SelectorHints();
     this.inspector = new ElementInspector();
     this.diffProcessor = new DiffProcessor();
     this.formatter = new TokenFormatter();
+    
+    // Element cache for new element detection (Browser-Use parity)
+    this.previousElementCache = new Map(); // Format: { tabId: Set<elementSignatures> }
   }
 
   /**
@@ -674,6 +679,543 @@ export class DOMToolkit {
     
     console.log(`[DOMToolkit] Auto-scroll complete. Scrolled ${scrolled}px in ${scrollContainer || 'viewport'}`);
     return mergedOverview;
+  }
+
+  /**
+   * dom_actionable - Get aggressively filtered actionable elements
+   */
+  async domActionable(page, options = {}) {
+    const {
+      tabName = 'main',
+      includeScreenshotUrl = false,
+      maxElements = 50,
+      includeBoxes = false
+    } = options;
+    
+    try {
+      const cacheKey = `${page._workflowId}-${tabName}`;
+      let snapshot = await this.cache.get(cacheKey);
+      
+      if (!snapshot || await this.cache.isInvalid(page)) {
+        snapshot = await this.capture.captureSnapshot(page);
+        await this.cache.set(cacheKey, snapshot, page);
+      }
+
+      // Use browser-context actionable filtering for full Browser-Use parity
+      const actionableResult = await page.evaluate((config) => {
+        // Import the ActionableFilter from the external file into browser context
+        const ActionableFilter = class {
+          constructor() {
+            this.interactiveTags = new Set([
+              'a', 'button', 'input', 'select', 'textarea', 'label', 
+              'details', 'summary', 'option', 'menuitem'
+            ]);
+            
+            this.interactiveRoles = new Set([
+              'button', 'link', 'menuitem', 'menuitemradio', 'menuitemcheckbox',
+              'radio', 'checkbox', 'tab', 'switch', 'slider', 'spinbutton',
+              'combobox', 'searchbox', 'textbox', 'listbox', 'option', 'scrollbar'
+            ]);
+            
+            this.ariaStateAttrs = ['aria-expanded', 'aria-pressed', 'aria-selected', 'aria-checked'];
+            this.frameworkAttrs = ['ng-click', '@click', 'v-on:click', 'onclick'];
+            
+            this.clickableClasses = [
+              'clickable', 'selectable', 'interactive', 'actionable',
+              'rowSelectionEnabled', 'rowExpansionEnabled', 'cellClickable', 'hoverable',
+              'data-row', 'table-row', 'list-item', 'card', 'dataRow'
+            ];
+            
+            this.clickableTestIds = [
+              'data-row', 'data-cell', 'clickable', 'selectable',
+              'list-item', 'card', 'tile', 'row'
+            ];
+          }
+          
+          filterWithLiveTraversal(options = {}) {
+            const { visible = true, viewport = true, max_rows = 50 } = options;
+            const elements = [];
+            let elementIndex = 1;
+            const processedElements = new Set();
+            
+            const inViewport = (rect, vw = window.innerWidth, vh = window.innerHeight) => {
+              return rect.bottom > 0 && rect.right > 0 && 
+                     rect.top < vh && rect.left < vw;
+            };
+            
+            const traverse = (node, offset = {x: 0, y: 0}) => {
+              if (!node || (max_rows > 0 && elements.length >= max_rows)) return;
+              
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const elementKey = this.getElementKey(node);
+                if (!processedElements.has(elementKey)) {
+                  processedElements.add(elementKey);
+                  
+                  if (this.isActionableElementLive(node, offset) && 
+                      this.isElementSignificantLive(node) &&
+                      (!visible || this.isElementVisibleLive(node))) {
+                    
+                    if (viewport) {
+                      const rect = node.getBoundingClientRect();
+                      if (!inViewport(rect)) {
+                        return;
+                      }
+                    }
+                    
+                    const element = {
+                      id: '[' + elementIndex + ']',
+                      tag: node.tagName.toLowerCase(),
+                      text: this.extractTextLive(node).substring(0, 50) || '',
+                      type: this.getElementTypeLive(node),
+                      _domElement: node
+                    };
+                    
+                    if (config.includeBoxes) {
+                      const rect = node.getBoundingClientRect();
+                      element.bounds = [
+                        Math.round(rect.x),
+                        Math.round(rect.y),
+                        Math.round(rect.width), 
+                        Math.round(rect.height)
+                      ];
+                    }
+                    
+                    elements.push(element);
+                    elementIndex++;
+                  }
+                }
+              }
+              
+              for (const child of node.childNodes) {
+                traverse(child, offset);
+              }
+
+              if (node.shadowRoot && node.shadowRoot.mode === 'open') {
+                traverse(node.shadowRoot, offset);
+              }
+            };
+
+            traverse(document.body);
+
+            for (const iframe of document.querySelectorAll('iframe')) {
+              try {
+                if (iframe.contentDocument && iframe.contentDocument.body) {
+                  const rect = iframe.getBoundingClientRect();
+                  const offset = { x: rect.left, y: rect.top };
+                  traverse(iframe.contentDocument.body, offset);
+                }
+              } catch (e) {
+                console.debug('[ActionableFilter] Skipping cross-origin iframe:', iframe.src);
+              }
+            }
+            
+            return {
+              elements,
+              total: elements.length,
+              truncated: (max_rows > 0 && elements.length >= max_rows) ? 1 : 0
+            };
+          }
+          
+          // ... rest of methods from ActionableFilter class
+          getElementKey(element) {
+            const rect = element.getBoundingClientRect();
+            return element.tagName + '-' + rect.x + '-' + rect.y + '-' + rect.width + '-' + rect.height + '-' + (element.textContent?.substring(0, 20) || '');
+          }
+
+          isActionableElementLive(element, offset = {x: 0, y: 0}) {
+            const tagName = element.tagName.toLowerCase();
+            
+            if (this.interactiveTags.has(tagName)) {
+              if (this.isElementDisabledLive(element)) return false;
+              return true;
+            }
+            
+            const role = element.getAttribute('role');
+            if (role && this.interactiveRoles.has(role)) return true;
+            
+            if (element.tabIndex >= 0) return true;
+            
+            if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
+              return true;
+            }
+            
+            if (this.hasClickHandlersLive(element)) return true;
+            
+            if (this.ariaStateAttrs.some(attr => element.hasAttribute(attr))) return true;
+            
+            if (element.draggable) return true;
+            
+            const className = (element.className || '').toString();
+            if (this.clickableClasses.some(cls => className.includes(cls))) {
+              return true;
+            }
+            
+            if (this.hasClickableParent(element)) {
+              return true;
+            }
+            
+            const testId = element.getAttribute('data-testid') || '';
+            if (this.clickableTestIds.some(pattern => testId.includes(pattern))) {
+              return true;
+            }
+            
+            const style = window.getComputedStyle(element);
+            if (style.cursor === 'pointer') return true;
+            
+            if (style.pointerEvents === 'none') return false;
+            
+            return false;
+          }
+
+          hasClickableParent(element, maxDepth = 5) {
+            let current = element.parentElement;
+            let depth = 0;
+            
+            while (current && depth < maxDepth) {
+              const className = (current.className || '').toString();
+              
+              if (this.clickableClasses.some(cls => className.includes(cls))) {
+                return true;
+              }
+              
+              if (className.includes('rowSelectionEnabled') || 
+                  className.includes('rowExpansionEnabled') ||
+                  className.includes('dataRow')) {
+                return true;
+              }
+              
+              const testId = current.getAttribute('data-testid') || '';
+              if (this.clickableTestIds.some(pattern => testId.includes(pattern))) {
+                return true;
+              }
+              
+              current = current.parentElement;
+              depth++;
+            }
+            
+            return false;
+          }
+
+          isElementDisabledLive(element) {
+            if (element.disabled) return true;
+            if (element.getAttribute('disabled') !== null) return true;
+            if (element.getAttribute('aria-disabled') === 'true') return true;
+            if (element.readOnly) return true;
+            if (element.inert) return true;
+            
+            const style = window.getComputedStyle(element);
+            if (style.cursor === 'not-allowed' || style.cursor === 'disabled') return true;
+            
+            return false;
+          }
+
+          hasClickHandlersLive(element) {
+            if (element.onclick || element.getAttribute('onclick')) return true;
+            
+            if (this.frameworkAttrs.some(attr => element.hasAttribute(attr))) return true;
+            
+            try {
+              if (typeof getEventListeners === 'function') {
+                const listeners = getEventListeners(element);
+                const mouseEvents = ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'];
+                return mouseEvents.some(event => listeners[event] && listeners[event].length > 0);
+              }
+            } catch (e) {
+              const eventProps = ['onclick', 'onmousedown', 'onmouseup'];
+              return eventProps.some(prop => typeof element[prop] === 'function');
+            }
+            
+            return false;
+          }
+
+          isElementVisibleLive(element) {
+            if (element.offsetWidth === 0 || element.offsetHeight === 0) return false;
+            
+            const style = window.getComputedStyle(element);
+            if (style.display === 'none') return false;
+            if (style.visibility === 'hidden') return false;
+            if (parseFloat(style.opacity) === 0) return false;
+            
+            try {
+              return element.checkVisibility({
+                checkOpacity: true,
+                checkVisibilityCSS: true
+              });
+            } catch (e) {
+              return true;
+            }
+          }
+
+          isElementSignificantLive(element) {
+            const rect = element.getBoundingClientRect();
+            const area = rect.width * rect.height;
+            
+            const alwaysInclude = ['button', 'input', 'select', 'textarea', 'a'];
+            if (alwaysInclude.includes(element.tagName.toLowerCase())) {
+              return true;
+            }
+            
+            const testId = element.getAttribute('data-testid') || '';
+            const className = (element.className || '').toString();
+            if (testId === 'data-row' || className.includes('rowSelectionEnabled')) {
+              return true;
+            }
+            
+            return area >= 144;
+          }
+
+          extractTextLive(element) {
+            if (element.textContent && element.textContent.trim()) {
+              return element.textContent.trim();
+            }
+            
+            return element.placeholder || element.title || element.alt || element.value || '';
+          }
+
+          getElementTypeLive(element) {
+            const tag = element.tagName.toLowerCase();
+            const type = element.getAttribute('type');
+            const role = element.getAttribute('role');
+            
+            if (tag === 'button' || role === 'button') return 'button';
+            if (tag === 'a') return 'link'; 
+            if (tag === 'input') return type || 'input';
+            if (tag === 'select') return 'select';
+            if (tag === 'textarea') return 'textarea';
+            if (element.isContentEditable) return 'contenteditable';
+            
+            return tag;
+          }
+        };
+        
+        const filter = new ActionableFilter();
+        return filter.filterWithLiveTraversal({
+          visible: true,
+          viewport: true,
+          max_rows: config.maxElements > 0 ? config.maxElements : 200
+        });
+        
+      }, { maxElements, includeBoxes: includeBoxes || includeScreenshotUrl });
+
+      // Add new element detection (Browser-Use parity)
+      const tabId = `${page._workflowId}-${tabName}`;
+      const previousElements = this.previousElementCache.get(tabId) || new Set();
+      const currentElements = new Set();
+      
+      // Enhance elements with optional data and new element detection
+      const enhancedElements = actionableResult.elements.map(element => {
+        const enhanced = { ...element };
+        
+        // Create element signature for new element detection
+        const elementSignature = `${element.tag}-${element.type}-${element.text}`;
+        currentElements.add(elementSignature);
+        
+        // Check if this is a new element (Browser-Use parity)
+        if (!previousElements.has(elementSignature)) {
+          enhanced.isNew = true;
+        }
+        
+        // Bounds are now handled in browser context if includeBoxes was requested
+        return enhanced;
+      });
+      
+      // Update the cache for next time
+      this.previousElementCache.set(tabId, currentElements);
+
+      // Handle screenshot URL if requested (deprecated - use includeBoxes instead)
+      let screenshotUrl = null;
+      if (includeScreenshotUrl) {
+        // Generate a temp file path for the screenshot
+        const tempFileName = `dom_actionable_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+        const tempPath = `/tmp/${tempFileName}`;
+        
+        try {
+          const screenshot = await this.captureScreenshotWithHighlights(page, actionableResult.elements, snapshot);
+          // In a production system, you would upload this to S3/CDN and return the URL
+          // For now, we'll save to temp and provide a file path
+          const fs = await import('fs');
+          await fs.promises.writeFile(tempPath, screenshot);
+          screenshotUrl = `file://${tempPath}`;
+          
+          // Clean up after 5 minutes
+          setTimeout(() => {
+            fs.promises.unlink(tempPath).catch(() => {});
+          }, 5 * 60 * 1000);
+        } catch (error) {
+          console.warn('[DOMToolkit] Screenshot capture failed:', error.message);
+        }
+      }
+
+      return {
+        success: true,
+        snapshotId: snapshot.id,
+        tabName,
+        url: await page.url(),
+        elements: enhancedElements,
+        total: actionableResult.total,
+        truncated: actionableResult.truncated,
+        screenshot_url: screenshotUrl
+      };
+    } catch (error) {
+      console.error('[DOMToolkit] Error in domActionable:', error);
+      return {
+        success: false,
+        error: error.message,
+        tabName
+      };
+    }
+  }
+
+
+  /**
+   * Capture screenshot with numbered highlights for actionable elements
+   */
+  async captureScreenshotWithHighlights(page, elements, snapshot) {
+    try {
+      // Inject highlight overlays using bounds data (more reliable than DOM matching)
+      const debugResults = await page.evaluate((elementsData) => {
+        console.log('[DEBUG] Elements data received:', elementsData);
+        
+        // Remove any existing highlights
+        const existingContainer = document.getElementById('director-highlight-container');
+        if (existingContainer) existingContainer.remove();
+        
+        const container = document.createElement('div');
+        container.id = 'director-highlight-container';
+        container.style.cssText = `
+          position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+          pointer-events: none; z-index: 2147483647; background: transparent;
+        `;
+        
+        const colors = [
+          '#FF0000', '#00FF00', '#0000FF', '#FFA500', '#800080',
+          '#008080', '#FF69B4', '#4B0082', '#FF4500', '#2E8B57'
+        ];
+        
+        const debugInfo = {
+          elementsReceived: elementsData.length,
+          overlaysCreated: 0,
+          elementsWithoutBounds: 0
+        };
+        
+        elementsData.forEach((element, index) => {
+          console.log(`[DEBUG] Processing element ${index}:`, element);
+          
+          // Use bounds if available, otherwise try to calculate
+          let rect;
+          if (element.bounds) {
+            // Use pre-calculated bounds [x, y, width, height]
+            rect = {
+              left: element.bounds[0],
+              top: element.bounds[1], 
+              width: element.bounds[2],
+              height: element.bounds[3]
+            };
+            console.log(`[DEBUG] Using pre-calculated bounds for element ${index}:`, rect);
+          } else {
+            // Fallback: try to find element by tag and text matching
+            console.log(`[DEBUG] No bounds for element ${index}, trying DOM matching`);
+            const candidates = document.querySelectorAll(element.tag);
+            let targetElement = null;
+            
+            for (const el of candidates) {
+              const elText = (el.textContent || '').trim().substring(0, 50);
+              if (elText === element.text || (!element.text && el.tagName.toLowerCase() === element.tag)) {
+                targetElement = el;
+                break;
+              }
+            }
+            
+            if (!targetElement) {
+              console.log(`[DEBUG] Element ${index} not found in DOM`);
+              debugInfo.elementsWithoutBounds++;
+              return;
+            }
+            
+            const domRect = targetElement.getBoundingClientRect();
+            rect = {
+              left: domRect.left,
+              top: domRect.top,
+              width: domRect.width,
+              height: domRect.height
+            };
+          }
+          
+          if (rect.width === 0 || rect.height === 0) {
+            console.log(`[DEBUG] Element ${index} has zero size`);
+            return;
+          }
+          
+          const color = colors[index % colors.length];
+          
+          // Create overlay
+          const overlay = document.createElement('div');
+          overlay.style.cssText = `
+            position: fixed; border: 3px solid ${color}; background: ${color}33;
+            box-sizing: border-box; top: ${rect.top}px; left: ${rect.left}px;
+            width: ${rect.width}px; height: ${rect.height}px;
+          `;
+          
+          // Create label  
+          const label = document.createElement('div');
+          label.style.cssText = `
+            position: fixed; background: ${color}; color: white;
+            padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: bold;
+            top: ${rect.top - 20}px; left: ${rect.left}px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            min-width: 20px; text-align: center;
+          `;
+          label.textContent = element.id.replace(/[\[\]]/g, ''); // Remove brackets from [1], [2], etc.
+          
+          container.appendChild(overlay);
+          container.appendChild(label);
+          debugInfo.overlaysCreated++;
+          
+          console.log(`[DEBUG] Created overlay ${index} for element:`, {
+            id: element.id,
+            tag: element.tag,
+            text: element.text,
+            rect: rect,
+            color: color
+          });
+        });
+        
+        document.body.appendChild(container);
+        console.log('[DEBUG] Final debug info:', debugInfo);
+        return debugInfo;
+      }, elements);
+      
+      console.log('[DOM Toolkit] Screenshot debug results:', debugResults);
+      
+      // Wait a moment for rendering
+      await page.waitForTimeout(100);
+      
+      // Capture screenshot
+      const screenshot = await page.screenshot({
+        type: 'png',
+        fullPage: false // Viewport only for performance
+      });
+      
+      // Clean up highlights
+      await page.evaluate(() => {
+        const container = document.getElementById('director-highlight-container');
+        if (container) container.remove();
+      });
+      
+      return screenshot;
+    } catch (error) {
+      console.error('[DOMToolkit] Screenshot capture failed:', error);
+      // Clean up on error
+      try {
+        await page.evaluate(() => {
+          const container = document.getElementById('director-highlight-container');
+          if (container) container.remove();
+        });
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+      return null;
+    }
   }
 
   /**
