@@ -275,6 +275,12 @@ export function createDOMExplorationTools() {
         parameters: {
           type: 'object',
           properties: {
+            mode: {
+              type: 'string',
+              enum: ['pure', 'enhanced'],
+              default: 'pure',
+              description: 'Detection mode: "pure" uses only semantic accessibility roles (fast, reliable), "enhanced" includes generic elements with advanced heuristics (slower, comprehensive)'
+            },
             tabName: {
               type: 'string',
               description: 'Browser tab to analyze (defaults to active tab)'

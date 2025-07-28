@@ -688,6 +688,7 @@ export class DOMToolkit {
    */
   async domActionableAX(page, options = {}) {
     const {
+      mode = 'pure',
       tabName = 'main',
       includeScreenshotUrl = false,
       maxElements = 50
@@ -695,12 +696,41 @@ export class DOMToolkit {
     
     try {
       const result = await this.filters.axActionable.filter(page, {
+        mode,
         maxElements,
         includeScreenshotUrl
       });
       
-      // Screenshot disabled for now
+      // Handle screenshot URL if requested
       let screenshot_url = null;
+      if (includeScreenshotUrl && result.elements.length > 0) {
+        // Generate a temp file path for the screenshot
+        const tempFileName = `dom_actionable_ax_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+        const tempPath = `/tmp/${tempFileName}`;
+        
+        try {
+          // Only pass essential data for highlighting (avoid binary data serialization)
+          // Map from AX format (box) to expected format (bounds)
+          const highlightData = result.elements.map((el) => ({
+            id: el.id,
+            bounds: el.box,  // AX provides box as [x,y,width,height], captureScreenshotWithHighlights expects bounds
+            role: el.role,
+            name: el.name
+          }));
+          
+          const screenshot = await this.captureScreenshotWithHighlights(page, highlightData, 'ax');
+          const fs = await import('fs');
+          await fs.promises.writeFile(tempPath, screenshot);
+          screenshot_url = `file://${tempPath}`;
+          
+          // Clean up after 5 minutes
+          setTimeout(() => {
+            fs.promises.unlink(tempPath).catch(() => {});
+          }, 5 * 60 * 1000);
+        } catch (error) {
+          console.warn('[DOMToolkit] AX Screenshot capture failed:', error.message);
+        }
+      }
       
       return {
         success: true,
