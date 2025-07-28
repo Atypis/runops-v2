@@ -734,8 +734,7 @@ export class DOMToolkit {
           
           filterWithLiveTraversal(options = {}) {
             const { visible = true, viewport = true, max_rows = 50 } = options;
-            const elements = [];
-            let elementIndex = 1;
+            const candidateElements = [];  // First collect ALL candidates
             const processedElements = new Set();
             
             const inViewport = (rect, vw = window.innerWidth, vh = window.innerHeight) => {
@@ -743,8 +742,9 @@ export class DOMToolkit {
                      rect.top < vh && rect.left < vw;
             };
             
+            // Phase 1: Collect all potentially actionable elements
             const traverse = (node, offset = {x: 0, y: 0}) => {
-              if (!node || (max_rows > 0 && elements.length >= max_rows)) return;
+              if (!node) return;
               
               if (node.nodeType === Node.ELEMENT_NODE) {
                 const elementKey = this.getElementKey(node);
@@ -758,30 +758,22 @@ export class DOMToolkit {
                     if (viewport) {
                       const rect = node.getBoundingClientRect();
                       if (!inViewport(rect)) {
+                        // Still traverse children even if parent is out of viewport
+                        for (const child of node.childNodes) {
+                          traverse(child, offset);
+                        }
                         return;
                       }
                     }
                     
-                    const element = {
-                      id: '[' + elementIndex + ']',
+                    // Store candidate with DOM reference for hierarchy checking
+                    candidateElements.push({
+                      domElement: node,
                       tag: node.tagName.toLowerCase(),
                       text: this.extractTextLive(node).substring(0, 50) || '',
                       type: this.getElementTypeLive(node),
-                      _domElement: node
-                    };
-                    
-                    if (config.includeBoxes) {
-                      const rect = node.getBoundingClientRect();
-                      element.bounds = [
-                        Math.round(rect.x),
-                        Math.round(rect.y),
-                        Math.round(rect.width), 
-                        Math.round(rect.height)
-                      ];
-                    }
-                    
-                    elements.push(element);
-                    elementIndex++;
+                      rect: node.getBoundingClientRect()
+                    });
                   }
                 }
               }
@@ -809,10 +801,82 @@ export class DOMToolkit {
               }
             }
             
+            // Phase 2: Simple hierarchical filtering - remove children of actionable parents
+            // But be smart about containers vs meaningful interactive elements
+            const filteredElements = [];
+            
+            for (const candidate of candidateElements) {
+              let shouldKeep = true;
+              
+              // Check if any other candidate is a meaningful parent that should replace this element
+              for (const otherCandidate of candidateElements) {
+                if (otherCandidate === candidate) continue;
+                
+                try {
+                  if (otherCandidate.domElement.contains(candidate.domElement)) {
+                    // Found a parent - decide if parent should replace child
+                    const parentTag = otherCandidate.domElement.tagName.toLowerCase();
+                    const childTag = candidate.domElement.tagName.toLowerCase();
+                    
+                    // Keep child if it's a meaningful interactive element inside a generic container
+                    if (['input', 'button', 'select', 'textarea'].includes(childTag) && 
+                        ['div', 'span', 'section'].includes(parentTag)) {
+                      continue; // Keep the child
+                    }
+                    
+                    // Keep child if parent is just a generic wrapper
+                    const parentText = (otherCandidate.domElement.textContent || '').trim();
+                    const childText = (candidate.domElement.textContent || '').trim();
+                    
+                    // If parent text is much longer than child text, parent is probably a container
+                    if (parentText.length > childText.length * 3) {
+                      continue; // Keep the child 
+                    }
+                    
+                    // Otherwise, parent should replace child (e.g., button with icon)
+                    shouldKeep = false;
+                    break;
+                  }
+                } catch (e) {
+                  continue;
+                }
+              }
+              
+              if (shouldKeep) {
+                filteredElements.push(candidate);
+              }
+            }
+            
+            // Phase 3: Convert to final format and apply limits
+            const elements = [];
+            let elementIndex = 1;
+            
+            for (const candidate of filteredElements.slice(0, max_rows > 0 ? max_rows : filteredElements.length)) {
+              const element = {
+                id: '[' + elementIndex + ']',
+                tag: candidate.tag,
+                text: candidate.text,
+                type: candidate.type,
+                _domElement: candidate.domElement
+              };
+              
+              if (config.includeBoxes) {
+                element.bounds = [
+                  Math.round(candidate.rect.x),
+                  Math.round(candidate.rect.y),
+                  Math.round(candidate.rect.width), 
+                  Math.round(candidate.rect.height)
+                ];
+              }
+              
+              elements.push(element);
+              elementIndex++;
+            }
+            
             return {
               elements,
               total: elements.length,
-              truncated: (max_rows > 0 && elements.length >= max_rows) ? 1 : 0
+              truncated: (max_rows > 0 && filteredElements.length > max_rows) ? 1 : 0
             };
           }
           
@@ -985,6 +1049,88 @@ export class DOMToolkit {
             if (element.isContentEditable) return 'contenteditable';
             
             return tag;
+          }
+
+          // Helper method to determine what action an element performs
+          getElementAction(element) {
+            // Check for specific action indicators
+            const className = (element.className || '').toString().toLowerCase();
+            const textContent = (element.textContent || '').trim().toLowerCase();
+            const ariaLabel = (element.getAttribute('aria-label') || '').toLowerCase();
+            const title = (element.getAttribute('title') || '').toLowerCase();
+            
+            // Button with specific text/action
+            if (textContent) {
+              if (textContent.includes('save')) return 'save';
+              if (textContent.includes('cancel')) return 'cancel';
+              if (textContent.includes('delete')) return 'delete';
+              if (textContent.includes('edit')) return 'edit';
+              if (textContent.includes('create')) return 'create';
+              if (textContent.includes('add')) return 'add';
+              if (textContent.includes('filter')) return 'filter';
+              if (textContent.includes('sort')) return 'sort';
+              if (textContent.includes('group')) return 'group';
+              if (textContent.includes('color')) return 'color';
+              if (textContent.includes('share')) return 'share';
+              if (textContent.includes('view')) return 'view';
+            }
+            
+            // Class-based actions
+            if (className.includes('save')) return 'save';
+            if (className.includes('cancel')) return 'cancel';
+            if (className.includes('delete')) return 'delete';
+            if (className.includes('edit')) return 'edit';
+            
+            // ARIA label actions
+            if (ariaLabel.includes('save')) return 'save';
+            if (ariaLabel.includes('cancel')) return 'cancel';
+            
+            // Form elements
+            const tag = element.tagName.toLowerCase();
+            if (tag === 'input') return 'input';
+            if (tag === 'select') return 'select';
+            if (tag === 'textarea') return 'textarea';
+            
+            // Links
+            if (tag === 'a') return 'navigate';
+            
+            // Table cells and data elements (Airtable specific)
+            if (className.includes('cell') || element.getAttribute('data-testid') === 'data-row') {
+              return 'data-interaction';
+            }
+            
+            return 'generic';
+          }
+
+          // Helper method to determine if child is more specific than parent
+          isMoreSpecificThan(child, parent) {
+            const childAction = this.getElementAction(child);
+            const parentAction = this.getElementAction(parent);
+            
+            // Child with specific action is more specific than generic parent
+            if (childAction !== 'generic' && parentAction === 'generic') {
+              return true;
+            }
+            
+            // Form elements are more specific than their containers
+            const childTag = child.tagName.toLowerCase();
+            const parentTag = parent.tagName.toLowerCase();
+            
+            if (['input', 'select', 'textarea', 'button'].includes(childTag) && 
+                ['div', 'span', 'section', 'form'].includes(parentTag)) {
+              return true;
+            }
+            
+            // Elements with specific roles are more specific
+            const childRole = child.getAttribute('role');
+            const parentRole = parent.getAttribute('role');
+            
+            if (childRole && ['button', 'link', 'textbox'].includes(childRole) && 
+                (!parentRole || parentRole === 'generic')) {
+              return true;
+            }
+            
+            return false;
           }
         };
         
