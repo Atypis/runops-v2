@@ -723,12 +723,19 @@ export class DOMToolkit {
             this.clickableClasses = [
               'clickable', 'selectable', 'interactive', 'actionable',
               'rowSelectionEnabled', 'rowExpansionEnabled', 'cellClickable', 'hoverable',
-              'data-row', 'table-row', 'list-item', 'card', 'dataRow'
+              'data-row', 'table-row', 'list-item', 'card', 'dataRow',
+              // Airtable-specific patterns
+              'cell', 'header-cell', 'row-cell', 'data-cell', 'field-cell', 'record-cell',
+              'table-cell', 'grid-cell', 'toolbar', 'button__primary', 'menu-item',
+              // Common SaaS patterns
+              'nav-item', 'tab-item', 'dropdown-item', 'action-button'
             ];
             
             this.clickableTestIds = [
               'data-row', 'data-cell', 'clickable', 'selectable',
-              'list-item', 'card', 'tile', 'row'
+              'list-item', 'card', 'tile', 'row',
+              // Airtable-specific test IDs
+              'field', 'record', 'cell', 'header', 'button', 'menu', 'toolbar'
             ];
           }
           
@@ -824,16 +831,16 @@ export class DOMToolkit {
                       continue; // Keep the child
                     }
                     
-                    // Keep child if parent is just a generic wrapper
-                    const parentText = (otherCandidate.domElement.textContent || '').trim();
-                    const childText = (candidate.domElement.textContent || '').trim();
+                    // Use scoring to decide parent vs child (Fix #2)
+                    const parentScore = this.scoreElement(otherCandidate.domElement);
+                    const childScore = this.scoreElement(candidate.domElement);
                     
-                    // If parent text is much longer than child text, parent is probably a container
-                    if (parentText.length > childText.length * 3) {
-                      continue; // Keep the child 
+                    // Keep child if it scores significantly higher than parent
+                    if (childScore > parentScore + 5) {
+                      continue; // Keep the child
                     }
                     
-                    // Otherwise, parent should replace child (e.g., button with icon)
+                    // Otherwise, parent should replace child
                     shouldKeep = false;
                     break;
                   }
@@ -897,6 +904,16 @@ export class DOMToolkit {
             const role = element.getAttribute('role');
             if (role && this.interactiveRoles.has(role)) return true;
             
+            // Fix #3: Interactive role fallback - check computed roles and additional patterns
+            const ariaRoleDescription = element.ariaRoleDescription;
+            if (ariaRoleDescription && this.interactiveRoles.has(ariaRoleDescription)) return true;
+            
+            // Grid cell patterns (common in data tables)
+            if (role === 'gridcell' || role === 'rowheader' || role === 'columnheader') return true;
+            
+            // Check for inert/aria-hidden (disabled equivalents)
+            if (element.inert || element.getAttribute('aria-hidden') === 'true') return false;
+            
             if (element.tabIndex >= 0) return true;
             
             if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
@@ -918,6 +935,11 @@ export class DOMToolkit {
               return true;
             }
             
+            // Event delegation detection (Fix #1)
+            if (this.hasEventDelegation(element)) {
+              return true;
+            }
+            
             const testId = element.getAttribute('data-testid') || '';
             if (this.clickableTestIds.some(pattern => testId.includes(pattern))) {
               return true;
@@ -926,7 +948,8 @@ export class DOMToolkit {
             const style = window.getComputedStyle(element);
             if (style.cursor === 'pointer') return true;
             
-            if (style.pointerEvents === 'none') return false;
+            // Fix #4: Check ancestor pointer-events, not just element itself
+            if (this.hasPointerEventsNone(element)) return false;
             
             return false;
           }
@@ -950,6 +973,146 @@ export class DOMToolkit {
               
               const testId = current.getAttribute('data-testid') || '';
               if (this.clickableTestIds.some(pattern => testId.includes(pattern))) {
+                return true;
+              }
+              
+              current = current.parentElement;
+              depth++;
+            }
+            
+            return false;
+          }
+
+          // Fix #2: Scoring function for hierarchical filtering
+          scoreElement(element) {
+            let score = 0;
+            
+            // Tag-based scoring
+            const tagScores = {
+              'button': 20,
+              'input': 18,
+              'select': 18,
+              'textarea': 18,
+              'a': 15,
+              'label': 10,
+              'div': 2,
+              'span': 1,
+              'svg': 1,
+              'use': 0
+            };
+            
+            const tag = element.tagName.toLowerCase();
+            score += tagScores[tag] || 0;
+            
+            // Role-based scoring
+            const role = element.getAttribute('role');
+            if (role) {
+              const roleScores = {
+                'button': 20,
+                'link': 15,
+                'textbox': 18,
+                'combobox': 18,
+                'gridcell': 12,
+                'menuitem': 10,
+                'tab': 10
+              };
+              score += roleScores[role] || 5;
+            }
+            
+            // Event handler bonus
+            if (element.onclick || element.hasAttribute('onclick')) {
+              score += 15;
+            }
+            
+            // Framework handlers
+            if (this.frameworkAttrs.some(attr => element.hasAttribute(attr))) {
+              score += 12;
+            }
+            
+            // Interactive attributes
+            if (element.tabIndex >= 0) score += 8;
+            if (element.draggable) score += 5;
+            if (element.isContentEditable) score += 10;
+            
+            // ARIA states
+            if (this.ariaStateAttrs.some(attr => element.hasAttribute(attr))) {
+              score += 8;
+            }
+            
+            // Text content (capped to prevent inflation)
+            const textLength = (element.textContent || '').trim().length;
+            score += Math.min(textLength, 50) * 0.1;
+            
+            // Semantic classes
+            const className = (element.className || '').toString();
+            if (this.clickableClasses.some(cls => className.includes(cls))) {
+              score += 10;
+            }
+            
+            // Penalty for likely decorative elements
+            if (['svg', 'use', 'path', 'g'].includes(tag)) {
+              score -= 5;
+            }
+            
+            return Math.max(0, score);
+          }
+
+          // Fix #1: Event delegation detection
+          hasEventDelegation(element) {
+            let current = element.parentElement;
+            let depth = 0;
+            
+            // Climb 5 ancestors looking for event delegation patterns
+            while (current && depth < 5) {
+              // Direct event handlers
+              if (current.onclick) {
+                return true;
+              }
+              
+              // Common delegation attributes
+              if (current.hasAttribute('data-action') || 
+                  current.hasAttribute('data-click') ||
+                  current.hasAttribute('data-handler')) {
+                return true;
+              }
+              
+              // ARIA popup indicators
+              if (current.getAttribute('aria-haspopup')) {
+                return true;
+              }
+              
+              // React/Vue delegation patterns
+              const className = (current.className || '').toString();
+              if (className.includes('event-container') || 
+                  className.includes('delegate') ||
+                  className.includes('toolbar') ||
+                  className.includes('menu') ||
+                  className.includes('nav')) {
+                return true;
+              }
+              
+              // Table/grid delegation (common pattern)
+              if (['table', 'tbody', 'thead', 'tr'].includes(current.tagName.toLowerCase()) ||
+                  ['grid', 'list', 'table'].some(pattern => className.includes(pattern))) {
+                return true;
+              }
+              
+              current = current.parentElement;
+              depth++;
+            }
+            
+            return false;
+          }
+
+          // Fix #4: Check element and ancestors for pointer-events: none
+          hasPointerEventsNone(element) {
+            let current = element;
+            let depth = 0;
+            
+            // Check element and up to 3 ancestors for pointer-events blocking
+            while (current && depth < 4) {
+              const style = window.getComputedStyle(current);
+              if (style.pointerEvents === 'none') {
                 return true;
               }
               
