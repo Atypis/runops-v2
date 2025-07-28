@@ -29,7 +29,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
             }
           },
           required: ['instruction', 'schema'],
@@ -153,7 +153,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
             },
             nth: {
               oneOf: [
@@ -248,7 +248,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
             },
             nth: {
               type: 'number',
@@ -303,7 +303,19 @@ export function createToolDefinitions() {
             },
             variable: {
               type: 'string',
-              description: 'Name for the current item variable. Creates: ${variable} (current item), ${variable}Index (0-based index), ${variable}Total (array length).',
+              description: `Name for the iteration variable. Creates three variables:
+    • {{<name>}} - The current item
+    • {{<name>Index}} - Current index (0-based)  
+    • {{<name>Total}} - Total count
+    
+    Example: variable="email" creates:
+    • {{email}} - Current email object
+    • {{emailIndex}} - Index (0, 1, 2...)
+    • {{emailTotal}} - Total emails
+    
+    ⚠️ AVOID names ending with "Index" (creates confusing double-Index)
+    ✅ Good: "email", "item", "product", "user"
+    ❌ Bad: "currentIndex", "emailIndex", "itemIndex"`,
               pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
             },
             body: {
@@ -327,7 +339,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store iteration results as a reusable variable (default: false). Returns {results: [], errors: [], processed: number, total: number}. Reference with {{alias.results}}, {{alias.processed}}, etc.'
+              description: 'Store iteration results as a reusable variable (default: false). Returns {results: [], errors: [], processed: number, total: number}. Access using {{<alias>.results}}, {{<alias>.processed}}, etc. Example: If alias="process_items", reference as {{process_items.results[0]}}'
             }
           },
           required: ['over', 'variable'],
@@ -402,7 +414,7 @@ export function createToolDefinitions() {
             },
             store_variable: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). When true, the result can be referenced using {{alias.property}} syntax in subsequent nodes.'
+              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
             }
           },
           required: ['instruction', 'schema'],
@@ -504,21 +516,26 @@ export function createToolDefinitions() {
       type: 'function',
       function: {
         name: 'add_or_replace_nodes',
-        description: 'Add nodes to the workflow or replace existing nodes. Use target="end" to append, a number to insert at position, or a node alias/id to replace. Every node MUST have a unique alias and non-empty config object.',
+        description: 'Add nodes to the workflow or replace/update existing nodes. Use target="end" to append, a number to insert at position, or a node alias/id to replace/update. Every node MUST have a unique alias and non-empty config object. Use mode="update" to partially update only the config field of an existing node.',
         parameters: {
           type: 'object',
           properties: {
             target: {
               type: ['string', 'number'],
-              description: 'Where to add/replace nodes: "end" to append, number for position insert (e.g., 5), or node alias/id to replace (e.g., "validate_form")'
+              description: 'Where to add/replace/update nodes: "end" to append, number for position insert (e.g., 5), or node alias/id to replace/update (e.g., "validate_form")'
             },
             nodes: {
               type: 'array',
-              description: 'Array of nodes to add or replace. Each node MUST have an alias.',
+              description: 'Array of nodes to add, replace, or update. Each node MUST have an alias.',
               minItems: 1,
               items: {
                 anyOf: nodeSchemas
               }
+            },
+            mode: {
+              type: 'string',
+              enum: ['replace', 'update'],
+              description: 'Operation mode. "replace" (default): replaces entire node. "update": updates only specified config fields, preserving others. Update mode requires target to be a node alias and exactly one node.'
             }
           },
           required: ['target', 'nodes'],

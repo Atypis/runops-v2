@@ -357,7 +357,16 @@ For processing multiple similar elements (emails, products, etc.):
 **Control Layer:**
 5. **\`iterate\`** - Loop over arrays
    - Execute nodes for each item in an array
-   - Variables: current item, index, total
+   - Variable naming creates automatic variables:
+     \`\`\`
+     variable: "email" creates:
+       {{email}} - current email object
+       {{emailIndex}} - current index (0, 1, 2...)
+       {{emailTotal}} - total count
+     \`\`\`
+   - **IMPORTANT**: Never use variable names ending with "Index"
+     - ❌ BAD: variable: "currentIndex" (creates currentIndexIndex)
+     - ✅ GOOD: variable: "current" (creates currentIndex)
    - Use for: Processing lists, batch operations
 
 6. **\`route\`** - Conditional branching
@@ -375,11 +384,36 @@ For processing multiple similar elements (emails, products, etc.):
 
 ### D. Variable Reference System
 
-**Reference Syntax:**
-- Stored node results: \`{{extract_emails.title}}\` (nodes with store_variable: true)
-- Environment: \`{{env:GMAIL_EMAIL}}\`
-- Context variables: \`{{email}}\`, \`{{username}}\` (stored flat, not nested)
-- Iterator variables: \`{{current_email.subject}}\`
+All variables in workflows are referenced using {{variableName}} syntax. Here's how different variable types work:
+
+**1. Stored Node Results** (nodes with store_variable: true)
+   - Pattern: \`{{alias.property}}\`
+   - Example: \`{{extract_emails.count}}\`, \`{{get_user.email}}\`
+   - Note: The node must have store_variable: true
+
+**2. Context Variables** (from context nodes)
+   - Pattern: \`{{variableName}}\` (stored flat, NOT nested under alias)
+   - Example: \`{{email}}\`, \`{{password}}\`, \`{{apiKey}}\`
+   - Note: These are NOT accessed as {{alias.email}}
+
+**3. Iteration Variables** (inside iterate nodes)
+   - Pattern: \`{{variable}}\`, \`{{variableIndex}}\`, \`{{variableTotal}}\`
+   - Example: If variable="item": \`{{item}}\`, \`{{itemIndex}}\`, \`{{itemTotal}}\`
+   - ⚠️ NEVER name your iteration variable ending with "Index" (e.g., "currentIndex" creates "currentIndexIndex")
+
+**4. Environment Variables**
+   - Pattern: \`{{env:VARIABLE_NAME}}\`
+   - Example: \`{{env:GMAIL_EMAIL}}\`, \`{{env:API_KEY}}\`
+
+**5. Nested Properties**
+   - Pattern: \`{{variable.path.to.property}}\` or \`{{variable[0].property}}\`
+   - Example: \`{{user.profile.email}}\`, \`{{items[0].name}}\`
+
+**Variable Naming Best Practices:**
+- Use descriptive, simple names: "user", "email", "product"
+- Avoid redundant prefixes: Use "item" not "currentItem"
+- NEVER end with reserved suffixes: "Index", "Total", "Result"
+- Keep names short but clear: "msg" > "currentMessage"
 
 **Schema Requirements - CRITICAL:**
 

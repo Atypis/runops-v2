@@ -1216,7 +1216,7 @@ export class DirectorService {
    * Handles create, insert, and update based on target type
    */
   async addOrReplaceNodes(args, workflowId) {
-    const { target, nodes } = args;
+    const { target, nodes, mode = 'replace' } = args;
     
     // Validate all nodes have aliases
     for (const node of nodes) {
@@ -1265,11 +1265,12 @@ export class DirectorService {
       };
       
     } else if (typeof target === 'string') {
-      // Replace existing node(s) by alias or ID
-      console.log(`[ADD_OR_REPLACE_NODES] Replacing node with identifier: ${target}`);
+      // Replace or update existing node by alias or ID
+      const operation = mode === 'update' ? 'update' : 'replace';
+      console.log(`[ADD_OR_REPLACE_NODES] ${operation} node with identifier: ${target}, mode: ${mode}`);
       
-      // Find the node to replace
-      let nodeToReplace;
+      // Find the node to replace/update
+      let nodeToUpdate;
       
       // First try by alias
       const { data: nodeByAlias } = await supabase
@@ -1280,7 +1281,7 @@ export class DirectorService {
         .single();
         
       if (nodeByAlias) {
-        nodeToReplace = nodeByAlias;
+        nodeToUpdate = nodeByAlias;
       } else {
         // Try by ID (if it's a numeric string)
         if (target.match(/^\d+$/)) {
@@ -1292,38 +1293,71 @@ export class DirectorService {
             .single();
             
           if (nodeById) {
-            nodeToReplace = nodeById;
+            nodeToUpdate = nodeById;
           }
         }
       }
       
-      if (!nodeToReplace) {
+      if (!nodeToUpdate) {
         throw new Error(`Node not found with identifier: ${target}`);
       }
       
-      // For replacement, we only support single node (makes sense semantically)
+      // For replacement/update, we only support single node (makes sense semantically)
       if (nodes.length !== 1) {
-        throw new Error(`Node replacement requires exactly 1 node, got ${nodes.length}`);
+        throw new Error(`Node ${operation} requires exactly 1 node, got ${nodes.length}`);
       }
       
       const newNode = nodes[0];
       
-      // Update the existing node
-      const updatedNode = await this.updateNode({
-        nodeId: nodeToReplace.id,
-        updates: {
+      // Prepare updates based on mode
+      let updates;
+      if (mode === 'update') {
+        // Update mode: Only update config fields that are provided
+        // Validate that only config is being updated
+        if (newNode.type && newNode.type !== nodeToUpdate.type) {
+          throw new Error(`Cannot change node type from '${nodeToUpdate.type}' to '${newNode.type}' in update mode. Use replace mode instead.`);
+        }
+        
+        // Merge the new config with existing config
+        updates = {
+          config: {
+            ...(nodeToUpdate.params || nodeToUpdate.config || {}),
+            ...(newNode.config || {})
+          }
+        };
+        
+        // Optionally update description if provided
+        if (newNode.description !== undefined) {
+          updates.description = newNode.description;
+        }
+        
+        // Optionally update alias if provided and different
+        if (newNode.alias && newNode.alias !== nodeToUpdate.alias) {
+          updates.alias = newNode.alias;
+        }
+      } else {
+        // Replace mode: Replace entire node configuration
+        updates = {
           type: newNode.type,
           config: newNode.config,
           description: newNode.description,
-          alias: newNode.alias  // Can be same or different
-        }
+          alias: newNode.alias
+        };
+      }
+      
+      // Update the existing node
+      const updatedNode = await this.updateNode({
+        nodeId: nodeToUpdate.id,
+        updates
       });
       
       return {
         success: true,
-        operation: 'replace',
+        operation,
         nodes: [updatedNode],
-        message: `Replaced node '${target}' with new configuration`
+        message: mode === 'update' 
+          ? `Updated configuration for node '${target}'`
+          : `Replaced node '${target}' with new configuration`
       };
       
     } else {

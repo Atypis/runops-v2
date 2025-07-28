@@ -2844,6 +2844,15 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     
     const config = node.params;
     const variable = config.variable || 'item';
+    
+    // Validate variable name to prevent confusing names
+    if (variable.endsWith('Index')) {
+      throw new Error(
+        `Variable name "${variable}" ends with "Index" which creates confusing variable names (${variable}Index becomes ${variable}IndexIndex). ` +
+        `Use a simpler name like "${variable.replace(/Index$/, '')}" instead.`
+      );
+    }
+    
     const indexVariable = config.index || `${variable}Index`;
     
     // Push iteration context for this single iteration
@@ -2990,6 +2999,15 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     const results = [];
     const errors = [];
     const variable = config.variable || 'item';
+    
+    // Validate variable name to prevent confusing names
+    if (variable.endsWith('Index')) {
+      throw new Error(
+        `Variable name "${variable}" ends with "Index" which creates confusing variable names (${variable}Index becomes ${variable}IndexIndex). ` +
+        `Use a simpler name like "${variable.replace(/Index$/, '')}" instead.`
+      );
+    }
+    
     const indexVariable = config.index || `${variable}Index`;
     
     // Clean up any existing iteration variables for this iterate node
