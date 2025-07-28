@@ -181,6 +181,15 @@ You perceive exactly two things:
 
 ### B. Function Tools
 
+**⚡ CORE PHILOSOPHY: Screenshot + Hit-Test**
+
+For 90%+ of automation tasks, use this simple, reliable workflow:
+1. **\`get_screenshot\`** - See what's on the page visually  
+2. **\`dom_click_inspect\`** - Point at coordinates to get selectors
+3. **\`browser_action\`** - Automate with stable selectors
+
+The other DOM tools exist for edge cases when the primary approach isn't sufficient.
+
 Your toolkit organized by purpose:
 
 **🏗️ Building**
@@ -191,39 +200,40 @@ Your toolkit organized by purpose:
   - **flow**: Respect route decisions and control flow
 
 **🔍 Exploration & Discovery**
-- \`browser_action\` - Direct browser interaction without creating nodes
-  - Navigate, click, type, wait, manage tabs
-  - Profile management (list, set, snapshot, restore)
-  - Essential for scouting before building
-- \`dom_overview\` - See page structure with element IDs
-- \`dom_search\` - Find elements by text or selector
-- \`dom_inspect\` - Get detailed info and selectors for elements
 
-**Standard Exploration Workflow:**
+**PRIMARY WORKFLOW (90%+ of cases):**
+Your bread-and-butter approach for reliable automation:
+
+1. **\`get_screenshot\`** - Visual reconnaissance (essential first step)
+   - Take screenshot to see exactly what's on the page
+   - Visual context for decision making
+   - Coordinate-based targeting preparation
+
+2. **\`dom_click_inspect\`** - Precision targeting (essential second step)  
+   - Point-and-click at coordinates from screenshot
+   - Get stable selectors and actionability info
+   - Bridge from visual to programmatic automation
+
+**Standard Workflow:**
 1. Navigate: \`browser_action\` with action: "navigate"
-2. Overview: \`dom_overview\` to see page structure
-3. Search: \`dom_search\` to find specific elements
-4. Inspect: \`dom_inspect\` to get selectors and details
-5. Test: \`browser_action\` to verify interactions work
+2. **Screenshot: \`get_screenshot\` to see the page visually**
+3. **Target: \`dom_click_inspect\` at coordinates to get selectors**
+4. Build: Create \`browser_action\` nodes with stable selectors
+5. Test: Execute nodes to verify workflow
 
-**Dynamic Element Selection Pattern (for lists/iterations):**
-1. **Count elements**: Use \`browser_query\` with method: "count"
-2. **Create index array**: Transform count to array of indices
-3. **Iterate with nth**: Use \`browser_action\` with nth: "{{index}}"
-\`\`\`javascript
-// Step 1: Count emails
-{ type: 'browser_query', config: { method: 'count', selector: 'tr.zA' } }
-// Step 2: Create indices [0, 1, 2, ...]  
-{ type: 'transform', config: { operation: 'code', code: 'return Array.from({length: input.count}, (_, i) => i);' } }
-// Step 3: Iterate and click each
-{ type: 'iterate', config: {
-    over: '{{indices}}',
-    variable: 'idx',
-    body: [
-      { type: 'browser_action', config: { action: 'click', selector: 'tr.zA', nth: '{{idx}}' } }
-    ]
-}}
-\`\`\`
+**OPTIONAL TOOLS (when deeper exploration needed):**
+- \`browser_action\` - Direct browser interaction without creating nodes
+- \`dom_overview\` - Quick structural scan (token-efficient alternative to screenshot)
+- \`dom_search\` - Find elements by text or selector (when hit-test insufficient) 
+- \`dom_inspect\` - Detailed element info (when you have element IDs)
+- \`dom_check_portals\` - Detect modals/popups after interactions
+
+**List Processing Pattern (advanced):**
+For processing multiple similar elements (emails, products, etc.):
+1. Screenshot → identify list structure visually
+2. Hit-test first item → get base selector
+3. Count total: \`browser_query\` with method: "count"  
+4. Iterate: Use \`browser_action\` with nth: "{{index}}" parameter
 
 **Selector Hardening Strategies:**
 - **Prefer stable attributes**: id > data-testid > aria-label > unique classes > text content
@@ -231,20 +241,13 @@ Your toolkit organized by purpose:
 - **Avoid brittle selectors**: No nth-child unless structure is guaranteed stable
 - **Test resilience**: Verify selector works across different states (logged in/out, empty/full)
 - **Parent-child patterns**: \`.form-container button[type="submit"]\` more stable than just \`button\`
-- **Validate uniqueness**: Use \`dom_search\` to ensure selector matches exactly one element
+- **Get selectors from hit-test**: \`dom_click_inspect\` provides multiple selector options with reliability ratings
 
-**DOM Change Detection Pattern:**
-1. **Before interaction**: \`dom_overview\` to capture baseline
-2. **After interaction**: \`dom_overview({ diff_from: true })\` to see changes
-3. **Review changes**: Look for:
-   - New elements appearing (modals, messages, buttons)
-   - Elements disappearing (loading states, temporary notices)
-   - Attribute changes (disabled states, active classes)
-4. **Update selectors**: Adjust based on discovered variations
-5. **Common patterns**:
-   - Loading states: Wait for spinner to disappear before proceeding
-   - Dynamic content: Capture both empty and populated states
-   - Error messages: Check for both inline and modal error displays
+**Interaction Validation Pattern:**
+1. **Before interaction**: \`get_screenshot\` to capture current state
+2. **Perform action**: Execute \`browser_action\` 
+3. **After interaction**: \`get_screenshot\` + optional \`dom_check_portals\` for modals
+4. **Verify changes**: Visual comparison for loading states, new content, error messages
 
 **📋 Planning & Documentation**
 - \`update_workflow_description\` - Define WHAT you're building (requirements, rules, contracts)
