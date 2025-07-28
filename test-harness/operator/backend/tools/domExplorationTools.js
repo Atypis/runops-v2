@@ -8,6 +8,29 @@ export function createDOMExplorationTools() {
     {
       type: 'function',
       function: {
+        name: 'get_screenshot',
+        description: 'Take a screenshot of the current page for visual reconnaissance. This is your primary tool for understanding what\'s on the page - use this first to see what the user sees. Essential for 90%+ of automation tasks.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to screenshot (defaults to active tab)'
+            },
+            fullPage: {
+              type: 'boolean',
+              description: 'Capture full scrollable page content (default: false - viewport only)',
+              default: false
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'dom_overview',
         description: 'Get a filtered overview of the current page showing structure, interactive elements, and key content. Returns element IDs that can be used with other DOM tools. This is your primary reconnaissance tool - use it first when exploring a new page or after navigation. More efficient than inspect_tab for understanding page structure.',
         parameters: {
@@ -227,77 +250,6 @@ export function createDOMExplorationTools() {
             }
           },
           required: ['elementId'],
-          additionalProperties: false
-        },
-        strict: true
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'dom_actionable', 
-        description: 'Get aggressively filtered actionable elements using browser-use methodology. Your primary tool for understanding what the user can actually interact with on a page. Returns only truly clickable/typeable elements with optional screenshot.',
-        parameters: {
-          type: 'object',
-          properties: {
-            tabName: {
-              type: 'string',
-              description: 'Browser tab to analyze (defaults to active tab)'
-            },
-            includeScreenshotUrl: {
-              type: 'boolean',
-              description: '⚠️ DEPRECATED: Use includeBoxes instead. Include screenshot with numbered highlights as file URL (~1k vision tokens). MCP users: Use Read tool with returned file path to view the image. Only enable when visual context is essential for reasoning.',
-              default: false
-            },
-            includeBoxes: {
-              type: 'boolean',
-              description: 'Include bounding box coordinates [x,y,w,h] for layout reasoning (+6 tokens per element)',
-              default: false
-            },
-            maxElements: {
-              type: 'number',
-              description: 'Maximum actionable elements to return (default: 50, unlimited: -1)',
-              default: 50,
-              minimum: -1,
-              maximum: 200
-            }
-          },
-          additionalProperties: false
-        },
-        strict: true
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'dom_actionable_ax',
-        description: 'NEW: Clean AX Tree + Simple Rules approach for actionable elements. Uses browser\'s Accessibility Tree for deterministic, weight-free detection. No random behavior - just yes/no rules. More reliable than dom_actionable.',
-        parameters: {
-          type: 'object',
-          properties: {
-            mode: {
-              type: 'string',
-              enum: ['pure', 'enhanced'],
-              default: 'pure',
-              description: 'Detection mode: "pure" uses only semantic accessibility roles (fast, reliable), "enhanced" includes generic elements with advanced heuristics (slower, comprehensive)'
-            },
-            tabName: {
-              type: 'string',
-              description: 'Browser tab to analyze (defaults to active tab)'
-            },
-            includeScreenshotUrl: {
-              type: 'boolean',
-              description: 'Include screenshot with AX highlights as file URL. Clean overlay matching AX roles.',
-              default: false
-            },
-            maxElements: {
-              type: 'number',
-              description: 'Maximum actionable elements to return (default: 50)',
-              default: 50,
-              minimum: 1,
-              maximum: 100
-            }
-          },
           additionalProperties: false
         },
         strict: true

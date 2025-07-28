@@ -16,6 +16,44 @@ export class DOMToolkitService {
   }
 
   /**
+   * Primary tool: Take screenshot for visual reconnaissance
+   * Essential for 90%+ of automation tasks - use this first
+   */
+  async getScreenshot(options = {}, nodeExecutor) {
+    try {
+      const page = await this.getPageForTab(options.tabName || 'main', nodeExecutor);
+      
+      // Take screenshot with proper path handling
+      const timestamp = Date.now();
+      const filename = `screenshot_${timestamp}.png`;
+      const screenshotPath = `/tmp/${filename}`;
+      
+      await page.screenshot({ 
+        path: screenshotPath,
+        fullPage: options.fullPage || false,
+        type: 'png'
+      });
+      
+      return {
+        success: true,
+        screenshotPath: screenshotPath,
+        filename: filename,
+        timestamp: timestamp,
+        fullPage: options.fullPage || false,
+        message: `Screenshot saved: ${screenshotPath}`
+      };
+      
+    } catch (error) {
+      console.error('[DOMToolkitService] Screenshot error:', error);
+      return {
+        success: false,
+        error: error.message,
+        message: 'Failed to take screenshot'
+      };
+    }
+  }
+
+  /**
    * Main entry point for dom_overview tool
    */
   async domOverview(options = {}, nodeExecutor) {
@@ -213,8 +251,10 @@ export class DOMToolkitService {
   }
 
   /**
-   * dom_actionable implementation
+   * dom_actionable implementation - REMOVED FROM TOOL LIST 
+   * Keeping implementation for potential reintroduction
    */
+  /*
   async domActionable(options = {}, nodeExecutor) {
     try {
       const page = await this.getPageForTab(options.tabName || 'main', nodeExecutor);
@@ -313,6 +353,7 @@ export class DOMToolkitService {
       };
     }
   }
+  */
 
   /**
    * dom_check_portals implementation
