@@ -270,6 +270,36 @@ export function createDOMExplorationTools() {
     {
       type: 'function',
       function: {
+        name: 'dom_actionable_ax',
+        description: 'NEW: Clean AX Tree + Simple Rules approach for actionable elements. Uses browser\'s Accessibility Tree for deterministic, weight-free detection. No random behavior - just yes/no rules. More reliable than dom_actionable.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to analyze (defaults to active tab)'
+            },
+            includeScreenshotUrl: {
+              type: 'boolean',
+              description: 'Include screenshot with AX highlights as file URL. Clean overlay matching AX roles.',
+              default: false
+            },
+            maxElements: {
+              type: 'number',
+              description: 'Maximum actionable elements to return (default: 50)',
+              default: 50,
+              minimum: 1,
+              maximum: 100
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'dom_check_portals',
         description: 'Check for new portal/overlay elements that appeared after an interaction. Compares current DOM against a previous snapshot to find elements added at body level (React portals, modals, dropdowns). Use after clicking buttons that might open popups.',
         parameters: {

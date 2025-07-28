@@ -275,6 +275,46 @@ export class DOMToolkitService {
   }
 
   /**
+   * dom_actionable_ax - AX Tree + Simple Rules approach (NEW)
+   */
+  async domActionableAX(options = {}, nodeExecutor) {
+    try {
+      const page = await this.getPageForTab(options.tabName || 'main', nodeExecutor);
+      
+      // Add workflow ID to page for caching
+      if (nodeExecutor?.currentWorkflow?.id) {
+        page._workflowId = nodeExecutor.currentWorkflow.id;
+      }
+      
+      const result = await domToolkit.domActionableAX(page, options);
+      
+      if (result.success) {
+        return {
+          success: true,
+          output: result.output,
+          snapshotId: result.snapshotId,
+          screenshot_url: result.screenshot_url,
+          elementCount: result.elementCount
+        };
+      }
+      
+      return {
+        success: false,
+        error: result.error || 'Failed to get AX actionable elements',
+        suggestion: result.suggestion,
+        tabName: options.tabName || 'main'
+      };
+    } catch (error) {
+      console.error('[DOMToolkitService] Error in domActionableAX:', error);
+      return {
+        success: false,
+        error: error.message,
+        tabName: options.tabName || 'main'
+      };
+    }
+  }
+
+  /**
    * dom_check_portals implementation
    */
   async domCheckPortals(options = {}, nodeExecutor) {

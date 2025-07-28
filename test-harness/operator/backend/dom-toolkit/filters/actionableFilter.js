@@ -3,10 +3,20 @@
  * 
  * Implements sophisticated multi-heuristic filtering to identify truly interactive elements,
  * with aggressive filtering for elements that are disabled, occluded, or otherwise non-actionable.
+ * 
+ * Phase 1: Data-driven configuration support
  */
+
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 export class ActionableFilter {
   constructor() {
+    // Load configuration
+    this.loadConfiguration();
+    
+    // Initialize static data structures (config-independent)
     // Interactive tag whitelist (Browser-Use approach)
     this.interactiveTags = new Set([
       'a', 'button', 'input', 'select', 'textarea', 'label', 
@@ -38,6 +48,54 @@ export class ActionableFilter {
       'data-row', 'data-cell', 'clickable', 'selectable',
       'list-item', 'card', 'tile', 'row'
     ];
+  }
+
+  /**
+   * Load configuration from JSON file
+   */
+  loadConfiguration() {
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const configPath = join(__dirname, '../../config/actionable-weights.json');
+      const configData = readFileSync(configPath, 'utf8');
+      this.config = JSON.parse(configData);
+    } catch (error) {
+      console.warn('[ActionableFilter] Failed to load config, using defaults:', error.message);
+      // Fallback to hardcoded defaults
+      this.config = {
+        weights: {
+          interactiveTag: 10,
+          ariaRole: 8,
+          clickListener: 4,
+          textLength: 3,
+          tableCellTextBoost: 25,
+          giantWrapperPenalty: -30,
+          frameworkAttrs: 12,
+          tabIndex: 8,
+          draggable: 5,
+          contentEditable: 10,
+          ariaState: 8,
+          clickableClasses: 10,
+          decorativeElementPenalty: -5
+        },
+        rules: {
+          tableSelectorRegex: "dataRow|rowSelectionEnabled|ag-row|tbody|tr|table|grid",
+          maxAncestorDepth: 5,
+          parentChildScoreDelta: 5,
+          maxContainerAreaRatio: 0.3,
+          minSignificantTextLength: 1,
+          maxSignificantTextLength: 100,
+          minElementArea: 144
+        },
+        features: {
+          enableTableCellBoost: true,
+          enableContainerPenalty: true,
+          enableEventDelegation: true,
+          enablePointerEventsCheck: true
+        }
+      };
+    }
   }
   
   /**

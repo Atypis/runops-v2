@@ -17,6 +17,7 @@ import { HeadingsFilter } from './filters/headingsFilter.js';
 import { SearchFilter } from './filters/searchFilter.js';
 import { PortalFilter } from './filters/portalFilter.js';
 import { ActionableFilter } from './filters/actionableFilter.js';
+import { AXActionableFilter } from './filters/axActionableFilter.js';
 import { GroupingProcessor } from './processors/groupingProcessor.js';
 import { SelectorHints } from './processors/selectorHints.js';
 import { ElementInspector } from './processors/elementInspector.js';
@@ -34,7 +35,8 @@ export class DOMToolkit {
       headings: new HeadingsFilter(),
       search: new SearchFilter(),
       portal: new PortalFilter(),
-      actionable: new ActionableFilter()
+      actionable: new ActionableFilter(),
+      axActionable: new AXActionableFilter()
     };
     this.grouping = new GroupingProcessor();
     this.selectors = new SelectorHints();
@@ -682,7 +684,43 @@ export class DOMToolkit {
   }
 
   /**
-   * dom_actionable - Get aggressively filtered actionable elements
+   * dom_actionable_ax - Clean AX Tree + Simple Rules approach (NEW)
+   */
+  async domActionableAX(page, options = {}) {
+    const {
+      tabName = 'main',
+      includeScreenshotUrl = false,
+      maxElements = 50
+    } = options;
+    
+    try {
+      const result = await this.filters.axActionable.filter(page, {
+        maxElements,
+        includeScreenshotUrl
+      });
+      
+      // Screenshot disabled for now
+      let screenshot_url = null;
+      
+      return {
+        success: true,
+        output: this.formatAXActionableResponse(result, screenshot_url),
+        snapshotId: `ax_actionable_${Date.now()}`,
+        screenshot_url,
+        elementCount: result.total
+      };
+      
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        suggestion: 'AX Tree might not be available in this browser'
+      };
+    }
+  }
+
+  /**
+   * dom_actionable - Get aggressively filtered actionable elements (LEGACY)
    */
   async domActionable(page, options = {}) {
     const {
@@ -701,8 +739,13 @@ export class DOMToolkit {
         await this.cache.set(cacheKey, snapshot, page);
       }
 
+      // Get configuration from ActionableFilter
+      const actionableFilter = this.filters.actionable;
+      const config = actionableFilter.config;
+
       // Use browser-context actionable filtering for full Browser-Use parity
-      const actionableResult = await page.evaluate((config) => {
+      const actionableResult = await page.evaluate((options) => {
+        const { maxElements, includeBoxes, includeScreenshotUrl, filterConfig } = options;
         // Import the ActionableFilter from the external file into browser context
         const ActionableFilter = class {
           constructor() {
@@ -740,7 +783,7 @@ export class DOMToolkit {
           }
           
           filterWithLiveTraversal(options = {}) {
-            const { visible = true, viewport = true, max_rows = 50 } = options;
+            const { visible = true, viewport = true, max_rows = 50, config = filterConfig } = options;
             const candidateElements = [];  // First collect ALL candidates
             const processedElements = new Set();
             
@@ -832,11 +875,11 @@ export class DOMToolkit {
                     }
                     
                     // Use scoring to decide parent vs child (Fix #2)
-                    const parentScore = this.scoreElement(otherCandidate.domElement);
-                    const childScore = this.scoreElement(candidate.domElement);
+                    const parentScore = this.scoreElement(otherCandidate.domElement, filterConfig);
+                    const childScore = this.scoreElement(candidate.domElement, filterConfig);
                     
-                    // Keep child if it scores significantly higher than parent
-                    if (childScore > parentScore + 5) {
+                    // Keep child if it scores significantly higher than parent (configurable)
+                    if (childScore > parentScore + filterConfig.rules.parentChildScoreDelta) {
                       continue; // Keep the child
                     }
                     
@@ -894,6 +937,11 @@ export class DOMToolkit {
           }
 
           isActionableElementLive(element, offset = {x: 0, y: 0}) {
+            // PHASE 1 FIX: Reject large containers early (before any other checks)
+            if (filterConfig.features.enableContainerPenalty && this.isLargeContainer(element, filterConfig.rules)) {
+              return false;
+            }
+            
             const tagName = element.tagName.toLowerCase();
             
             if (this.interactiveTags.has(tagName)) {
@@ -983,18 +1031,21 @@ export class DOMToolkit {
             return false;
           }
 
-          // Fix #2: Scoring function for hierarchical filtering
-          scoreElement(element) {
+          // Fix #2: Scoring function for hierarchical filtering (Phase 1: Data-driven)
+          scoreElement(element, config) {
             let score = 0;
+            const weights = config.weights;
+            const rules = config.rules;
+            const features = config.features;
             
-            // Tag-based scoring
+            // Tag-based scoring (configurable)
             const tagScores = {
-              'button': 20,
-              'input': 18,
-              'select': 18,
-              'textarea': 18,
-              'a': 15,
-              'label': 10,
+              'button': weights.interactiveTag * 2,
+              'input': weights.interactiveTag * 1.8,
+              'select': weights.interactiveTag * 1.8,
+              'textarea': weights.interactiveTag * 1.8,
+              'a': weights.interactiveTag * 1.5,
+              'label': weights.interactiveTag,
               'div': 2,
               'span': 1,
               'svg': 1,
@@ -1004,57 +1055,105 @@ export class DOMToolkit {
             const tag = element.tagName.toLowerCase();
             score += tagScores[tag] || 0;
             
-            // Role-based scoring
+            // Role-based scoring (configurable)
             const role = element.getAttribute('role');
             if (role) {
               const roleScores = {
-                'button': 20,
-                'link': 15,
-                'textbox': 18,
-                'combobox': 18,
-                'gridcell': 12,
-                'menuitem': 10,
-                'tab': 10
+                'button': weights.ariaRole * 2.5,
+                'link': weights.ariaRole * 1.9,
+                'textbox': weights.ariaRole * 2.25,
+                'combobox': weights.ariaRole * 2.25,
+                'gridcell': weights.ariaRole * 1.5,
+                'menuitem': weights.ariaRole * 1.25,
+                'tab': weights.ariaRole * 1.25
               };
-              score += roleScores[role] || 5;
+              score += roleScores[role] || (weights.ariaRole * 0.6);
             }
             
-            // Event handler bonus
+            // Event handler bonus (configurable)
             if (element.onclick || element.hasAttribute('onclick')) {
-              score += 15;
+              score += weights.clickListener * 3.75;
             }
             
-            // Framework handlers
+            // Framework handlers (configurable)
             if (this.frameworkAttrs.some(attr => element.hasAttribute(attr))) {
-              score += 12;
+              score += weights.frameworkAttrs;
             }
             
-            // Interactive attributes
-            if (element.tabIndex >= 0) score += 8;
-            if (element.draggable) score += 5;
-            if (element.isContentEditable) score += 10;
+            // Interactive attributes (configurable)
+            if (element.tabIndex >= 0) score += weights.tabIndex;
+            if (element.draggable) score += weights.draggable;
+            if (element.isContentEditable) score += weights.contentEditable;
             
-            // ARIA states
+            // ARIA states (configurable)
             if (this.ariaStateAttrs.some(attr => element.hasAttribute(attr))) {
-              score += 8;
+              score += weights.ariaState;
             }
             
-            // Text content (capped to prevent inflation)
+            // Text content (configurable, capped to prevent inflation)
             const textLength = (element.textContent || '').trim().length;
-            score += Math.min(textLength, 50) * 0.1;
+            score += Math.min(textLength, 50) * (weights.textLength / 10);
             
-            // Semantic classes
+            // Semantic classes (configurable)
             const className = (element.className || '').toString();
             if (this.clickableClasses.some(cls => className.includes(cls))) {
-              score += 10;
+              score += weights.clickableClasses;
             }
             
-            // Penalty for likely decorative elements
+            // PHASE 1 FIX: Table cell text boost (consultant recommendation)
+            if (features.enableTableCellBoost && this.isInsideTableContext(element, rules) && this.hasSignificantTextContent(element, rules)) {
+              score += weights.tableCellTextBoost;
+            }
+            
+            // Container penalty (configurable)
+            if (features.enableContainerPenalty && this.isLargeContainer(element, rules)) {
+              score += weights.giantWrapperPenalty;
+            }
+            
+            // Penalty for likely decorative elements (configurable)
             if (['svg', 'use', 'path', 'g'].includes(tag)) {
-              score -= 5;
+              score += weights.decorativeElementPenalty;
             }
             
             return Math.max(0, score);
+          }
+
+          // PHASE 1 NEW: Table context detection
+          isInsideTableContext(element, rules) {
+            const regex = new RegExp(rules.tableSelectorRegex, 'i');
+            let current = element;
+            let depth = 0;
+            
+            while (current && depth < rules.maxAncestorDepth) {
+              const className = (current.className || '').toString();
+              const tagName = current.tagName.toLowerCase();
+              
+              if (regex.test(className) || regex.test(tagName)) {
+                return true;
+              }
+              
+              current = current.parentElement;
+              depth++;
+            }
+            
+            return false;
+          }
+
+          // PHASE 1 NEW: Significant text content detection
+          hasSignificantTextContent(element, rules) {
+            const text = (element.textContent || '').trim();
+            return text.length >= rules.minSignificantTextLength && 
+                   text.length <= rules.maxSignificantTextLength && 
+                   !text.includes('\n') && 
+                   /\S/.test(text);
+          }
+
+          // PHASE 1 NEW: Large container detection
+          isLargeContainer(element, rules) {
+            const rect = element.getBoundingClientRect();
+            const area = rect.width * rect.height;
+            const viewportArea = window.innerWidth * window.innerHeight;
+            return area > (viewportArea * rules.maxContainerAreaRatio);
           }
 
           // Fix #1: Event delegation detection
@@ -1301,10 +1400,11 @@ export class DOMToolkit {
         return filter.filterWithLiveTraversal({
           visible: true,
           viewport: true,
-          max_rows: config.maxElements > 0 ? config.maxElements : 200
+          max_rows: maxElements > 0 ? maxElements : 200,
+          config: filterConfig
         });
         
-      }, { maxElements, includeBoxes: includeBoxes || includeScreenshotUrl });
+      }, { maxElements, includeBoxes: includeBoxes || includeScreenshotUrl, includeScreenshotUrl, filterConfig: config });
 
       // Add new element detection (Browser-Use parity)
       const tabId = `${page._workflowId}-${tabName}`;
@@ -1525,6 +1625,28 @@ export class DOMToolkit {
       }
       return null;
     }
+  }
+
+  /**
+   * Format AX actionable response (token-lean)
+   */
+  formatAXActionableResponse(result, screenshot_url = null) {
+    const lines = ['=== AX ACTIONABLE ELEMENTS ===\n'];
+    
+    result.elements.forEach(el => {
+      const box = el.box ? ` [${el.box.join(',')}]` : '';
+      const name = el.name ? ` "${el.name}"` : '';
+      lines.push(`${el.id} ${el.role}${name}${box}`);
+    });
+    
+    lines.push(`\n[SUMMARY] Found: ${result.total} | Shown: ${result.elements.length} | Truncated: ${result.truncated}`);
+    
+    if (screenshot_url) {
+      lines.push(`\n📸 Screenshot with AX highlights: ${screenshot_url}`);
+      lines.push('💡 MCP users: Use Read tool with the file path above to view the image');
+    }
+    
+    return lines.join('\n');
   }
 
   /**

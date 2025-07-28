@@ -3945,6 +3945,9 @@ export class DirectorService {
         case 'dom_actionable':
           result = await domToolkitService.domActionable(args, this.nodeExecutor);
           break;
+        case 'dom_actionable_ax':
+          result = await domToolkitService.domActionableAX(args, this.nodeExecutor);
+          break;
         case 'dom_click_inspect':
           result = await domToolkitService.domClickInspect(args, this.nodeExecutor);
           break;
