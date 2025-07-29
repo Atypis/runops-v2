@@ -10,12 +10,13 @@ import BrowserStateService from './browserStateService.js';
 import visualObservationService from './visualObservationService.js';
 import { SchemaValidator } from './schemaValidator.js';
 import { fileURLToPath } from 'url';
+import { VariableManagementService } from './variableManagementService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export class NodeExecutor {
-  constructor(sharedBrowserStateService = null) {
+  constructor(sharedBrowserStateService = null, variableManagementService = null) {
     // Generate unique instance ID for tracking
     this.instanceId = Math.random().toString(36).substring(7);
     console.log(`[NodeExecutor-${this.instanceId}] Creating new NodeExecutor instance`);
@@ -41,6 +42,11 @@ export class NodeExecutor {
     // Track current profile name and strategy for session management
     this.currentProfileName = null;
     this.persistStrategy = 'storageState';
+    
+    // Record-centric system support
+    this.recordContext = []; // Stack for nested record processing
+    this.variableService = variableManagementService; // Will be set when needed
+    this.runId = Date.now().toString(); // Unique run ID for this execution
   }
 
   /**
@@ -93,6 +99,92 @@ export class NodeExecutor {
 
   getCurrentIterationContext() {
     return this.iterationContext[this.iterationContext.length - 1] || null;
+  }
+
+  // Record context management methods
+  pushRecordContext(recordId, recordData) {
+    this.recordContext.push({
+      recordId,
+      data: recordData,
+      pushedAt: Date.now()
+    });
+    console.log(`[RECORD_CONTEXT] Pushed: ${recordId}`);
+  }
+
+  popRecordContext() {
+    const context = this.recordContext.pop();
+    if (context) {
+      console.log(`[RECORD_CONTEXT] Popped: ${context.recordId}`);
+    }
+    return context;
+  }
+
+  getCurrentRecord() {
+    return this.recordContext[this.recordContext.length - 1] || null;
+  }
+
+  /**
+   * Create records from node execution result
+   * @param {any} result - The result from node execution
+   * @param {string|object} createConfig - Record creation configuration
+   * @param {string} workflowId - Workflow ID
+   * @param {string} nodeAlias - Node alias or identifier
+   */
+  async createRecordsFromResult(result, createConfig, workflowId, nodeAlias) {
+    let recordType, idPattern;
+    
+    if (typeof createConfig === 'string') {
+      // Simple string config: just the record type
+      recordType = createConfig;
+      idPattern = `${recordType}_{{index}}`;
+    } else {
+      // Object config with more options
+      recordType = createConfig.type || 'record';
+      idPattern = createConfig.id_pattern || `${recordType}_{{index}}`;
+    }
+    
+    // Handle array results (from extractions)
+    if (Array.isArray(result)) {
+      console.log(`[RECORD_CREATION] Creating ${result.length} ${recordType} records from array result`);
+      
+      for (let i = 0; i < result.length; i++) {
+        const recordId = idPattern.replace('{{index}}', String(i + 1).padStart(3, '0'));
+        
+        // Put all extracted data into fields by default
+        const initialData = {
+          fields: result[i],
+          vars: {},
+          targets: {},
+          history: [{
+            action: 'created',
+            timestamp: new Date().toISOString(),
+            sourceNode: nodeAlias
+          }]
+        };
+        
+        await this.variableService.createRecord(workflowId, recordId, recordType, initialData, nodeAlias);
+      }
+      
+      console.log(`[RECORD_CREATION] Successfully created ${result.length} records`);
+    } else if (result && typeof result === 'object') {
+      // Single object result
+      console.log(`[RECORD_CREATION] Creating single ${recordType} record from object result`);
+      
+      const recordId = idPattern.replace('{{index}}', '001');
+      const initialData = {
+        fields: result,
+        vars: {},
+        targets: {},
+        history: [{
+          action: 'created',
+          timestamp: new Date().toISOString(),
+          sourceNode: nodeAlias
+        }]
+      };
+      
+      await this.variableService.createRecord(workflowId, recordId, recordType, initialData, nodeAlias);
+      console.log(`[RECORD_CREATION] Successfully created record ${recordId}`);
+    }
   }
 
   // Helper methods for group context
@@ -291,6 +383,158 @@ export class NodeExecutor {
     return basePath;
   }
 
+  /**
+   * Collect all record IDs referenced in templates
+   * @param {any} obj - Object to scan for record references
+   * @returns {string[]} Array of unique record IDs
+   */
+  collectRecordIds(obj) {
+    const recordIds = new Set();
+    const recordPattern = /\{\{records\.([^.}]+)\./g;
+    
+    const scan = (item) => {
+      if (typeof item === 'string') {
+        let match;
+        while ((match = recordPattern.exec(item)) !== null) {
+          recordIds.add(match[1]);
+        }
+      } else if (Array.isArray(item)) {
+        item.forEach(scan);
+      } else if (item && typeof item === 'object') {
+        Object.values(item).forEach(scan);
+      }
+    };
+    
+    scan(obj);
+    return Array.from(recordIds);
+  }
+
+  /**
+   * Enhanced template resolution with record support
+   * Single-pass resolver with record prefetch
+   */
+  async resolveTemplatesWithRecords(obj, workflowId) {
+    if (!this.variableService) {
+      // Fall back to old resolver if no variable service
+      return this.resolveTemplateVariables(obj, workflowId);
+    }
+
+    // Collect all record IDs needed
+    const recordIds = this.collectRecordIds(obj);
+    
+    // Batch fetch all records
+    const records = {};
+    if (recordIds.length > 0) {
+      const fetchedRecords = await this.variableService.getRecordsByIds(workflowId, recordIds);
+      fetchedRecords.forEach(record => {
+        records[record.record_id] = record;
+      });
+    }
+
+    // Build unified context
+    const context = {
+      globals: {}, // Global variables (could be populated from workflow_memory)
+      locals: {},  // Local variables
+      current: this.getCurrentRecord()?.data || {},  // Current record data
+      records: records  // All fetched records indexed by ID
+    };
+
+    // Single-pass resolution
+    const resolve = async (value) => {
+      if (typeof value !== 'string') return value;
+
+      // Check for single template pattern
+      const singleMatch = value.match(/^\{\{([^}]+)\}\}$/);
+      if (singleMatch) {
+        const path = singleMatch[1].trim();
+        
+        // Handle current record
+        if (path.startsWith('current.')) {
+          const fieldPath = path.substring(8);
+          return this.getNestedValue(context.current, fieldPath) || value;
+        }
+        
+        // Handle specific records
+        if (path.startsWith('records.')) {
+          const parts = path.substring(8).split('.');
+          const recordId = parts[0];
+          const fieldPath = parts.slice(1).join('.');
+          
+          if (records[recordId]) {
+            return this.getNestedValue(records[recordId].data, fieldPath) || value;
+          }
+        }
+        
+        // Fall back to existing resolution
+        return await this.resolveTemplateVariables(value, workflowId);
+      }
+
+      // Multiple templates - replace inline
+      return value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+        path = path.trim();
+        
+        // Handle current record
+        if (path.startsWith('current.')) {
+          const fieldPath = path.substring(8);
+          const val = this.getNestedValue(context.current, fieldPath);
+          return val !== undefined ? String(val) : match;
+        }
+        
+        // Handle specific records
+        if (path.startsWith('records.')) {
+          const parts = path.substring(8).split('.');
+          const recordId = parts[0];
+          const fieldPath = parts.slice(1).join('.');
+          
+          if (records[recordId]) {
+            const val = this.getNestedValue(records[recordId].data, fieldPath);
+            return val !== undefined ? String(val) : match;
+          }
+        }
+        
+        return match; // Keep unresolved for fallback
+      });
+    };
+
+    // Recursively resolve all strings in the object
+    const resolveObject = async (obj) => {
+      if (typeof obj === 'string') {
+        return await resolve(obj);
+      } else if (Array.isArray(obj)) {
+        return await Promise.all(obj.map(resolveObject));
+      } else if (obj && typeof obj === 'object') {
+        const resolved = {};
+        for (const [key, value] of Object.entries(obj)) {
+          resolved[key] = await resolveObject(value);
+        }
+        return resolved;
+      }
+      return obj;
+    };
+
+    return await resolveObject(obj);
+  }
+
+  /**
+   * Get nested value from object using dot path
+   * @param {object} obj - Object to traverse
+   * @param {string} path - Dot-separated path
+   */
+  getNestedValue(obj, path) {
+    const parts = path.split('.');
+    let current = obj;
+    
+    for (const part of parts) {
+      if (current && typeof current === 'object' && part in current) {
+        current = current[part];
+      } else {
+        return undefined;
+      }
+    }
+    
+    return current;
+  }
+
   // Resolve template variables in a value
   async resolveTemplateVariables(value, workflowId) {
     if (typeof value !== 'string') {
@@ -415,6 +659,12 @@ export class NodeExecutor {
   async resolveNodeParams(params, workflowId) {
     if (!params) return params;
     
+    // Use enhanced resolver if available
+    if (this.variableService) {
+      return this.resolveTemplatesWithRecords(params, workflowId);
+    }
+    
+    // Fall back to old resolver
     // Handle array params (like route node configs)
     if (Array.isArray(params)) {
       return Promise.all(
@@ -792,6 +1042,22 @@ export class NodeExecutor {
         }
       }
       // If store_variable is false, result is NOT stored - only available in node.result column
+      
+      // Handle record creation if configured
+      if (node.config?.create_records && result !== null && result !== undefined) {
+        try {
+          console.log(`[EXECUTE] Creating records from result with config:`, node.config.create_records);
+          
+          if (!this.variableService) {
+            this.variableService = new VariableManagementService();
+          }
+          
+          await this.createRecordsFromResult(result, node.config.create_records, workflowId, node.alias || `node${node.position}`);
+        } catch (recordError) {
+          console.error(`[EXECUTE] Failed to create records:`, recordError);
+          // Don't fail the execution if record creation fails
+        }
+      }
       
       return { success: true, data: result };
     } catch (error) {
@@ -2914,44 +3180,78 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
 
   async executeIterate(config, workflowId, iterateNodePosition, options = {}) {
     
-    // Validate required fields
-    if (!config.over) {
-      throw new Error('Iterate node missing required "over" field. Please specify the path to the array to iterate over (e.g., "state.items" or "node4.emails")');
+    // Initialize variable service if not already set
+    if (!this.variableService) {
+      this.variableService = new VariableManagementService();
     }
     
-    if (!config.variable) {
-      throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
-    }
+    // Check if this is a record-based iteration
+    const isRecordIteration = config.over_records || false;
+    let records = [];
+    let collection = [];
     
-    
-    // Get the collection to iterate over
-    let collection;
-    const resolveStart = Date.now();
-    if (Array.isArray(config.over)) {
-      // Already resolved to an array by resolveTemplateVariables
-      collection = config.over;
-    } else if (typeof config.over === 'string') {
-      // It's a path reference - resolve it
-      const cleanPath = config.over.replace('state.', '');
-      collection = await this.getStateValue(cleanPath, workflowId);
-    } else {
-      return { results: [], errors: [], processed: 0, total: 0 };
-    }
-    
-    if (!Array.isArray(collection)) {
-      const actualType = collection === null ? 'null' : 
-                        collection === undefined ? 'undefined' :
-                        Array.isArray(collection) ? 'array' : 
-                        typeof collection;
-      const variableInfo = config.over;
+    if (isRecordIteration) {
+      // Record-based iteration
+      console.log(`[ITERATE] Starting record-based iteration over: ${config.over_records}`);
       
-      throw new Error(
-        `Iterate node expected an array but received ${actualType} for "${variableInfo}". ` +
-        `This often happens when AI extraction returns an object instead of an array. ` +
-        `Consider updating the extraction schema to ensure it returns an array, ` +
-        `or check if the variable exists and contains the expected data structure. ` +
-        `Received value: ${JSON.stringify(collection).substring(0, 100)}...`
-      );
+      records = await this.variableService.queryRecords(workflowId, config.over_records);
+      console.log(`[ITERATE] Found ${records.length} records to process`);
+      
+      // For compatibility, create a collection array from records
+      collection = records.map(r => r.record_id);
+      
+    } else {
+      // Legacy array-based iteration
+      // Validate required fields
+      if (!config.over) {
+        throw new Error('Iterate node missing required "over" field. Please specify the path to the array to iterate over (e.g., "state.items" or "node4.emails")');
+      }
+      
+      if (!config.variable) {
+        throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
+      }
+      
+      // Get the collection to iterate over
+      const resolveStart = Date.now();
+      if (Array.isArray(config.over)) {
+        // Already resolved to an array by resolveTemplateVariables
+        collection = config.over;
+      } else if (typeof config.over === 'string') {
+        // It's a path reference - resolve it
+        const cleanPath = config.over.replace('state.', '');
+        collection = await this.getStateValue(cleanPath, workflowId);
+      } else {
+        return { results: [], errors: [], processed: 0, total: 0 };
+      }
+      
+      if (!Array.isArray(collection)) {
+        const actualType = collection === null ? 'null' : 
+                          collection === undefined ? 'undefined' :
+                          Array.isArray(collection) ? 'array' : 
+                          typeof collection;
+        const variableInfo = config.over;
+        
+        throw new Error(
+          `Iterate node expected an array but received ${actualType} for "${variableInfo}". ` +
+          `This often happens when AI extraction returns an object instead of an array. ` +
+          `Consider updating the extraction schema to ensure it returns an array, ` +
+          `or check if the variable exists and contains the expected data structure. ` +
+          `Received value: ${JSON.stringify(collection).substring(0, 100)}...`
+        );
+      }
+      
+      // Convert array to temporary records if needed
+      if (config.convert_to_records) {
+        console.log(`[ITERATE] Converting ${collection.length} array items to temporary records`);
+        records = await this.variableService.convertArrayToRecords(
+          workflowId,
+          collection,
+          'temp',
+          config.alias || `iterate_${iterateNodePosition}`,
+          this.runId
+        );
+        isRecordIteration = true;
+      }
     }
     
     
@@ -3036,18 +3336,32 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       // Push iteration context
       this.pushIterationContext(iterateNodePosition, i, variable, collection.length);
       
+      // Handle record-based iteration
+      let currentRecord = null;
+      if (isRecordIteration && records[i]) {
+        currentRecord = records[i];
+        this.pushRecordContext(currentRecord.record_id, currentRecord.data);
+        
+        // Update record status
+        await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
+          status: 'processing'
+        }, this.getCurrentRecord());
+      }
+      
       try {
         // Set iteration variables in memory (these use the current context)
         const varKey = this.getStorageKey(variable);
         const indexKey = this.getStorageKey(indexVariable);
         const totalKey = this.getStorageKey(`${variable}Total`);
         
+        // For record iteration, store the record data instead of just the ID
+        const iterationData = isRecordIteration && currentRecord ? currentRecord.data : item;
         
         const storeStart = Date.now();
         await supabase
           .from('workflow_memory')
           .upsert([
-            { workflow_id: workflowId, key: varKey, value: item },
+            { workflow_id: workflowId, key: varKey, value: iterationData },
             { workflow_id: workflowId, key: indexKey, value: i },
             { workflow_id: workflowId, key: totalKey, value: collection.length }
           ]);
@@ -3116,18 +3430,46 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         }
         
         results.push({ index: i, item, result });
+        
+        // Update record status on success
+        if (isRecordIteration && currentRecord) {
+          await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
+            status: 'complete',
+            processed_at: new Date().toISOString()
+          }, this.getCurrentRecord());
+        }
+        
       } catch (error) {
         console.error(`[ITERATE] Error processing item ${i}:`, error);
         errors.push({ index: i, item, error: error.message });
         
-        if (!config.continueOnError) {
-          console.log(`[ITERATE] Stopping due to error (continueOnError: false)`);
-          // Pop context before breaking
+        // Update record status on error
+        if (isRecordIteration && currentRecord) {
+          await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
+            status: 'failed',
+            error_message: error.message,
+            retry_count: (currentRecord.retry_count || 0) + 1
+          }, this.getCurrentRecord());
+        }
+        
+        // Handle error based on configuration
+        const errorHandling = config.on_error || (config.continueOnError ? 'continue' : 'stop');
+        if (errorHandling === 'stop') {
+          console.log(`[ITERATE] Stopping due to error (on_error: stop)`);
+          // Pop contexts before breaking
+          if (isRecordIteration && currentRecord) {
+            this.popRecordContext();
+          }
           this.popIterationContext();
           break;
         }
+        // For 'continue' or 'mark_failed_continue', we continue to next item
+        
       } finally {
-        // Always pop the iteration context
+        // Always pop contexts
+        if (isRecordIteration && currentRecord) {
+          this.popRecordContext();
+        }
         this.popIterationContext();
       }
     }
@@ -3135,12 +3477,23 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
     // Note: Iteration variables are cleaned up at the start of the next iteration
     // to ensure they're available if needed after the loop completes
     
-    return {
+    // Build result object
+    const result = {
       results,
       errors,
       processed: results.length,
       total: collection.length
     };
+    
+    // Add record information if this was a record-based iteration
+    if (isRecordIteration) {
+      result.recordType = records[0]?.record_type || 'unknown';
+      result.recordsProcessed = results.length;
+      result.recordsFailed = errors.length;
+      result.isRecordIteration = true;
+    }
+    
+    return result;
   }
 
   async executeGroup(config, workflowId, groupNodePosition) {

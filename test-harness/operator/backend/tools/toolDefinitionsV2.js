@@ -30,6 +30,27 @@ export function createToolDefinitions() {
             store_variable: {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
+            },
+            create_records: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string' },
+                    id_pattern: { type: 'string' }
+                  }
+                }
+              ],
+              description: 'Create records from extracted data. Simple string creates records with type and auto-generated IDs (e.g., "email" creates email_001, email_002). Object allows custom ID patterns (e.g., {type: "email", id_pattern: "email_{{sender}}"}).'
+            },
+            store_to_record: {
+              type: 'boolean',
+              description: 'Store result to current record instead of global variable (only works inside record iteration)'
+            },
+            as: {
+              type: 'string',
+              description: 'Field name in record when using store_to_record (defaults to node alias)'
             }
           },
           required: ['instruction', 'schema'],
@@ -250,6 +271,27 @@ export function createToolDefinitions() {
               type: 'boolean',
               description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
             },
+            create_records: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string' },
+                    id_pattern: { type: 'string' }
+                  }
+                }
+              ],
+              description: 'Create records from extracted data (deterministic_extract only). Simple string creates records with type and auto-generated IDs (e.g., "email" creates email_001, email_002). Object allows custom ID patterns.'
+            },
+            store_to_record: {
+              type: 'boolean',
+              description: 'Store result to current record instead of global variable (only works inside record iteration)'
+            },
+            as: {
+              type: 'string',
+              description: 'Field name in record when using store_to_record (defaults to node alias)'
+            },
             nth: {
               type: 'number',
               description: 'For debug_element: Index of element to debug when multiple match (default: 0)'
@@ -301,6 +343,10 @@ export function createToolDefinitions() {
               type: 'string',
               description: 'Reference to array to iterate over. Use {{alias.property}} syntax for stored variables (e.g., "{{extract_emails.emails}}"). Direct state paths also supported for backward compatibility (e.g., "state.items"). Will throw a clear error if the value is not an array.'
             },
+            over_records: {
+              type: 'string',
+              description: 'Iterate over records instead of arrays. Supports patterns like "email_*" or specific record types. When used, iteration variables contain record data instead of array values.'
+            },
             variable: {
               type: 'string',
               description: `Name for the iteration variable. Creates three variables:
@@ -332,6 +378,11 @@ export function createToolDefinitions() {
               type: 'boolean',
               description: 'Whether to continue iterating if an error occurs in one iteration (default: true). When false, stops at first error.'
             },
+            on_error: {
+              type: 'string',
+              enum: ['stop', 'continue', 'mark_failed_continue'],
+              description: 'How to handle individual record processing failures (for record iteration). stop: halt iteration, continue/mark_failed_continue: continue to next record'
+            },
             index: {
               type: 'string',
               description: 'Custom name for the index variable. Defaults to "${variable}Index". Must be different from the main variable name.',
@@ -342,7 +393,11 @@ export function createToolDefinitions() {
               description: 'Store iteration results as a reusable variable (default: false). Returns {results: [], errors: [], processed: number, total: number}. Access using {{<alias>.results}}, {{<alias>.processed}}, etc. Example: If alias="process_items", reference as {{process_items.results[0]}}'
             }
           },
-          required: ['over', 'variable'],
+          required: ['variable'],
+          oneOf: [
+            { required: ['over'] },
+            { required: ['over_records'] }
+          ],
           additionalProperties: false
         },
         description: {
