@@ -613,6 +613,989 @@ export class DOMToolkitService {
           }
         }
         
+        class SmartSelectorFilter {
+          constructor() {
+            // Common utility class patterns to deprioritize
+            this.utilityPatterns = [
+              /^mt\d+$/, /^mb\d+$/, /^ml\d+$/, /^mr\d+$/, /^mx\d+$/, /^my\d+$/,  // Margin
+              /^pt\d+$/, /^pb\d+$/, /^pl\d+$/, /^pr\d+$/, /^px\d+$/, /^py\d+$/,  // Padding
+              /^text-/, /^bg-/, /^border-/, /^rounded-/, /^shadow-/,              // Styling
+              /^flex/, /^grid/, /^items-/, /^justify-/, /^self-/,                 // Layout
+              /^w-\d+$/, /^h-\d+$/, /^min-/, /^max-/,                            // Sizing
+              /^hover:/, /^focus:/, /^active:/, /^disabled:/,                     // States
+              /^css-[a-z0-9]{6,}$/i,                                             // CSS-in-JS
+              /^[a-z0-9]{8}$/i                                                    // Random hashes
+            ];
+            
+            // High-value attributes for stable selectors
+            this.stableAttributes = [
+              'data-testid', 'data-cy', 'data-test', 'data-qa', 'data-id',
+              'data-automation-id', 'data-row-id', 'data-cell-id'
+            ];
+            
+            // Framework indicators
+            this.frameworkPatterns = {
+              react: ['data-reactroot', '__reactInternalInstance', '__reactFiber'],
+              vue: ['v-for', 'v-if', 'v-show', 'v-model', '@click', ':class'],
+              angular: ['ng-repeat', 'ng-if', 'ng-show', 'ng-model', 'ng-click', '*ngFor', '*ngIf']
+            };
+          }
+          
+          isUtilityClass(className) {
+            return this.utilityPatterns.some(pattern => pattern.test(className));
+          }
+          
+          isDynamicClass(className) {
+            // CSS-in-JS or hash-based classes
+            return /^css-[a-z0-9]{6,}$/i.test(className) || 
+                   /^[a-z0-9]{8,}$/i.test(className) ||
+                   className.includes('__') && className.includes('--');
+          }
+          
+          getMeaningfulClasses(element) {
+            if (!element.className) return [];
+            
+            const classes = element.className.split(' ').filter(c => c.length > 0);
+            return classes.filter(cls => 
+              !this.isUtilityClass(cls) && 
+              !this.isDynamicClass(cls)
+            );
+          }
+          
+          getQualityScore(selector) {
+            // Higher scores = better quality
+            const scores = {
+              'id': 100,
+              'data-attribute': 90,
+              'aria': 80,
+              'name-attribute': 75,
+              'context-direct': 70,
+              'href-attribute': 65,
+              'meaningful-class': 60,
+              'context': 50,
+              'tag-attribute': 45,
+              'class-combo': 40,
+              'text': 30,
+              'sibling': 25,
+              'position': 20,
+              'xpath': 15
+            };
+            
+            // Special scoring for data attributes
+            if (selector.type === 'attribute' || selector.type === 'tag-attribute') {
+              if (this.stableAttributes.includes(selector.attribute)) {
+                return 95;
+              }
+              if (selector.attribute?.startsWith('aria-')) {
+                return 80;
+              }
+              if (selector.attribute === 'name' || selector.attribute === 'type') {
+                return 75;
+              }
+            }
+            
+            // Penalize utility class combinations
+            if (selector.type === 'class-combo' && selector.selector) {
+              const classes = selector.selector.match(/\.[a-zA-Z0-9_-]+/g) || [];
+              const utilityCount = classes.filter(cls => 
+                this.isUtilityClass(cls.substring(1))
+              ).length;
+              if (utilityCount > 1) {
+                return 20; // Low score for utility combos
+              }
+            }
+            
+            return scores[selector.type] || 30;
+          }
+          
+          filterAndRankSelectors(selectors, options = {}) {
+            const {
+              maxSelectors = 5,
+              mode = 'smart',
+              includeNonUnique = false
+            } = options;
+            
+            // Filter invalid and optionally non-unique
+            let filtered = selectors.filter(sel => {
+              if (!sel.validation?.isValid) return false;
+              if (!includeNonUnique && !sel.validation?.isUnique) return false;
+              return true;
+            });
+            
+            // Calculate quality scores
+            filtered = filtered.map(sel => ({
+              ...sel,
+              qualityScore: this.getQualityScore(sel)
+            }));
+            
+            // Sort by quality score, then by uniqueness, then by match count
+            filtered.sort((a, b) => {
+              // Quality score first
+              if (a.qualityScore !== b.qualityScore) {
+                return b.qualityScore - a.qualityScore;
+              }
+              
+              // Unique selectors before non-unique
+              if (a.validation.isUnique !== b.validation.isUnique) {
+                return a.validation.isUnique ? -1 : 1;
+              }
+              
+              // Fewer matches is better
+              return a.validation.matchCount - b.validation.matchCount;
+            });
+            
+            if (mode === 'smart') {
+              // Smart mode: Ensure diversity in selector types
+              const selected = [];
+              const seenTypes = new Set();
+              
+              for (const selector of filtered) {
+                // Always include the best selector
+                if (selected.length === 0) {
+                  selected.push(selector);
+                  seenTypes.add(selector.type);
+                  continue;
+                }
+                
+                // For additional selectors, prefer different types
+                const typeBonus = seenTypes.has(selector.type) ? 0 : 10;
+                selector.diversityScore = selector.qualityScore + typeBonus;
+                
+                // Skip very similar selectors
+                const isDuplicate = selected.some(sel => 
+                  sel.selector === selector.selector ||
+                  (sel.type === selector.type && sel.qualityScore === selector.qualityScore)
+                );
+                
+                if (!isDuplicate) {
+                  selected.push(selector);
+                  seenTypes.add(selector.type);
+                }
+                
+                if (selected.length >= maxSelectors) break;
+              }
+              
+              return selected;
+            }
+            
+            // Balanced/exhaustive mode: Just limit by count
+            return filtered.slice(0, maxSelectors);
+          }
+          
+          generateWarnings(element, selectors) {
+            const warnings = [];
+            
+            // Check if only low-quality selectors available
+            const bestScore = Math.max(...selectors.map(s => s.qualityScore || 0));
+            
+            if (bestScore < 40) {
+              warnings.push({
+                level: 'HIGH',
+                message: 'No stable selectors found - only positional or class-based selectors available',
+                suggestion: 'Consider adding data-testid or unique IDs to improve automation reliability'
+              });
+            } else if (bestScore < 70) {
+              warnings.push({
+                level: 'MEDIUM', 
+                message: 'Selectors may be fragile - no test-specific attributes found',
+                suggestion: 'Add data-testid="unique-name" for more reliable automation'
+              });
+            }
+            
+            // Check for CSS-in-JS
+            if (element.className && this.isDynamicClass(element.className.split(' ')[0])) {
+              warnings.push({
+                level: 'MEDIUM',
+                message: 'Element uses dynamically generated classes that may change between builds',
+                suggestion: 'Rely on data attributes or ARIA labels instead of class names'
+              });
+            }
+            
+            // Check if we had to fall back to position selectors
+            const hasPositional = selectors.some(s => s.type === 'position' || s.type.includes('nth'));
+            if (hasPositional && selectors[0]?.type === 'position') {
+              warnings.push({
+                level: 'HIGH',
+                message: 'Best available selector is position-based and may break if DOM structure changes',
+                suggestion: 'Add stable attributes to this element for reliable automation'
+              });
+            }
+            
+            return warnings;
+          }
+        }
+        
+        class ExhaustiveSelectorGenerator {
+          constructor() {
+            this.MAX_ATTRIBUTE_LENGTH = 100;
+            this.MAX_TEXT_LENGTH = 50;
+            this.MAX_COMBO_DEPTH = 3;
+          }
+
+          /**
+           * Main entry point - generates candidates based on mode
+           */
+          async generateCandidateSelectors(element, mode = 'stable') {
+            if (mode === 'stable') {
+              // Use existing stable selector generation
+              return this.generateStableSelectors(element);
+            }
+            
+            const selectors = [];
+            
+            // In exhaustive mode, generate ALL selector types
+            selectors.push(...this.generateIdSelectors(element));
+            selectors.push(...this.generateAttributeSelectors(element));
+            selectors.push(...this.generateClassSelectors(element));
+            selectors.push(...this.generatePositionSelectors(element));
+            selectors.push(...this.generateTextSelectors(element));
+            selectors.push(...this.generateContextSelectors(element));
+            selectors.push(...this.generateSiblingSelectors(element));
+            selectors.push(...this.generateFrameworkSelectors(element));
+            selectors.push(...this.generateAriaSelectors(element));
+            selectors.push(...this.generateCombinationSelectors(element));
+            
+            return selectors;
+          }
+
+          /**
+           * Existing stable selector generation
+           */
+          generateStableSelectors(element) {
+            const selectors = [];
+            
+            // 1. ID selector (most stable)
+            if (element.id) {
+              selectors.push({
+                selector: `#${element.id}`,
+                type: 'id',
+                specificity: 100,
+                strategy: 'stable'
+              });
+            }
+
+            // 2. Data attribute selectors (test-friendly)
+            const dataAttrs = ['data-testid', 'data-cy', 'data-test', 'data-qa', 'data-id'];
+            for (const attr of dataAttrs) {
+              const value = element.getAttribute(attr);
+              if (value) {
+                selectors.push({
+                  selector: `[${attr}="${CSS.escape(value)}"]`,
+                  type: 'data-attribute',
+                  attribute: attr,
+                  specificity: 90,
+                  strategy: 'stable'
+                });
+              }
+            }
+
+            // 3. Unique class combinations
+            if (element.className) {
+              const classes = element.className.split(' ').filter(c => c.length > 0 && !c.match(/^[a-z0-9]{8}$/i));
+              if (classes.length > 0) {
+                selectors.push({
+                  selector: `.${classes.map(c => CSS.escape(c)).join('.')}`,
+                  type: 'class-combo',
+                  specificity: 20 * classes.length,
+                  strategy: 'stable'
+                });
+              }
+            }
+
+            // 4. ARIA selectors
+            const ariaLabel = element.getAttribute('aria-label');
+            if (ariaLabel && ariaLabel.length < this.MAX_TEXT_LENGTH) {
+              selectors.push({
+                selector: `[aria-label="${CSS.escape(ariaLabel)}"]`,
+                type: 'aria',
+                specificity: 50,
+                strategy: 'stable'
+              });
+            }
+
+            // 5. Text-based selectors (least stable)
+            const text = element.textContent?.trim();
+            if (text && text.length < this.MAX_TEXT_LENGTH) {
+              selectors.push({
+                selector: `${element.tagName.toLowerCase()}:contains("${text}")`,
+                type: 'text',
+                specificity: 5,
+                strategy: 'stable',
+                requiresLibrary: 'jquery/playwright'
+              });
+            }
+
+            return selectors;
+          }
+
+          /**
+           * Generate ID-based selectors
+           */
+          generateIdSelectors(element) {
+            if (!element.id) return [];
+            
+            return [{
+              selector: `#${CSS.escape(element.id)}`,
+              type: 'id',
+              specificity: 100,
+              strategy: 'exhaustive'
+            }];
+          }
+
+          /**
+           * Generate all attribute selectors
+           */
+          generateAttributeSelectors(element) {
+            const selectors = [];
+            
+            for (const attr of element.attributes) {
+              // Skip certain attributes
+              if (['class', 'id', 'style'].includes(attr.name)) continue;
+              if (attr.value.length > this.MAX_ATTRIBUTE_LENGTH) continue;
+              
+              // Single attribute selector
+              selectors.push({
+                selector: `[${attr.name}="${CSS.escape(attr.value)}"]`,
+                type: 'attribute',
+                attribute: attr.name,
+                specificity: this.getAttributeSpecificity(attr.name),
+                strategy: 'exhaustive'
+              });
+              
+              // Tag + attribute combo
+              selectors.push({
+                selector: `${element.tagName.toLowerCase()}[${attr.name}="${CSS.escape(attr.value)}"]`,
+                type: 'tag-attribute',
+                attribute: attr.name,
+                specificity: this.getAttributeSpecificity(attr.name) + 10,
+                strategy: 'exhaustive'
+              });
+            }
+            
+            return selectors;
+          }
+
+          /**
+           * Generate class-based selectors
+           */
+          generateClassSelectors(element) {
+            if (!element.className) return [];
+            
+            const selectors = [];
+            const classes = element.className.split(' ').filter(c => c.length > 0);
+            
+            // Single classes
+            classes.forEach(cls => {
+              selectors.push({
+                selector: `.${CSS.escape(cls)}`,
+                type: 'class',
+                specificity: 10,
+                strategy: 'exhaustive'
+              });
+              
+              // Tag + class
+              selectors.push({
+                selector: `${element.tagName.toLowerCase()}.${CSS.escape(cls)}`,
+                type: 'tag-class',
+                specificity: 15,
+                strategy: 'exhaustive'
+              });
+            });
+            
+            // All possible class combinations (2-3 classes)
+            for (let size = 2; size <= Math.min(classes.length, 3); size++) {
+              const combinations = this.getCombinations(classes, size);
+              combinations.forEach(combo => {
+                selectors.push({
+                  selector: `.${combo.map(c => CSS.escape(c)).join('.')}`,
+                  type: 'class-combo',
+                  specificity: 10 * combo.length,
+                  strategy: 'exhaustive'
+                });
+              });
+            }
+            
+            return selectors;
+          }
+
+          /**
+           * Generate position-based selectors
+           */
+          generatePositionSelectors(element) {
+            const selectors = [];
+            const parent = element.parentElement;
+            if (!parent) return selectors;
+            
+            const siblings = Array.from(parent.children);
+            const index = siblings.indexOf(element);
+            const tagName = element.tagName.toLowerCase();
+            const sameTagSiblings = siblings.filter(el => el.tagName === element.tagName);
+            const tagIndex = sameTagSiblings.indexOf(element);
+            
+            // nth-child selectors
+            selectors.push({
+              selector: `:nth-child(${index + 1})`,
+              type: 'nth-child',
+              specificity: 1,
+              strategy: 'exhaustive'
+            });
+            
+            // nth-of-type selectors
+            selectors.push({
+              selector: `${tagName}:nth-of-type(${tagIndex + 1})`,
+              type: 'nth-of-type',
+              specificity: 2,
+              strategy: 'exhaustive'
+            });
+            
+            // First/last child
+            if (index === 0) {
+              selectors.push({
+                selector: ':first-child',
+                type: 'first-child',
+                specificity: 3,
+                strategy: 'exhaustive'
+              });
+              
+              selectors.push({
+                selector: `${tagName}:first-of-type`,
+                type: 'first-of-type',
+                specificity: 3,
+                strategy: 'exhaustive'
+              });
+            }
+            
+            if (index === siblings.length - 1) {
+              selectors.push({
+                selector: ':last-child',
+                type: 'last-child',
+                specificity: 3,
+                strategy: 'exhaustive'
+              });
+              
+              selectors.push({
+                selector: `${tagName}:last-of-type`,
+                type: 'last-of-type',
+                specificity: 3,
+                strategy: 'exhaustive'
+              });
+            }
+            
+            // Only child
+            if (siblings.length === 1) {
+              selectors.push({
+                selector: ':only-child',
+                type: 'only-child',
+                specificity: 4,
+                strategy: 'exhaustive'
+              });
+            }
+            
+            return selectors;
+          }
+
+          /**
+           * Generate text-based selectors
+           */
+          generateTextSelectors(element) {
+            const selectors = [];
+            const text = element.textContent?.trim();
+            
+            if (!text || text.length > this.MAX_TEXT_LENGTH) return selectors;
+            
+            const tagName = element.tagName.toLowerCase();
+            
+            // jQuery/Playwright :contains
+            selectors.push({
+              selector: `:contains("${text}")`,
+              type: 'text-contains',
+              specificity: 5,
+              strategy: 'exhaustive',
+              requiresLibrary: 'jquery/playwright'
+            });
+            
+            // Tag + contains
+            selectors.push({
+              selector: `${tagName}:contains("${text}")`,
+              type: 'tag-text-contains',
+              specificity: 7,
+              strategy: 'exhaustive',
+              requiresLibrary: 'jquery/playwright'
+            });
+            
+            // XPath text selectors
+            selectors.push({
+              selector: `//*[text()="${text}"]`,
+              type: 'xpath-exact-text',
+              specificity: 6,
+              strategy: 'exhaustive',
+              isXPath: true
+            });
+            
+            selectors.push({
+              selector: `//*[contains(text(), "${text}")]`,
+              type: 'xpath-contains-text',
+              specificity: 5,
+              strategy: 'exhaustive',
+              isXPath: true
+            });
+            
+            // Normalized space XPath
+            selectors.push({
+              selector: `//*[normalize-space()="${text}"]`,
+              type: 'xpath-normalized-text',
+              specificity: 6,
+              strategy: 'exhaustive',
+              isXPath: true
+            });
+            
+            return selectors;
+          }
+
+          /**
+           * Generate context-based selectors (parent > child)
+           */
+          generateContextSelectors(element, maxDepth = 3) {
+            const selectors = [];
+            const tagName = element.tagName.toLowerCase();
+            
+            // Build parent chain
+            const parents = [];
+            let current = element.parentElement;
+            let depth = 0;
+            
+            while (current && depth < maxDepth) {
+              const parentDescriptor = this.getElementDescriptor(current);
+              if (parentDescriptor) {
+                parents.push(parentDescriptor);
+              }
+              current = current.parentElement;
+              depth++;
+            }
+            
+            // Generate selectors for each parent level
+            for (let i = 0; i < parents.length; i++) {
+              const parentChain = parents.slice(0, i + 1).reverse();
+              const contextSelector = parentChain.join(' ') + ' ' + tagName;
+              
+              selectors.push({
+                selector: contextSelector,
+                type: 'context',
+                depth: i + 1,
+                specificity: 15 * (i + 1),
+                strategy: 'exhaustive'
+              });
+              
+              // Also with direct child combinator
+              const directChildSelector = parentChain.join(' > ') + ' > ' + tagName;
+              selectors.push({
+                selector: directChildSelector,
+                type: 'context-direct',
+                depth: i + 1,
+                specificity: 20 * (i + 1),
+                strategy: 'exhaustive'
+              });
+            }
+            
+            return selectors;
+          }
+
+          /**
+           * Generate sibling-based selectors
+           */
+          generateSiblingSelectors(element) {
+            const selectors = [];
+            const prev = element.previousElementSibling;
+            const next = element.nextElementSibling;
+            const tagName = element.tagName.toLowerCase();
+            
+            if (prev) {
+              const prevDescriptor = this.getElementDescriptor(prev);
+              if (prevDescriptor) {
+                // Adjacent sibling
+                selectors.push({
+                  selector: `${prevDescriptor} + ${tagName}`,
+                  type: 'adjacent-sibling',
+                  specificity: 25,
+                  strategy: 'exhaustive'
+                });
+                
+                // General sibling
+                selectors.push({
+                  selector: `${prevDescriptor} ~ ${tagName}`,
+                  type: 'general-sibling',
+                  specificity: 20,
+                  strategy: 'exhaustive'
+                });
+              }
+            }
+            
+            return selectors;
+          }
+
+          /**
+           * Generate framework-specific selectors
+           */
+          generateFrameworkSelectors(element) {
+            const selectors = [];
+            
+            // React
+            const reactProps = this.getReactProps(element);
+            if (reactProps) {
+              selectors.push({
+                selector: `[data-reactroot] ${element.tagName.toLowerCase()}`,
+                type: 'react',
+                specificity: 30,
+                strategy: 'exhaustive',
+                framework: 'react'
+              });
+            }
+            
+            // Vue
+            const vueAttrs = ['v-for', 'v-if', 'v-show', 'v-model', '@click', ':class'];
+            vueAttrs.forEach(attr => {
+              if (element.hasAttribute(attr)) {
+                selectors.push({
+                  selector: `[${attr}]`,
+                  type: 'vue-directive',
+                  specificity: 35,
+                  strategy: 'exhaustive',
+                  framework: 'vue'
+                });
+              }
+            });
+            
+            // Angular
+            const ngAttrs = ['ng-repeat', 'ng-if', 'ng-show', 'ng-model', 'ng-click', '*ngFor', '*ngIf'];
+            ngAttrs.forEach(attr => {
+              if (element.hasAttribute(attr)) {
+                selectors.push({
+                  selector: `[${attr}]`,
+                  type: 'angular-directive',
+                  specificity: 35,
+                  strategy: 'exhaustive',
+                  framework: 'angular'
+                });
+              }
+            });
+            
+            return selectors;
+          }
+
+          /**
+           * Generate ARIA-based selectors
+           */
+          generateAriaSelectors(element) {
+            const selectors = [];
+            const ariaAttrs = [
+              'aria-label', 'aria-labelledby', 'aria-describedby',
+              'aria-controls', 'aria-owns', 'role'
+            ];
+            
+            ariaAttrs.forEach(attr => {
+              const value = element.getAttribute(attr);
+              if (value && value.length < this.MAX_ATTRIBUTE_LENGTH) {
+                selectors.push({
+                  selector: `[${attr}="${CSS.escape(value)}"]`,
+                  type: 'aria',
+                  attribute: attr,
+                  specificity: 45,
+                  strategy: 'exhaustive'
+                });
+              }
+            });
+            
+            return selectors;
+          }
+
+          /**
+           * Generate combination selectors
+           */
+          generateCombinationSelectors(element) {
+            const selectors = [];
+            const attrs = Array.from(element.attributes)
+              .filter(a => !['class', 'id', 'style'].includes(a.name))
+              .filter(a => a.value.length < 50);
+            
+            // 2-attribute combinations
+            for (let i = 0; i < attrs.length && i < 5; i++) {
+              for (let j = i + 1; j < attrs.length && j < i + 3; j++) {
+                selectors.push({
+                  selector: `[${attrs[i].name}="${CSS.escape(attrs[i].value)}"][${attrs[j].name}="${CSS.escape(attrs[j].value)}"]`,
+                  type: 'attribute-combo',
+                  specificity: 40,
+                  strategy: 'exhaustive'
+                });
+              }
+            }
+            
+            // Attribute + class combinations
+            if (element.className) {
+              const firstClass = element.className.split(' ')[0];
+              attrs.slice(0, 3).forEach(attr => {
+                selectors.push({
+                  selector: `.${CSS.escape(firstClass)}[${attr.name}="${CSS.escape(attr.value)}"]`,
+                  type: 'class-attribute-combo',
+                  specificity: 35,
+                  strategy: 'exhaustive'
+                });
+              });
+            }
+            
+            return selectors;
+          }
+
+          /**
+           * Helper: Get element descriptor for building compound selectors
+           */
+          getElementDescriptor(element) {
+            if (element.id) {
+              return `#${CSS.escape(element.id)}`;
+            }
+            
+            let descriptor = element.tagName.toLowerCase();
+            
+            if (element.className) {
+              const firstClass = element.className.split(' ')[0];
+              if (firstClass) {
+                descriptor += `.${CSS.escape(firstClass)}`;
+              }
+            }
+            
+            // Add distinctive attribute if no id/class
+            if (!element.id && !element.className) {
+              for (const attr of ['data-testid', 'data-id', 'name', 'type']) {
+                const value = element.getAttribute(attr);
+                if (value && value.length < 30) {
+                  descriptor += `[${attr}="${CSS.escape(value)}"]`;
+                  break;
+                }
+              }
+            }
+            
+            return descriptor;
+          }
+
+          /**
+           * Helper: Get combinations of array elements
+           */
+          getCombinations(arr, size) {
+            const result = [];
+            
+            function combine(start, combo) {
+              if (combo.length === size) {
+                result.push([...combo]);
+                return;
+              }
+              
+              for (let i = start; i < arr.length; i++) {
+                combo.push(arr[i]);
+                combine(i + 1, combo);
+                combo.pop();
+              }
+            }
+            
+            combine(0, []);
+            return result;
+          }
+
+          /**
+           * Helper: Get attribute specificity score
+           */
+          getAttributeSpecificity(attrName) {
+            const rankings = {
+              'data-testid': 90,
+              'data-cy': 90,
+              'data-test': 90,
+              'data-qa': 90,
+              'data-id': 85,
+              'data-automation-id': 85,
+              'id': 100,  // Handled separately but included for completeness
+              'name': 70,
+              'type': 60,
+              'role': 55,
+              'aria-label': 50,
+              'aria-labelledby': 48,
+              'placeholder': 40,
+              'title': 35,
+              'alt': 35,
+              'value': 25,
+              'href': 20,
+              'src': 20
+            };
+            
+            // Check for data-* attributes not in the list
+            if (attrName.startsWith('data-')) {
+              return 75;
+            }
+            
+            return rankings[attrName] || 15;
+          }
+
+          /**
+           * Helper: Check if element has React fiber
+           */
+          getReactProps(element) {
+            // Check for React fiber properties
+            const keys = Object.keys(element);
+            return keys.some(key => key.startsWith('__react'));
+          }
+
+          /**
+           * Validate all selectors in batch
+           */
+          async validateAllSelectors(candidates) {
+            const results = [];
+            
+            for (const candidate of candidates) {
+              try {
+                // Skip XPath selectors in CSS validation
+                if (candidate.isXPath) {
+                  const xpathResult = document.evaluate(
+                    candidate.selector,
+                    document,
+                    null,
+                    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                    null
+                  );
+                  
+                  results.push({
+                    ...candidate,
+                    validation: {
+                      isValid: true,
+                      matchCount: xpathResult.snapshotLength,
+                      isUnique: xpathResult.snapshotLength === 1,
+                      isXPath: true,
+                      matches: []  // XPath match details omitted for performance
+                    }
+                  });
+                  continue;
+                }
+                
+                // CSS selector validation
+                const elements = document.querySelectorAll(candidate.selector);
+                
+                results.push({
+                  ...candidate,
+                  validation: {
+                    isValid: true,
+                    matchCount: elements.length,
+                    isUnique: elements.length === 1,
+                    matches: Array.from(elements).slice(0, 3).map(el => ({
+                      tag: el.tagName.toLowerCase(),
+                      id: el.id || undefined,
+                      text: el.textContent?.substring(0, 30) || undefined,
+                      classes: el.className || undefined
+                    }))
+                  }
+                });
+              } catch (error) {
+                results.push({
+                  ...candidate,
+                  validation: {
+                    isValid: false,
+                    matchCount: 0,
+                    isUnique: false,
+                    error: error.message
+                  }
+                });
+              }
+            }
+            
+            return results;
+          }
+
+          /**
+           * Rank selectors by quality
+           */
+          rankSelectors(validatedSelectors, options = {}) {
+            const { includeNonUnique = true, maxSelectors = 50 } = options;
+            
+            // Filter out non-unique if requested
+            let selectors = validatedSelectors;
+            if (!includeNonUnique) {
+              selectors = selectors.filter(s => s.validation.isUnique);
+            }
+            
+            // Sort by quality
+            selectors.sort((a, b) => {
+              // Invalid selectors go last
+              if (!a.validation.isValid && b.validation.isValid) return 1;
+              if (a.validation.isValid && !b.validation.isValid) return -1;
+              
+              // Unique selectors first
+              if (a.validation.isUnique && !b.validation.isUnique) return -1;
+              if (!a.validation.isUnique && b.validation.isUnique) return 1;
+              
+              // Both unique or both non-unique - sort by specificity
+              if (a.specificity !== b.specificity) {
+                return b.specificity - a.specificity;
+              }
+              
+              // Same specificity - prefer fewer matches
+              return a.validation.matchCount - b.validation.matchCount;
+            });
+            
+            // Limit results
+            return selectors.slice(0, maxSelectors);
+          }
+
+          /**
+           * Main discovery method that combines generation and validation
+           */
+          async discoverSelectors(element, options = {}) {
+            const {
+              mode = 'smart',
+              validateAll = true,
+              maxSelectors = null,
+              includeNonUnique = true
+            } = options;
+            
+            // Set smart defaults based on mode
+            const actualMaxSelectors = maxSelectors || {
+              'smart': 5,
+              'balanced': 15,
+              'exhaustive': 50
+            }[mode] || 5;
+            
+            // Generate candidates based on mode
+            let candidates;
+            if (mode === 'smart' || mode === 'balanced') {
+              // For smart/balanced, generate exhaustive list then filter
+              candidates = await this.generateCandidateSelectors(element, 'exhaustive');
+            } else {
+              // Exhaustive mode
+              candidates = await this.generateCandidateSelectors(element, 'exhaustive');
+            }
+            
+            // Always validate in smart/balanced mode
+            const shouldValidate = validateAll || mode === 'smart' || mode === 'balanced';
+            
+            if (shouldValidate) {
+              const validated = await this.validateAllSelectors(candidates);
+              
+              // Use smart filtering for smart/balanced modes
+              if (mode === 'smart' || mode === 'balanced') {
+                const filter = new SmartSelectorFilter();
+                return filter.filterAndRankSelectors(validated, {
+                  maxSelectors: actualMaxSelectors,
+                  mode,
+                  includeNonUnique
+                });
+              }
+              
+              // Exhaustive mode: use original ranking
+              return this.rankSelectors(validated, { 
+                includeNonUnique, 
+                maxSelectors: actualMaxSelectors 
+              });
+            }
+            
+            // Return unvalidated candidates (limited)
+            return candidates.slice(0, actualMaxSelectors);
+          }
+        }
+        
         class VisualInspector {
           async inspectAtCoordinates(x, y, options = {}) {
             const {
@@ -621,8 +1604,19 @@ export class DOMToolkitService {
               generateSelectors = true,
               checkActionability = true,
               includeNearbyElements = false,
-              searchRadius = 50
+              searchRadius = 50,
+              // New options
+              selectorMode = 'smart',
+              validateSelectors = null,  // Will be auto-set based on mode
+              maxSelectors = null,
+              includeNonUnique = true,
+              outputFormat = 'compact'
             } = options;
+            
+            // Auto-enable validation for smart/balanced/exhaustive modes
+            const shouldValidate = validateSelectors !== null 
+              ? validateSelectors 
+              : (selectorMode !== 'stable');
 
             // Get element at exact coordinates
             const targetElement = document.elementFromPoint(x, y);
@@ -642,7 +1636,13 @@ export class DOMToolkitService {
                 includeParentChain,
                 includeChildren,
                 generateSelectors,
-                checkActionability
+                checkActionability,
+                // Pass new options
+                selectorMode,
+                validateSelectors: shouldValidate,
+                maxSelectors,
+                includeNonUnique,
+                outputFormat
               })
             };
 
@@ -672,9 +1672,28 @@ export class DOMToolkitService {
               inViewport: this.isInViewport(rect)
             };
 
-            // Generate multiple selector options
+            // Generate selectors with new system
             if (options.generateSelectors) {
-              details.selectors = this.generateStableSelectors(element);
+              details.selectors = await this.generateSelectors(element, {
+                mode: options.selectorMode,
+                validateSelectors: options.validateSelectors,
+                maxSelectors: options.maxSelectors,
+                includeNonUnique: options.includeNonUnique
+              });
+              
+              // Add statistics
+              details.selectorStats = {
+                total: details.selectors.length,
+                unique: details.selectors.filter(s => s.validation?.isUnique).length,
+                valid: details.selectors.filter(s => s.validation?.isValid).length,
+                invalid: details.selectors.filter(s => !s.validation?.isValid).length
+              };
+              
+              // Generate warnings for smart/balanced modes
+              if (options.selectorMode === 'smart' || options.selectorMode === 'balanced') {
+                const filter = new SmartSelectorFilter();
+                details.warnings = filter.generateWarnings(element, details.selectors);
+              }
             }
 
             // Check actionability against current filters (simplified)
@@ -697,6 +1716,27 @@ export class DOMToolkitService {
             }
 
             return details;
+          }
+
+          async generateSelectors(element, options = {}) {
+            const generator = new ExhaustiveSelectorGenerator();
+            
+            const {
+              mode = 'stable',
+              validateSelectors = (mode === 'exhaustive'), // Auto-validate in exhaustive mode
+              maxSelectors = 50,
+              includeNonUnique = true
+            } = options;
+            
+            // Use the new discovery method
+            const selectors = await generator.discoverSelectors(element, {
+              mode,
+              validateAll: validateSelectors,
+              maxSelectors,
+              includeNonUnique
+            });
+            
+            return selectors;
           }
 
           generateStableSelectors(element) {
@@ -951,7 +1991,9 @@ export class DOMToolkitService {
           output: this.formatClickInspectOutput(result, options),
           element: result.target,
           coordinates: result.coordinates,
-          selectors: result.target.selectors
+          selectors: result.target.selectors,
+          selectorStats: result.target.selectorStats,
+          warnings: result.target.warnings
         };
       }
 
@@ -1008,14 +2050,93 @@ export class DOMToolkitService {
       lines.push('');
     }
     
-    // Recommended selectors
-    if (target.selectors && target.selectors.length > 0) {
-      lines.push('[RECOMMENDED SELECTORS]');
-      target.selectors.forEach((sel, index) => {
-        lines.push(`${index + 1}. ${sel.selector} (${sel.reliability} reliability - ${sel.type})`);
-        if (sel.note) lines.push(`   Note: ${sel.note}`);
+    // Warnings (for smart/balanced modes)
+    if (target.warnings && target.warnings.length > 0) {
+      lines.push('[WARNINGS]');
+      target.warnings.forEach(warning => {
+        const icon = warning.level === 'HIGH' ? '⚠️' : warning.level === 'MEDIUM' ? '⚡' : 'ℹ️';
+        lines.push(`${icon} ${warning.message}`);
+        if (warning.suggestion) {
+          lines.push(`   → ${warning.suggestion}`);
+        }
       });
       lines.push('');
+    }
+    
+    // Selectors based on output format
+    if (target.selectors && target.selectors.length > 0) {
+      if (options.outputFormat === 'compact') {
+        // Compact format for smart/balanced modes
+        lines.push('[SELECTORS]');
+        target.selectors.forEach((sel, index) => {
+          const uniqueIcon = sel.validation?.isUnique ? '✅' : '⚠️';
+          const qualityIcon = sel.qualityScore >= 80 ? '⭐' : sel.qualityScore >= 50 ? '👍' : '🔧';
+          lines.push(`${index + 1}. ${uniqueIcon} ${qualityIcon} ${sel.selector}`);
+        });
+        
+        if (options.selectorMode === 'smart' && target.selectorStats) {
+          lines.push('');
+          lines.push(`ℹ️ Showing best ${target.selectors.length} of ${target.selectorStats.total} possible selectors`);
+          lines.push(`   Use selectorMode: 'balanced' for more options or 'exhaustive' for all`);
+        }
+      } else {
+        // Detailed format (current behavior)
+        lines.push('[DISCOVERED SELECTORS]');
+        
+        // Show summary for exhaustive mode
+        if (target.selectorStats && options.selectorMode === 'exhaustive') {
+          lines.push('');
+          lines.push('[SELECTOR DISCOVERY SUMMARY]');
+          lines.push(`Total selectors generated: ${target.selectorStats.total}`);
+          lines.push(`✅ Valid selectors: ${target.selectorStats.valid}`);
+          lines.push(`🎯 Unique selectors: ${target.selectorStats.unique}`);
+          lines.push(`❌ Invalid selectors: ${target.selectorStats.invalid}`);
+          lines.push('');
+        }
+        
+        // Group by uniqueness
+        const uniqueSelectors = target.selectors.filter(s => s.validation?.isUnique);
+      const nonUniqueSelectors = target.selectors.filter(s => s.validation && !s.validation.isUnique);
+      const invalidSelectors = target.selectors.filter(s => !s.validation?.isValid);
+      
+      if (uniqueSelectors.length > 0) {
+        lines.push('');
+        lines.push('🎯 UNIQUE SELECTORS (Recommended):');
+        uniqueSelectors.slice(0, 10).forEach((sel, index) => {
+          let line = `${index + 1}. ${sel.selector}`;
+          line += ` (${sel.type}, specificity: ${sel.specificity})`;
+          if (sel.requiresLibrary) line += ` [Requires: ${sel.requiresLibrary}]`;
+          lines.push(line);
+        });
+      }
+      
+      if (nonUniqueSelectors.length > 0 && options.includeNonUnique !== false) {
+        lines.push('');
+        lines.push(`⚠️ NON-UNIQUE SELECTORS (${nonUniqueSelectors.length} total):`);
+        nonUniqueSelectors.slice(0, 5).forEach((sel, index) => {
+          let line = `${index + 1}. ${sel.selector}`;
+          line += ` (matches: ${sel.validation.matchCount})`;
+          lines.push(line);
+          
+          // Show what else it matches
+          if (sel.validation.matches && sel.validation.matches.length > 1) {
+            sel.validation.matches.slice(1, 3).forEach(match => {
+              lines.push(`   └─ Also matches: <${match.tag}> "${match.text || ''}"`)
+            });
+          }
+        });
+      }
+      
+      if (invalidSelectors.length > 0) {
+        lines.push('');
+        lines.push(`❌ INVALID SELECTORS (${invalidSelectors.length} total):`);
+        invalidSelectors.slice(0, 3).forEach((sel, index) => {
+          lines.push(`${index + 1}. ${sel.selector} - Error: ${sel.validation.error}`);
+        });
+      }
+      
+      lines.push('');
+      }
     }
     
     // Parent chain
@@ -1058,15 +2179,16 @@ export class DOMToolkitService {
     
     // Suggested actions
     if (target.selectors && target.selectors.length > 0) {
-      const bestSelector = target.selectors[0];
-      lines.push('');
+      const bestSelector = target.selectors.find(s => s.validation?.isUnique) || target.selectors[0];
       lines.push('[SUGGESTED ACTIONS]');
+      lines.push(`- Best selector: ${bestSelector.selector}`);
       lines.push(`- Test click: browser_action({action: "click", selector: "${bestSelector.selector}"})`);
-      lines.push('- Manual verify: Click element to confirm it\'s actually interactive');
       
-      if (target.actionability && !target.actionability.isActionable) {
-        lines.push('- Debug filter: Check why element isn\'t triggering detection');
+      if (options.selectorMode === 'stable' && target.selectorStats?.unique === 0) {
+        lines.push('- 💡 Try exhaustive mode for more selector options: selectorMode: "exhaustive"');
       }
+      
+      lines.push('');
     }
     
     return lines.join('\n');

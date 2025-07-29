@@ -339,6 +339,35 @@ export function createDOMExplorationTools() {
               default: 50,
               minimum: 0,
               maximum: 200
+            },
+            selectorMode: {
+              type: 'string',
+              enum: ['smart', 'balanced', 'exhaustive'],
+              description: 'Selector generation mode. smart: best 3-5 selectors with quality scoring (default), balanced: up to 15 diverse selectors, exhaustive: ALL possible selectors with validation',
+              default: 'smart'
+            },
+            validateSelectors: {
+              type: 'boolean',
+              description: 'Validate each selector for uniqueness and validity. Default true for exhaustive mode, false for stable mode',
+              default: null
+            },
+            maxSelectors: {
+              type: 'number',
+              description: 'Maximum number of selectors to return. Default: 5 for smart, 15 for balanced, 50 for exhaustive',
+              default: null,
+              minimum: 1,
+              maximum: 200
+            },
+            includeNonUnique: {
+              type: 'boolean',
+              description: 'Include non-unique selectors in results (default: true)',
+              default: true
+            },
+            outputFormat: {
+              type: 'string',
+              enum: ['compact', 'detailed'],
+              description: 'Output format. compact: minimal token usage with just selectors, detailed: full information with validation data',
+              default: 'compact'
             }
           },
           required: ['x', 'y'],
