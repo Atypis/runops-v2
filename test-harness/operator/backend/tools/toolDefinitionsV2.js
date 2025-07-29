@@ -1,8 +1,8 @@
-import { createDOMExplorationToolsV2 } from './domExplorationToolsV2.js';
+import { createDOMExplorationTools } from './domExplorationTools.js';
 
 export function createToolDefinitions() {
   // Get DOM exploration tools
-  const domTools = createDOMExplorationToolsV2();
+  const domTools = createDOMExplorationTools();
   
   // Define node schemas with type-specific required fields using anyOf
   const nodeSchemas = [
