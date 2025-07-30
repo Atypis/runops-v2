@@ -130,6 +130,48 @@ export class NodeExecutor {
    * @param {string} workflowId - Workflow ID
    * @param {string} nodeAlias - Node alias or identifier
    */
+  // Helper to get nested value from object using dot notation
+  getNestedValue(obj, path) {
+    if (!obj || typeof obj !== 'object') {
+      return undefined;
+    }
+    
+    const parts = path.split('.');
+    let current = obj;
+    
+    for (const part of parts) {
+      if (current === null || current === undefined) {
+        return undefined;
+      }
+      current = current[part];
+    }
+    
+    return current;
+  }
+
+  // Helper to resolve template string with additional context
+  async resolveTemplateString(template, workflowId, additionalContext = {}) {
+    if (typeof template !== 'string') {
+      return template;
+    }
+    
+    // Replace variables from additional context first
+    let resolved = template;
+    
+    // Handle {{variable}} patterns from additional context
+    const templatePattern = /\{\{([^}]+)\}\}/g;
+    resolved = resolved.replace(templatePattern, (match, varName) => {
+      const trimmedName = varName.trim();
+      if (additionalContext.hasOwnProperty(trimmedName)) {
+        return additionalContext[trimmedName];
+      }
+      return match; // Keep original if not in context
+    });
+    
+    // Then resolve remaining variables from workflow state
+    return await this.resolveTemplateVariables(resolved, workflowId);
+  }
+
   async createRecordsFromResult(result, createConfig, workflowId, nodeAlias) {
     let recordType, idPattern;
     
@@ -148,11 +190,24 @@ export class NodeExecutor {
       console.log(`[RECORD_CREATION] Creating ${result.length} ${recordType} records from array result`);
       
       for (let i = 0; i < result.length; i++) {
-        const recordId = idPattern.replace('{{index}}', String(i + 1).padStart(3, '0'));
+        // First replace {{index}}
+        let recordId = idPattern.replace('{{index}}', String(i + 1).padStart(3, '0'));
         
-        // Put all extracted data into fields by default
+        // Then resolve any other template variables (including from current item)
+        // Create a temporary context with the current item data
+        const tempContext = {
+          ...result[i],
+          index: String(i + 1).padStart(3, '0')
+        };
+        
+        // Resolve remaining template variables
+        recordId = await this.resolveTemplateString(recordId, workflowId, tempContext);
+        
+        // Put all extracted data under node namespace
         const initialData = {
-          fields: result[i],
+          fields: {
+            [nodeAlias]: result[i]  // Store under node name, e.g., extract_emails: {...}
+          },
           vars: {},
           targets: {},
           history: [{
@@ -170,9 +225,20 @@ export class NodeExecutor {
       // Single object result
       console.log(`[RECORD_CREATION] Creating single ${recordType} record from object result`);
       
-      const recordId = idPattern.replace('{{index}}', '001');
+      // First replace {{index}}
+      let recordId = idPattern.replace('{{index}}', '001');
+      
+      // Then resolve any other template variables
+      const tempContext = {
+        ...result,
+        index: '001'
+      };
+      recordId = await this.resolveTemplateString(recordId, workflowId, tempContext);
+      
       const initialData = {
-        fields: result,
+        fields: {
+          [nodeAlias]: result  // Store under node name for single objects too
+        },
         vars: {},
         targets: {},
         history: [{
@@ -546,6 +612,49 @@ export class NodeExecutor {
     const singleMatch = value.match(singleTemplatePattern);
     if (singleMatch) {
       const expression = singleMatch[1].trim();
+      
+      // Handle get_all_records function specially
+      if (expression.startsWith('get_all_records(')) {
+        const functionMatch = expression.match(/get_all_records\(["'](.+?)["']\)/);
+        if (functionMatch) {
+          const path = functionMatch[1];
+          console.log(`[TEMPLATE] Processing single get_all_records("${path}")`);
+          
+          if (!this.variableService) {
+            this.variableService = new VariableManagementService();
+          }
+          
+          try {
+            // Get all records for this workflow
+            const { data: records } = await this.variableService.supabase
+              .from('workflow_records')
+              .select('*')
+              .eq('workflow_id', workflowId)
+              .order('created_at', { ascending: true });
+            
+            if (records && records.length > 0) {
+              // Extract the specified path from each record
+              const values = [];
+              for (const record of records) {
+                const value = this.getNestedProperty(record.data, path);
+                if (value !== undefined && value !== null) {
+                  values.push(value);
+                }
+              }
+              console.log(`[TEMPLATE] get_all_records collected ${values.length} values from ${records.length} records`);
+              return values; // Return array directly
+            } else {
+              console.log(`[TEMPLATE] No records found for get_all_records`);
+              return []; // Return empty array
+            }
+          } catch (error) {
+            console.error(`[TEMPLATE] Error in get_all_records:`, error);
+            return []; // Return empty array on error
+          }
+        }
+      }
+      
+      // Handle regular variables
       try {
         const resolvedValue = await this.getStateValue(expression, workflowId);
         // Special handling: if resolved to undefined, return the original template
@@ -591,21 +700,98 @@ export class NodeExecutor {
           }
         }
         
-        // Handle iteration context variables (e.g., email, email.selector)
-        const currentContext = this.getCurrentIterationContext();
-        if (currentContext && expression.startsWith(currentContext.variable)) {
-          const itemData = await this.getStateValue(currentContext.variable, workflowId);
-          
-          if (expression === currentContext.variable) {
-            // Just the variable name (e.g., {{email}})
-            replacementValue = itemData;
+        // PRIORITY 1: Handle current record references (e.g., {{current.extract_emails.subject}})
+        if (expression.startsWith('current.')) {
+          const currentRecord = this.getCurrentRecord();
+          if (currentRecord) {
+            const path = expression.substring(8); // Remove 'current.'
+            replacementValue = this.getNestedProperty(currentRecord.data, path);
           } else {
-            // Property access (e.g., {{email.selector}})
-            const propertyPath = expression.substring(currentContext.variable.length + 1);
-            replacementValue = this.getNestedProperty(itemData, propertyPath);
+            console.warn(`[TEMPLATE] No current record context for: ${expression}`);
+            replacementValue = match[0]; // Keep original
           }
-        } else {
-          // Handle other references (e.g., {{node27.emails}})
+        }
+        // PRIORITY 2: Handle specific record references (e.g., {{email_001.extract_emails.subject}})
+        else if (expression.match(/^[a-z]+_\d{3}\./)) {
+          const [recordId, ...pathParts] = expression.split('.');
+          const path = pathParts.join('.');
+          
+          if (!this.variableService) {
+            this.variableService = new VariableManagementService();
+          }
+          
+          const record = await this.variableService.getRecord(workflowId, recordId);
+          if (record) {
+            replacementValue = this.getNestedProperty(record.data, path);
+          } else {
+            console.warn(`[TEMPLATE] Record not found: ${recordId}`);
+            replacementValue = match[0]; // Keep original
+          }
+        }
+        // PRIORITY 2.5: Handle get_all_records function (e.g., {{get_all_records("classify_email.type")}})
+        else if (expression.startsWith('get_all_records(')) {
+          const functionMatch = expression.match(/get_all_records\(["'](.+?)["']\)/);
+          if (functionMatch) {
+            const path = functionMatch[1];
+            console.log(`[TEMPLATE] Processing get_all_records("${path}")`);
+            
+            if (!this.variableService) {
+              this.variableService = new VariableManagementService();
+            }
+            
+            try {
+              // Get all records for this workflow
+              const { data: records } = await this.variableService.supabase
+                .from('workflow_records')
+                .select('*')
+                .eq('workflow_id', workflowId)
+                .order('created_at', { ascending: true });
+              
+              if (records && records.length > 0) {
+                // Extract the specified path from each record
+                const values = [];
+                for (const record of records) {
+                  const value = this.getNestedProperty(record.data, path);
+                  if (value !== undefined && value !== null) {
+                    values.push(value);
+                  }
+                }
+                console.log(`[TEMPLATE] get_all_records collected ${values.length} values from ${records.length} records`);
+                replacementValue = values;
+              } else {
+                console.log(`[TEMPLATE] No records found for get_all_records`);
+                replacementValue = [];
+              }
+            } catch (error) {
+              console.error(`[TEMPLATE] Error in get_all_records:`, error);
+              replacementValue = [];
+            }
+          } else {
+            console.warn(`[TEMPLATE] Invalid get_all_records syntax: ${expression}`);
+            replacementValue = match[0]; // Keep original
+          }
+        }
+        // PRIORITY 3: Handle iteration context variables (e.g., email, email.selector)
+        else if (this.getCurrentIterationContext()) {
+          const currentContext = this.getCurrentIterationContext();
+          if (currentContext && expression.startsWith(currentContext.variable)) {
+            const itemData = await this.getStateValue(currentContext.variable, workflowId);
+            
+            if (expression === currentContext.variable) {
+              // Just the variable name (e.g., {{email}})
+              replacementValue = itemData;
+            } else {
+              // Property access (e.g., {{email.selector}})
+              const propertyPath = expression.substring(currentContext.variable.length + 1);
+              replacementValue = this.getNestedProperty(itemData, propertyPath);
+            }
+          } else {
+            // Not an iteration variable, fall through to global resolution
+            replacementValue = await this.getStateValue(expression, workflowId);
+          }
+        }
+        // PRIORITY 4: Handle global variables and node results
+        else {
           replacementValue = await this.getStateValue(expression, workflowId);
         }
         
@@ -846,9 +1032,17 @@ export class NodeExecutor {
       // Always resolve template variables in params
       let resolvedParams = node.params;
       if (node.params) {
-        console.log(`[EXECUTE] Resolving template variables`);
+        console.log(`[EXECUTE] Resolving template variables in params`);
         resolvedParams = await this.resolveNodeParams(node.params, workflowId);
         console.log(`[EXECUTE] Resolved params:`, JSON.stringify(resolvedParams, null, 2));
+      }
+      
+      // Also resolve template variables in config
+      let resolvedConfig = node.config;
+      if (node.config) {
+        console.log(`[EXECUTE] Resolving template variables in config`);
+        resolvedConfig = await this.resolveNodeParams(node.config, workflowId);
+        console.log(`[EXECUTE] Resolved config:`, JSON.stringify(resolvedConfig, null, 2));
       }
       
       switch (node.type) {
@@ -977,82 +1171,166 @@ export class NodeExecutor {
         console.log(`[EXECUTE] Successfully updated node ${nodeId} with result:`, updatedNode?.result);
       }
       
-      // Store result as variable ONLY if explicitly requested
-      if (result !== null && result !== undefined && node.store_variable) {
-        try {
-          // Use alias as the storage key (with iteration context if applicable)
-          const storageKey = this.getStorageKey(node.alias);
-          
-          // Extract the actual value for storage (remove wrappers for primitives)
-          // Handle two cases of wrapped primitives:
-          // 1. Visual observations: {value: primitive, _page_observation: "..."}
-          // 2. Cognition results: {result: primitive} when schema is {type: "boolean/string/number"}
-          let storageValue = result;
-          
-          // Check for visual observation wrapper
-          if (result && typeof result === 'object' && '_page_observation' in result && 'value' in result) {
-            // This is a wrapped primitive from visual observations
-            storageValue = result.value;
-            console.log(`[EXECUTE] Unwrapping visual observation wrapper: ${JSON.stringify(storageValue)}`);
-          }
-          // Check for cognition result wrapper when expecting a primitive
-          else if (result && typeof result === 'object' && 'result' in result && Object.keys(result).length === 1) {
-            // This looks like a wrapped primitive from cognition (e.g., {result: true})
-            // Only unwrap if the schema suggests it should be a primitive
-            const primitiveTypes = ['boolean', 'string', 'number'];
-            if (node.type === 'cognition' && node.params?.schema?.type && primitiveTypes.includes(node.params.schema.type)) {
-              storageValue = result.result;
-              console.log(`[EXECUTE] Unwrapping cognition result wrapper for ${node.params.schema.type}: ${JSON.stringify(storageValue)}`);
+      // Handle intentional storage pattern
+      if (result !== null && result !== undefined) {
+        // Check for new 'store' configuration
+        if (resolvedConfig?.store) {
+          try {
+            console.log(`[EXECUTE] Using intentional storage pattern with config:`, resolvedConfig.store);
+            
+            if (!this.variableService) {
+              this.variableService = new VariableManagementService();
             }
+            
+            // Store each mapped field
+            for (const [sourceField, targetField] of Object.entries(resolvedConfig.store)) {
+              // Handle special case for storing entire result
+              let valueToStore;
+              if (sourceField === '*' && targetField === '*') {
+                // Store entire result (backwards compatibility mode)
+                valueToStore = result;
+              } else {
+                // Extract specific field from result
+                valueToStore = this.getNestedValue(result, sourceField);
+              }
+              
+              if (valueToStore !== undefined) {
+                // Store with node namespacing: alias.field
+                const storageKey = `${node.alias}.${targetField}`;
+                
+                await this.variableService.setVariable(
+                  workflowId,
+                  storageKey,
+                  valueToStore,
+                  null,
+                  `Stored by node ${node.position} (intentional storage)`
+                );
+                
+                console.log(`[EXECUTE] Stored ${sourceField} as ${storageKey}`);
+                
+                // Emit SSE event
+                if (this.browserStateService) {
+                  await this.browserStateService.emitVariableUpdate(workflowId, storageKey, valueToStore, node.alias);
+                }
+              }
+            }
+          } catch (storeError) {
+            console.error(`[EXECUTE] Failed to store with intentional pattern:`, storeError);
+            // Don't fail execution
           }
-          
-          const { data: memData, error: memError } = await supabase
-            .from('workflow_memory')
-            .upsert({
-              workflow_id: workflowId,
-              key: storageKey,
-              value: storageValue
-            }, { onConflict: 'workflow_id,key' })
-            .select()
-            .single();
-          
-          if (memError) {
-            console.error(`Failed to store variable: ${memError.message}`);
-            throw memError;
+        }
+        // Legacy store_variable support (will be deprecated)
+        else if (resolvedConfig?.store_variable) {
+          try {
+            console.log(`[EXECUTE] Using legacy store_variable pattern (deprecated)`);
+            
+            // Use alias as the storage key (with iteration context if applicable)
+            const storageKey = this.getStorageKey(node.alias);
+            
+            // Extract the actual value for storage (remove wrappers for primitives)
+            // Handle two cases of wrapped primitives:
+            // 1. Visual observations: {value: primitive, _page_observation: "..."}
+            // 2. Cognition results: {result: primitive} when schema is {type: "boolean/string/number"}
+            let storageValue = result;
+            
+            // Check for visual observation wrapper
+            if (result && typeof result === 'object' && '_page_observation' in result && 'value' in result) {
+              // This is a wrapped primitive from visual observations
+              storageValue = result.value;
+              console.log(`[EXECUTE] Unwrapping visual observation wrapper: ${JSON.stringify(storageValue)}`);
+            }
+            // Check for cognition result wrapper when expecting a primitive
+            else if (result && typeof result === 'object' && 'result' in result && Object.keys(result).length === 1) {
+              // This looks like a wrapped primitive from cognition (e.g., {result: true})
+              // Only unwrap if the schema suggests it should be a primitive
+              const primitiveTypes = ['boolean', 'string', 'number'];
+              if (node.type === 'cognition' && node.params?.schema?.type && primitiveTypes.includes(node.params.schema.type)) {
+                storageValue = result.result;
+                console.log(`[EXECUTE] Unwrapping cognition result wrapper for ${node.params.schema.type}: ${JSON.stringify(storageValue)}`);
+              }
+            }
+            
+            const { data: memData, error: memError } = await supabase
+              .from('workflow_memory')
+              .upsert({
+                workflow_id: workflowId,
+                key: storageKey,
+                value: storageValue
+              }, { onConflict: 'workflow_id,key' })
+              .select()
+              .single();
+            
+            if (memError) {
+              console.error(`Failed to store variable: ${memError.message}`);
+              throw memError;
+            }
+            
+            // Still send real-time update for UI
+            this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
+            
+            // Emit SSE event for variable storage
+            console.log(`[EXECUTE] Checking browserStateService availability for SSE emit...`);
+            if (this.browserStateService) {
+              console.log(`[EXECUTE] BrowserStateService is available, emitting variable update via SSE`);
+              console.log(`[EXECUTE] Current workflow ID: ${workflowId}`);
+              console.log(`[EXECUTE] Storage key: ${storageKey}`);
+              console.log(`[EXECUTE] Node alias: ${node.alias}`);
+              await this.browserStateService.emitVariableUpdate(workflowId, storageKey, storageValue, node.alias);
+            } else {
+              console.log(`[EXECUTE] WARNING: BrowserStateService is not available!`);
+            }
+          } catch (memError) {
+            console.error(`[EXECUTE] Failed to store variable for ${node.alias}:`, memError);
+            console.error(`[EXECUTE] Full error details:`, JSON.stringify(memError, null, 2));
+            // Don't fail the execution if memory storage fails
           }
-          
-          // Still send real-time update for UI
-          this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
-          
-          // Emit SSE event for variable storage
-          console.log(`[EXECUTE] Checking browserStateService availability for SSE emit...`);
-          if (this.browserStateService) {
-            console.log(`[EXECUTE] BrowserStateService is available, emitting variable update via SSE`);
-            console.log(`[EXECUTE] Current workflow ID: ${workflowId}`);
-            console.log(`[EXECUTE] Storage key: ${storageKey}`);
-            console.log(`[EXECUTE] Node alias: ${node.alias}`);
-            await this.browserStateService.emitVariableUpdate(workflowId, storageKey, storageValue, node.alias);
-          } else {
-            console.log(`[EXECUTE] WARNING: BrowserStateService is not available!`);
-          }
-        } catch (memError) {
-          console.error(`[EXECUTE] Failed to store variable for ${node.alias}:`, memError);
-          console.error(`[EXECUTE] Full error details:`, JSON.stringify(memError, null, 2));
-          // Don't fail the execution if memory storage fails
         }
       }
-      // If store_variable is false, result is NOT stored - only available in node.result column
+      // If neither store nor store_variable is set, result is NOT stored - only available in node.result column
+      
+      // Handle storing to current record if in iteration context
+      if (resolvedConfig?.store_to_record && result !== null && result !== undefined) {
+        const currentRecord = this.getCurrentRecord();
+        if (currentRecord) {
+          try {
+            console.log(`[EXECUTE] Storing result to current record ${currentRecord.recordId}`);
+            
+            if (!this.variableService) {
+              this.variableService = new VariableManagementService();
+            }
+            
+            const fieldName = resolvedConfig.as || node.alias;
+            const updateData = {
+              [`vars.${node.alias}.${fieldName}`]: result
+            };
+            
+            await this.variableService.updateRecord(
+              workflowId, 
+              currentRecord.recordId,
+              updateData,
+              currentRecord
+            );
+            
+            console.log(`[EXECUTE] Stored to record as vars.${node.alias}.${fieldName}`);
+          } catch (storeError) {
+            console.error(`[EXECUTE] Failed to store to record:`, storeError);
+            // Don't fail execution
+          }
+        } else {
+          console.warn(`[EXECUTE] store_to_record requested but no current record context`);
+        }
+      }
       
       // Handle record creation if configured
-      if (node.config?.create_records && result !== null && result !== undefined) {
+      if (resolvedConfig?.create_records && result !== null && result !== undefined) {
         try {
-          console.log(`[EXECUTE] Creating records from result with config:`, node.config.create_records);
+          console.log(`[EXECUTE] Creating records from result with config:`, resolvedConfig.create_records);
           
           if (!this.variableService) {
             this.variableService = new VariableManagementService();
           }
           
-          await this.createRecordsFromResult(result, node.config.create_records, workflowId, node.alias || `node${node.position}`);
+          await this.createRecordsFromResult(result, resolvedConfig.create_records, workflowId, node.alias || `node${node.position}`);
         } catch (recordError) {
           console.error(`[EXECUTE] Failed to create records:`, recordError);
           // Don't fail the execution if record creation fails

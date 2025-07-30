@@ -2185,6 +2185,163 @@ export class DirectorService {
     }
   }
 
+  async getWorkflowData(args, workflowId) {
+    try {
+      const { bucket, pattern, query, limit = 10 } = args;
+      
+      if (!workflowId) {
+        throw new Error('Workflow ID is required');
+      }
+
+      let output = '';
+      
+      // Handle different query modes
+      if (bucket === 'global') {
+        // Get all global variables
+        const variables = await this.variableManagementService.getVariable(workflowId, 'all');
+        output += 'Global:\n';
+        output += this.formatVariablesForDisplay(variables, '  ', limit);
+        
+      } else if (bucket === 'all') {
+        // Get everything - variables and records
+        const variables = await this.variableManagementService.getVariable(workflowId, 'all');
+        output += 'Global:\n';
+        output += this.formatVariablesForDisplay(variables, '  ', limit);
+        
+        // Get all records
+        const { data: records } = await this.supabase
+          .from('workflow_records')
+          .select('*')
+          .eq('workflow_id', workflowId)
+          .order('created_at', { ascending: true });
+          
+        if (records && records.length > 0) {
+          output += `\nRecords (${records.length} total):\n`;
+          const displayRecords = records.slice(0, limit);
+          for (const record of displayRecords) {
+            output += `  ${record.record_id}:\n`;
+            output += this.formatVariablesForDisplay(record.data, '    ', limit);
+          }
+          if (records.length > limit) {
+            output += `  [... ${records.length - limit} more records]\n`;
+          }
+        }
+        
+      } else if (bucket && bucket.match(/^[a-z]+_\d{3}$/)) {
+        // Get specific record
+        const record = await this.variableManagementService.getRecord(workflowId, bucket);
+        if (record) {
+          output += `${bucket}:\n`;
+          output += this.formatVariablesForDisplay(record.data, '  ', limit);
+        } else {
+          output += `Record ${bucket} not found\n`;
+        }
+        
+      } else if (pattern) {
+        // Pattern matching for records
+        const regex = pattern.replace('*', '.*');
+        const { data: records } = await this.supabase
+          .from('workflow_records')
+          .select('*')
+          .eq('workflow_id', workflowId)
+          .order('created_at', { ascending: true });
+          
+        const matchingRecords = records?.filter(r => r.record_id.match(regex)) || [];
+        
+        output += `Records matching "${pattern}" (${matchingRecords.length} total):\n`;
+        const displayRecords = matchingRecords.slice(0, limit);
+        for (const record of displayRecords) {
+          output += `  ${record.record_id}:\n`;
+          output += this.formatVariablesForDisplay(record.data, '    ', limit);
+        }
+        if (matchingRecords.length > limit) {
+          output += `  [... ${matchingRecords.length - limit} more records]\n`;
+        }
+        
+      } else if (query) {
+        // Advanced query filtering
+        let queryBuilder = this.supabase
+          .from('workflow_records')
+          .select('*')
+          .eq('workflow_id', workflowId);
+          
+        if (query.type) {
+          queryBuilder = queryBuilder.eq('record_type', query.type);
+        }
+        if (query.status) {
+          queryBuilder = queryBuilder.eq('status', query.status);
+        }
+        
+        const { data: records } = await queryBuilder.order('created_at', { ascending: true });
+        
+        output += `Records matching query (${records?.length || 0} total):\n`;
+        if (records && records.length > 0) {
+          const displayRecords = records.slice(0, limit);
+          for (const record of displayRecords) {
+            output += `  ${record.record_id}:\n`;
+            output += this.formatVariablesForDisplay(record.data, '    ', limit);
+          }
+          if (records.length > limit) {
+            output += `  [... ${records.length - limit} more records]\n`;
+          }
+        }
+      } else {
+        output = 'Please specify bucket ("global", "all", or record ID), pattern, or query';
+      }
+
+      return {
+        success: true,
+        data: output
+      };
+      
+    } catch (error) {
+      console.error('Failed to get workflow data:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // Helper to format variables with proper indentation and truncation
+  formatVariablesForDisplay(obj, indent = '', limit = 10) {
+    if (!obj || typeof obj !== 'object') {
+      return `${indent}${JSON.stringify(obj)}\n`;
+    }
+    
+    let output = '';
+    const entries = Object.entries(obj);
+    const displayEntries = entries.slice(0, limit);
+    
+    for (const [key, value] of displayEntries) {
+      if (value && typeof value === 'object') {
+        output += `${indent}${key}:\n`;
+        if (Array.isArray(value)) {
+          if (value.length > 3) {
+            output += `${indent}  [...${value.length} items]\n`;
+          } else {
+            output += this.formatVariablesForDisplay(value, indent + '  ', limit);
+          }
+        } else {
+          output += this.formatVariablesForDisplay(value, indent + '  ', limit);
+        }
+      } else {
+        const strValue = String(value);
+        if (strValue.length > 100) {
+          output += `${indent}${key}: ${strValue.substring(0, 100)}...\n`;
+        } else {
+          output += `${indent}${key}: ${strValue}\n`;
+        }
+      }
+    }
+    
+    if (entries.length > limit) {
+      output += `${indent}[... ${entries.length - limit} more fields]\n`;
+    }
+    
+    return output;
+  }
+
   async setVariable(args, workflowId) {
     try {
       const { variableName, value, reason, schema } = args;
@@ -3917,6 +4074,9 @@ export class DirectorService {
           break;
         case 'get_workflow_variables':
           result = await this.getWorkflowVariable(args, workflowId);
+          break;
+        case 'get_workflow_data':
+          result = await this.getWorkflowData(args, workflowId);
           break;
         case 'set_variable':
           result = await this.setVariable(args, workflowId);

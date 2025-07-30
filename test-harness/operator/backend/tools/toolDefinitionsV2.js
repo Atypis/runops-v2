@@ -27,9 +27,10 @@ export function createToolDefinitions() {
               type: 'string',
               description: 'Optional CSS selector to scope extraction to a specific element. If not provided, extracts from the entire visible page.'
             },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
+            store: {
+              type: 'object',
+              description: 'Map specific fields from the result to variables. Example: {"count": "totalEmails", "items": "emailList"} stores result.count as {{alias.totalEmails}} and result.items as {{alias.emailList}}',
+              additionalProperties: { type: 'string' }
             },
             create_records: {
               oneOf: [
@@ -172,9 +173,10 @@ export function createToolDefinitions() {
               enum: ['up', 'down', 'both'],
               description: 'For scrollIntoView: Direction to scroll when searching for element. "both" will try down first, then up if not found (default: down)'
             },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
+            store: {
+              type: 'object',
+              description: 'Map specific fields from the result to variables. Example: {"count": "totalEmails", "items": "emailList"} stores result.count as {{alias.totalEmails}} and result.items as {{alias.emailList}}',
+              additionalProperties: { type: 'string' }
             },
             nth: {
               oneOf: [
@@ -267,9 +269,10 @@ export function createToolDefinitions() {
               enum: ['stop_workflow', 'continue_with_error'],
               description: 'What to do if validation fails (default: stop_workflow)'
             },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
+            store: {
+              type: 'object',
+              description: 'Map specific fields from the result to variables. Example: {"count": "totalEmails", "items": "emailList"} stores result.count as {{alias.totalEmails}} and result.items as {{alias.emailList}}',
+              additionalProperties: { type: 'string' }
             },
             create_records: {
               oneOf: [
@@ -467,9 +470,18 @@ export function createToolDefinitions() {
               description: 'Required JSON Schema defining the output format. Must include at least a "type" property. Common examples: {type: "string"}, {type: "boolean"}, {type: "object", properties: {...}}, {type: "array", items: {...}}. AI outputs are automatically validated and coerced to match this schema (e.g., object→array conversion, string→number, case correction).',
               additionalProperties: true
             },
-            store_variable: {
+            store: {
+              type: 'object',
+              description: 'Map specific fields from the result to variables. Example: {"classification": "emailType", "confidence": "classificationScore"} stores result.classification as {{alias.emailType}}',
+              additionalProperties: { type: 'string' }
+            },
+            store_to_record: {
               type: 'boolean',
-              description: 'Store this node\'s result as a reusable variable (default: false). Access stored results using {{<alias>.<property>}} syntax. Example: If alias="get_data" and result={count: 5}, reference as {{get_data.count}}'
+              description: 'Store result to current record instead of global variable (only works inside record iteration)'
+            },
+            as: {
+              type: 'string',
+              description: 'Field name in record when using store_to_record (defaults to node alias)'
             }
           },
           required: ['instruction', 'schema'],
@@ -871,18 +883,54 @@ export function createToolDefinitions() {
     {
       type: 'function',
       function: {
+        name: 'get_workflow_data',
+        description: 'Get workflow data (variables and records) with flexible querying. Provides unified access to all workflow data with smart truncation for token efficiency.',
+        parameters: {
+          type: 'object',
+          properties: {
+            bucket: {
+              type: 'string',
+              description: 'Query mode: "global" for all variables, record ID like "email_001" for specific record, or "all" for everything'
+            },
+            pattern: {
+              type: 'string',
+              description: 'Pattern matching for records (e.g., "email_*" for all email records)'
+            },
+            query: {
+              type: 'object',
+              description: 'Advanced filtering for records',
+              properties: {
+                type: { type: 'string', description: 'Filter by record type' },
+                status: { type: 'string', description: 'Filter by record status' }
+              }
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum items per bucket (default: 10)',
+              minimum: 1,
+              maximum: 100
+            }
+          },
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'get_workflow_variables',
-        description: 'Get workflow variables with flexible querying. Use variableName="all" for complete state dump, nodeId for node-specific variables, or specific variable names. This tool bypasses chunked display to show full content.',
+        description: 'LEGACY: Use get_workflow_data instead. Get workflow variables only.',
         parameters: {
           type: 'object',
           properties: {
             variableName: {
               type: 'string',
-              description: 'Variable name to retrieve, or "all" for complete variable dump. Examples: "extract_emails", "all", "user_credentials"'
+              description: 'Variable name to retrieve, or "all" for complete variable dump'
             },
             nodeId: {
               type: 'number',
-              description: 'Alternative: get all variables from a specific node. Example: nodeId=7 returns all node7.* variables'
+              description: 'Get all variables from a specific node'
             }
           },
           additionalProperties: false
@@ -1191,10 +1239,6 @@ export function createToolDefinitions() {
                 returnPortalSelector: {
                   type: 'boolean',
                   description: 'For clickAndWaitForPortal: Return the best portal selector in result (default: true)'
-                },
-                store_variable: {
-                  type: 'boolean',
-                  description: 'For clickAndWaitForPortal: Store the result in a workflow variable named "portal_result" (default: false)'
                 }
               },
               additionalProperties: false

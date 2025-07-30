@@ -382,58 +382,220 @@ For processing multiple similar elements (emails, products, etc.):
    - Variables stored flat (not nested under alias)
    - Use for: Credentials, configuration, user input
 
-### D. Variable Reference System
+### D. Data Model: Variables & Records
 
-All variables in workflows are referenced using {{variableName}} syntax. Here's how different variable types work:
+**When You Need Records**
 
-**1. Stored Node Results** (nodes with store_variable: true)
-   - Pattern: \`{{alias.property}}\`
-   - Example: \`{{extract_emails.count}}\`, \`{{get_user.email}}\`
-   - Note: The node must have store_variable: true
+Single entity workflow → Use global variables only  
+Multiple entities workflow → Use records
 
-**2. Context Variables** (from context nodes)
-   - Pattern: \`{{variableName}}\` (stored flat, NOT nested under alias)
-   - Example: \`{{email}}\`, \`{{password}}\`, \`{{apiKey}}\`
-   - Note: These are NOT accessed as {{alias.email}}
+That's it. If your workflow processes one thing, stay global. If it processes many things (14 emails, 5 employees, 20 invoices), use records.
 
-**3. Iteration Variables** (inside iterate nodes)
-   - Pattern: \`{{variable}}\`, \`{{variableIndex}}\`, \`{{variableTotal}}\`
-   - Example: If variable="item": \`{{item}}\`, \`{{itemIndex}}\`, \`{{itemTotal}}\`
-   - ⚠️ NEVER name your iteration variable ending with "Index" (e.g., "currentIndex" creates "currentIndexIndex")
+**The Two Buckets**
+
+1. **Global** - Workflow-wide state (API keys, totals, configs)
+2. **Records** - Individual entities being processed (email_001, employee_002)
+
+Each record is an isolated namespace that accumulates data as it flows through your workflow.
+
+**How Data Gets Stored**
+
+To global variables:
+\`\`\`javascript
+// Via store configuration (replaces store_variable: true)
+store: {
+  "count": "totalEmails",      // result.count → {{extract_emails.totalEmails}}
+  "items[0].id": "firstId"     // Deep paths work
+}
+
+// Via context node
+{ type: 'context', config: { variables: { apiKey: "sk-123" } } }
+\`\`\`
+
+To records:
+\`\`\`javascript
+// Create records during extraction
+{
+  type: 'browser_query',
+  config: {
+    method: 'deterministic_extract',
+    create_records: 'email',  // Creates email_001, email_002...
+    fields: { subject: '.y6', sender: '.from' }
+  }
+}
+
+// Add data during iteration
+{
+  type: 'cognition',
+  config: {
+    store_to_record: true,    // Stores to current record
+    as: 'classification'      // Field name
+  }
+}
+\`\`\`
+
+**How to Reference Data - Complete Syntax**
+
+All variables use \`{{}}\` syntax. Here's every pattern:
+
+**1. Global Variables**
+\`\`\`javascript
+{{apiKey}}                              // Direct variable
+{{extract_emails.totalEmails}}          // Node result (via store: {})
+\`\`\`
+
+**2. Record Variables**
+\`\`\`javascript
+{{current.extract_emails.subject}}      // Current record in iteration
+{{email_001.classify_email.type}}       // Specific record
+{{get_all_records("classify_email.type")}} // Array from all records
+\`\`\`
+
+**3. Iteration Variables** (auto-created by iterate node)
+\`\`\`javascript
+// If variable="item":
+{{item}}         // Current item
+{{itemIndex}}    // Current index (0, 1, 2...)  
+{{itemTotal}}    // Total count
+
+// ⚠️ NEVER name your variable ending with "Index"
+// ❌ variable: "currentIndex" → creates "currentIndexIndex"
+\`\`\`
 
 **4. Environment Variables**
-   - Pattern: \`{{env:VARIABLE_NAME}}\`
-   - Example: \`{{env:GMAIL_EMAIL}}\`, \`{{env:API_KEY}}\`
+\`\`\`javascript
+{{env:GMAIL_EMAIL}}
+{{env:API_KEY}}
+\`\`\`
 
 **5. Nested Properties**
-   - Pattern: \`{{variable.path.to.property}}\` or \`{{variable[0].property}}\`
-   - Example: \`{{user.profile.email}}\`, \`{{items[0].name}}\`
+\`\`\`javascript
+{{user.profile.email}}        // Dot notation
+{{items[0].name}}            // Array access
+{{current.emails[0].subject}} // Combined
+\`\`\`
 
-**Variable Naming Best Practices:**
-- Use descriptive, simple names: "user", "email", "product"
-- Avoid redundant prefixes: Use "item" not "currentItem"
-- NEVER end with reserved suffixes: "Index", "Total", "Result"
-- Keep names short but clear: "msg" > "currentMessage"
+**Data Namespacing**
 
-**Schema Requirements - CRITICAL:**
+Everything shows its source:
+\`\`\`javascript
+email_001: {
+  extract_emails: { subject: "Q4 Report", sender: "cfo@co.com" },
+  classify_email: { type: "finance", priority: "high" }
+}
+// NOT email_001: { subject: "Q4 Report", type: "finance" }
+\`\`\`
 
-**The Golden Rule**: To access properties with dot notation (e.g., \`{{result.property}}\`), the stored variable MUST be an object/array, not a string.
+**Variable Naming Rules**
+
+- ✅ Simple names: \`user\`, \`email\`, \`product\`
+- ✅ Short but clear: \`msg\` > \`currentMessage\`
+- ❌ Redundant prefixes: \`currentItem\` → use \`item\`
+- ❌ Reserved suffixes: Never end with \`Index\`, \`Total\`, \`Result\`
+
+**Schema = Structure = Access**
+
+**The Golden Rule**: To access properties, data must be structured (not a string).
+
+Without schema:
+\`\`\`javascript
+{{result}} → "investor"           // String
+{{result.confidence}} → ERROR     // No property access
+\`\`\`
+
+With schema:
+\`\`\`javascript
+schema: { type: "object", properties: { type: {...}, confidence: {...} } }
+{{result.type}} → "investor"      // Object property  
+{{result.confidence}} → 0.95      // Works!
+\`\`\`
 
 **When You Need Schema:**
+1. Route conditions checking properties
+2. Iterate over arrays (must return actual array)
+3. Any property access (\`{{result.items[0].name}}\`)
 
-1. **Route conditions checking properties**
-   - Without schema: cognition returns string, property access fails
-   - With schema: returns proper object, property access works
-   - Example: For \`{{result.hasHot}}\` to work, must define:
-     \`schema: {type: "object", properties: {hasHot: {type: "boolean"}}}\`
-
-2. **Iterate over arrays** - Must return actual array, not string
-3. **Any property access** - \`{{result.items[0].name}}\` needs schema
-
-**Common Schema Patterns:**
+**Common Schemas:**
 - Text: \`{type: "string"}\`
 - Yes/No: \`{type: "boolean"}\`
 - Number: \`{type: "number"}\`
 - Object: \`{type: "object", properties: {...}}\`
 - Array: \`{type: "array", items: {...}}\`
+
+**Fan-out / Fan-in Pattern**
+
+Process many → Summarize results:
+\`\`\`javascript
+// During iteration, store strategically
+{
+  type: 'cognition',
+  config: {
+    instruction: 'Classify email',
+    store_to_record: true,
+    as: 'classification'
+  }
+}
+
+// After iteration, collect across all records
+{
+  type: 'cognition',  
+  config: {
+    instruction: 'Generate summary report',
+    input: {
+      all_types: '{{get_all_records("classify_email.classification.type")}}',
+      all_subjects: '{{get_all_records("extract_emails.subject")}}'
+    }
+  }
+}
+\`\`\`
+
+**How to Inspect Data**
+
+\`\`\`javascript
+get_workflow_data({ bucket: "global" })          // All variables
+get_workflow_data({ bucket: "email_001" })       // Specific record
+get_workflow_data({ pattern: "email_*" })        // All email records
+\`\`\`
+
+**Common Pattern: Extract → Process → Aggregate**
+
+\`\`\`javascript
+// 1. Extract and create records
+{
+  alias: 'find_emails',
+  config: {
+    create_records: 'email',
+    store: { "count": "totalFound" }
+  }
+}
+
+// 2. Process each record
+{
+  type: 'iterate',
+  config: {
+    over_records: 'email_*',
+    variable: 'current'
+  }
+}
+
+// 3. Inside iteration - enhance record
+{
+  alias: 'classify',
+  config: {
+    store_to_record: true,
+    as: 'classification'
+  }
+}
+
+// 4. After iteration - aggregate
+{
+  alias: 'summarize',
+  config: {
+    input: {
+      all_types: '{{get_all_records("classify.classification")}}',
+      total: '{{find_emails.totalFound}}'
+    }
+  }
+}
+\`\`\`
 `;
