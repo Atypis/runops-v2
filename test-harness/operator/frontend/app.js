@@ -240,7 +240,10 @@ function DebugInputModal({ debugInput, isOpen, onClose }) {
 
 function App() {
   // Resizable panel state
-  const [workflowPanelWidth, setWorkflowPanelWidth] = useState(500); // Default 500px instead of 384px
+  const [workflowPanelWidth, setWorkflowPanelWidth] = useState(() => {
+    // Calculate 50% of viewport width for 50:50 split
+    return Math.floor(window.innerWidth * 0.5);
+  });
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
@@ -270,17 +273,13 @@ function App() {
   const [currentDescription, setCurrentDescription] = useState(null);
   const [showCompressConfirmation, setShowCompressConfirmation] = useState(false);
   const [planExpanded, setPlanExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState('description'); // 'description', 'plan', 'variables', 'browser', 'reasoning', 'tokens', 'groups'
+  const [activeTab, setActiveTab] = useState('nodes'); // 'nodes', 'description', 'plan', 'variables', 'browser', 'groups'
   const [variables, setVariables] = useState([]);
   const [reasoningText, setReasoningText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const [reasoningConnected, setReasoningConnected] = useState(false);
   const [reasoningVersion, setReasoningVersion] = useState(0); // Force re-renders
   const [currentReasoningMessageIndex, setCurrentReasoningMessageIndex] = useState(null); // Track which message is currently receiving reasoning
   const [selectedNodes, setSelectedNodes] = useState([]); // For node selection
-  const [reasoningSessions, setReasoningSessions] = useState([]); // Persistent reasoning sessions
-  const [currentSessionId, setCurrentSessionId] = useState(null); // Track current session
-  const [tokenStats, setTokenStats] = useState(null); // Token usage statistics
   const [browserState, setBrowserState] = useState(null); // Browser state for Director 2.0
   const [debugModalOpen, setDebugModalOpen] = useState(false); // Debug modal state
   const [debugModalData, setDebugModalData] = useState(null); // Debug modal data
@@ -437,7 +436,6 @@ function App() {
     if (currentWorkflow?.id) {
       loadNodeValues();
       loadVariables();
-      loadTokenStats();
       loadInitialBrowserState(); // Load initial browser state as fallback
     }
   }, [currentWorkflow?.id]);
@@ -479,19 +477,6 @@ function App() {
     }
   };
 
-  const loadTokenStats = async () => {
-    if (!currentWorkflow?.id) return;
-    
-    try {
-      const response = await fetch(`${API_BASE}/workflows/${currentWorkflow.id}/token-stats`);
-      if (response.ok) {
-        const data = await response.json();
-        setTokenStats(data.tokenStats);
-      }
-    } catch (error) {
-      console.error('Failed to load token stats:', error);
-    }
-  };
 
 
   // Real-time browser state updates via Server-Sent Events with auto-reconnection
@@ -733,7 +718,6 @@ function App() {
       loadVariables(); // Variables only (browser state via SSE)
       loadCurrentPlan(currentWorkflow?.id);
       loadCurrentDescription(currentWorkflow?.id);
-      loadTokenStats(); // Token stats
     }, 10000); // Poll every 10 seconds (less frequent)
     
     return () => clearInterval(interval);
@@ -4859,8 +4843,8 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col">
+        {/* Chat Area - no longer flex-1, width controlled by remaining space */}
+        <div className="flex flex-col" style={{ width: `calc(100% - ${workflowPanelWidth}px)` }}>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-white">
@@ -5249,261 +5233,190 @@ function App() {
             </div>
           </div>
           
-          {/* Tabbed Control Panel */}
+          {/* Tab Headers */}
           {!mockMode && currentWorkflow && (
-            <div className="border-b bg-white">
-              {/* Tab Headers */}
-              <div className="flex border-b bg-gray-50">
-                <button
-                  onClick={() => setActiveTab('description')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'description'
-                      ? 'text-purple-700 border-b-2 border-purple-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Description
-                </button>
-                <button
-                  onClick={() => setActiveTab('plan')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'plan'
-                      ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Plan
-                </button>
-                <button
-                  onClick={() => setActiveTab('variables')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'variables'
-                      ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Variables
-                  {variables.length > 0 && (
-                    <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
-                      {variables.length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('browser')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'browser'
-                      ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Browser State
-                  {browserState?.rawState?.tabs?.length > 0 && (
-                    <span className="ml-1 inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
-                      {browserState.rawState.tabs.length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('reasoning')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'reasoning'
-                      ? 'text-purple-700 border-b-2 border-purple-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  AI Reasoning
-                  {isThinking && (
-                    <span className="ml-2 inline-block w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('tokens')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'tokens'
-                      ? 'text-green-700 border-b-2 border-green-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Tokens
-                  {tokenStats && tokenStats.totals.total_tokens > 100000 && (
-                    <span className="ml-2 inline-block w-2 h-2 bg-orange-500 rounded-full" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('groups')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                    activeTab === 'groups'
-                      ? 'text-teal-700 border-b-2 border-teal-700 bg-white'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Groups
-                  {currentWorkflow?.nodes?.filter(n => n.type === 'group').length > 0 && (
-                    <span className="ml-1 inline-block bg-teal-100 text-teal-800 text-xs px-2 py-0.5 rounded-full">
-                      {currentWorkflow.nodes.filter(n => n.type === 'group').length}
-                    </span>
-                  )}
-                </button>
-              </div>
-              
-              {/* Tab Content */}
-              <div className="p-4 max-h-96 overflow-y-auto">
-                {activeTab === 'description' && (
-                  <DescriptionViewer description={currentDescription} workflowId={currentWorkflow?.id} />
+            <div className="flex border-b bg-gray-50">
+              <button
+                onClick={() => setActiveTab('nodes')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'nodes'
+                    ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Workflow Nodes
+                {workflowNodes.length > 0 && (
+                  <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                    {workflowNodes.length}
+                  </span>
                 )}
-                {activeTab === 'plan' && (
-                  <PlanViewer plan={currentPlan} workflowId={currentWorkflow?.id} />
+              </button>
+              <button
+                onClick={() => setActiveTab('description')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'description'
+                    ? 'text-purple-700 border-b-2 border-purple-700 bg-white'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Description
+              </button>
+              <button
+                onClick={() => setActiveTab('plan')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'plan'
+                    ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Plan
+              </button>
+              <button
+                onClick={() => setActiveTab('variables')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'variables'
+                    ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Variables
+                {variables.length > 0 && (
+                  <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                    {variables.length}
+                  </span>
                 )}
-                {activeTab === 'variables' && (
-                  <VariablesViewer variables={variables} workflowId={currentWorkflow?.id} />
+              </button>
+              <button
+                onClick={() => setActiveTab('browser')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'browser'
+                    ? 'text-blue-700 border-b-2 border-blue-700 bg-white'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Browser State
+                {browserState?.rawState?.tabs?.length > 0 && (
+                  <span className="ml-1 inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                    {browserState.rawState.tabs.length}
+                  </span>
                 )}
-                {activeTab === 'browser' && (
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <h3 className="text-sm font-medium text-gray-900 mb-3">Director's Browser View</h3>
-                      <div className="bg-white rounded border p-3">
-                        <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
-                          {browserState?.formattedDisplay || 'BROWSER STATE:\nNo browser session active'}
-                        </pre>
-                      </div>
-                    </div>
-                    
-                    {browserState?.rawState && (
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <h3 className="text-sm font-medium text-gray-900 mb-3">Raw Browser State</h3>
-                        <div className="bg-white rounded border p-3">
-                          <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono overflow-auto max-h-64">
-                            {JSON.stringify(browserState.rawState, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('groups')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'groups'
+                    ? 'text-teal-700 border-b-2 border-teal-700 bg-white'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Groups
+                {currentWorkflow?.nodes?.filter(n => n.type === 'group').length > 0 && (
+                  <span className="ml-1 inline-block bg-teal-100 text-teal-800 text-xs px-2 py-0.5 rounded-full">
+                    {currentWorkflow.nodes.filter(n => n.type === 'group').length}
+                  </span>
                 )}
-                {activeTab === 'reasoning' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium text-gray-700">AI Reasoning Sessions</div>
-                        <div className={`w-2 h-2 rounded-full ${reasoningConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                        <span className="text-xs text-gray-500">
-                          {reasoningConnected ? 'Connected' : 'Disconnected'}
-                        </span>
-                      </div>
-                      {reasoningSessions.length > 0 && (
-                        <button
-                          onClick={() => setReasoningSessions([])}
-                          className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
-                        >
-                          Clear All
-                        </button>
-                      )}
-                    </div>
-                    
-                    {reasoningSessions.length > 0 ? (
-                      <div className="space-y-3 max-h-64 overflow-y-auto">
-                        {reasoningSessions.map((session, index) => (
-                          <div key={session.id} className="bg-gray-50 border rounded-lg p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-medium text-gray-600">
-                                Session {index + 1} • {session.timestamp.toLocaleTimeString()}
-                                {session.messageIndex !== null && (
-                                  <span className="ml-2 bg-blue-100 text-blue-700 px-1 rounded">
-                                    Message #{session.messageIndex + 1}
-                                  </span>
-                                )}
-                              </div>
-                              {session.isThinking && (
-                                <span className="inline-block w-2 h-2 bg-purple-500 animate-pulse rounded-full" />
-                              )}
-                            </div>
-                            <div className="text-sm font-mono text-gray-800 whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
-                              {session.text || (session.isThinking ? 'AI is thinking...' : 'No reasoning text')}
-                            </div>
-                            <div className="text-xs text-gray-400 mt-2">
-                              Length: {session.text.length} • {session.isThinking ? 'In Progress' : 'Completed'}
-                              {session.completedAt && (
-                                <span> • Finished at {session.completedAt.toLocaleTimeString()}</span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center text-gray-500 py-8">
-                        <div className="text-2xl mb-2">🧠</div>
-                        <p className="text-sm">No reasoning sessions yet</p>
-                        <p className="text-xs mt-1">AI reasoning will appear here when available</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {activeTab === 'tokens' && (
-                  <TokenViewer tokenStats={tokenStats} />
-                )}
-                {activeTab === 'groups' && (
-                  <GroupsViewer 
-                    workflowId={currentWorkflow?.id}
-                  />
-                )}
-              </div>
+              </button>
             </div>
           )}
           
+          {/* Tab Content - now extends to full height */}
           <div 
             ref={nodesPanelRef} 
             className="flex-1 overflow-y-auto p-4"
             onScroll={(e) => {
               // Store scroll position for recovery
-              if (nodesPanelRef.current) {
+              if (nodesPanelRef.current && activeTab === 'nodes') {
                 nodesPanelRef.current._lastScrollTop = e.target.scrollTop;
               }
             }}
           >
-            {workflowNodes.length === 0 ? (
-              <div className="text-center text-gray-500 mt-8">
-                <p className="text-sm">No nodes yet</p>
-                <p className="text-xs mt-2">Start chatting to create nodes</p>
-              </div>
-            ) : (
-              <>
-                {mockMode && workflowNodes.some(n => n.id && typeof n.id === 'string' && n.id.startsWith('mock_')) && (
-                  <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                    <div className="text-sm text-purple-700 mb-2">
-                      These nodes are loaded from mock-director/response.json
+            {activeTab === 'nodes' && (
+              workflowNodes.length === 0 ? (
+                <div className="text-center text-gray-500 mt-8">
+                  <p className="text-sm">No nodes yet</p>
+                  <p className="text-xs mt-2">Start chatting to create nodes</p>
+                </div>
+              ) : (
+                <>
+                  {mockMode && workflowNodes.some(n => n.id && typeof n.id === 'string' && n.id.startsWith('mock_')) && (
+                    <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="text-sm text-purple-700 mb-2">
+                        These nodes are loaded from mock-director/response.json
+                      </div>
+                      <button
+                        onClick={uploadMockNodesToSupabase}
+                        className="w-full px-4 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors"
+                      >
+                        📤 Upload to Supabase
+                      </button>
                     </div>
-                    <button
-                      onClick={uploadMockNodesToSupabase}
-                      className="w-full px-4 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors"
-                    >
-                      📤 Upload to Supabase
-                    </button>
+                  )}
+                  <div className="space-y-3">
+                    {workflowNodes.map((node, index) => {
+                      if (node.type === 'group') {
+                        console.log('[RENDER] Rendering group node:', node);
+                      }
+                      return (
+                        <NodeCard 
+                          key={node.id} 
+                          node={node} 
+                          executeNode={executeNode} 
+                          depth={0}
+                          expandedNodes={expandedNodes} 
+                          setExpandedNodes={setExpandedNodes} 
+                          loadNodeValues={loadNodeValues}
+                          currentWorkflow={currentWorkflow}
+                          nodeValues={nodeValues}
+                          selectedNodes={selectedNodes}
+                          setSelectedNodes={setSelectedNodes}
+                        />
+                      );
+                    })}
+                  </div>
+                </>
+              )
+            )}
+            
+            {activeTab === 'description' && (
+              <DescriptionViewer description={currentDescription} workflowId={currentWorkflow?.id} />
+            )}
+            
+            {activeTab === 'plan' && (
+              <PlanViewer plan={currentPlan} workflowId={currentWorkflow?.id} />
+            )}
+            
+            {activeTab === 'variables' && (
+              <VariablesViewer variables={variables} workflowId={currentWorkflow?.id} />
+            )}
+            
+            {activeTab === 'browser' && (
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">Director's Browser View</h3>
+                  <div className="bg-white rounded border p-3">
+                    <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                      {browserState?.formattedDisplay || 'BROWSER STATE:\nNo browser session active'}
+                    </pre>
+                  </div>
+                </div>
+                
+                {browserState?.rawState && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-900 mb-3">Raw Browser State</h3>
+                    <div className="bg-white rounded border p-3">
+                      <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono overflow-auto max-h-64">
+                        {JSON.stringify(browserState.rawState, null, 2)}
+                      </pre>
+                    </div>
                   </div>
                 )}
-                <div className="space-y-3">
-                  {workflowNodes.map((node, index) => {
-                    if (node.type === 'group') {
-                      console.log('[RENDER] Rendering group node:', node);
-                    }
-                    return (
-                      <NodeCard 
-                        key={node.id} 
-                        node={node} 
-                        executeNode={executeNode} 
-                        depth={0}
-                        expandedNodes={expandedNodes} 
-                        setExpandedNodes={setExpandedNodes} 
-                        loadNodeValues={loadNodeValues}
-                        currentWorkflow={currentWorkflow}
-                        nodeValues={nodeValues}
-                        selectedNodes={selectedNodes}
-                        setSelectedNodes={setSelectedNodes}
-                      />
-                    );
-                  })}
-                </div>
-              </>
+              </div>
+            )}
+            
+            {activeTab === 'groups' && (
+              <GroupsViewer 
+                workflowId={currentWorkflow?.id}
+              />
             )}
           </div>
         </div>
