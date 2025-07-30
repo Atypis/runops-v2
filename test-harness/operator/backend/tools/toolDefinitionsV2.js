@@ -249,10 +249,10 @@ export function createToolDefinitions() {
             },
             fields: {
               type: 'object',
-              description: 'For deterministic_extract: Field mappings to extract from each element. Use CSS selectors for sub-elements, @attribute for attributes, @attribute~value for contains checks',
+              description: 'For deterministic_extract: Field mappings to extract from each element. Each field uses ONE of three modes:\n• CSS selector (e.g., ".title", "span.name") - finds sub-element and gets its text\n• Attribute extraction (e.g., "@href", "@class") - gets attribute from current element\n• Current element text (e.g., ".") - gets text from current element\nIMPORTANT: Cannot combine CSS selectors with @ attributes in one expression.',
               additionalProperties: {
                 type: 'string',
-                description: 'CSS selector or @attribute notation. Examples: ".title" for text, "@href" for attribute, "@class~active" for class contains'
+                description: 'Field selector using one of three modes. Examples:\n• ".title" - gets text from sub-element\n• "@href" - gets href attribute from current element\n• "." - gets text from current element\n❌ WRONG: "a.title@href" (mixing modes)\n✅ RIGHT: Use selector="a.title" with field="@href"'
               }
             },
             limit: {
@@ -1080,7 +1080,7 @@ Quick Testing - Position:
       type: 'function',
       function: {
         name: 'get_workflow_nodes',
-        description: 'Get detailed information about workflow nodes. Can filter by range or node type.',
+        description: 'Get information about workflow nodes. Use format parameter to control output detail level.',
         parameters: {
           type: 'object',
           properties: {
@@ -1092,6 +1092,12 @@ Quick Testing - Position:
             type: {
               type: 'string',
               description: 'Optional: filter by node type (e.g., "browser_action", "route", "iterate")'
+            },
+            format: {
+              type: 'string',
+              enum: ['tree', 'detailed', 'list'],
+              description: 'Output format: "tree" (visual hierarchy, default), "detailed" (full config and results), "list" (summary only)',
+              default: 'tree'
             }
           },
           additionalProperties: false

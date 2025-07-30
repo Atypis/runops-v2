@@ -4424,6 +4424,22 @@ export class DirectorService {
           // Format based on requested format
           if (format === 'tree') {
             result = this.formatNodesAsTree(filteredNodes);
+          } else if (format === 'detailed') {
+            // Full node details including configuration
+            result = filteredNodes.map(node => ({
+              position: node.position,
+              type: node.type,
+              alias: node.alias,
+              description: node.description || 'No description',
+              status: node.status,
+              config: node.params || {},  // Full configuration
+              result: node.result || null,  // Full result data
+              executed_at: node.executed_at,
+              created_at: node.created_at,
+              id: node.id,
+              uuid: node.uuid,
+              store_variable: node.store_variable
+            }));
           } else {
             // Legacy format for backward compatibility
             result = filteredNodes.map(node => ({

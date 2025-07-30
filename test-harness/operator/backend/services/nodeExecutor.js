@@ -2227,6 +2227,24 @@ export class NodeExecutor {
       const activePage = await getActiveStagehandPage();
       console.log(`[BROWSER_QUERY] Extracting elements with selector: ${config.selector}`);
       
+      // Validate field selectors before execution
+      if (config.fields) {
+        for (const [fieldName, fieldSelector] of Object.entries(config.fields)) {
+          // Check for common mistakes: mixing CSS selectors with @ attributes
+          if (fieldSelector.includes('@') && !fieldSelector.startsWith('@')) {
+            throw new Error(`Invalid field selector "${fieldSelector}" for field "${fieldName}". Cannot mix CSS selectors with @ attributes in one expression.
+            
+❌ WRONG: "${fieldSelector}"
+✅ RIGHT: Use selector="${fieldSelector.split('@')[0]}" with field="@${fieldSelector.split('@')[1]}"
+
+Field selectors must use ONE of three modes:
+• CSS selector (e.g., ".title", "span.name") - finds sub-element and gets its text
+• Attribute extraction (e.g., "@href", "@class") - gets attribute from current element  
+• Current element text (e.g., ".") - gets text from current element`);
+          }
+        }
+      }
+      
       try {
         // Use page.evaluate for deterministic extraction - wrap arguments in single object
         const extractedData = await activePage.evaluate((args) => {

@@ -354,6 +354,26 @@ For processing multiple similar elements (emails, products, etc.):
 - Use AI only for unpredictable content
 - Workflow: Navigate (deterministic) → Extract fuzzy content (AI) → Process (deterministic)
 
+**⚠️ CRITICAL: Deterministic Extraction Syntax**
+
+**Cannot mix CSS selectors with @ attributes in field expressions.**
+
+\`\`\`javascript
+// ❌ WRONG
+{
+  selector: "tr.article", 
+  fields: { "link": "td.title a@href" }  // Invalid - mixing CSS + @
+}
+
+// ✅ RIGHT  
+{
+  selector: "td.title a",              // Target the links directly
+  fields: { "text": ".", "link": "@href" }  // Simple operations only
+}
+\`\`\`
+
+**Field modes:** CSS selector (\`".title"\`), attribute (\`"@href"\`), or current element (\`"."\`).
+
 **Control Layer:**
 5. **\`iterate\`** - Loop over arrays
    - Execute nodes for each item in an array
