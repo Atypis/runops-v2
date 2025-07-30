@@ -876,6 +876,11 @@ export class DirectorService {
       }
       
       console.log(`[INSERT_NODE_AT] Created ${createdNodes.length} nodes starting at position ${position}`);
+      
+      // Update references in control flow nodes after insertion
+      await this.updateAffectedNodeReferences(workflowId, 'insert', 
+        Array.from({ length: nodes.length }, (_, i) => position + i));
+      
       return {
         message: `Inserted ${createdNodes.length} nodes at position ${position}`,
         nodes: createdNodes
@@ -923,7 +928,206 @@ export class DirectorService {
     }, workflowId);
     
     console.log(`[INSERT_NODE_AT] Created new node at position ${position}`);
+    
+    // Update references in control flow nodes after insertion
+    await this.updateAffectedNodeReferences(workflowId, 'insert', [position]);
+    
     return result;
+  }
+
+  /**
+   * Resolve node references (aliases/positions) to positions
+   * Supports: arrays, ranges, single values
+   */
+  async resolveNodeReferences(value, workflowId) {
+    if (!value) return value;
+    
+    // Cache for performance within this resolution
+    const aliasCache = new Map();
+    
+    // Helper to resolve single alias
+    const resolveAlias = async (alias) => {
+      if (aliasCache.has(alias)) return aliasCache.get(alias);
+      
+      const { data } = await this.supabase
+        .from('nodes')
+        .select('position')
+        .eq('workflow_id', workflowId)
+        .eq('alias', alias)
+        .single();
+      
+      if (!data) throw new Error(`Node alias '${alias}' not found in workflow`);
+      
+      aliasCache.set(alias, data.position);
+      return data.position;
+    };
+    
+    // Handle arrays (iterate body, route branches)
+    if (Array.isArray(value)) {
+      const resolved = [];
+      for (const ref of value) {
+        if (typeof ref === 'string' && ref.match(/^[a-z][a-z0-9_]*$/)) {
+          // Alias reference
+          resolved.push(await resolveAlias(ref));
+        } else if (typeof ref === 'number') {
+          resolved.push(ref); // Already a position
+        } else {
+          throw new Error(`Invalid node reference: ${ref}`);
+        }
+      }
+      return resolved;
+    }
+    
+    // Handle string ranges
+    if (typeof value === 'string') {
+      if (value.includes('..')) {
+        // Alias range: "start_node..end_node"
+        const [startAlias, endAlias] = value.split('..');
+        const startPos = await resolveAlias(startAlias.trim());
+        const endPos = await resolveAlias(endAlias.trim());
+        
+        if (startPos > endPos) {
+          throw new Error(`Invalid range: ${startAlias} (pos ${startPos}) comes after ${endAlias} (pos ${endPos})`);
+        }
+        
+        // Return array of positions in range
+        const positions = [];
+        for (let i = startPos; i <= endPos; i++) {
+          positions.push(i);
+        }
+        return positions;
+        
+      } else if (value.match(/^\d+-\d+$/)) {
+        // Position range: "5-10"
+        const [start, end] = value.split('-').map(Number);
+        const positions = [];
+        for (let i = start; i <= end; i++) {
+          positions.push(i);
+        }
+        return positions;
+      } else if (value.match(/^[a-z][a-z0-9_]*$/)) {
+        // Single alias
+        return await resolveAlias(value);
+      }
+    }
+    
+    // Return as-is for numbers or other types
+    return value;
+  }
+
+  /**
+   * Detect the type of reference
+   */
+  detectReferenceType(ref) {
+    if (Array.isArray(ref)) {
+      if (ref.length > 0 && typeof ref[0] === 'string') return 'aliases';
+      return 'positions';
+    }
+    if (typeof ref === 'string') {
+      if (ref.includes('..')) return 'alias_range';
+      if (ref.includes('-')) return 'position_range';
+      return 'alias';
+    }
+    return 'position';
+  }
+
+  /**
+   * Resolve and store node references for control flow nodes
+   */
+  async resolveAndStoreNodeReferences(nodeData, workflowId) {
+    // For iterate nodes
+    if (nodeData.type === 'iterate' && nodeData.params?.body) {
+      const resolved = await this.resolveNodeReferences(nodeData.params.body, workflowId);
+      nodeData.params.body_positions = resolved;
+      nodeData.params.body_type = this.detectReferenceType(nodeData.params.body);
+    }
+    
+    // For route nodes
+    if (nodeData.type === 'route' && Array.isArray(nodeData.params)) {
+      for (const branch of nodeData.params) {
+        if (branch.branch) {
+          const resolved = await this.resolveNodeReferences(branch.branch, workflowId);
+          branch.branch_positions = resolved;
+          branch.branch_type = this.detectReferenceType(branch.branch);
+        }
+      }
+    }
+    
+    return nodeData;
+  }
+
+  /**
+   * Update affected node references after workflow changes
+   * Called after insert/delete operations
+   */
+  async updateAffectedNodeReferences(workflowId, operation, affectedPositions) {
+    console.log(`[UPDATE_REFERENCES] Updating references after ${operation} affecting positions:`, affectedPositions);
+    
+    // Find all iterate/route nodes that might be affected
+    const { data: controlNodes } = await this.supabase
+      .from('nodes')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .in('type', ['iterate', 'route']);
+    
+    if (!controlNodes || controlNodes.length === 0) {
+      console.log('[UPDATE_REFERENCES] No control flow nodes to update');
+      return;
+    }
+    
+    for (const node of controlNodes) {
+      let needsUpdate = false;
+      const config = node.params || node.config;
+      
+      // Check iterate nodes
+      if (node.type === 'iterate' && config) {
+        // Only update if using aliases (not raw positions)
+        if (config.body && config.body_type && config.body_type !== 'positions') {
+          console.log(`[UPDATE_REFERENCES] Re-resolving iterate node ${node.alias} body references`);
+          try {
+            const resolved = await this.resolveNodeReferences(config.body, workflowId);
+            config.body_positions = resolved;
+            needsUpdate = true;
+          } catch (error) {
+            console.error(`[UPDATE_REFERENCES] Failed to resolve references for iterate ${node.alias}:`, error.message);
+            // Continue with other nodes
+          }
+        }
+      }
+      
+      // Check route nodes
+      if (node.type === 'route' && Array.isArray(config)) {
+        for (const branch of config) {
+          if (branch.branch && branch.branch_type && branch.branch_type !== 'positions') {
+            console.log(`[UPDATE_REFERENCES] Re-resolving route node ${node.alias} branch '${branch.name}' references`);
+            try {
+              const resolved = await this.resolveNodeReferences(branch.branch, workflowId);
+              branch.branch_positions = resolved;
+              needsUpdate = true;
+            } catch (error) {
+              console.error(`[UPDATE_REFERENCES] Failed to resolve references for route ${node.alias} branch ${branch.name}:`, error.message);
+              // Continue with other branches
+            }
+          }
+        }
+      }
+      
+      // Update node if needed
+      if (needsUpdate) {
+        const { error } = await this.supabase
+          .from('nodes')
+          .update({ params: config })
+          .eq('id', node.id);
+        
+        if (error) {
+          console.error(`[UPDATE_REFERENCES] Failed to update node ${node.alias}:`, error);
+        } else {
+          console.log(`[UPDATE_REFERENCES] Updated node ${node.alias} with new resolved positions`);
+        }
+      }
+    }
+    
+    console.log('[UPDATE_REFERENCES] Completed reference updates');
   }
 
   async createNode(args, workflowId) {
@@ -1083,7 +1287,8 @@ export class DirectorService {
       delete cleanConfig.store_variable;  // Remove from params to keep it clean
     }
     
-    const nodeData = {
+    // Prepare node data
+    let nodeData = {
       workflow_id: workflowId,
       position: nodePosition,
       type,
@@ -1099,6 +1304,9 @@ export class DirectorService {
     if (parent_position !== undefined && parent_position !== null && type !== 'group') {
       nodeData.params._parent_position = parent_position;
     }
+    
+    // Resolve aliases to positions for control flow nodes BEFORE storing
+    nodeData = await this.resolveAndStoreNodeReferences(nodeData, workflowId);
     
     const { data: node, error } = await supabase
       .from('nodes')
@@ -1185,6 +1393,21 @@ export class DirectorService {
       .eq('id', nodeId)
       .single();
 
+    // Resolve aliases for control flow nodes if params are being updated
+    if (mappedUpdates.params && nodeBeforeUpdate) {
+      // Create a temporary nodeData object for resolution
+      const tempNodeData = {
+        type: nodeBeforeUpdate.type,
+        params: mappedUpdates.params
+      };
+      
+      // Resolve and update the params
+      const resolved = await this.resolveAndStoreNodeReferences(tempNodeData, nodeBeforeUpdate.workflow_id);
+      mappedUpdates.params = resolved.params;
+      
+      console.log('[UPDATE_NODE] Resolved aliases in params:', JSON.stringify(mappedUpdates.params, null, 2));
+    }
+
     const { data: node, error } = await supabase
       .from('nodes')
       .update(mappedUpdates)
@@ -1215,6 +1438,116 @@ export class DirectorService {
    * New 2-function design: Add or Replace Nodes
    * Handles create, insert, and update based on target type
    */
+  /**
+   * Helper to resolve node reference (alias or position) to node
+   */
+  async resolveNodeReference(ref, workflowId) {
+    if (typeof ref === 'string') {
+      // Try alias first
+      const { data: nodeByAlias } = await this.supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .eq('alias', ref)
+        .single();
+      
+      if (nodeByAlias) return nodeByAlias;
+      
+      // Try position if numeric string
+      if (ref.match(/^\d+$/)) {
+        const { data: nodeByPos } = await this.supabase
+          .from('nodes')
+          .select('*')
+          .eq('workflow_id', workflowId)
+          .eq('position', parseInt(ref))
+          .single();
+        
+        return nodeByPos;
+      }
+    } else if (typeof ref === 'number') {
+      const { data: nodeByPos } = await this.supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .eq('position', ref)
+        .single();
+      
+      return nodeByPos;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Insert nodes after a target node
+   */
+  async insertNodesAfter(targetRef, nodes, workflowId) {
+    const targetNode = await this.resolveNodeReference(targetRef, workflowId);
+    if (!targetNode) throw new Error(`Target node '${targetRef}' not found`);
+    
+    console.log(`[INSERT_AFTER] Inserting ${nodes.length} nodes after ${targetNode.alias} (position ${targetNode.position})`);
+    
+    // Insert at position + 1
+    return await this.insertNodeAt({
+      position: targetNode.position + 1,
+      nodes
+    }, workflowId);
+  }
+
+  /**
+   * Insert nodes before a target node
+   */
+  async insertNodesBefore(targetRef, nodes, workflowId) {
+    const targetNode = await this.resolveNodeReference(targetRef, workflowId);
+    if (!targetNode) throw new Error(`Target node '${targetRef}' not found`);
+    
+    console.log(`[INSERT_BEFORE] Inserting ${nodes.length} nodes before ${targetNode.alias} (position ${targetNode.position})`);
+    
+    // Insert at same position (shifts target forward)
+    return await this.insertNodeAt({
+      position: targetNode.position,
+      nodes
+    }, workflowId);
+  }
+
+  /**
+   * Replace multiple nodes with new nodes
+   */
+  async replaceMultipleNodes(targetRefs, nodes, workflowId) {
+    if (!Array.isArray(targetRefs)) {
+      targetRefs = [targetRefs];
+    }
+    
+    // Resolve all targets
+    const targets = [];
+    for (const ref of targetRefs) {
+      const node = await this.resolveNodeReference(ref, workflowId);
+      if (!node) throw new Error(`Target node '${ref}' not found`);
+      targets.push(node);
+    }
+    
+    // Sort by position for proper replacement
+    targets.sort((a, b) => a.position - b.position);
+    
+    console.log(`[REPLACE_MULTIPLE] Replacing ${targets.length} nodes with ${nodes.length} new nodes`);
+    
+    const firstPosition = targets[0].position;
+    
+    // Delete old nodes
+    await this.deleteNodes({
+      nodeIds: targets.map(t => t.id),
+      handleDependencies: true,
+      deleteChildren: false,
+      dryRun: false
+    });
+    
+    // Insert new nodes at first position
+    return await this.insertNodeAt({
+      position: firstPosition,
+      nodes
+    }, workflowId);
+  }
+
   async addOrReplaceNodes(args, workflowId) {
     const { target, nodes, mode = 'replace' } = args;
     
@@ -1229,6 +1562,37 @@ export class DirectorService {
     }
     
     console.log(`[ADD_OR_REPLACE_NODES] Target: ${target}, Nodes: ${nodes.length}`);
+    
+    // Handle object-based targeting
+    if (typeof target === 'object' && target !== null) {
+      if (target.after) {
+        const result = await this.insertNodesAfter(target.after, nodes, workflowId);
+        return {
+          success: true,
+          operation: 'insert_after',
+          nodes: result.nodes,
+          message: `Inserted ${nodes.length} node(s) after ${target.after}`
+        };
+      } else if (target.before) {
+        const result = await this.insertNodesBefore(target.before, nodes, workflowId);
+        return {
+          success: true,
+          operation: 'insert_before',
+          nodes: result.nodes,
+          message: `Inserted ${nodes.length} node(s) before ${target.before}`
+        };
+      } else if (target.replace) {
+        const result = await this.replaceMultipleNodes(target.replace, nodes, workflowId);
+        return {
+          success: true,
+          operation: 'replace_multiple',
+          nodes: result.nodes,
+          message: `Replaced ${Array.isArray(target.replace) ? target.replace.length : 1} node(s) with ${nodes.length} new node(s)`
+        };
+      } else {
+        throw new Error('Invalid target object. Use {after: "alias"}, {before: "alias"}, or {replace: ["alias1", "alias2"]}');
+      }
+    }
     
     // Determine operation based on target type
     if (target === 'end') {
@@ -1668,6 +2032,9 @@ export class DirectorService {
           await this.updateControlFlowPositions(workflowId, positionUpdates);
         }
       }
+      
+      // Update alias-based references after deletion and position changes
+      await this.updateAffectedNodeReferences(workflowId, 'delete', deletedPositions);
 
       // Step 7: Return comprehensive result with refresh flag
       return {
@@ -3212,7 +3579,7 @@ export class DirectorService {
 
   /**
    * Parse node selection string into array of positions
-   * Supports: "5", "3-5", "1-3,10,15-17,25", "all"
+   * Supports: "5", "3-5", "1-3,10,15-17,25", "all", "alias", "alias1..alias2"
    */
   async parseNodeSelection(selectionString, workflowId) {
     if (selectionString === 'all') {
@@ -3232,8 +3599,16 @@ export class DirectorService {
     for (const part of parts) {
       const trimmed = part.trim();
       
-      if (trimmed.includes('-')) {
-        // Handle range: "3-5" → [3,4,5]
+      if (trimmed.includes('..')) {
+        // Alias range: "validate..notify"
+        const resolved = await this.resolveNodeReferences(trimmed, workflowId);
+        if (Array.isArray(resolved)) {
+          positions.push(...resolved);
+        } else {
+          positions.push(resolved);
+        }
+      } else if (trimmed.includes('-') && trimmed.match(/^\d+-\d+$/)) {
+        // Position range: "3-5" → [3,4,5]
         const [start, end] = trimmed.split('-').map(n => parseInt(n.trim()));
         
         if (isNaN(start) || isNaN(end) || start > end) {
@@ -3243,12 +3618,20 @@ export class DirectorService {
         for (let i = start; i <= end; i++) {
           positions.push(i);
         }
+      } else if (trimmed.match(/^[a-z][a-z0-9_]*$/)) {
+        // Single alias
+        const pos = await this.resolveNodeReferences(trimmed, workflowId);
+        if (typeof pos === 'number') {
+          positions.push(pos);
+        } else {
+          throw new Error(`Could not resolve alias "${trimmed}" to a position`);
+        }
       } else {
-        // Handle individual: "20" → [20]
+        // Handle individual position: "20" → [20]
         const position = parseInt(trimmed);
         
         if (isNaN(position)) {
-          throw new Error(`Invalid position: "${trimmed}". Position should be a number`);
+          throw new Error(`Invalid node reference: "${trimmed}". Use a number, alias, or range`);
         }
         
         positions.push(position);

@@ -2838,7 +2838,8 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         
         if (conditionMet) {
           selectedPath = branch.name;
-          selectedBranch = branch.branch;
+          // Use pre-resolved positions if available, fall back to branch
+          selectedBranch = branch.branch_positions || branch.branch;
           console.log(`[ROUTE] Taking branch '${branch.name}'`);
           break;
         }
@@ -2853,7 +2854,8 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       const defaultBranch = config.find(b => b.condition === 'true' || b.name === 'default');
       if (defaultBranch) {
         selectedPath = defaultBranch.name;
-        selectedBranch = defaultBranch.branch;
+        // Use pre-resolved positions if available, fall back to branch
+        selectedBranch = defaultBranch.branch_positions || defaultBranch.branch;
         console.log(`[ROUTE] No specific conditions met, taking default branch '${defaultBranch.name}'`);
       }
     }
@@ -3557,13 +3559,16 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       
       // Get body node information for display
       let bodyNodes = [];
-      if (Array.isArray(config.body) && config.body.length > 0 && typeof config.body[0] === 'number') {
+      // Use pre-resolved positions if available, fall back to body
+      const bodyPositions = config.body_positions || config.body;
+      
+      if (Array.isArray(bodyPositions) && bodyPositions.length > 0 && typeof bodyPositions[0] === 'number') {
         // Fetch actual nodes by position
         const { data: nodes } = await supabase
           .from('nodes')
           .select('*')
           .eq('workflow_id', workflowId)
-          .in('position', config.body)
+          .in('position', bodyPositions)
           .order('position');
         
         bodyNodes = nodes || [];
@@ -3665,14 +3670,17 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         // Execute body (single node or array of nodes)
         let result;
         
+        // Use pre-resolved positions if available, fall back to body
+        const bodyToExecute = config.body_positions || config.body;
+        
         // Check if this is the new format (array of positions) or old format (array of node objects)
-        if (Array.isArray(config.body)) {
-          if (config.body.length > 0 && typeof config.body[0] === 'number') {
+        if (Array.isArray(bodyToExecute)) {
+          if (bodyToExecute.length > 0 && typeof bodyToExecute[0] === 'number') {
             // New format: array of node positions
             result = [];
-            console.log(`[ITERATE] Executing body with ${config.body.length} node positions: ${config.body.join(', ')}`);
+            console.log(`[ITERATE] Executing body with ${bodyToExecute.length} node positions: ${bodyToExecute.join(', ')}`);
             
-            for (const nodePosition of config.body) {
+            for (const nodePosition of bodyToExecute) {
               // Fetch the node by position
               const { data: node } = await supabase
                 .from('nodes')
@@ -3701,16 +3709,16 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
               result.push(nodeResult);
             }
           }
-        } else if (typeof config.body === 'number') {
+        } else if (typeof bodyToExecute === 'number') {
           // New format: single node position
-          console.log(`[ITERATE] Executing single node at position ${config.body}`);
+          console.log(`[ITERATE] Executing single node at position ${bodyToExecute}`);
           
           // Fetch the node by position
           const { data: node } = await supabase
             .from('nodes')
             .select('*')
             .eq('workflow_id', workflowId)
-            .eq('position', config.body)
+            .eq('position', bodyToExecute)
             .single();
             
           if (node) {
