@@ -1066,6 +1066,83 @@ Quick Testing - Position:
     {
       type: 'function',
       function: {
+        name: 'record_management',
+        description: 'Comprehensive record management for testing and debugging. Supports create, update, delete, and query operations on workflow records.',
+        parameters: {
+          type: 'object',
+          properties: {
+            operation: {
+              type: 'string',
+              enum: ['set', 'get', 'delete', 'clear_all', 'query'],
+              description: 'Operation to perform on records'
+            },
+            record_id: {
+              type: 'string',
+              description: 'Record ID for set/get/delete operations (e.g., "product_001", "email_042")'
+            },
+            pattern: {
+              type: 'string',
+              description: 'Pattern for query/clear_all operations (e.g., "product_*", "test_*")'
+            },
+            data: {
+              type: 'object',
+              description: 'Data for set operation. For new records, provide complete data. For updates, use dot notation like {"vars.classification": "spam"} or provide full structure.',
+              additionalProperties: true
+            },
+            options: {
+              type: 'object',
+              properties: {
+                mode: {
+                  type: 'string',
+                  enum: ['create', 'update', 'upsert'],
+                  description: 'Operation mode for set. create: fail if exists, update: fail if not exists, upsert: create or update (default)',
+                  default: 'upsert'
+                },
+                record_type: {
+                  type: 'string',
+                  description: 'Record type (e.g., "product", "email"). If not provided, extracted from record_id prefix.'
+                },
+                status: {
+                  type: 'string',
+                  enum: ['discovered', 'processing', 'complete', 'failed'],
+                  description: 'Record status (defaults to "discovered" for new records)'
+                },
+                error_message: {
+                  type: 'string',
+                  description: 'Error message to set (only valid with status="failed")'
+                },
+                iteration_node_alias: {
+                  type: 'string',
+                  description: 'Node that created/owns this record (defaults to "manual_record_management")',
+                  default: 'manual_record_management'
+                },
+                include_history: {
+                  type: 'boolean',
+                  description: 'For get operation: include full history array (default: false)',
+                  default: false
+                },
+                fields: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'For get operation: specific fields to retrieve (e.g., ["fields.name", "vars.classification"])'
+                }
+              },
+              additionalProperties: false
+            },
+            reason: {
+              type: 'string',
+              description: 'Audit trail reason (required for mutations: set, delete, clear_all)'
+            }
+          },
+          required: ['operation'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'get_current_plan',
         description: 'Get the current workflow plan with phases, tasks, and progress. Returns null if no plan exists.',
         parameters: {

@@ -4322,6 +4322,9 @@ export class DirectorService {
         case 'clear_all_variables':
           result = await this.clearAllVariables(args, workflowId);
           break;
+        case 'record_management':
+          result = await this.recordManagement(args, workflowId);
+          break;
         case 'inspect_tab':
           result = await this.inspectTab(args, workflowId);
           break;
@@ -4945,5 +4948,365 @@ export class DirectorService {
     }
     
     return await this.browserStateService.getBrowserStateContext(this.workflowId);
+  }
+
+  /**
+   * Comprehensive record management tool
+   */
+  async recordManagement(args, workflowId) {
+    const { operation, record_id, pattern, data, options = {}, reason } = args;
+    
+    try {
+      switch (operation) {
+        case 'set':
+          return await this.setRecord(workflowId, record_id, data, options, reason);
+        
+        case 'get':
+          return await this.getRecord(workflowId, record_id, options);
+        
+        case 'delete':
+          return await this.deleteRecord(workflowId, record_id, reason);
+        
+        case 'clear_all':
+          return await this.clearAllRecords(workflowId, pattern, reason);
+        
+        case 'query':
+          return await this.queryRecords(workflowId, pattern);
+        
+        default:
+          return { success: false, error: `Unknown operation: ${operation}` };
+      }
+    } catch (error) {
+      console.error('Record management operation failed:', error);
+      return { 
+        success: false, 
+        error: error.message || 'Record management operation failed' 
+      };
+    }
+  }
+
+  /**
+   * Set (create or update) a record
+   */
+  async setRecord(workflowId, recordId, data, options, reason) {
+    const { 
+      mode = 'upsert',
+      record_type,
+      status,
+      error_message,
+      iteration_node_alias = 'manual_record_management'
+    } = options;
+
+    // Validate required parameters
+    if (!recordId) {
+      return { success: false, error: 'record_id is required for set operation' };
+    }
+    if (!data || typeof data !== 'object') {
+      return { success: false, error: 'data is required and must be an object' };
+    }
+    if (!reason) {
+      return { success: false, error: 'reason is required for set operation' };
+    }
+
+    // Extract record type from ID if not provided
+    const actualRecordType = record_type || recordId.split('_')[0];
+    
+    // Check if record exists
+    const existingRecord = await this.variableManagementService.getRecord(workflowId, recordId);
+    
+    // Mode validation
+    if (mode === 'create' && existingRecord) {
+      return { success: false, error: `Record ${recordId} already exists` };
+    }
+    if (mode === 'update' && !existingRecord) {
+      return { success: false, error: `Record ${recordId} does not exist` };
+    }
+
+    if (existingRecord) {
+      // UPDATE path
+      const updates = { ...data };
+      
+      // Add system fields if provided
+      if (status !== undefined) updates.status = status;
+      if (error_message !== undefined) updates.error_message = error_message;
+      
+      // Add history entry for manual update
+      const historyUpdate = {
+        'history[+]': {
+          action: 'manual_update',
+          timestamp: new Date().toISOString(),
+          sourceNode: 'record_management',
+          reason,
+          changes: Object.keys(updates).filter(k => !k.startsWith('history'))
+        }
+      };
+      
+      await this.variableManagementService.updateRecord(
+        workflowId, 
+        recordId, 
+        { ...updates, ...historyUpdate },
+        null
+      );
+      
+      return {
+        success: true,
+        operation: 'updated',
+        record_id: recordId,
+        message: `Record ${recordId} updated successfully`,
+        updates: Object.keys(updates).filter(k => !k.startsWith('history')),
+        reason
+      };
+    } else {
+      // CREATE path
+      let structuredData = data;
+      
+      // Ensure proper data structure
+      if (!data.fields && !data.vars && !data.targets) {
+        structuredData = {
+          fields: data,
+          vars: {},
+          targets: {},
+          history: [{
+            action: 'created_manually',
+            timestamp: new Date().toISOString(),
+            sourceNode: 'record_management',
+            reason
+          }]
+        };
+      } else {
+        // Add creation history to existing structure
+        if (!structuredData.history) {
+          structuredData.history = [];
+        }
+        structuredData.history.push({
+          action: 'created_manually',
+          timestamp: new Date().toISOString(),
+          sourceNode: 'record_management',
+          reason
+        });
+      }
+      
+      await this.variableManagementService.createRecord(
+        workflowId,
+        recordId,
+        actualRecordType,
+        structuredData,
+        iteration_node_alias
+      );
+      
+      // Set status if provided
+      if (status || error_message) {
+        const statusUpdate = {};
+        if (status) statusUpdate.status = status;
+        if (error_message) statusUpdate.error_message = error_message;
+        
+        await this.variableManagementService.updateRecord(
+          workflowId,
+          recordId,
+          statusUpdate,
+          null
+        );
+      }
+      
+      return {
+        success: true,
+        operation: 'created',
+        record_id: recordId,
+        record_type: actualRecordType,
+        message: `Record ${recordId} created successfully`,
+        reason
+      };
+    }
+  }
+
+  /**
+   * Get a specific record
+   */
+  async getRecord(workflowId, recordId, options = {}) {
+    const { include_history = false, fields } = options;
+    
+    if (!recordId) {
+      return { success: false, error: 'record_id is required for get operation' };
+    }
+    
+    const record = await this.variableManagementService.getRecord(workflowId, recordId);
+    
+    if (!record) {
+      return { 
+        success: false, 
+        error: `Record ${recordId} not found` 
+      };
+    }
+    
+    // Format record data
+    let formattedRecord = {
+      record_id: record.record_id,
+      record_type: record.record_type,
+      status: record.status,
+      created_at: record.created_at,
+      updated_at: record.updated_at,
+      data: {
+        fields: record.data.fields || {},
+        vars: record.data.vars || {},
+        targets: record.data.targets || {}
+      }
+    };
+    
+    // Include optional data
+    if (include_history) {
+      formattedRecord.data.history = record.data.history || [];
+    }
+    
+    if (record.error_message) {
+      formattedRecord.error_message = record.error_message;
+    }
+    
+    // Filter specific fields if requested
+    if (fields && fields.length > 0) {
+      const filtered = { record_id: recordId };
+      for (const field of fields) {
+        const value = this.getNestedValue(formattedRecord, field);
+        if (value !== undefined) {
+          this.setNestedValue(filtered, field, value);
+        }
+      }
+      formattedRecord = filtered;
+    }
+    
+    return {
+      success: true,
+      record: formattedRecord
+    };
+  }
+
+  /**
+   * Delete a specific record
+   */
+  async deleteRecord(workflowId, recordId, reason) {
+    if (!recordId) {
+      return { success: false, error: 'record_id is required for delete operation' };
+    }
+    if (!reason) {
+      return { success: false, error: 'reason is required for delete operation' };
+    }
+    
+    const record = await this.variableManagementService.getRecord(workflowId, recordId);
+    
+    if (!record) {
+      return { 
+        success: false, 
+        error: `Record ${recordId} not found` 
+      };
+    }
+    
+    await this.variableManagementService.deleteRecord(workflowId, recordId);
+    
+    return {
+      success: true,
+      operation: 'deleted',
+      record_id: recordId,
+      record_type: record.record_type,
+      message: `Record ${recordId} deleted successfully`,
+      reason
+    };
+  }
+
+  /**
+   * Clear all records matching a pattern
+   */
+  async clearAllRecords(workflowId, pattern, reason) {
+    if (!pattern) {
+      return { success: false, error: 'pattern is required for clear_all operation' };
+    }
+    if (!reason) {
+      return { success: false, error: 'reason is required for clear_all operation' };
+    }
+    
+    const records = await this.variableManagementService.queryRecords(workflowId, pattern);
+    
+    if (!records || records.length === 0) {
+      return {
+        success: true,
+        operation: 'clear_all',
+        pattern,
+        deleted_count: 0,
+        message: `No records found matching pattern: ${pattern}`,
+        reason
+      };
+    }
+    
+    const deletedRecords = [];
+    const errors = [];
+    
+    for (const record of records) {
+      try {
+        await this.variableManagementService.deleteRecord(workflowId, record.record_id);
+        deletedRecords.push(record.record_id);
+      } catch (error) {
+        errors.push({
+          record_id: record.record_id,
+          error: error.message
+        });
+      }
+    }
+    
+    return {
+      success: errors.length === 0,
+      operation: 'clear_all',
+      pattern,
+      deleted_count: deletedRecords.length,
+      deleted_records: deletedRecords,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Deleted ${deletedRecords.length} records matching pattern: ${pattern}`,
+      reason
+    };
+  }
+
+  /**
+   * Query records by pattern
+   */
+  async queryRecords(workflowId, pattern) {
+    const records = await this.variableManagementService.queryRecords(
+      workflowId, 
+      pattern || '*'
+    );
+    
+    const formattedRecords = records.map(record => ({
+      record_id: record.record_id,
+      record_type: record.record_type,
+      status: record.status,
+      created_at: record.created_at,
+      fields_count: Object.keys(record.data.fields || {}).length,
+      vars_count: Object.keys(record.data.vars || {}).length,
+      has_error: !!record.error_message
+    }));
+    
+    return {
+      success: true,
+      operation: 'query',
+      pattern: pattern || '*',
+      count: formattedRecords.length,
+      records: formattedRecords
+    };
+  }
+
+  /**
+   * Helper to get nested values using dot notation
+   */
+  getNestedValue(obj, path) {
+    return path.split('.').reduce((curr, prop) => curr?.[prop], obj);
+  }
+
+  /**
+   * Helper to set nested values using dot notation
+   */
+  setNestedValue(obj, path, value) {
+    const parts = path.split('.');
+    const last = parts.pop();
+    const target = parts.reduce((curr, prop) => {
+      if (!curr[prop]) curr[prop] = {};
+      return curr[prop];
+    }, obj);
+    target[last] = value;
   }
 }
