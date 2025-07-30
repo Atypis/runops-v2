@@ -368,9 +368,40 @@ export function createToolDefinitions() {
               pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
             },
             body: {
-              type: 'array',
-              items: { type: 'number' },
-              description: 'Node positions to execute for each iteration (e.g., [15, 16, 17]).'
+              oneOf: [
+                {
+                  type: 'array',
+                  items: { 
+                    oneOf: [
+                      { type: 'number' },
+                      { type: 'string' }
+                    ]
+                  },
+                  description: 'Explicit list of nodes to execute. Can use positions [15, 16, 17] or aliases ["open_email", "classify", "save"]'
+                },
+                {
+                  type: 'string',
+                  pattern: '^[a-z0-9_]+\\.\\.[a-z0-9_]+$|^\\d+-\\d+$',
+                  description: 'Range of nodes to execute. Use alias range "extract_data..save_result" (RECOMMENDED - stable across changes) or position range "3-20" (for quick testing)'
+                }
+              ],
+              description: `Nodes to execute for each iteration. Three formats supported:
+              
+🔄 RECOMMENDED - Alias Range:
+  body: "first_step..last_step"
+  ✅ Stable when nodes are added/removed
+  ✅ Clear intent
+  ✅ Self-documenting
+  
+Quick Testing - Position Range:
+  body: "5-15"
+  ⚡ Fast for debugging
+  ⚠️  Can shift if nodes added before range
+  
+Precise Control - Explicit List:
+  body: ["step1", "step3", "step5"]  // Skip step2, step4
+  🎯 Exact control over which nodes run
+  📝 More maintenance if workflow changes`
             },
             limit: {
               type: 'number',
@@ -520,15 +551,36 @@ export function createToolDefinitions() {
                 description: 'Boolean expression to evaluate. Supports logical operators (&&, ||, !), comparisons, and ternary. Use "true" for default/fallback branch.'
               },
               branch: {
-                anyOf: [
+                oneOf: [
                   { type: 'number', description: 'Single node position to execute' },
+                  { type: 'string', description: 'Single node alias to execute' },
                   { 
                     type: 'array', 
-                    items: { type: 'number' },
-                    description: 'Array of node positions to execute in sequence'
+                    items: { 
+                      oneOf: [
+                        { type: 'number' },
+                        { type: 'string' }
+                      ]
+                    },
+                    description: 'List of nodes to execute. Can use positions [15, 16] or aliases ["send_alert", "log_event"]'
+                  },
+                  {
+                    type: 'string',
+                    pattern: '^[a-z0-9_]+\\.\\.[a-z0-9_]+$|^\\d+-\\d+$',
+                    description: 'Range of nodes to execute. Use alias range "validate..notify" (RECOMMENDED) or position range "10-15"'
                   }
                 ],
-                description: 'Node position(s) to execute if condition is true'
+                description: `Node(s) to execute if condition is true. Same format options as iterate body:
+                
+🔄 RECOMMENDED - Alias Range or List:
+  branch: "validate..notify"
+  branch: ["send_alert", "log_event"]
+  ✅ Stable across workflow changes
+  
+Quick Testing - Position:
+  branch: 15 or branch: [15, 16]
+  ⚡ Fast for debugging
+  ⚠️  Can break if nodes are reordered`
               }
             },
             required: ['name', 'condition', 'branch'],

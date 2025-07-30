@@ -2135,6 +2135,241 @@ export class DirectorService {
   }
 
   /**
+   * Format nodes as tree structure for visualization
+   */
+  formatNodesAsTree(nodes) {
+    const lines = [];
+    const iterateStack = []; // Track active iterate nodes
+    const routeStack = []; // Track active route branches
+    
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      
+      // Check if this node is outside any active iterate body
+      while (iterateStack.length > 0) {
+        const currentIterate = iterateStack[iterateStack.length - 1];
+        const iterateBodyEnd = this.getIterateBodyEnd(currentIterate, nodes);
+        if (node.position > iterateBodyEnd) {
+          // We've exited this iterate's body
+          iterateStack.pop();
+          const endIndent = '    '.repeat(iterateStack.length);
+          lines.push(`${endIndent}(end iterate: ${currentIterate.alias})`);
+        } else {
+          break;
+        }
+      }
+      
+      // Check if we need to handle route branches
+      let extraIndent = '';
+      let extraPrefix = '';
+      if (routeStack.length > 0) {
+        const activeRoute = routeStack[0];
+        // Check which branch this node belongs to
+        for (let j = 0; j < activeRoute.branches.length; j++) {
+          const branch = activeRoute.branches[j];
+          if (this.nodeInBranch(node.position, branch.branch, nodes)) {
+            // Add route branch header if this is the first node of the branch
+            if (!branch.headerShown) {
+              const routeIndent = '    '.repeat(iterateStack.length) + '│   ';
+              const isLast = j === activeRoute.branches.length - 1;
+              const branchPrefix = isLast ? '└─' : '├─';
+              lines.push(`${routeIndent}${branchPrefix} ${branch.name || branch.condition}`);
+              branch.headerShown = true;
+            }
+            extraIndent = '    │   ';
+            extraPrefix = '';
+            break;
+          }
+        }
+        // Check if we've passed all branches of this route
+        const lastBranch = activeRoute.branches[activeRoute.branches.length - 1];
+        const lastBranchEnd = this.getBranchEnd(lastBranch.branch, nodes);
+        if (node.position > lastBranchEnd) {
+          routeStack.shift();
+          extraIndent = '';
+          extraPrefix = '';
+        }
+      }
+      
+      // Update indent based on current stack depth
+      const baseIndent = '    '.repeat(iterateStack.length);
+      const currentIndent = baseIndent + extraPrefix;
+      const currentPrefix = (iterateStack.length > 0 || extraIndent) ? '├─ ' : '';
+      
+      // Format the current node
+      let line = `${currentIndent}${extraIndent}${currentPrefix}[${node.position}] ${node.alias} (${node.type})`;
+      
+      // Add metadata for specific node types
+      if (node.type === 'iterate' && node.params) {
+        const config = node.params;
+        if (config.over) {
+          line += ` over: ${config.over}`;
+        }
+        if (config.variable) {
+          line += ` as: ${config.variable}`;
+        }
+        iterateStack.push(node);
+      } else if (node.type === 'route' && node.params && Array.isArray(node.params)) {
+        // Push route info to stack
+        routeStack.unshift({
+          node: node,
+          branches: node.params.map(r => ({
+            name: r.name,
+            condition: r.condition,
+            branch: r.branch,
+            headerShown: false
+          }))
+        });
+      }
+      
+      lines.push(line);
+    }
+    
+    // Close any remaining iterate blocks
+    while (iterateStack.length > 0) {
+      const iterate = iterateStack.pop();
+      const indent = '    '.repeat(iterateStack.length);
+      lines.push(`${indent}(end iterate: ${iterate.alias})`);
+    }
+    
+    return lines.join('\n');
+  }
+  
+  /**
+   * Check if a node position is within a branch reference
+   */
+  nodeInBranch(position, branch, allNodes) {
+    if (!branch) return false;
+    
+    if (typeof branch === 'number') {
+      return position === branch;
+    } else if (typeof branch === 'string') {
+      if (branch.includes('..')) {
+        // Alias range
+        const [startAlias, endAlias] = branch.split('..');
+        const startNode = allNodes.find(n => n.alias === startAlias);
+        const endNode = allNodes.find(n => n.alias === endAlias);
+        if (startNode && endNode) {
+          return position >= startNode.position && position <= endNode.position;
+        }
+      } else if (branch.includes('-')) {
+        // Position range
+        const [start, end] = branch.split('-').map(Number);
+        return position >= start && position <= end;
+      } else {
+        // Single alias
+        const node = allNodes.find(n => n.alias === branch);
+        return node && position === node.position;
+      }
+    } else if (Array.isArray(branch)) {
+      // Check if position matches any in the array
+      for (const ref of branch) {
+        if (typeof ref === 'number' && position === ref) return true;
+        if (typeof ref === 'string') {
+          const node = allNodes.find(n => n.alias === ref);
+          if (node && position === node.position) return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Get the last position of a branch
+   */
+  getBranchEnd(branch, allNodes) {
+    if (!branch) return 0;
+    
+    if (typeof branch === 'number') {
+      return branch;
+    } else if (typeof branch === 'string') {
+      if (branch.includes('..')) {
+        const [, endAlias] = branch.split('..');
+        const endNode = allNodes.find(n => n.alias === endAlias);
+        return endNode ? endNode.position : 0;
+      } else if (branch.includes('-')) {
+        const [, end] = branch.split('-').map(Number);
+        return end;
+      } else {
+        const node = allNodes.find(n => n.alias === branch);
+        return node ? node.position : 0;
+      }
+    } else if (Array.isArray(branch)) {
+      let maxPos = 0;
+      for (const ref of branch) {
+        if (typeof ref === 'number') {
+          maxPos = Math.max(maxPos, ref);
+        } else if (typeof ref === 'string') {
+          const node = allNodes.find(n => n.alias === ref);
+          if (node) maxPos = Math.max(maxPos, node.position);
+        }
+      }
+      return maxPos;
+    }
+    
+    return 0;
+  }
+  
+  /**
+   * Get the end position of an iterate node's body
+   */
+  getIterateBodyEnd(iterateNode, allNodes) {
+    const body = iterateNode.params?.body;
+    if (!body) return iterateNode.position;
+    
+    if (typeof body === 'string') {
+      // Handle range format: "alias1..alias2" or "5-10"
+      if (body.includes('..')) {
+        // Alias range
+        const [, endAlias] = body.split('..');
+        const endNode = allNodes.find(n => n.alias === endAlias);
+        return endNode ? endNode.position : iterateNode.position;
+      } else if (body.includes('-')) {
+        // Position range
+        const [, end] = body.split('-').map(Number);
+        return end;
+      }
+    } else if (Array.isArray(body)) {
+      // Get max position from array
+      let maxPos = iterateNode.position;
+      for (const ref of body) {
+        if (typeof ref === 'number') {
+          maxPos = Math.max(maxPos, ref);
+        } else if (typeof ref === 'string') {
+          const node = allNodes.find(n => n.alias === ref);
+          if (node) maxPos = Math.max(maxPos, node.position);
+        }
+      }
+      return maxPos;
+    }
+    
+    return iterateNode.position;
+  }
+  
+  /**
+   * Format branch reference (position, alias, array, or range)
+   */
+  formatBranchReference(branch) {
+    if (!branch) return 'none';
+    
+    if (typeof branch === 'number') {
+      return `[${branch}]`;
+    } else if (typeof branch === 'string') {
+      // Could be alias or range
+      return branch;
+    } else if (Array.isArray(branch)) {
+      // Format array of references
+      return '[' + branch.map(b => {
+        if (typeof b === 'number') return b;
+        return `"${b}"`;
+      }).join(', ') + ']';
+    }
+    
+    return String(branch);
+  }
+
+  /**
    * Variable Management Tool Handlers
    */
   
@@ -4167,11 +4402,11 @@ export class DirectorService {
         }
         
         case 'get_workflow_nodes': {
-          const { range = 'all', type } = args;
+          const { range = 'all', type, format = 'tree' } = args;
           const workflowContext = await this.getWorkflowContext(workflowId);
           const nodes = workflowContext?.nodes || [];
           
-          // Filter and format nodes
+          // Filter nodes
           let filteredNodes = nodes;
           if (type) {
             filteredNodes = filteredNodes.filter(n => n.type === type);
@@ -4186,14 +4421,20 @@ export class DirectorService {
             }
           }
           
-          result = filteredNodes.map(node => ({
-            position: node.position,
-            type: node.type,
-            description: node.description || 'No description',
-            status: node.status,
-            alias: node.alias,
-            result: node.result ? 'Has result' : 'No result'
-          }));
+          // Format based on requested format
+          if (format === 'tree') {
+            result = this.formatNodesAsTree(filteredNodes);
+          } else {
+            // Legacy format for backward compatibility
+            result = filteredNodes.map(node => ({
+              position: node.position,
+              type: node.type,
+              description: node.description || 'No description',
+              status: node.status,
+              alias: node.alias,
+              result: node.result ? 'Has result' : 'No result'
+            }));
+          }
           break;
         }
         

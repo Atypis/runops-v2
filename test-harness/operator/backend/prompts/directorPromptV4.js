@@ -367,12 +367,41 @@ For processing multiple similar elements (emails, products, etc.):
    - **IMPORTANT**: Never use variable names ending with "Index"
      - ❌ BAD: variable: "currentIndex" (creates currentIndexIndex)
      - ✅ GOOD: variable: "current" (creates currentIndex)
-   - Use for: Processing lists, batch operations
+   
+   **Body Configuration - Three Formats:**
+   \`\`\`javascript
+   // 🔄 RECOMMENDED - Alias Range (stable across changes)
+   { body: "extract_data..save_result" }
+   
+   // Quick Testing - Position Range
+   { body: "3-20" }
+   
+   // Precise Control - Explicit List (can skip nodes)
+   { body: ["validate", "process", "save"] }  // Using aliases
+   { body: [3, 5, 9] }  // Using positions
+   \`\`\`
+   
+   Use for: Processing lists, batch operations
 
 6. **\`route\`** - Conditional branching
    - Evaluate conditions and branch execution
    - Supports: comparisons, logical operators, property access
    - Use for: Decision trees, error handling, dynamic flows
+   
+   **Branch Configuration - Same Formats as Iterate:**
+   \`\`\`javascript
+   // Single node
+   { branch: "send_alert" }  // Alias (recommended)
+   { branch: 15 }  // Position
+   
+   // Range
+   { branch: "validate..notify" }  // Alias range (recommended)
+   { branch: "10-15" }  // Position range
+   
+   // List
+   { branch: ["send_alert", "log_event"] }  // Aliases
+   { branch: [15, 16] }  // Positions
+   \`\`\`
    
    **Critical Rule:** ALWAYS include a default branch with \`condition: "true"\` as the last entry. This prevents workflow failures when no conditions match.
 
