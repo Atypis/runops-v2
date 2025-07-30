@@ -666,6 +666,18 @@ router.get('/workflows/:id/variables/formatted', async (req, res, next) => {
   }
 });
 
+// Get all records for a workflow
+router.get('/workflows/:id/records', async (req, res, next) => {
+  const workflowId = req.params.id;
+  try {
+    const records = await directorService.variableManagementService.queryRecords(workflowId, '*');
+    res.json(records);
+  } catch (error) {
+    console.error(`[API_RECORDS] ERROR - ${error.message}`);
+    next(error);
+  }
+});
+
 // Browser state endpoint
 router.get('/workflows/:id/browser-state', async (req, res, next) => {
   try {

@@ -1940,84 +1940,296 @@ function App() {
   };
 
   const VariablesViewer = ({ variables, workflowId }) => {
-    if (!variables || variables.length === 0) {
-      return (
-        <div className="text-center text-gray-500 py-8">
-          <p className="text-sm">No variables stored yet</p>
-          <p className="text-xs mt-1">Variables will appear here when nodes execute or Director sets them</p>
-        </div>
-      );
-    }
+    const [records, setRecords] = useState([]);
+    const [expandedBuckets, setExpandedBuckets] = useState(new Set(['global'])); // Global expanded by default
+    const [loading, setLoading] = useState(true);
+
+    // Load records when component mounts or workflowId changes
+    useEffect(() => {
+      const loadRecords = async () => {
+        if (!workflowId) return;
+        
+        try {
+          const response = await fetch(`${API_BASE}/workflows/${workflowId}/records`);
+          if (response.ok) {
+            const data = await response.json();
+            setRecords(data || []);
+          }
+        } catch (error) {
+          console.error('Failed to load records:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadRecords();
+    }, [workflowId]);
+
+    const toggleBucket = (bucketName) => {
+      setExpandedBuckets(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(bucketName)) {
+          newSet.delete(bucketName);
+        } else {
+          newSet.add(bucketName);
+        }
+        return newSet;
+      });
+    };
 
     const formatValue = (value) => {
       if (value === null) return 'null';
       if (value === undefined) return 'undefined';
       if (typeof value === 'boolean') return value.toString();
-      if (typeof value === 'string') return `"${value}"`;
-      return JSON.stringify(value, null, 2);
+      if (typeof value === 'string') {
+        // Don't add quotes for already formatted strings
+        if (value.startsWith('"') && value.endsWith('"')) return value;
+        return value.length > 100 ? `"${value.substring(0, 100)}..."` : `"${value}"`;
+      }
+      if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        if (value.length > 3) {
+          return `[${value.length} items]`;
+        }
+        return JSON.stringify(value, null, 2);
+      }
+      if (typeof value === 'object') {
+        const str = JSON.stringify(value, null, 2);
+        return str.length > 200 ? str.substring(0, 200) + '...' : str;
+      }
+      if (typeof value === 'number') {
+        return value.toLocaleString();
+      }
+      return String(value);
     };
 
-    const isNodeVariable = (key) => key.startsWith('node');
-    const isCustomVariable = (key) => !key.startsWith('node');
+    const renderDataTree = (data, prefix = '') => {
+      if (!data || typeof data !== 'object') {
+        return null;
+      }
 
-    const nodeVariables = variables.filter(v => isNodeVariable(v.key));
-    const customVariables = variables.filter(v => isCustomVariable(v.key));
+      // Check if this is a node result object (has nested properties)
+      const isNodeResult = (obj) => {
+        return typeof obj === 'object' && obj !== null && !Array.isArray(obj) && 
+               Object.keys(obj).length > 0 && 
+               Object.values(obj).some(v => typeof v !== 'object' || v === null);
+      };
+
+      return (
+        <div className="space-y-3">
+          {Object.entries(data).map(([key, value]) => {
+            const isNode = isNodeResult(value);
+            const isSimpleValue = typeof value !== 'object' || value === null || Array.isArray(value);
+            
+            return (
+              <div key={`${prefix}${key}`} className={`
+                ${isNode ? 'bg-gray-50 rounded-lg p-3 border border-gray-200' : ''}
+                ${isSimpleValue && !isNode ? 'bg-white rounded-lg p-3 border border-gray-100' : ''}
+              `}>
+                {/* Variable/Node Name */}
+                <div className={`${isNode ? 'mb-2' : ''}`}>
+                  <span className={`
+                    font-mono text-sm
+                    ${isNode ? 'text-blue-700 font-semibold' : 'text-gray-700 font-medium'}
+                  `}>
+                    {key}
+                  </span>
+                </div>
+                
+                {/* Value */}
+                {isSimpleValue ? (
+                  <div className="mt-1">
+                    <pre className="text-sm text-gray-800 font-mono bg-gray-50 rounded p-2 overflow-x-auto">
+                      {formatValue(value)}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {Object.entries(value).map(([subKey, subValue]) => (
+                      <div key={`${prefix}${key}.${subKey}`} className="flex items-start">
+                        <span className="text-xs text-gray-500 font-medium min-w-[100px]">{subKey}:</span>
+                        <div className="flex-1 ml-2">
+                          {typeof subValue === 'object' && subValue !== null && !Array.isArray(subValue) ? (
+                            renderDataTree(subValue, `${prefix}${key}.${subKey}.`)
+                          ) : (
+                            <pre className="text-xs text-gray-700 font-mono bg-white rounded px-2 py-1 inline-block">
+                              {formatValue(subValue)}
+                            </pre>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    // Transform variables into the new unified structure
+    const transformedData = {
+      global: {}
+    };
+
+    // Process variables into the global bucket
+    variables?.forEach(variable => {
+      if (variable.key.includes('.')) {
+        // Node result format: extract_emails.count
+        const parts = variable.key.split('.');
+        const nodeName = parts[0];
+        const fieldName = parts.slice(1).join('.');
+        
+        if (!transformedData.global[nodeName]) {
+          transformedData.global[nodeName] = {};
+        }
+        transformedData.global[nodeName][fieldName] = variable.value;
+      } else {
+        // Direct variable
+        transformedData.global[variable.key] = variable.value;
+      }
+    });
+
+    if (loading) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+          <p className="text-sm">Loading data...</p>
+        </div>
+      );
+    }
+
+    const hasGlobalData = Object.keys(transformedData.global).length > 0;
+    const hasRecords = records.length > 0;
+
+    if (!hasGlobalData && !hasRecords) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          <p className="text-sm">No data stored yet</p>
+          <p className="text-xs mt-1">Variables and records will appear here as the workflow executes</p>
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-4">
-        {/* Custom Variables */}
-        {customVariables.length > 0 && (
-          <div>
-            <h5 className="font-medium text-gray-800 mb-2 text-sm">Custom Variables ({customVariables.length})</h5>
-            <div className="space-y-2">
-              {customVariables.map((variable) => (
-                <div key={variable.key} className="bg-gray-50 rounded-lg p-3 border">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono text-sm font-medium text-blue-700">{variable.key}</span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(variable.updated_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="text-sm">
-                    <pre className="whitespace-pre-wrap break-words text-gray-800 bg-white p-2 rounded border text-xs font-mono">
-                      {formatValue(variable.value)}
-                    </pre>
-                  </div>
+        {/* Global Bucket */}
+        {hasGlobalData && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <button
+              onClick={() => toggleBucket('global')}
+              className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-all duration-200"
+            >
+              <div className="flex items-center">
+                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
                 </div>
-              ))}
-            </div>
+                <div className="text-left">
+                  <span className="font-semibold text-gray-900 text-sm">Global Variables</span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    {Object.keys(transformedData.global).length} {Object.keys(transformedData.global).length === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
+              </div>
+              <svg className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${expandedBuckets.has('global') ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {expandedBuckets.has('global') && (
+              <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
+                <div className="mt-4">
+                  {renderDataTree(transformedData.global)}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Node Variables */}
-        {nodeVariables.length > 0 && (
+        {/* Records Section */}
+        {hasRecords && (
           <div>
-            <h5 className="font-medium text-gray-800 mb-2 text-sm">Node Results ({nodeVariables.length})</h5>
+            <div className="flex items-center mb-3">
+              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-2">
+                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <span className="font-semibold text-gray-900 text-sm">Records</span>
+              <span className="ml-2 text-xs text-gray-500">
+                {records.length} {records.length === 1 ? 'record' : 'records'}
+              </span>
+            </div>
+            
             <div className="space-y-2">
-              {nodeVariables.map((variable) => (
-                <div key={variable.key} className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono text-sm font-medium text-blue-700">{variable.key}</span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(variable.updated_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="text-sm">
-                    <pre className="whitespace-pre-wrap break-words text-gray-800 bg-white p-2 rounded border text-xs font-mono">
-                      {formatValue(variable.value)}
-                    </pre>
-                  </div>
+              {records.map(record => (
+                <div key={record.record_id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <button
+                    onClick={() => toggleBucket(record.record_id)}
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-all duration-200"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center mr-3">
+                        <span className="text-xs font-bold text-purple-600">
+                          {record.record_id.split('_').pop()}
+                        </span>
+                      </div>
+                      <div className="text-left">
+                        <span className="font-medium text-gray-900 text-sm font-mono">{record.record_id}</span>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${
+                            record.status === 'completed' ? 'bg-green-100 text-green-700' :
+                            record.status === 'processing' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {record.status || 'active'}
+                          </span>
+                          <span className="ml-2">{new Date(record.updated_at || record.created_at).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <svg className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${expandedBuckets.has(record.record_id) ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {expandedBuckets.has(record.record_id) && (
+                    <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
+                      <div className="mt-4">
+                        {renderDataTree(record.data)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
         )}
         
-        {/* Stats */}
-        <div className="border-t pt-3 mt-4">
-          <div className="text-xs text-gray-500 flex justify-between">
-            <span>Total: {variables.length} variables</span>
-            <span>Updated: {new Date().toLocaleTimeString()}</span>
+        {/* Footer Stats */}
+        <div className="bg-gray-50 rounded-lg px-3 py-2">
+          <div className="text-xs text-gray-600 flex justify-between items-center">
+            <div className="flex items-center space-x-3">
+              {hasGlobalData && (
+                <span className="flex items-center">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
+                  {Object.keys(transformedData.global).length} global
+                </span>
+              )}
+              {hasRecords && (
+                <span className="flex items-center">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full mr-1"></div>
+                  {records.length} records
+                </span>
+              )}
+            </div>
+            <span className="text-gray-500">
+              <svg className="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {new Date().toLocaleTimeString()}
+            </span>
           </div>
         </div>
       </div>
