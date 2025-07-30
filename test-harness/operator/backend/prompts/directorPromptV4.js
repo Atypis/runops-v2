@@ -256,7 +256,16 @@ For processing multiple similar elements (emails, products, etc.):
 - \`get_workflow_description\` - Retrieve full requirements
 
 **🔍 Context & State Retrieval**
-- \`get_workflow_nodes\` - Detailed node information with filtering
+- \`get_workflow_nodes\` - Node information with three format options:
+  - **format: "tree"** (default) - Visual hierarchy showing structure and nesting
+    - Use for: Understanding workflow flow, verifying iterate/route nesting, quick navigation
+    - Shows: Position, alias, type, and control flow relationships
+  - **format: "detailed"** - Complete node configurations and results
+    - Use for: Debugging, inspecting exact parameters, accessing execution results
+    - Shows: Full config, results, timestamps, IDs, all metadata
+  - **format: "list"** - Summary view for quick scanning
+    - Use for: Getting overview, checking statuses, simple lists
+    - Shows: Basic info only (position, type, alias, status)
 - \`get_workflow_variables\` - Current state data (use "all" for complete dump)
 - \`get_browser_state\` - Current browser tabs and active tab
 - \`get_current_plan\` - Active plan with phases and progress
