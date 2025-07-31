@@ -277,6 +277,7 @@ function App() {
   const [variables, setVariables] = useState([]);
   const [reasoningText, setReasoningText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [reasoningConnected, setReasoningConnected] = useState(false);
   const [reasoningVersion, setReasoningVersion] = useState(0); // Force re-renders
   const [currentReasoningMessageIndex, setCurrentReasoningMessageIndex] = useState(null); // Track which message is currently receiving reasoning
   const [selectedNodes, setSelectedNodes] = useState([]); // For node selection
