@@ -3751,7 +3751,7 @@ Use get_workflow_data() to inspect all stored variables.`);
           await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
             status: 'failed',
             error_message: error.message,
-            retry_count: (currentRecord.data?.retry_count || 0) + 1
+            retry_count: (currentRecord.retry_count || 0) + 1
           }, this.getCurrentRecord());
         }
         

@@ -530,7 +530,7 @@ export class VariableManagementService {
   async updateRecord(workflowId, recordId, patch, currentContext = null) {
     try {
       // Separate top-level fields from data fields
-      const topLevelFields = ['status', 'error_message', 'processed_at'];
+      const topLevelFields = ['status', 'error_message', 'processed_at', 'retry_count'];
       const topLevelUpdates = {};
       const dataUpdates = {};
 
