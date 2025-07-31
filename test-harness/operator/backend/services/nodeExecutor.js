@@ -703,9 +703,15 @@ export class NodeExecutor {
         // PRIORITY 1: Handle current record references (e.g., {{current.extract_emails.subject}})
         if (expression.startsWith('current.')) {
           const currentRecord = this.getCurrentRecord();
+          console.log(`[TEMPLATE] Resolving current record reference: ${expression}`);
+          console.log(`[TEMPLATE] Current record context:`, currentRecord ? `${currentRecord.recordId}` : 'null');
+          console.log(`[TEMPLATE] Record context stack length:`, this.recordContext.length);
+          
           if (currentRecord) {
             const path = expression.substring(8); // Remove 'current.'
+            console.log(`[TEMPLATE] Extracting path "${path}" from record data`);
             replacementValue = this.getNestedProperty(currentRecord.data, path);
+            console.log(`[TEMPLATE] Resolved to:`, replacementValue);
           } else {
             console.warn(`[TEMPLATE] No current record context for: ${expression}`);
             replacementValue = match[0]; // Keep original
@@ -774,6 +780,7 @@ export class NodeExecutor {
         // PRIORITY 3: Handle iteration context variables (e.g., email, email.selector)
         else if (this.getCurrentIterationContext()) {
           const currentContext = this.getCurrentIterationContext();
+          console.log(`[TEMPLATE] Found iteration context for "${expression}":`, currentContext);
           if (currentContext && expression.startsWith(currentContext.variable)) {
             const itemData = await this.getStateValue(currentContext.variable, workflowId);
             
@@ -792,6 +799,9 @@ export class NodeExecutor {
         }
         // PRIORITY 4: Handle global variables and node results
         else {
+          console.log(`[TEMPLATE] No iteration context found for "${expression}", checking global variables`);
+          console.log(`[TEMPLATE] Current iteration context:`, this.getCurrentIterationContext());
+          console.log(`[TEMPLATE] Iteration context stack:`, this.iterationContext);
           replacementValue = await this.getStateValue(expression, workflowId);
         }
         
@@ -1029,10 +1039,19 @@ export class NodeExecutor {
     try {
       let result;
       
+      // Debug: Log iteration context before template resolution
+      const currentContext = this.getCurrentIterationContext();
+      console.log(`[EXECUTE] Current iteration context:`, currentContext);
+      console.log(`[EXECUTE] Iteration context stack length:`, this.iterationContext.length);
+      if (this.iterationContext.length > 0) {
+        console.log(`[EXECUTE] Full iteration context stack:`, this.iterationContext);
+      }
+
       // Always resolve template variables in params
       let resolvedParams = node.params;
       if (node.params) {
         console.log(`[EXECUTE] Resolving template variables in params`);
+        console.log(`[EXECUTE] Context before param resolution:`, this.getCurrentIterationContext());
         resolvedParams = await this.resolveNodeParams(node.params, workflowId);
         console.log(`[EXECUTE] Resolved params:`, JSON.stringify(resolvedParams, null, 2));
       }
@@ -1041,6 +1060,7 @@ export class NodeExecutor {
       let resolvedConfig = node.config;
       if (node.config) {
         console.log(`[EXECUTE] Resolving template variables in config`);
+        console.log(`[EXECUTE] Context before config resolution:`, this.getCurrentIterationContext());
         resolvedConfig = await this.resolveNodeParams(node.config, workflowId);
         console.log(`[EXECUTE] Resolved config:`, JSON.stringify(resolvedConfig, null, 2));
       }
@@ -3650,22 +3670,25 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       }
       
       try {
-        // Set iteration variables in memory (these use the current context)
-        const varKey = this.getStorageKey(variable);
-        const indexKey = this.getStorageKey(indexVariable);
-        const totalKey = this.getStorageKey(`${variable}Total`);
-        
-        // For record iteration, store the record data instead of just the ID
-        const iterationData = isRecordIteration && currentRecord ? currentRecord.data : item;
-        
-        const storeStart = Date.now();
-        await supabase
-          .from('workflow_memory')
-          .upsert([
-            { workflow_id: workflowId, key: varKey, value: iterationData },
-            { workflow_id: workflowId, key: indexKey, value: i },
-            { workflow_id: workflowId, key: totalKey, value: collection.length }
-          ]);
+        // For record iteration, skip global variable storage - use clean direct record access
+        if (!isRecordIteration) {
+          // Only store iteration variables for array iteration (not record iteration)
+          const varKey = this.getStorageKey(variable);
+          const indexKey = this.getStorageKey(indexVariable);
+          const totalKey = this.getStorageKey(`${variable}Total`);
+          
+          const storeStart = Date.now();
+          await supabase
+            .from('workflow_memory')
+            .upsert([
+              { workflow_id: workflowId, key: varKey, value: item },
+              { workflow_id: workflowId, key: indexKey, value: i },
+              { workflow_id: workflowId, key: totalKey, value: collection.length }
+            ]);
+          console.log(`[ITERATE] Stored iteration variables for array iteration in ${Date.now() - storeStart}ms`);
+        } else {
+          console.log(`[ITERATE] Skipping global storage for record iteration - using clean direct record access`);
+        }
         
         // Execute body (single node or array of nodes)
         let result;
