@@ -8,13 +8,15 @@
 import { supabase } from '../config/supabase.js';
 
 class BrowserStateService {
-  constructor() {
+  constructor(nodeExecutor = null) {
     // Store SSE connections for real-time updates
     // Format: { workflowId: [res1, res2, ...] }
     this.sseConnections = new Map();
     // Buffer recent variable updates for when connections re-establish
     // Format: { workflowId: [{ type, data, timestamp }, ...] }
     this.pendingUpdates = new Map();
+    // Reference to NodeExecutor for live browser state inspection
+    this.nodeExecutor = nodeExecutor;
   }
 
   /**
@@ -145,19 +147,50 @@ class BrowserStateService {
 
   /**
    * Get browser state with formatted context in one call
+   * NEW: Uses live snapshot approach - directly inspects browser instead of database cache
    * Convenience method for DirectorService
    */
   async getBrowserStateContext(workflowId) {
     try {
       console.log(`[BrowserStateService] getBrowserStateContext called for workflow: ${workflowId}`);
+      
+      // NEW: Try live browser inspection first (most accurate)
+      if (this.nodeExecutor) {
+        try {
+          console.log(`[BrowserStateService] Attempting live browser state inspection...`);
+          const liveTabs = await this.nodeExecutor.getCurrentTabsInfo();
+          const liveActiveTab = this.nodeExecutor.activeTabName;
+          
+          const liveBrowserState = {
+            tabs: liveTabs,
+            active_tab_name: liveActiveTab
+          };
+          
+          console.log(`[BrowserStateService] Live browser state:`, { 
+            tabCount: liveTabs?.length, 
+            activeTab: liveActiveTab 
+          });
+          
+          const formattedContext = this.formatBrowserStateForContext(liveBrowserState);
+          console.log(`[BrowserStateService] Live formatted context:`, formattedContext);
+          
+          return formattedContext;
+        } catch (liveError) {
+          console.warn(`[BrowserStateService] Live inspection failed, falling back to cached state:`, liveError.message);
+        }
+      } else {
+        console.warn(`[BrowserStateService] NodeExecutor not available, using cached state`);
+      }
+      
+      // Fallback to cached database state if live inspection fails
       const browserState = await this.getBrowserState(workflowId);
-      console.log(`[BrowserStateService] Raw browser state:`, browserState ? { 
+      console.log(`[BrowserStateService] Cached browser state:`, browserState ? { 
         tabCount: browserState.tabs?.length, 
         activeTab: browserState.active_tab_name 
       } : null);
       
       const formattedContext = this.formatBrowserStateForContext(browserState);
-      console.log(`[BrowserStateService] Formatted context:`, formattedContext);
+      console.log(`[BrowserStateService] Cached formatted context:`, formattedContext);
       
       return formattedContext;
     } catch (error) {

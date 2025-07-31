@@ -384,7 +384,95 @@ export class NodeExecutor {
     const tabs = [];
     
     try {
-      console.log(`[BROWSER_STATE] Collecting current tab info. MainPage exists: ${!!this.mainPage}, StagehandPages exists: ${!!this.stagehandPages}`);
+      console.log(`[BROWSER_STATE] NEW: Collecting ALL pages from browser context...`);
+      
+      // NEW: Get all pages from browser context (not just Director-managed ones)
+      if (this.stagehandInstance && this.stagehandInstance.page) {
+        try {
+          const context = this.stagehandInstance.page.context();
+          const allPages = context.pages();
+          
+          console.log(`[BROWSER_STATE] Found ${allPages.length} total pages in browser context`);
+          
+          for (let i = 0; i < allPages.length; i++) {
+            const page = allPages[i];
+            try {
+              const url = page.url();
+              const title = await page.title();
+              
+              // Determine if this is a Director-managed page by comparing URLs
+              let pageName = `page_${i + 1}`;
+              let isDirectorManaged = false;
+              
+              // Check if this is the main page (compare URLs since object references may differ)
+              if (this.mainPage) {
+                try {
+                  const mainPageUrl = this.mainPage.url();
+                  if (url === mainPageUrl) {
+                    pageName = 'main';
+                    isDirectorManaged = true;
+                  }
+                } catch (mainPageError) {
+                  // If main page URL check fails, fall back to reference check
+                  if (page === this.mainPage) {
+                    pageName = 'main';
+                    isDirectorManaged = true;
+                  }
+                }
+              }
+              
+              // Check if this is a named Director tab (compare URLs for reliability)
+              if (!isDirectorManaged && this.stagehandPages) {
+                for (const [name, directorPage] of Object.entries(this.stagehandPages)) {
+                  try {
+                    const directorPageUrl = directorPage.url();
+                    if (url === directorPageUrl) {
+                      pageName = name;
+                      isDirectorManaged = true;
+                      break;
+                    }
+                  } catch (directorPageError) {
+                    // If URL comparison fails, fall back to reference check
+                    if (page === directorPage) {
+                      pageName = name;
+                      isDirectorManaged = true;
+                      break;
+                    }
+                  }
+                }
+              }
+              
+              console.log(`[BROWSER_STATE] Page ${i + 1}: ${pageName} = ${url} (Director-managed: ${isDirectorManaged})`);
+              
+              tabs.push({
+                name: pageName,
+                url: url || 'about:blank',
+                title: title || '',
+                isDirectorManaged: isDirectorManaged,
+                pageIndex: i
+              });
+            } catch (pageError) {
+              console.warn(`[BROWSER_STATE] Could not get info for page ${i + 1}:`, pageError.message);
+              tabs.push({
+                name: `page_${i + 1}`,
+                url: 'about:blank',
+                title: 'Error loading page',
+                isDirectorManaged: false,
+                pageIndex: i
+              });
+            }
+          }
+          
+          console.log(`[BROWSER_STATE] NEW: Collected ${tabs.length} total pages from browser context`);
+          return tabs;
+        } catch (contextError) {
+          console.warn(`[BROWSER_STATE] Could not access browser context, falling back to Director-managed tabs:`, contextError.message);
+        }
+      }
+      
+      // FALLBACK: Use original Director-managed tab logic if context access fails
+      console.log(`[BROWSER_STATE] FALLBACK: Using Director-managed tabs only...`);
+      console.log(`[BROWSER_STATE] MainPage exists: ${!!this.mainPage}, StagehandPages exists: ${!!this.stagehandPages}`);
       
       // Add main tab if it exists
       if (this.mainPage) {
@@ -393,13 +481,15 @@ export class NodeExecutor {
           console.log(`[BROWSER_STATE] Found main tab with URL: ${mainUrl}`);
           tabs.push({
             name: 'main',
-            url: mainUrl || 'about:blank'
+            url: mainUrl || 'about:blank',
+            isDirectorManaged: true
           });
         } catch (error) {
           console.warn(`[BROWSER_STATE] Could not get URL for main tab:`, error.message);
           tabs.push({
             name: 'main',
-            url: 'about:blank'
+            url: 'about:blank',
+            isDirectorManaged: true
           });
         }
       } else {
@@ -417,13 +507,15 @@ export class NodeExecutor {
             console.log(`[BROWSER_STATE] Named tab ${name} has URL: ${url}`);
             tabs.push({
               name,
-              url: url || 'about:blank'
+              url: url || 'about:blank',
+              isDirectorManaged: true
             });
           } catch (error) {
             console.warn(`[BROWSER_STATE] Could not get URL for tab ${name}:`, error.message);
             tabs.push({
               name,
-              url: 'about:blank'
+              url: 'about:blank',
+              isDirectorManaged: true
             });
           }
         }
@@ -431,7 +523,7 @@ export class NodeExecutor {
         console.log(`[BROWSER_STATE] No named tabs found`);
       }
       
-      console.log(`[BROWSER_STATE] Collected ${tabs.length} total tabs:`, tabs.map(t => `${t.name}=${t.url?.substring(0, 30)}...`));
+      console.log(`[BROWSER_STATE] FALLBACK: Collected ${tabs.length} total tabs:`, tabs.map(t => `${t.name}=${t.url?.substring(0, 30)}...`));
       
     } catch (error) {
       console.error('[BROWSER_STATE] Error collecting tab info:', error);

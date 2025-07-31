@@ -38,9 +38,10 @@ export class DirectorService {
       });
     }
     
-    // Create shared instances
-    this.browserStateService = new BrowserStateService();
-    this.nodeExecutor = new NodeExecutor(this.browserStateService); // Pass shared instance
+    // Create shared instances with proper cross-references
+    this.nodeExecutor = new NodeExecutor(); // Create first
+    this.browserStateService = new BrowserStateService(this.nodeExecutor); // Pass nodeExecutor reference
+    this.nodeExecutor.browserStateService = this.browserStateService; // Set reference back
     this.planService = new PlanService();
     this.workflowDescriptionService = new WorkflowDescriptionService();
     this.variableManagementService = new VariableManagementService();
