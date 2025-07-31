@@ -1079,11 +1079,11 @@ export class NodeExecutor {
       }
       
       // Also resolve template variables in config
-      let resolvedConfig = node.config;
-      if (node.config) {
+      let resolvedConfig = node.config || node.params;
+      if (node.config || node.params) {
         console.log(`[EXECUTE] Resolving template variables in config`);
         console.log(`[EXECUTE] Context before config resolution:`, this.getCurrentIterationContext());
-        resolvedConfig = await this.resolveNodeParams(node.config, workflowId);
+        resolvedConfig = await this.resolveNodeParams(node.config || node.params, workflowId);
         console.log(`[EXECUTE] Resolved config:`, JSON.stringify(resolvedConfig, null, 2));
       }
       
@@ -1331,11 +1331,23 @@ export class NodeExecutor {
       // If neither store nor store_variable is set, result is NOT stored - only available in node.result column
       
       // Handle storing to current record if in iteration context
+      console.log(`[DEBUG] store_to_record check:`, {
+        hasStoreToRecord: !!resolvedConfig?.store_to_record,
+        resolvedConfig: resolvedConfig,
+        resultNotNull: result !== null,
+        resultNotUndefined: result !== undefined,
+        result: result
+      });
+      
       if (resolvedConfig?.store_to_record && result !== null && result !== undefined) {
         const currentRecord = this.getCurrentRecord();
         if (currentRecord) {
           try {
-            console.log(`[EXECUTE] Storing result to current record ${currentRecord.recordId}`);
+            console.log(`[EXECUTE] Storing result to current record ${currentRecord.recordId}`, {
+              result: result,
+              resultType: typeof result,
+              resultLength: typeof result === 'string' ? result.length : 'N/A'
+            });
             
             if (!this.variableService) {
               this.variableService = new VariableManagementService();
@@ -1343,8 +1355,10 @@ export class NodeExecutor {
             
             const fieldName = resolvedConfig.as || node.alias;
             const updateData = {
-              [`vars.${node.alias}.${fieldName}`]: result
+              [`vars.${fieldName}`]: result
             };
+            
+            console.log(`[EXECUTE] Update data prepared:`, updateData);
             
             await this.variableService.updateRecord(
               workflowId, 
@@ -1353,7 +1367,7 @@ export class NodeExecutor {
               currentRecord
             );
             
-            console.log(`[EXECUTE] Stored to record as vars.${node.alias}.${fieldName}`);
+            console.log(`[EXECUTE] Successfully stored to record as vars.${fieldName}`);
           } catch (storeError) {
             console.error(`[EXECUTE] Failed to store to record:`, storeError);
             // Don't fail execution
