@@ -270,9 +270,23 @@ export function createToolDefinitions() {
               description: 'What to do if validation fails (default: stop_workflow)'
             },
             store: {
-              type: 'object',
-              description: 'Map specific fields from the result to variables. Example: {"count": "totalEmails", "items": "emailList"} stores result.count as {{alias.totalEmails}} and result.items as {{alias.emailList}}',
-              additionalProperties: { type: 'string' }
+              oneOf: [
+                {
+                  type: 'object',
+                  description: 'Map specific fields from the result to variables. Example: {"count": "totalEmails", "items": "emailList"} stores result.count as {{alias.totalEmails}} and result.items as {{alias.emailList}}',
+                  additionalProperties: { type: 'string' }
+                },
+                {
+                  type: 'boolean',
+                  const: true,
+                  description: 'Store main result as {{alias.result}}'
+                },
+                {
+                  type: 'string',
+                  const: '*',
+                  description: 'Store all result fields with same names - useful for deterministic_extract with multiple fields'
+                }
+              ]
             },
             create_records: {
               oneOf: [
@@ -422,9 +436,19 @@ Precise Control - Explicit List:
               description: 'Custom name for the index variable. Defaults to "${variable}Index". Must be different from the main variable name.',
               pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
             },
-            store_variable: {
-              type: 'boolean',
-              description: 'Store iteration results as a reusable variable (default: false). Returns {results: [], errors: [], processed: number, total: number}. Access using {{<alias>.results}}, {{<alias>.processed}}, etc. Example: If alias="process_items", reference as {{process_items.results[0]}}'
+            store: {
+              oneOf: [
+                {
+                  type: 'object',
+                  description: 'Map specific fields from iteration results to named variables. Example: {"results": "items", "processed": "count"} stores as {{alias.items}}, {{alias.count}}',
+                  additionalProperties: { type: 'string' }
+                },
+                {
+                  type: 'boolean',
+                  const: true,
+                  description: 'Store all iteration results as {{alias.results}}, {{alias.errors}}, {{alias.processed}}, {{alias.total}}'
+                }
+              ]
             }
           },
           required: ['variable'],
@@ -457,7 +481,7 @@ Precise Control - Explicit List:
           properties: {
             variables: {
               type: 'object',
-              description: 'Variables to store in workflow state. Each key-value pair is stored flat (e.g., {email: "x@y.com"} is accessed as {{email}}, NOT {{alias.email}}). Overwrites existing values.',
+              description: 'Static values stored globally in workflow state. Each key-value pair is stored with the exact key provided (e.g., {apiKey: "sk-123"} is accessed as {{apiKey}}). Use for configuration, constants, and user input that won\'t change during workflow execution. Overwrites existing values.',
               additionalProperties: true
             }
           },
@@ -502,9 +526,23 @@ Precise Control - Explicit List:
               additionalProperties: true
             },
             store: {
-              type: 'object',
-              description: 'Map specific fields from the result to variables. Example: {"classification": "emailType", "confidence": "classificationScore"} stores result.classification as {{alias.emailType}}',
-              additionalProperties: { type: 'string' }
+              oneOf: [
+                {
+                  type: 'object',
+                  description: 'Map specific fields from the result to variables. Example: {"result": "classification", "confidence": "score"} stores result field as {{alias.classification}} and confidence field as {{alias.score}}',
+                  additionalProperties: { type: 'string' }
+                },
+                {
+                  type: 'boolean',
+                  const: true,
+                  description: 'Shorthand for store: {"result": "result"} - stores main result as {{alias.result}}'
+                },
+                {
+                  type: 'string',
+                  const: '*',
+                  description: 'Store all result fields with same names - useful when result is an object with multiple fields'
+                }
+              ]
             },
             store_to_record: {
               type: 'boolean',

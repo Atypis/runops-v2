@@ -333,7 +333,7 @@ For processing multiple similar elements (emails, products, etc.):
      config: {
        method: 'count',
        selector: 'tr.zA',
-       store_variable: true
+       store: true  // Stores as {{alias.result}}
      }
    }
    // Returns: { count: 14 }
@@ -460,11 +460,15 @@ Each record is an isolated namespace that accumulates data as it flows through y
 
 To global variables:
 \`\`\`javascript
-// Via store configuration (replaces store_variable: true)
+// Via store configuration 
 store: {
   "count": "totalEmails",      // result.count → {{extract_emails.totalEmails}}
   "items[0].id": "firstId"     // Deep paths work
 }
+
+// Store shortcuts
+store: true           // Shorthand for store: {"result": "result"}
+store: "*"            // Store all fields with same names
 
 // Via context node
 { type: 'context', config: { variables: { apiKey: "sk-123" } } }

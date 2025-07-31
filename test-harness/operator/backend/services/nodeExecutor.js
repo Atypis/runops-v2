@@ -1218,14 +1218,35 @@ export class NodeExecutor {
         // Check for new 'store' configuration
         if (resolvedConfig?.store) {
           try {
-            console.log(`[EXECUTE] Using intentional storage pattern with config:`, resolvedConfig.store);
+            // Handle store shortcuts
+            let storeConfig = resolvedConfig.store;
+            
+            if (storeConfig === true) {
+              // Shorthand for store: {"result": "result"}
+              storeConfig = { "result": "result" };
+              console.log(`[EXECUTE] Expanded store shortcut 'true' to:`, storeConfig);
+            } else if (storeConfig === "*") {
+              // Store all fields with same names
+              if (result && typeof result === 'object') {
+                storeConfig = {};
+                for (const key of Object.keys(result)) {
+                  storeConfig[key] = key;
+                }
+                console.log(`[EXECUTE] Expanded store shortcut '*' to:`, storeConfig);
+              } else {
+                console.warn(`[EXECUTE] Store shortcut '*' used but result is not an object:`, result);
+                storeConfig = {};
+              }
+            }
+            
+            console.log(`[EXECUTE] Using intentional storage pattern with config:`, storeConfig);
             
             if (!this.variableService) {
               this.variableService = new VariableManagementService();
             }
             
             // Store each mapped field
-            for (const [sourceField, targetField] of Object.entries(resolvedConfig.store)) {
+            for (const [sourceField, targetField] of Object.entries(storeConfig)) {
               // Handle special case for storing entire result
               let valueToStore;
               if (sourceField === '*' && targetField === '*') {
@@ -1261,74 +1282,8 @@ export class NodeExecutor {
             // Don't fail execution
           }
         }
-        // Legacy store_variable support (will be deprecated)
-        else if (resolvedConfig?.store_variable) {
-          try {
-            console.log(`[EXECUTE] Using legacy store_variable pattern (deprecated)`);
-            
-            // Use alias as the storage key (with iteration context if applicable)
-            const storageKey = this.getStorageKey(node.alias);
-            
-            // Extract the actual value for storage (remove wrappers for primitives)
-            // Handle two cases of wrapped primitives:
-            // 1. Visual observations: {value: primitive, _page_observation: "..."}
-            // 2. Cognition results: {result: primitive} when schema is {type: "boolean/string/number"}
-            let storageValue = result;
-            
-            // Check for visual observation wrapper
-            if (result && typeof result === 'object' && '_page_observation' in result && 'value' in result) {
-              // This is a wrapped primitive from visual observations
-              storageValue = result.value;
-              console.log(`[EXECUTE] Unwrapping visual observation wrapper: ${JSON.stringify(storageValue)}`);
-            }
-            // Check for cognition result wrapper when expecting a primitive
-            else if (result && typeof result === 'object' && 'result' in result && Object.keys(result).length === 1) {
-              // This looks like a wrapped primitive from cognition (e.g., {result: true})
-              // Only unwrap if the schema suggests it should be a primitive
-              const primitiveTypes = ['boolean', 'string', 'number'];
-              if (node.type === 'cognition' && node.params?.schema?.type && primitiveTypes.includes(node.params.schema.type)) {
-                storageValue = result.result;
-                console.log(`[EXECUTE] Unwrapping cognition result wrapper for ${node.params.schema.type}: ${JSON.stringify(storageValue)}`);
-              }
-            }
-            
-            const { data: memData, error: memError } = await supabase
-              .from('workflow_memory')
-              .upsert({
-                workflow_id: workflowId,
-                key: storageKey,
-                value: storageValue
-              }, { onConflict: 'workflow_id,key' })
-              .select()
-              .single();
-            
-            if (memError) {
-              console.error(`Failed to store variable: ${memError.message}`);
-              throw memError;
-            }
-            
-            // Still send real-time update for UI
-            this.sendNodeValueUpdate(nodeId, node.position, result, node.alias);
-            
-            // Emit SSE event for variable storage
-            console.log(`[EXECUTE] Checking browserStateService availability for SSE emit...`);
-            if (this.browserStateService) {
-              console.log(`[EXECUTE] BrowserStateService is available, emitting variable update via SSE`);
-              console.log(`[EXECUTE] Current workflow ID: ${workflowId}`);
-              console.log(`[EXECUTE] Storage key: ${storageKey}`);
-              console.log(`[EXECUTE] Node alias: ${node.alias}`);
-              await this.browserStateService.emitVariableUpdate(workflowId, storageKey, storageValue, node.alias);
-            } else {
-              console.log(`[EXECUTE] WARNING: BrowserStateService is not available!`);
-            }
-          } catch (memError) {
-            console.error(`[EXECUTE] Failed to store variable for ${node.alias}:`, memError);
-            console.error(`[EXECUTE] Full error details:`, JSON.stringify(memError, null, 2));
-            // Don't fail the execution if memory storage fails
-          }
-        }
       }
-      // If neither store nor store_variable is set, result is NOT stored - only available in node.result column
+      // If store is not set, result is NOT stored - only available in node.result column
       
       // Handle storing to current record if in iteration context
       console.log(`[DEBUG] store_to_record check:`, {
@@ -3065,43 +3020,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       // First try to find the node by position to get its alias
       const { data: node } = await supabase
         .from('nodes')
-        .select('alias, result, store_variable')
+        .select('alias, result')
         .eq('workflow_id', workflowId)
         .eq('position', parseInt(position))
         .single();
         
       if (!node) {
         throw new Error(`Node at position ${position} not found`);
-      }
-      
-      // If the node has store_variable: true and an alias, try to get from workflow_memory
-      if (node.store_variable && node.alias) {
-        const storageKey = this.getStorageKey(node.alias);
-        const { data: memoryData } = await supabase
-          .from('workflow_memory')
-          .select('value')
-          .eq('workflow_id', workflowId)
-          .eq('key', storageKey)
-          .single();
-          
-        if (memoryData) {
-          let value = memoryData.value;
-          
-          // Navigate nested properties if specified
-          if (propertyPath) {
-            const parts = propertyPath.split('.');
-            for (const part of parts) {
-              value = value?.[part];
-            }
-            
-            if (value === undefined) {
-              throw new Error(`Property '${path}' not found. Node at position ${position} exists but doesn't have property '${propertyPath}'`);
-            }
-          }
-          
-          console.log(`[STATE] Found value from workflow_memory for position ${position}: ${JSON.stringify(value)}`);
-          return value;
-        }
       }
       
       // Fallback: get result from nodes table
@@ -3144,7 +3069,13 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         .single();
       
       if (!memoryData) {
-        throw new Error(`Variable '${aliasRef}' not found. Did you forget to set store_variable: true?`);
+        throw new Error(`Variable '${aliasRef}' not found.
+
+Available storage patterns:
+• Static values: Use variables: {key: value} → access {{key}}
+• Dynamic results: Use store: {field: name} → access {{alias.name}}
+
+Use get_workflow_data() to inspect all stored variables.`);
       }
       
       // Navigate nested properties
@@ -3181,7 +3112,16 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
         .select('key, value')
         .eq('workflow_id', workflowId);
       console.log(`[STATE] All variables in workflow:`, allVars?.map(v => `${v.key}=${JSON.stringify(v.value)}`));
-      throw new Error(`Variable '${path}' not found. Did you forget to set store_variable: true?`);
+      const availableVars = allVars?.map(v => v.key) || [];
+      throw new Error(`Variable '${path}' not found.
+
+Available storage patterns:
+• Static values: Use variables: {key: value} → access {{key}}
+• Dynamic results: Use store: {field: name} → access {{alias.name}}
+
+Available variables: ${availableVars.join(', ')}
+
+Use get_workflow_data() to inspect all stored variables.`);
     }
     
     console.log(`[STATE] Found variable '${path}' with value: ${JSON.stringify(data.value)}`);

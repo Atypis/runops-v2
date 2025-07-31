@@ -1190,8 +1190,7 @@ export class BrowserActionService {
       useShadowDOM = false,
       waitTimeout = 1000,
       portalWaitTimeout = 2000,
-      returnPortalSelector = true,
-      store_variable = false
+      returnPortalSelector = true
     } = config;
     
     if (!selector) {
@@ -1365,17 +1364,6 @@ export class BrowserActionService {
       result.portalSelector = bestPortal.selector;
     }
     
-    // Store in variable if requested
-    if (store_variable && this.nodeExecutor) {
-      // Check if storeVariable method exists (it might not in all contexts)
-      if (typeof this.nodeExecutor.storeVariable === 'function') {
-        await this.nodeExecutor.storeVariable('portal_result', result);
-      } else {
-        console.warn('[clickAndWaitForPortal] store_variable requested but storeVariable method not available');
-        // Add a note to the result that storage was requested but unavailable
-        result.variableStorageNote = 'Variable storage requested but not available in this context';
-      }
-    }
     
     return result;
   }

@@ -1273,8 +1273,6 @@ export class DirectorService {
     
     const nodeAlias = alias;
     
-    // Extract store_variable from config before storing
-    const storeVariable = config?.store_variable === true;
     
     // Handle both array and object configs properly
     let cleanConfig;
@@ -1284,7 +1282,6 @@ export class DirectorService {
     } else {
       // For objects, spread and clean
       cleanConfig = { ...(config || {}) };
-      delete cleanConfig.store_variable;  // Remove from params to keep it clean
     }
     
     // Prepare node data
@@ -1292,11 +1289,10 @@ export class DirectorService {
       workflow_id: workflowId,
       position: nodePosition,
       type,
-      params: cleanConfig,  // Store config without store_variable
+      params: cleanConfig,
       description: description || `${type} node`,
       status: 'pending',
-      alias: nodeAlias,
-      store_variable: storeVariable  // Add as column value
+      alias: nodeAlias
     };
     
     // Add parent_position to params if provided (since we don't have a DB column for it)
@@ -4823,8 +4819,7 @@ export class DirectorService {
               executed_at: node.executed_at,
               created_at: node.created_at,
               id: node.id,
-              uuid: node.uuid,
-              store_variable: node.store_variable
+              uuid: node.uuid
             }));
           } else {
             // Legacy format for backward compatibility
