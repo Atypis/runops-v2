@@ -3223,6 +3223,40 @@ export class DirectorService {
    * Debug navigation methods - for exploration without creating workflow nodes
    */
   
+  async handleBrowserPlaywrightExecute(args, workflowId) {
+    const { code, description, timeout = 15000, tabName } = args;
+    
+    try {
+      // Validate required parameters
+      if (!code) {
+        throw new Error('Code parameter is required');
+      }
+      if (!description) {
+        throw new Error('Description parameter is required');
+      }
+      
+      // Use NodeExecutor for consistency and security
+      const page = await this.nodeExecutor.resolveTargetPage(tabName);
+      const result = await this.nodeExecutor.executePlaywrightCode(page, code, timeout);
+      
+      return {
+        success: true,
+        result: result,
+        description: description,
+        executedAt: new Date().toISOString(),
+        tabName: tabName || 'active'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        description: description || 'No description provided',
+        executedAt: new Date().toISOString(),
+        tabName: tabName || 'active'
+      };
+    }
+  }
+  
   async debugNavigate(args, workflowId) {
     try {
       const { url, tabName = 'main', reason } = args;
@@ -4762,6 +4796,9 @@ export class DirectorService {
           break;
         case 'dom_check_portals':
           result = await domToolkitService.domCheckPortals(args, this.nodeExecutor);
+          break;
+        case 'browser_playwright_execute':
+          result = await this.handleBrowserPlaywrightExecute(args, workflowId);
           break;
           
         // Clean Context 2.0 - Context Retrieval Tools

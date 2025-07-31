@@ -655,6 +655,63 @@ Quick Testing - Position:
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
+    // browser_playwright - Raw Playwright code execution with full API access
+    {
+      type: 'object',
+      properties: {
+        type: { const: 'browser_playwright' },
+        config: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'string',
+              description: 'Human-readable description of what this Playwright code does. Required for documentation and debugging.'
+            },
+            code: {
+              type: 'string',
+              description: 'Raw Playwright code to execute. Has access to `page` object and can use await. Example: "const links = await page.$$eval(\'a\', els => els.map(el => el.href)); return { links, count: links.length };"'
+            },
+            timeout: {
+              type: 'number',
+              description: 'Execution timeout in milliseconds (default: 30000)',
+              default: 30000,
+              minimum: 1000,
+              maximum: 300000
+            },
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to execute on (defaults to active tab)'
+            },
+            store: {
+              type: 'object',
+              description: 'Map specific fields from the result to variables. Example: {"links": "allLinks", "count": "linkCount"} stores result.links as {{alias.allLinks}} and result.count as {{alias.linkCount}}',
+              additionalProperties: { type: 'string' }
+            },
+            store_to_record: {
+              type: 'boolean',
+              description: 'Store result to current record instead of global variable (only works inside record iteration)'
+            },
+            as: {
+              type: 'string',
+              description: 'Field name in record when using store_to_record (defaults to node alias)'
+            }
+          },
+          required: ['description', 'code'],
+          additionalProperties: false
+        },
+        description: {
+          type: 'string',
+          description: 'Human-readable description of what this node does'
+        },
+        alias: {
+          type: 'string',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
+          pattern: '^[a-z][a-z0-9_]*$'
+        }
+      },
+      required: ['type', 'config', 'alias'],
+      additionalProperties: false
+    },
     // General schema for other node types with minimal requirements
     {
       type: 'object',

@@ -1312,6 +1312,10 @@ export class NodeExecutor {
         case 'browser_ai_extract':
           result = await this.executeBrowserAIExtract(resolvedConfig);
           break;
+        case 'browser_playwright':
+          console.log(`[EXECUTE] Executing browser playwright code...`);
+          result = await this.executeBrowserPlaywright(resolvedConfig, workflowId);
+          break;
         case 'transform':
           result = await this.executeTransform(resolvedConfig, workflowId);
           break;
@@ -2844,6 +2848,136 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       console.error(`[BROWSER_AI_QUERY] Error stack:`, error.stack);
       throw new Error(`Failed to extract data: ${error.message}`);
     }
+  }
+
+  /**
+   * Execute raw Playwright code with security validation
+   */
+  async executeBrowserPlaywright(config, workflowId) {
+    console.log(`[BROWSER_PLAYWRIGHT] Executing: ${config.description}`);
+    
+    const { code, timeout = 30000, tabName } = config;
+    
+    if (!code || typeof code !== 'string') {
+      throw new Error('browser_playwright requires valid code string');
+    }
+    
+    // Get the appropriate page
+    const page = await this.resolveTargetPage(tabName);
+    
+    try {
+      // Execute the Playwright code with security wrapper
+      const result = await this.executePlaywrightCode(page, code, timeout);
+      
+      console.log(`[BROWSER_PLAYWRIGHT] Execution completed successfully`);
+      return result;
+      
+    } catch (error) {
+      console.error(`[BROWSER_PLAYWRIGHT] Execution failed:`, error);
+      throw new Error(`Playwright execution failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Secure Playwright code execution wrapper with validation
+   */
+  async executePlaywrightCode(page, code, timeout = 30000) {
+    // Input validation
+    if (typeof code !== 'string' || code.trim().length === 0) {
+      throw new Error('Code must be a non-empty string');
+    }
+    
+    // Security validation - check for dangerous patterns
+    const dangerousPatterns = [
+      /require\s*\(/,           // No require()
+      /import\s+(?!.*from\s*['"])/,  // No dynamic imports (allow import from strings)
+      /process\./,              // No process access
+      /global\./,               // No global access
+      /__dirname/,              // No __dirname
+      /__filename/,             // No __filename
+      /fs\./,                   // No file system
+      /child_process/,          // No child processes
+      /eval\s*\(/,              // No eval
+      /Function\s*\(/,          // No Function constructor
+      /while\s*\(\s*true\s*\)/, // No infinite loops
+      /for\s*\(\s*;;\s*\)/      // No infinite for loops
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(code)) {
+        throw new Error(`Security violation: Code contains prohibited pattern: ${pattern}`);
+      }
+    }
+    
+    // Create secure execution wrapper
+    const wrappedCode = `
+      (async function executeUserCode(page) {
+        try {
+          // User code execution
+          ${code}
+        } catch (error) {
+          throw new Error('User code error: ' + error.message);
+        }
+      })
+    `;
+    
+    // Set up timeout promise
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`Execution timeout after ${timeout}ms`)), timeout)
+    );
+    
+    try {
+      // Create and execute the wrapped function
+      const executor = eval(wrappedCode);
+      const executionPromise = executor(page);
+      
+      // Race between execution and timeout
+      const result = await Promise.race([
+        executionPromise,
+        timeoutPromise
+      ]);
+      
+      // Validate result (basic sanitization)
+      if (result === undefined) {
+        return { success: true, result: null };
+      }
+      
+      // Return structured result
+      return { success: true, result };
+      
+    } catch (error) {
+      console.error(`[PLAYWRIGHT_CODE] Execution error:`, error);
+      return { 
+        success: false, 
+        error: error.message,
+        type: error.name || 'ExecutionError'
+      };
+    }
+  }
+
+  /**
+   * Resolve target page for browser operations
+   */
+  async resolveTargetPage(tabName) {
+    const stagehand = await this.getStagehand();
+    
+    // Default to active tab if not specified
+    if (!tabName) {
+      tabName = this.activeTabName || 'main';
+    }
+    
+    // Handle main tab
+    if (tabName === 'main') {
+      return this.mainPage || stagehand.page;
+    }
+    
+    // Check named tabs
+    const page = this.stagehandPages?.[tabName];
+    if (!page) {
+      throw new Error(`Tab "${tabName}" does not exist. Use openTab first or specify valid tab name.`);
+    }
+    
+    return page;
   }
 
   async executeTransform(config, inputData) {

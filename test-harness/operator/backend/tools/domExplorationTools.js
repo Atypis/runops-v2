@@ -375,6 +375,40 @@ export function createDOMExplorationTools() {
         },
         strict: true
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_playwright_execute',
+        description: 'Execute raw Playwright code directly for exploration, testing, and advanced automation. Has access to full Playwright API with `page` object. Use this when standard tools hit limitations or you need custom browser interactions.',
+        parameters: {
+          type: 'object',
+          properties: {
+            code: {
+              type: 'string',
+              description: 'Raw Playwright code to execute. Has access to `page` object and can use await. Return data to get results. Example: "const links = await page.$$eval(\'a:visible\', els => els.map(el => ({text: el.textContent.trim(), href: el.href}))); return {links, count: links.length};"'
+            },
+            description: {
+              type: 'string',
+              description: 'Human-readable description of what this code does (required for audit trail and debugging)'
+            },
+            timeout: {
+              type: 'number',
+              description: 'Execution timeout in milliseconds (default: 15000)',
+              default: 15000,
+              minimum: 1000,
+              maximum: 120000
+            },
+            tabName: {
+              type: 'string',
+              description: 'Browser tab to execute on (defaults to active tab)'
+            }
+          },
+          required: ['code', 'description'],
+          additionalProperties: false
+        },
+        strict: true
+      }
     }
   ];
 }
