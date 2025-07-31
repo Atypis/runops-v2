@@ -654,9 +654,31 @@ export class NodeExecutor {
         }
       }
       
-      // Handle regular variables
+      // Handle regular variables - check record context first for single templates
       try {
-        const resolvedValue = await this.getStateValue(expression, workflowId);
+        let resolvedValue;
+        
+        // PRIORITY 1: Handle current record references (e.g., {{current.extract_emails.subject}})
+        if (expression.startsWith('current.')) {
+          const currentRecord = this.getCurrentRecord();
+          console.log(`[TEMPLATE] Single template - resolving current record reference: ${expression}`);
+          console.log(`[TEMPLATE] Single template - current record context:`, currentRecord ? `${currentRecord.recordId}` : 'null');
+          console.log(`[TEMPLATE] Single template - record context stack length:`, this.recordContext.length);
+          
+          if (currentRecord) {
+            const path = expression.substring(8); // Remove 'current.'
+            console.log(`[TEMPLATE] Single template - extracting path "${path}" from record data`);
+            resolvedValue = this.getNestedProperty(currentRecord.data, path);
+            console.log(`[TEMPLATE] Single template - resolved to:`, resolvedValue);
+          } else {
+            console.warn(`[TEMPLATE] Single template - no current record context for: ${expression}`);
+            resolvedValue = undefined;
+          }
+        } else {
+          // Fall back to regular state lookup
+          resolvedValue = await this.getStateValue(expression, workflowId);
+        }
+        
         // Special handling: if resolved to undefined, return the original template
         // This prevents conditions from being lost when variables don't exist
         if (resolvedValue === undefined) {
