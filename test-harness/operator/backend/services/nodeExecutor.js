@@ -2259,7 +2259,7 @@ Field selectors must use ONE of three modes:
       try {
         // Use page.evaluate for deterministic extraction - wrap arguments in single object
         const extractedData = await activePage.evaluate((args) => {
-          const { selector, fields, limit, useShadowDOM } = args;
+          const { selector, fields, limit, useShadowDOM, visibleOnly, inViewportOnly } = args;
           const items = [];
           
           // Helper function to query with shadow DOM support
@@ -2284,7 +2284,39 @@ Field selectors must use ONE of three modes:
             return elements;
           };
           
-          const elements = queryElements(selector);
+          let elements = queryElements(selector);
+          
+          // Apply viewport-based filtering if requested
+          if (visibleOnly || inViewportOnly) {
+            elements = Array.from(elements).filter(el => {
+              // Check if element is visible (not hidden by CSS)
+              if (visibleOnly) {
+                const styles = window.getComputedStyle(el);
+                if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+                  return false;
+                }
+              }
+              
+              // Check if element is in viewport
+              if (inViewportOnly) {
+                const rect = el.getBoundingClientRect();
+                const isInViewport = (
+                  rect.top >= 0 &&
+                  rect.left >= 0 &&
+                  rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                  rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+                if (!isInViewport) {
+                  return false;
+                }
+              }
+              
+              return true;
+            });
+          }
+          
           const count = elements.length;
           const maxItems = limit || elements.length;
           
@@ -2335,7 +2367,7 @@ Field selectors must use ONE of three modes:
           }
           
           return { items, count };
-        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null, useShadowDOM: config.useShadowDOM || false });
+        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null, useShadowDOM: config.useShadowDOM || false, visibleOnly: config.visibleOnly || false, inViewportOnly: config.inViewportOnly || false });
         
         console.log(`[BROWSER_QUERY] Extracted ${extractedData.items.length} items (total found: ${extractedData.count})`);
         

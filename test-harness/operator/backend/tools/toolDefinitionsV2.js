@@ -264,6 +264,14 @@ export function createToolDefinitions() {
               type: 'boolean',
               description: 'For deterministic_extract: Enable shadow DOM piercing. When true, selectors will traverse shadow boundaries using >> syntax.'
             },
+            visibleOnly: {
+              type: 'boolean',
+              description: 'For deterministic_extract: Only extract elements that are visible (not hidden by CSS display:none, visibility:hidden, or opacity:0). Solves Gmail DOM filtering issues.'
+            },
+            inViewportOnly: {
+              type: 'boolean', 
+              description: 'For deterministic_extract: Only extract elements that are in the current viewport (visible on screen). Perfect for filtering Gmail search results that show 14 visible emails out of 45 DOM elements.'
+            },
             onFailure: {
               type: 'string',
               enum: ['stop_workflow', 'continue_with_error'],
