@@ -632,6 +632,40 @@ export class NodeExecutor {
           }
         }
         
+        // Handle iteration context variables (e.g., current_email.field.value)
+        const currentContext = this.getCurrentIterationContext();
+        const currentRecord = this.getCurrentRecord();
+        console.log(`\n🚀 [DEBUG_ENHANCED] Single template resolution for: ${path}`);
+        console.log(`🚀 [DEBUG_ENHANCED] Current iteration context:`, currentContext);
+        console.log(`🚀 [DEBUG_ENHANCED] Current record context:`, currentRecord ? currentRecord.recordId : 'none');
+        
+        if (currentContext && currentRecord && path.startsWith(currentContext.variable)) {
+          console.log(`🚀 [DEBUG_ENHANCED] ✅ MATCHED iteration variable in single template: ${path}`);
+          console.log(`🚀 [DEBUG_ENHANCED] Iteration variable: ${currentContext.variable}`);
+          console.log(`🚀 [DEBUG_ENHANCED] Current record: ${currentRecord.recordId}`);
+          console.log(`🚀 [DEBUG_ENHANCED] Record data:`, JSON.stringify(currentRecord.data, null, 2));
+          if (path === currentContext.variable) {
+            // Just the variable name (e.g., {{current_email}})
+            return currentRecord.data;
+          } else {
+            // Property access (e.g., {{current_email.get_visible_emails.row_id}})
+            const propertyPath = path.substring(currentContext.variable.length + 1);
+            console.log(`[TEMPLATE_ENHANCED] Resolving property path: ${propertyPath}`);
+            
+            // For record iteration, try both direct path and fields-prefixed path
+            let resolved = this.getNestedValue(currentRecord.data, propertyPath);
+            if (resolved === undefined && !propertyPath.startsWith('fields.')) {
+              // Try with fields prefix for record data access
+              const fieldsPath = `fields.${propertyPath}`;
+              console.log(`[TEMPLATE_ENHANCED] Trying fields-prefixed path: ${fieldsPath}`);
+              resolved = this.getNestedValue(currentRecord.data, fieldsPath);
+            }
+            
+            console.log(`[TEMPLATE_ENHANCED] Resolved to:`, resolved);
+            return resolved !== undefined ? resolved : value;
+          }
+        }
+        
         // Fall back to existing resolution
         return await this.resolveTemplateVariables(value, workflowId);
       }
@@ -656,6 +690,35 @@ export class NodeExecutor {
           if (records[recordId]) {
             const val = this.getNestedValue(records[recordId].data, fieldPath);
             return val !== undefined ? String(val) : match;
+          }
+        }
+        
+        // Handle iteration context variables (e.g., current_email.field.value)
+        const currentContext = this.getCurrentIterationContext();
+        const currentRecord = this.getCurrentRecord();
+        if (currentContext && currentRecord && path.startsWith(currentContext.variable)) {
+          console.log(`[TEMPLATE_ENHANCED] Found iteration variable in multiple templates: ${path}`);
+          console.log(`[TEMPLATE_ENHANCED] Iteration variable: ${currentContext.variable}`);
+          console.log(`[TEMPLATE_ENHANCED] Current record: ${currentRecord.recordId}`);
+          if (path === currentContext.variable) {
+            // Just the variable name (e.g., {{current_email}})
+            return String(currentRecord.data);
+          } else {
+            // Property access (e.g., {{current_email.get_visible_emails.row_id}})
+            const propertyPath = path.substring(currentContext.variable.length + 1);
+            console.log(`[TEMPLATE_ENHANCED] Resolving property path: ${propertyPath}`);
+            
+            // For record iteration, try both direct path and fields-prefixed path
+            let resolved = this.getNestedValue(currentRecord.data, propertyPath);
+            if (resolved === undefined && !propertyPath.startsWith('fields.')) {
+              // Try with fields prefix for record data access
+              const fieldsPath = `fields.${propertyPath}`;
+              console.log(`[TEMPLATE_ENHANCED] Trying fields-prefixed path: ${fieldsPath}`);
+              resolved = this.getNestedValue(currentRecord.data, fieldsPath);
+            }
+            
+            console.log(`[TEMPLATE_ENHANCED] Resolved to:`, resolved);
+            return resolved !== undefined ? String(resolved) : match;
           }
         }
         
@@ -905,7 +968,20 @@ export class NodeExecutor {
           const currentContext = this.getCurrentIterationContext();
           console.log(`[TEMPLATE] Found iteration context for "${expression}":`, currentContext);
           if (currentContext && expression.startsWith(currentContext.variable)) {
-            const itemData = await this.getStateValue(currentContext.variable, workflowId);
+            let itemData;
+            
+            // Check if we're in record iteration context
+            const currentRecord = this.getCurrentRecord();
+            if (currentRecord) {
+              console.log(`[TEMPLATE] Record iteration detected - using current record data for ${currentContext.variable}`);
+              console.log(`[TEMPLATE] Current record:`, currentRecord.recordId);
+              // For record iteration, the iteration variable resolves to current record data
+              itemData = currentRecord.data;
+            } else {
+              console.log(`[TEMPLATE] Array iteration detected - using workflow memory for ${currentContext.variable}`);
+              // For array iteration, get from workflow memory as before
+              itemData = await this.getStateValue(currentContext.variable, workflowId);
+            }
             
             if (expression === currentContext.variable) {
               // Just the variable name (e.g., {{email}})
@@ -913,7 +989,18 @@ export class NodeExecutor {
             } else {
               // Property access (e.g., {{email.selector}})
               const propertyPath = expression.substring(currentContext.variable.length + 1);
+              console.log(`[TEMPLATE] Resolving property path "${propertyPath}" in iteration variable data`);
+              
+              // For record iteration, try both direct path and fields-prefixed path
               replacementValue = this.getNestedProperty(itemData, propertyPath);
+              if (replacementValue === undefined && currentRecord && !propertyPath.startsWith('fields.')) {
+                // Try with fields prefix for record data access
+                const fieldsPath = `fields.${propertyPath}`;
+                console.log(`[TEMPLATE] Trying fields-prefixed path: ${fieldsPath}`);
+                replacementValue = this.getNestedProperty(itemData, fieldsPath);
+              }
+              
+              console.log(`[TEMPLATE] Property resolution result:`, replacementValue);
             }
           } else {
             // Not an iteration variable, fall through to global resolution
@@ -978,11 +1065,30 @@ export class NodeExecutor {
   async resolveNodeParams(params, workflowId) {
     if (!params) return params;
     
-    // Use enhanced resolver if available
-    if (this.variableService) {
-      return this.resolveTemplatesWithRecords(params, workflowId);
+    console.log(`\n🔍 [DEBUG_RESOLVE] Starting template resolution for:`, JSON.stringify(params, null, 2));
+    console.log(`🔍 [DEBUG_RESOLVE] Variable service available:`, !!this.variableService);
+    
+    // Ensure variable service is initialized for template resolution
+    if (!this.variableService) {
+      try {
+        const VariableManagementService = require('./variableManagementService');
+        this.variableService = new VariableManagementService();
+        console.log(`🔍 [DEBUG_RESOLVE] ✅ Initialized variable service`);
+      } catch (error) {
+        console.log(`🔍 [DEBUG_RESOLVE] ⚠️ Could not initialize variable service:`, error.message);
+        console.log(`🔍 [DEBUG_RESOLVE] Will use legacy resolver`);
+      }
     }
     
+    // Use enhanced resolver if available
+    if (this.variableService) {
+      console.log(`🔍 [DEBUG_RESOLVE] Using enhanced resolver (resolveTemplatesWithRecords)`);
+      const result = await this.resolveTemplatesWithRecords(params, workflowId);
+      console.log(`🔍 [DEBUG_RESOLVE] Enhanced resolver result:`, JSON.stringify(result, null, 2));
+      return result;
+    }
+    
+    console.log(`🔍 [DEBUG_RESOLVE] Using legacy resolver (resolveTemplateVariables)`);
     // Fall back to old resolver
     // Handle array params (like route node configs)
     if (Array.isArray(params)) {
@@ -1191,48 +1297,48 @@ export class NodeExecutor {
       switch (node.type) {
         case 'browser_action':
           console.log(`[EXECUTE] Executing browser action...`);
-          result = await this.executeBrowserAction(resolvedParams, workflowId);
+          result = await this.executeBrowserAction(resolvedConfig, workflowId);
           break;
         case 'browser_ai_action':
           console.log(`[EXECUTE] Executing browser AI action...`);
-          result = await this.executeBrowserAIAction(resolvedParams, workflowId);
+          result = await this.executeBrowserAIAction(resolvedConfig, workflowId);
           break;
         case 'browser_query':
-          result = await this.executeBrowserQuery(resolvedParams);
+          result = await this.executeBrowserQuery(resolvedConfig);
           break;
         case 'browser_ai_query':
-          result = await this.executeBrowserAIQuery(resolvedParams);
+          result = await this.executeBrowserAIQuery(resolvedConfig);
           break;
         case 'browser_ai_extract':
-          result = await this.executeBrowserAIExtract(resolvedParams);
+          result = await this.executeBrowserAIExtract(resolvedConfig);
           break;
         case 'transform':
-          result = await this.executeTransform(resolvedParams, workflowId);
+          result = await this.executeTransform(resolvedConfig, workflowId);
           break;
         case 'cognition':
-          result = await this.executeCognition(resolvedParams, options.inputData);
+          result = await this.executeCognition(resolvedConfig, options.inputData);
           break;
         case 'memory':
-          result = await this.executeMemory(resolvedParams, workflowId);
+          result = await this.executeMemory(resolvedConfig, workflowId);
           break;
         case 'context':
           console.log(`[EXECUTE] Executing context operation...`);
-          result = await this.executeContext(resolvedParams, workflowId);
+          result = await this.executeContext(resolvedConfig, workflowId);
           break;
         case 'route':
           console.log(`[EXECUTE] Executing route...`);
-          result = await this.executeRoute(resolvedParams, workflowId);
+          result = await this.executeRoute(resolvedConfig, workflowId);
           break;
         case 'iterate':
           console.log(`[EXECUTE] Executing iterate...`);
-          result = await this.executeIterate(resolvedParams, workflowId, node.position, { ...options, previewOnly: false });
+          result = await this.executeIterate(resolvedConfig, workflowId, node.position, { ...options, previewOnly: false });
           break;
         case 'group':
           console.log(`[EXECUTE] Executing group...`);
-          result = await this.executeGroup(resolvedParams, workflowId, node.position);
+          result = await this.executeGroup(resolvedConfig, workflowId, node.position);
           break;
         case 'agent':
-          result = await this.executeAgent(resolvedParams);
+          result = await this.executeAgent(resolvedConfig);
           break;
         default:
           throw new Error(`Unsupported node type: ${node.type}`);
@@ -3833,7 +3939,19 @@ Use get_workflow_data() to inspect all stored variables.`);
         let result;
         
         // Use pre-resolved positions if available, fall back to body
-        const bodyToExecute = config.body_positions || config.body;
+        let bodyToExecute = config.body_positions || config.body;
+        
+        // Parse string body positions to numbers
+        if (typeof bodyToExecute === 'string') {
+          // Handle comma-separated positions like "3,5,7"
+          if (bodyToExecute.includes(',')) {
+            bodyToExecute = bodyToExecute.split(',').map(pos => parseInt(pos.trim(), 10));
+          } else {
+            // Single position as string like "3"
+            bodyToExecute = parseInt(bodyToExecute, 10);
+          }
+          console.log(`🔧 [DEBUG_ITERATE] Parsed body positions:`, bodyToExecute);
+        }
         
         // Check if this is the new format (array of positions) or old format (array of node objects)
         if (Array.isArray(bodyToExecute)) {
