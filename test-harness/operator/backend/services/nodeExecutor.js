@@ -2678,6 +2678,25 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
     
     console.log(`[COGNITION] Processing with instruction: ${config.instruction || config.prompt}`);
     
+    // Handle primitive schemas by wrapping them in an object
+    // OpenAI json_object format requires objects, so we auto-wrap primitives
+    let effectiveSchema = config.schema;
+    let isPrimitiveOrArraySchema = false;
+    
+    // Check for primitive types or arrays
+    const nonObjectTypes = ['string', 'number', 'boolean', 'array'];
+    if (config.schema.type && nonObjectTypes.includes(config.schema.type)) {
+      console.log(`[COGNITION] Detected ${config.schema.type} schema. Wrapping in object for JSON format compatibility.`);
+      isPrimitiveOrArraySchema = true;
+      effectiveSchema = {
+        type: 'object',
+        properties: {
+          value: config.schema
+        },
+        required: ['value']
+      };
+    }
+    
     // Build the prompt - either use instruction directly or replace {{input}} placeholder
     let prompt = config.instruction || config.prompt || '';
     if (inputData && prompt.includes('{{input}}')) {
@@ -2688,9 +2707,14 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
     // `response_format: {type: 'json_object'}`.  Append a one-liner if the
     // caller didn't already mention it.
     const needsJsonHint = !!config.schema && !/json/i.test(prompt);
-    const safePrompt = needsJsonHint
+    let safePrompt = needsJsonHint
       ? `${prompt}\n\nRespond ONLY in valid JSON format.`
       : prompt;
+      
+    // If we wrapped a primitive schema, adjust the prompt to guide the AI
+    if (isPrimitiveOrArraySchema) {
+      safePrompt += `\n\nReturn your answer in this JSON format: {"value": your_answer_here}`;
+    }
 
     const completion = await this.openai.chat.completions.create({
       model: 'o4-mini',
@@ -2713,10 +2737,10 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
         throw new Error(`Failed to parse JSON response from cognition: ${error.message}`);
       }
       
-      // NEW: Validate and coerce
+      // Validate and coerce using the effective schema (may be wrapped)
       const validation = SchemaValidator.validateAndCoerce(
         parsedResponse,
-        config.schema,
+        effectiveSchema, // Use effectiveSchema since we may have wrapped it
         {
           nodeType: 'COGNITION',
           nodeAlias: config.alias,
@@ -2733,6 +2757,12 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       }
       
       parsedResponse = validation.data;
+      
+      // If we wrapped a primitive or array schema, unwrap the result
+      if (isPrimitiveOrArraySchema && parsedResponse && typeof parsedResponse === 'object' && 'value' in parsedResponse) {
+        console.log(`[COGNITION] Unwrapping result from object wrapper`);
+        return parsedResponse.value;
+      }
     }
     
     return parsedResponse;
