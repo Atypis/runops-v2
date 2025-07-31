@@ -186,17 +186,26 @@ export class NodeExecutor {
     }
     
     // Handle array results (from extractions)
+    let itemsArray = null;
     if (Array.isArray(result)) {
-      console.log(`[RECORD_CREATION] Creating ${result.length} ${recordType} records from array result`);
+      itemsArray = result;
+    } else if (result && typeof result === 'object' && Array.isArray(result.items)) {
+      // Handle browser_query results that return {items: [...], count: N}
+      itemsArray = result.items;
+      console.log(`[RECORD_CREATION] Found browser_query result with ${result.items.length} items (count: ${result.count})`);
+    }
+    
+    if (itemsArray) {
+      console.log(`[RECORD_CREATION] Creating ${itemsArray.length} ${recordType} records from array result`);
       
-      for (let i = 0; i < result.length; i++) {
+      for (let i = 0; i < itemsArray.length; i++) {
         // First replace {{index}}
         let recordId = idPattern.replace('{{index}}', String(i + 1).padStart(3, '0'));
         
         // Then resolve any other template variables (including from current item)
         // Create a temporary context with the current item data
         const tempContext = {
-          ...result[i],
+          ...itemsArray[i],
           index: String(i + 1).padStart(3, '0')
         };
         
@@ -206,7 +215,7 @@ export class NodeExecutor {
         // Put all extracted data under node namespace
         const initialData = {
           fields: {
-            [nodeAlias]: result[i]  // Store under node name, e.g., extract_emails: {...}
+            [nodeAlias]: itemsArray[i]  // Store under node name, e.g., extract_emails: {...}
           },
           vars: {},
           targets: {},
@@ -220,7 +229,7 @@ export class NodeExecutor {
         await this.variableService.createRecord(workflowId, recordId, recordType, initialData, nodeAlias);
       }
       
-      console.log(`[RECORD_CREATION] Successfully created ${result.length} records`);
+      console.log(`[RECORD_CREATION] Successfully created ${itemsArray.length} records`);
     } else if (result && typeof result === 'object') {
       // Single object result
       console.log(`[RECORD_CREATION] Creating single ${recordType} record from object result`);
