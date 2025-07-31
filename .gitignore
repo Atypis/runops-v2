@@ -34,9 +34,15 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs (runtime logs, not source code)
 *.log
-logs/
+/logs/
+app_frontend/browser-integration.log
+app_frontend/websocket.log
+app_frontend/ws-server.log
+test-harness/operator/backend/backend.log
+test-harness/operator/server.log
+ws-server.log
 
 # Screenshots (keep structure but ignore large files)
 sop_orchestrator/screenshots/*/screenshot_*.png
