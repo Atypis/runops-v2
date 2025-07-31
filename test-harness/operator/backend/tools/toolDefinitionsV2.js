@@ -184,6 +184,14 @@ export function createToolDefinitions() {
                 { type: 'string' }
               ],
               description: 'For click/type: Zero-based index of element to select when multiple elements match the selector. Supports negative indices (-1 = last element), keywords ("first", "last"), and variable references ("{{index}}"). Without nth, the first matching element is used.'
+            },
+            visibleOnly: {
+              type: 'boolean',
+              description: 'For click/type: When using nth parameter, only consider elements that are visible (not hidden by CSS display:none, visibility:hidden, or opacity:0). Filters invisible elements before applying nth index.'
+            },
+            inViewportOnly: {
+              type: 'boolean',
+              description: 'For click/type: When using nth parameter, only consider elements that are currently in the viewport (visible on screen). Perfect for targeting visible search results or list items.'
             }
           },
           required: ['action'],

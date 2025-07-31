@@ -566,7 +566,7 @@ export class BrowserActionService {
   // ===== Interaction Actions =====
 
   async click(config) {
-    const { selector, tabName, timeout = 10000, useShadowDOM = false, nth } = config;
+    const { selector, tabName, timeout = 10000, useShadowDOM = false, nth, visibleOnly = false, inViewportOnly = false } = config;
     
     if (!selector) {
       throw new Error('click action requires selector parameter');
@@ -579,12 +579,64 @@ export class BrowserActionService {
     
     // If nth is specified, handle element selection by index
     if (nth !== undefined) {
-      const elements = await page.$$(effectiveSelector);
+      let elements = await page.$$(effectiveSelector);
+      
+      // Apply visibility filtering if requested
+      if (visibleOnly || inViewportOnly) {
+        const filteredIndexes = await page.evaluate((selector, filters) => {
+          const { visibleOnly, inViewportOnly } = filters;
+          const allElements = document.querySelectorAll(selector);
+          const visibleIndexes = [];
+          
+          allElements.forEach((el, originalIndex) => {
+            // Check if element is visible (not hidden by CSS)
+            if (visibleOnly) {
+              const styles = window.getComputedStyle(el);
+              if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+                return; // Skip this element
+              }
+            }
+            
+            // Check if element is in viewport
+            if (inViewportOnly) {
+              const rect = el.getBoundingClientRect();
+              const isInViewport = (
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
+                rect.width > 0 &&
+                rect.height > 0
+              );
+              if (!isInViewport) {
+                return; // Skip this element
+              }
+            }
+            
+            visibleIndexes.push(originalIndex);
+          });
+          
+          return visibleIndexes;
+        }, effectiveSelector, { visibleOnly, inViewportOnly });
+        
+        // Get new element handles for the actual filtered elements
+        elements = await Promise.all(
+          filteredIndexes.map(async (originalIndex) => {
+            const element = await page.evaluateHandle((selector, index) => {
+              return document.querySelectorAll(selector)[index];
+            }, effectiveSelector, originalIndex);
+            return element;
+          })
+        );
+      }
+      
       const index = this.resolveIndex(nth, elements.length);
       
       if (!elements[index]) {
+        const filterText = (visibleOnly || inViewportOnly) ? 
+          ` (after filtering for ${visibleOnly ? 'visible' : ''}${visibleOnly && inViewportOnly ? ' and ' : ''}${inViewportOnly ? 'in-viewport' : ''} elements)` : '';
         throw new Error(
-          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements.`
+          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements${filterText}.`
         );
       }
       
@@ -617,7 +669,13 @@ export class BrowserActionService {
       }
       
       await elements[index].click();
-      return { clicked: selector, nth: index };
+      const result = { clicked: selector, nth: index };
+      if (visibleOnly || inViewportOnly) {
+        result.filteredBy = [];
+        if (visibleOnly) result.filteredBy.push('visible');
+        if (inViewportOnly) result.filteredBy.push('inViewport');
+      }
+      return result;
     }
     
     // Wait for element to be clickable
@@ -822,7 +880,7 @@ export class BrowserActionService {
   }
 
   async type(config) {
-    const { selector, text, tabName, timeout = 10000, useShadowDOM = false, nth } = config;
+    const { selector, text, tabName, timeout = 10000, useShadowDOM = false, nth, visibleOnly = false, inViewportOnly = false } = config;
     
     if (!selector || text === undefined) {
       throw new Error('type action requires selector and text parameters');
@@ -835,18 +893,76 @@ export class BrowserActionService {
     
     // If nth is specified, handle element selection by index
     if (nth !== undefined) {
-      const elements = await page.$$(effectiveSelector);
+      let elements = await page.$$(effectiveSelector);
+      
+      // Apply visibility filtering if requested
+      if (visibleOnly || inViewportOnly) {
+        const filteredIndexes = await page.evaluate((selector, filters) => {
+          const { visibleOnly, inViewportOnly } = filters;
+          const allElements = document.querySelectorAll(selector);
+          const visibleIndexes = [];
+          
+          allElements.forEach((el, originalIndex) => {
+            // Check if element is visible (not hidden by CSS)
+            if (visibleOnly) {
+              const styles = window.getComputedStyle(el);
+              if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+                return; // Skip this element
+              }
+            }
+            
+            // Check if element is in viewport
+            if (inViewportOnly) {
+              const rect = el.getBoundingClientRect();
+              const isInViewport = (
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
+                rect.width > 0 &&
+                rect.height > 0
+              );
+              if (!isInViewport) {
+                return; // Skip this element
+              }
+            }
+            
+            visibleIndexes.push(originalIndex);
+          });
+          
+          return visibleIndexes;
+        }, effectiveSelector, { visibleOnly, inViewportOnly });
+        
+        // Get new element handles for the actual filtered elements
+        elements = await Promise.all(
+          filteredIndexes.map(async (originalIndex) => {
+            const element = await page.evaluateHandle((selector, index) => {
+              return document.querySelectorAll(selector)[index];
+            }, effectiveSelector, originalIndex);
+            return element;
+          })
+        );
+      }
+      
       const index = this.resolveIndex(nth, elements.length);
       
       if (!elements[index]) {
+        const filterText = (visibleOnly || inViewportOnly) ? 
+          ` (after filtering for ${visibleOnly ? 'visible' : ''}${visibleOnly && inViewportOnly ? ' and ' : ''}${inViewportOnly ? 'in-viewport' : ''} elements)` : '';
         throw new Error(
-          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements.`
+          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements${filterText}.`
         );
       }
       
       // Clear existing value and type new text
       await elements[index].fill(text);
-      return { typed: text, selector, nth: index };
+      const result = { typed: text, selector, nth: index };
+      if (visibleOnly || inViewportOnly) {
+        result.filteredBy = [];
+        if (visibleOnly) result.filteredBy.push('visible');
+        if (inViewportOnly) result.filteredBy.push('inViewport');
+      }
+      return result;
     }
     
     // Wait for element
