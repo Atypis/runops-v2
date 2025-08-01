@@ -669,7 +669,7 @@ Quick Testing - Position:
             },
             code: {
               type: 'string',
-              description: 'Raw Playwright code to execute. Has access to `page` object and can use await. Example: "const links = await page.$$eval(\'a\', els => els.map(el => el.href)); return { links, count: links.length };"'
+              description: 'Raw Playwright code to execute. Has access to `page` object and can use await. SECURITY (Moderate Tier): ✅ fetch() allowed (same-origin + github.com), ✅ timers allowed (30s max, 2 concurrent), ❌ window.open blocked, ❌ document.write blocked, ❌ Node.js modules blocked. Example: "const links = await page.$$eval(\'a\', els => els.map(el => el.href)); return { links, count: links.length };"'
             },
             timeout: {
               type: 'number',

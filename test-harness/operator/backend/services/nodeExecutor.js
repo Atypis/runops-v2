@@ -2887,37 +2887,128 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       throw new Error('Code must be a non-empty string');
     }
     
-    // Security validation - check for dangerous patterns
-    const dangerousPatterns = [
-      /require\s*\(/,           // No require()
-      /import\s+(?!.*from\s*['"])/,  // No dynamic imports (allow import from strings)
+    // MODERATE TIER SECURITY (Dogfooding)
+    // Block critical system access patterns
+    const blockedPatterns = [
+      /require\s*\(/,           // No require() - blocks Node.js modules
+      /import\s+(?!.*from\s*['"])/,  // No dynamic imports
       /process\./,              // No process access
       /global\./,               // No global access
       /__dirname/,              // No __dirname
       /__filename/,             // No __filename
-      /fs\./,                   // No file system
+      /fs\./,                   // No file system access
       /child_process/,          // No child processes
-      /eval\s*\(/,              // No eval
-      /Function\s*\(/,          // No Function constructor
+      /eval\s*\(/,              // No eval() - code injection risk
+      /Function\s*\(/,          // No Function constructor - code injection risk
+      /document\.write\s*\(/,   // No document.write - blocked (use insertAdjacentHTML instead)
       /while\s*\(\s*true\s*\)/, // No infinite loops
       /for\s*\(\s*;;\s*\)/      // No infinite for loops
     ];
     
-    for (const pattern of dangerousPatterns) {
+    for (const pattern of blockedPatterns) {
       if (pattern.test(code)) {
-        throw new Error(`Security violation: Code contains prohibited pattern: ${pattern}`);
+        throw new Error(`Security violation: Pattern blocked in Moderate tier: ${pattern}. See tool documentation for alternatives.`);
       }
     }
     
-    // Create secure execution wrapper
+    // MODERATE TIER: Allow fetch/timers with restrictions (implemented in browser context)
+    // - fetch(): Same-origin + github.com allowed, warns on new domains
+    // - setTimeout/setInterval: Max 30s delay, max 2 concurrent, auto-cleanup
+    // - window.open(): Blocked by default (use opt-in flag when needed)
+    
+    // Create secure execution wrapper with MODERATE tier runtime controls
     const wrappedCode = `
       (async function executeUserCode(page) {
-        try {
-          // User code execution
-          ${code}
-        } catch (error) {
-          throw new Error('User code error: ' + error.message);
-        }
+        // MODERATE TIER: Runtime security controls in browser context
+        return await page.evaluate(async () => {
+          // Timer tracking for cleanup and limits
+          const timerState = { count: 0, timers: [] };
+          
+          // Override setTimeout with 30s cap + concurrent limit
+          const originalSetTimeout = window.setTimeout;
+          window.setTimeout = function(callback, delay, ...args) {
+            if (delay > 30000) {
+              console.warn('Timer delay capped at 30s (was ' + delay + 'ms)');
+              delay = 30000;
+            }
+            if (timerState.count >= 2) {
+              throw new Error('Timer limit: Max 2 concurrent timers allowed');
+            }
+            timerState.count++;
+            const id = originalSetTimeout(() => {
+              timerState.count--;
+              callback.apply(this, args);
+            }, delay);
+            timerState.timers.push(id);
+            return id;
+          };
+          
+          // Override setInterval with same limits
+          const originalSetInterval = window.setInterval;
+          window.setInterval = function(callback, delay, ...args) {
+            if (delay > 30000) {
+              console.warn('Timer delay capped at 30s (was ' + delay + 'ms)');
+              delay = 30000;
+            }
+            if (timerState.count >= 2) {
+              throw new Error('Timer limit: Max 2 concurrent timers allowed');
+            }
+            timerState.count++;
+            const id = originalSetInterval(callback, delay);
+            timerState.timers.push(id);
+            return id;
+          };
+          
+          // Override fetch with domain restrictions
+          const originalFetch = window.fetch;
+          window.fetch = function(url, options = {}) {
+            const targetUrl = new URL(url, window.location.href);
+            const currentOrigin = window.location.origin;
+            const allowedDomains = ['api.github.com', 'github.com'];
+            
+            // Allow same-origin
+            if (targetUrl.origin === currentOrigin) {
+              return originalFetch(url, options);
+            }
+            
+            // Allow specific domains
+            if (allowedDomains.some(domain => targetUrl.hostname.endsWith(domain))) {
+              return originalFetch(url, options);
+            }
+            
+            // Warn and block other domains
+            console.warn('SECURITY: Blocked fetch to ' + targetUrl.hostname + ' (not in allow-list)');
+            return Promise.reject(new Error('Fetch blocked: ' + targetUrl.hostname + ' not in allow-list. Allowed: same-origin, ' + allowedDomains.join(', ')));
+          };
+          
+          // Block window.open by default
+          const originalWindowOpen = window.open;
+          window.open = function() {
+            throw new Error('window.open() blocked in Moderate tier. Use opt-in flag if needed.');
+          };
+          
+          try {
+            // Execute user code
+            const result = await (async function() {
+              ${code}
+            })();
+            
+            // Cleanup timers
+            timerState.timers.forEach(id => {
+              clearTimeout(id);
+              clearInterval(id);
+            });
+            
+            return result;
+          } catch (error) {
+            // Cleanup timers on error
+            timerState.timers.forEach(id => {
+              clearTimeout(id);
+              clearInterval(id);
+            });
+            throw new Error('User code error: ' + error.message);
+          }
+        });
       })
     `;
     

@@ -380,13 +380,13 @@ export function createDOMExplorationTools() {
       type: 'function',
       function: {
         name: 'browser_playwright_execute',
-        description: 'Execute raw Playwright code directly for exploration, testing, and advanced automation. Has access to full Playwright API with `page` object. Use this when standard tools hit limitations or you need custom browser interactions.',
+        description: 'Execute raw Playwright code directly for exploration, testing, and advanced automation. Has access to full Playwright API with `page` object. SECURITY (Moderate Tier): ✅ fetch() allowed (same-origin + github.com), ✅ timers allowed (30s max, 2 concurrent), ❌ window.open blocked, ❌ document.write blocked, ❌ Node.js modules blocked. Use this when standard tools hit limitations or you need custom browser interactions.',
         parameters: {
           type: 'object',
           properties: {
             code: {
               type: 'string',
-              description: 'Raw Playwright code to execute. Has access to `page` object and can use await. Return data to get results. Example: "const links = await page.$$eval(\'a:visible\', els => els.map(el => ({text: el.textContent.trim(), href: el.href}))); return {links, count: links.length};"'
+              description: 'Raw Playwright code to execute. Has access to `page` object and can use await. Return data to get results. SECURITY: ✅ fetch() (same-origin + github.com), ✅ timers (30s max, 2 concurrent), ❌ window.open, document.write, Node.js blocked. Example: "const links = await page.$$eval(\'a:visible\', els => els.map(el => ({text: el.textContent.trim(), href: el.href}))); return {links, count: links.length};"'
             },
             description: {
               type: 'string',
