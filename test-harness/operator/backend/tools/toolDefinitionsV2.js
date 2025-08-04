@@ -364,7 +364,7 @@ export function createToolDefinitions() {
       required: ['type', 'config', 'alias'],
       additionalProperties: false
     },
-    // iterate - Sequential loop execution with automatic variable scoping
+    // iterate - Records-only processing with automatic context management
     {
       type: 'object',
       properties: {
@@ -372,30 +372,10 @@ export function createToolDefinitions() {
         config: {
           type: 'object',
           properties: {
-            over: {
+            records: {
               type: 'string',
-              description: 'Reference to array to iterate over. Use {{alias.property}} syntax for stored variables (e.g., "{{extract_emails.emails}}"). Direct state paths also supported for backward compatibility (e.g., "state.items"). Will throw a clear error if the value is not an array.'
-            },
-            over_records: {
-              type: 'string',
-              description: 'Iterate over records instead of arrays. Supports patterns like "email_*" or specific record types. When used, iteration variables contain record data instead of array values.'
-            },
-            variable: {
-              type: 'string',
-              description: `Name for the iteration variable. Creates three variables:
-    • {{<name>}} - The current item
-    • {{<name>Index}} - Current index (0-based)  
-    • {{<name>Total}} - Total count
-    
-    Example: variable="email" creates:
-    • {{email}} - Current email object
-    • {{emailIndex}} - Index (0, 1, 2...)
-    • {{emailTotal}} - Total emails
-    
-    ⚠️ AVOID names ending with "Index" (creates confusing double-Index)
-    ✅ Good: "email", "item", "product", "user"
-    ❌ Bad: "currentIndex", "emailIndex", "itemIndex"`,
-              pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+              description: 'Record pattern to iterate over (e.g., "email_*", "product_*", "user_*"). Only records-based iteration is supported.',
+              pattern: '^[a-zA-Z][a-zA-Z0-9_]*_\\*$'
             },
             body: {
               oneOf: [
@@ -415,18 +395,13 @@ export function createToolDefinitions() {
                   description: 'Range of nodes to execute. Use alias range "extract_data..save_result" (RECOMMENDED - stable across changes) or position range "3-20" (for quick testing)'
                 }
               ],
-              description: `Nodes to execute for each iteration. Three formats supported:
+              description: `Nodes to execute for each record. Two formats supported:
               
 🔄 RECOMMENDED - Alias Range:
   body: "first_step..last_step"
   ✅ Stable when nodes are added/removed
   ✅ Clear intent
   ✅ Self-documenting
-  
-Quick Testing - Position Range:
-  body: "5-15"
-  ⚡ Fast for debugging
-  ⚠️  Can shift if nodes added before range
   
 Precise Control - Explicit List:
   body: ["step1", "step3", "step5"]  // Skip step2, step4
@@ -435,22 +410,13 @@ Precise Control - Explicit List:
             },
             limit: {
               type: 'number',
-              description: 'Maximum number of items to process. Useful for testing or limiting large datasets. Processes all items if not specified.',
+              description: 'Maximum number of records to process. Useful for testing or limiting large datasets. Processes all records if not specified.',
               minimum: 1
-            },
-            continueOnError: {
-              type: 'boolean',
-              description: 'Whether to continue iterating if an error occurs in one iteration (default: true). When false, stops at first error.'
             },
             on_error: {
               type: 'string',
-              enum: ['stop', 'continue', 'mark_failed_continue'],
-              description: 'How to handle individual record processing failures (for record iteration). stop: halt iteration, continue/mark_failed_continue: continue to next record'
-            },
-            index: {
-              type: 'string',
-              description: 'Custom name for the index variable. Defaults to "${variable}Index". Must be different from the main variable name.',
-              pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+              enum: ['stop', 'continue'],
+              description: 'How to handle individual record processing failures. stop: halt iteration, continue: continue to next record (default: continue)'
             },
             store: {
               oneOf: [
@@ -467,11 +433,7 @@ Precise Control - Explicit List:
               ]
             }
           },
-          required: ['variable'],
-          oneOf: [
-            { required: ['over'] },
-            { required: ['over_records'] }
-          ],
+          required: ['records', 'body'],
           additionalProperties: false
         },
         description: {

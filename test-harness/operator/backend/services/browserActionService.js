@@ -566,7 +566,13 @@ export class BrowserActionService {
   // ===== Interaction Actions =====
 
   async click(config) {
-    const { selector, tabName, timeout = 10000, useShadowDOM = false, nth, visibleOnly = false, inViewportOnly = false } = config;
+    // Enhanced defaults: Smart visibility filtering + auto-scrolling (matches nodeExecutor)
+    const visibleOnly = config.visibleOnly !== false;        // Default: true
+    const includeScrollable = config.includeScrollable !== false; // Default: true  
+    const autoScroll = config.autoScroll !== false;          // Default: true
+    const inViewportOnly = config.inViewportOnly === true;   // Default: false
+    
+    const { selector, tabName, timeout = 10000, useShadowDOM = false, nth } = config;
     
     if (!selector) {
       throw new Error('click action requires selector parameter');
@@ -577,104 +583,94 @@ export class BrowserActionService {
     // Handle shadow DOM piercing
     const effectiveSelector = this.processShadowDOMSelector(selector, useShadowDOM);
     
-    // If nth is specified, handle element selection by index
+    // Enhanced nth parameter handling with smart defaults (matches nodeExecutor)
     if (nth !== undefined) {
-      let elements = await page.$$(effectiveSelector);
-      
-      // Apply visibility filtering if requested
-      if (visibleOnly || inViewportOnly) {
-        const filteredIndexes = await page.evaluate((selector, filters) => {
-          const { visibleOnly, inViewportOnly } = filters;
-          const allElements = document.querySelectorAll(selector);
-          const visibleIndexes = [];
-          
-          allElements.forEach((el, originalIndex) => {
-            // Check if element is visible (not hidden by CSS)
-            if (visibleOnly) {
-              const styles = window.getComputedStyle(el);
-              if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
-                return; // Skip this element
-              }
-            }
-            
-            // Check if element is in viewport
-            if (inViewportOnly) {
-              const rect = el.getBoundingClientRect();
-              const isInViewport = (
-                rect.top >= 0 &&
-                rect.left >= 0 &&
-                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-                rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
-                rect.width > 0 &&
-                rect.height > 0
-              );
-              if (!isInViewport) {
-                return; // Skip this element
-              }
-            }
-            
-            visibleIndexes.push(originalIndex);
-          });
-          
-          return visibleIndexes;
-        }, effectiveSelector, { visibleOnly, inViewportOnly });
+      // Phase 1: Get actionable elements (skip CSS hidden, include scrollable)
+      const actionableIndexes = await page.evaluate(({ selector, filters }) => {
+        const { visibleOnly, includeScrollable, inViewportOnly } = filters;
+        const allElements = document.querySelectorAll(selector);
+        const actionable = [];
         
-        // Get new element handles for the actual filtered elements
-        elements = await Promise.all(
-          filteredIndexes.map(async (originalIndex) => {
-            const element = await page.evaluateHandle((selector, index) => {
-              return document.querySelectorAll(selector)[index];
-            }, effectiveSelector, originalIndex);
-            return element;
-          })
-        );
-      }
+        allElements.forEach((el, originalIndex) => {
+          // Skip CSS hidden elements (can't be scrolled into existence)
+          if (visibleOnly) {
+            const styles = window.getComputedStyle(el);
+            if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+              return;
+            }
+          }
+          
+          // For viewport-only mode, check current viewport
+          if (inViewportOnly) {
+            const rect = el.getBoundingClientRect();
+            const isInViewport = (
+              rect.top >= 0 &&
+              rect.left >= 0 &&
+              rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+              rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+            );
+            if (!isInViewport) {
+              return;
+            }
+          }
+          
+          // Include elements that can be scrolled to (have dimensions)
+          if (includeScrollable || inViewportOnly) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              actionable.push(originalIndex);
+            }
+          } else if (visibleOnly) {
+            actionable.push(originalIndex);
+          }
+        });
+        
+        return actionable;
+      }, { selector: effectiveSelector, filters: { visibleOnly, includeScrollable, inViewportOnly } });
       
-      const index = this.resolveIndex(nth, elements.length);
+      // Validate nth index against actionable elements
+      const index = this.resolveIndex(nth, actionableIndexes.length);
       
-      if (!elements[index]) {
+      if (index >= actionableIndexes.length) {
         const filterText = (visibleOnly || inViewportOnly) ? 
           ` (after filtering for ${visibleOnly ? 'visible' : ''}${visibleOnly && inViewportOnly ? ' and ' : ''}${inViewportOnly ? 'in-viewport' : ''} elements)` : '';
         throw new Error(
-          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements${filterText}.`
+          `No element at index ${nth} for selector: ${selector}. Found ${actionableIndexes.length} actionable elements${filterText}.`
         );
       }
       
-      // Check element visibility before clicking
-      const boundingBox = await elements[index].boundingBox();
-      if (!boundingBox || boundingBox.height === 0) {
-        // Try to find parent with overflow scroll
-        const scrollContainer = await page.evaluate((sel, idx) => {
-          const elements = document.querySelectorAll(sel);
-          const element = elements[idx];
-          let parent = element?.parentElement;
-          while (parent) {
-            const style = getComputedStyle(parent);
-            if (style.overflow === 'auto' || style.overflow === 'scroll') {
-              return parent.className || parent.id || parent.tagName;
-            }
-            parent = parent.parentElement;
-          }
-          return null;
-        }, effectiveSelector, index);
-        
-        throw new Error(
-          `Element at index ${nth} has zero height and cannot be clicked. ` +
-          `This often indicates virtual scrolling. ` +
-          (scrollContainer ? 
-            `Try using scrollIntoView with scrollContainer: "${scrollContainer}" before clicking.` :
-            `Try using scrollIntoView first to make the element visible.`) +
-          ` Alternative: click inner element like '${selector} span' instead.`
-        );
+      // Get the actual DOM index to target
+      const targetDomIndex = actionableIndexes[index];
+      
+      // Phase 2: Click the target element with auto-scroll
+      const targetElement = await page.locator(effectiveSelector).nth(targetDomIndex);
+      
+      // Auto-scroll if element is not in viewport and auto-scroll is enabled
+      if (autoScroll) {
+        await targetElement.scrollIntoViewIfNeeded();
+        // Brief wait for scroll to complete
+        await page.waitForTimeout(100);
       }
       
-      await elements[index].click();
-      const result = { clicked: selector, nth: index };
-      if (visibleOnly || inViewportOnly) {
+      await targetElement.click();
+      
+      // Enhanced result reporting
+      const result = {
+        clicked: selector,
+        nth: index,
+        targetDomIndex: targetDomIndex,
+        totalElements: await page.locator(effectiveSelector).count(),
+        actionableElements: actionableIndexes.length
+      };
+      
+      if (visibleOnly || inViewportOnly || includeScrollable) {
         result.filteredBy = [];
         if (visibleOnly) result.filteredBy.push('visible');
         if (inViewportOnly) result.filteredBy.push('inViewport');
+        if (includeScrollable) result.filteredBy.push('scrollable');
+        if (autoScroll) result.scrolled = true;
       }
+      
       return result;
     }
     
@@ -880,7 +876,13 @@ export class BrowserActionService {
   }
 
   async type(config) {
-    const { selector, text, tabName, timeout = 10000, useShadowDOM = false, nth, visibleOnly = false, inViewportOnly = false } = config;
+    // Enhanced defaults: Smart visibility filtering + auto-scrolling (matches nodeExecutor)
+    const visibleOnly = config.visibleOnly !== false;        // Default: true
+    const includeScrollable = config.includeScrollable !== false; // Default: true  
+    const autoScroll = config.autoScroll !== false;          // Default: true
+    const inViewportOnly = config.inViewportOnly === true;   // Default: false
+    
+    const { selector, text, tabName, timeout = 10000, useShadowDOM = false, nth } = config;
     
     if (!selector || text === undefined) {
       throw new Error('type action requires selector and text parameters');
@@ -891,77 +893,95 @@ export class BrowserActionService {
     // Handle shadow DOM piercing
     const effectiveSelector = this.processShadowDOMSelector(selector, useShadowDOM);
     
-    // If nth is specified, handle element selection by index
+    // Enhanced nth parameter handling with smart defaults (matches nodeExecutor)
     if (nth !== undefined) {
-      let elements = await page.$$(effectiveSelector);
-      
-      // Apply visibility filtering if requested
-      if (visibleOnly || inViewportOnly) {
-        const filteredIndexes = await page.evaluate((selector, filters) => {
-          const { visibleOnly, inViewportOnly } = filters;
-          const allElements = document.querySelectorAll(selector);
-          const visibleIndexes = [];
-          
-          allElements.forEach((el, originalIndex) => {
-            // Check if element is visible (not hidden by CSS)
-            if (visibleOnly) {
-              const styles = window.getComputedStyle(el);
-              if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
-                return; // Skip this element
-              }
-            }
-            
-            // Check if element is in viewport
-            if (inViewportOnly) {
-              const rect = el.getBoundingClientRect();
-              const isInViewport = (
-                rect.top >= 0 &&
-                rect.left >= 0 &&
-                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-                rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
-                rect.width > 0 &&
-                rect.height > 0
-              );
-              if (!isInViewport) {
-                return; // Skip this element
-              }
-            }
-            
-            visibleIndexes.push(originalIndex);
-          });
-          
-          return visibleIndexes;
-        }, effectiveSelector, { visibleOnly, inViewportOnly });
+      // Phase 1: Get actionable elements (skip CSS hidden, include scrollable)
+      const actionableIndexes = await page.evaluate(({ selector, filters }) => {
+        const { visibleOnly, includeScrollable, inViewportOnly } = filters;
+        const allElements = document.querySelectorAll(selector);
+        const actionable = [];
         
-        // Get new element handles for the actual filtered elements
-        elements = await Promise.all(
-          filteredIndexes.map(async (originalIndex) => {
-            const element = await page.evaluateHandle((selector, index) => {
-              return document.querySelectorAll(selector)[index];
-            }, effectiveSelector, originalIndex);
-            return element;
-          })
-        );
-      }
+        allElements.forEach((el, originalIndex) => {
+          // Skip CSS hidden elements (can't be scrolled into existence)
+          if (visibleOnly) {
+            const styles = window.getComputedStyle(el);
+            if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+              return;
+            }
+          }
+          
+          // For viewport-only mode, check current viewport
+          if (inViewportOnly) {
+            const rect = el.getBoundingClientRect();
+            const isInViewport = (
+              rect.top >= 0 &&
+              rect.left >= 0 &&
+              rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+              rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+            );
+            if (!isInViewport) {
+              return;
+            }
+          }
+          
+          // Include elements that can be scrolled to (have dimensions)
+          if (includeScrollable || inViewportOnly) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              actionable.push(originalIndex);
+            }
+          } else if (visibleOnly) {
+            actionable.push(originalIndex);
+          }
+        });
+        
+        return actionable;
+      }, { selector: effectiveSelector, filters: { visibleOnly, includeScrollable, inViewportOnly } });
       
-      const index = this.resolveIndex(nth, elements.length);
+      // Validate nth index against actionable elements
+      const index = this.resolveIndex(nth, actionableIndexes.length);
       
-      if (!elements[index]) {
+      if (index >= actionableIndexes.length) {
         const filterText = (visibleOnly || inViewportOnly) ? 
           ` (after filtering for ${visibleOnly ? 'visible' : ''}${visibleOnly && inViewportOnly ? ' and ' : ''}${inViewportOnly ? 'in-viewport' : ''} elements)` : '';
         throw new Error(
-          `No element at index ${nth} for selector: ${selector}. Found ${elements.length} elements${filterText}.`
+          `No element at index ${nth} for selector: ${selector}. Found ${actionableIndexes.length} actionable elements${filterText}.`
         );
       }
       
-      // Clear existing value and type new text
-      await elements[index].fill(text);
-      const result = { typed: text, selector, nth: index };
-      if (visibleOnly || inViewportOnly) {
+      // Get the actual DOM index to target
+      const targetDomIndex = actionableIndexes[index];
+      
+      // Phase 2: Type into the target element with auto-scroll
+      const targetElement = await page.locator(effectiveSelector).nth(targetDomIndex);
+      
+      // Auto-scroll if element is not in viewport and auto-scroll is enabled
+      if (autoScroll) {
+        await targetElement.scrollIntoViewIfNeeded();
+        // Brief wait for scroll to complete
+        await page.waitForTimeout(100);
+      }
+      
+      await targetElement.fill(text);
+      
+      // Enhanced result reporting
+      const result = {
+        typed: text,
+        selector: selector,
+        nth: index,
+        targetDomIndex: targetDomIndex,
+        totalElements: await page.locator(effectiveSelector).count(),
+        actionableElements: actionableIndexes.length
+      };
+      
+      if (visibleOnly || inViewportOnly || includeScrollable) {
         result.filteredBy = [];
         if (visibleOnly) result.filteredBy.push('visible');
         if (inViewportOnly) result.filteredBy.push('inViewport');
+        if (includeScrollable) result.filteredBy.push('scrollable');
+        if (autoScroll) result.scrolled = true;
       }
+      
       return result;
     }
     

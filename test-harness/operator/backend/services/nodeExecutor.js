@@ -47,6 +47,7 @@ export class NodeExecutor {
     this.recordContext = []; // Stack for nested record processing
     this.variableService = variableManagementService; // Will be set when needed
     this.runId = Date.now().toString(); // Unique run ID for this execution
+    this.contextVariables = new Map(); // Context variables for iteration
   }
 
   /**
@@ -121,6 +122,26 @@ export class NodeExecutor {
 
   getCurrentRecord() {
     return this.recordContext[this.recordContext.length - 1] || null;
+  }
+
+  // Context variable management for iteration
+  setContextVariable(name, value) {
+    if (!this.contextVariables) {
+      this.contextVariables = new Map();
+    }
+    this.contextVariables.set(name, value);
+    console.log(`[CONTEXT_VAR] Set ${name} = ${value}`);
+  }
+
+  clearContextVariable(name) {
+    if (this.contextVariables) {
+      this.contextVariables.delete(name);
+      console.log(`[CONTEXT_VAR] Cleared ${name}`);
+    }
+  }
+
+  getContextVariable(name) {
+    return this.contextVariables ? this.contextVariables.get(name) : undefined;
   }
 
   /**
@@ -3791,6 +3812,38 @@ CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
       path = path.replace(/\{\{|\}\}/g, '');
     }
     
+    // PRIORITY 1: Records-Only iteration context variables
+    if (path === 'index') {
+      const value = this.getContextVariable('index');
+      if (value !== undefined) {
+        console.log(`[STATE] Resolved context variable {{index}} = ${value}`);
+        return value;
+      }
+    }
+    
+    if (path === 'total') {
+      const value = this.getContextVariable('total');
+      if (value !== undefined) {
+        console.log(`[STATE] Resolved context variable {{total}} = ${value}`);
+        return value;
+      }
+    }
+    
+    // PRIORITY 2: Handle current record references (e.g., {{current.fields.subject}})
+    if (path.startsWith('current.')) {
+      const currentRecord = this.getCurrentRecord();
+      if (currentRecord) {
+        const propertyPath = path.substring(8); // Remove 'current.'
+        console.log(`[STATE] Resolving current record property: ${propertyPath}`);
+        const value = this.getNestedProperty(currentRecord.data, propertyPath);
+        console.log(`[STATE] Resolved {{${path}}} = ${JSON.stringify(value)}`);
+        return value;
+      } else {
+        console.warn(`[STATE] No current record context for: ${path}`);
+        return undefined;
+      }
+    }
+    
     // Check for position-based references (e.g., node25 or node25.property)
     const positionMatch = path.match(/^node(\d+)(?:\.(.+))?$/);
     if (positionMatch) {
@@ -4262,75 +4315,53 @@ Use get_workflow_data() to inspect all stored variables.`);
       this.variableService = new VariableManagementService();
     }
     
-    // Check if this is a record-based iteration
-    const isRecordIteration = config.over_records || false;
-    let records = [];
-    let collection = [];
-    
-    if (isRecordIteration) {
-      // Record-based iteration
-      console.log(`[ITERATE] Starting record-based iteration over: ${config.over_records}`);
-      
-      records = await this.variableService.queryRecords(workflowId, config.over_records);
-      console.log(`[ITERATE] Found ${records.length} records to process`);
-      
-      // For compatibility, create a collection array from records
-      collection = records.map(r => r.record_id);
-      
-    } else {
-      // Legacy array-based iteration
-      // Validate required fields
-      if (!config.over) {
-        throw new Error('Iterate node missing required "over" field. Please specify the path to the array to iterate over (e.g., "state.items" or "node4.emails")');
-      }
-      
-      if (!config.variable) {
-        throw new Error('Iterate node missing required "variable" field. Please specify the variable name for the current item in each iteration (e.g., "currentItem")');
-      }
-      
-      // Get the collection to iterate over
-      const resolveStart = Date.now();
-      if (Array.isArray(config.over)) {
-        // Already resolved to an array by resolveTemplateVariables
-        collection = config.over;
-      } else if (typeof config.over === 'string') {
-        // It's a path reference - resolve it
-        const cleanPath = config.over.replace('state.', '');
-        collection = await this.getStateValue(cleanPath, workflowId);
-      } else {
-        return { results: [], errors: [], processed: 0, total: 0 };
-      }
-      
-      if (!Array.isArray(collection)) {
-        const actualType = collection === null ? 'null' : 
-                          collection === undefined ? 'undefined' :
-                          Array.isArray(collection) ? 'array' : 
-                          typeof collection;
-        const variableInfo = config.over;
-        
-        throw new Error(
-          `Iterate node expected an array but received ${actualType} for "${variableInfo}". ` +
-          `This often happens when AI extraction returns an object instead of an array. ` +
-          `Consider updating the extraction schema to ensure it returns an array, ` +
-          `or check if the variable exists and contains the expected data structure. ` +
-          `Received value: ${JSON.stringify(collection).substring(0, 100)}...`
-        );
-      }
-      
-      // Convert array to temporary records if needed
-      if (config.convert_to_records) {
-        console.log(`[ITERATE] Converting ${collection.length} array items to temporary records`);
-        records = await this.variableService.convertArrayToRecords(
-          workflowId,
-          collection,
-          'temp',
-          config.alias || `iterate_${iterateNodePosition}`,
-          this.runId
-        );
-        isRecordIteration = true;
-      }
+    // Migration error messages for old patterns
+    if (config.over) {
+      throw new Error(
+        'Array iteration with "over" is no longer supported.\n' +
+        'Migration: Use "records" instead.\n' +
+        'Old: over: "{{emailArray}}"\n' +
+        'New: records: "email_*"\n' +
+        'See migration guide for details.'
+      );
+    }
+
+    if (config.variable) {
+      throw new Error(
+        'Variable naming is no longer needed.\n' +
+        'Use {{current.fields.property}} to access record data.\n' +
+        'Use {{index}} for current position.\n' +
+        'Old: variable: "email"\n' +
+        'New: {{current.fields.subject}}, {{index}}'
+      );
+    }
+
+    if (config.over_records) {
+      throw new Error(
+        'Use "records" instead of "over_records".\n' +
+        'Old: over_records: "email_*"\n' +
+        'New: records: "email_*"'
+      );
     }
     
+    // Simple validation for Records-Only iteration
+    if (!config.records) {
+      throw new Error(
+        'Iterate node requires "records" field.\n' +
+        'Example: records: "email_*"\n' +
+        'Tip: If processing a single item, use global variables instead.'
+      );
+    }
+
+    // Query matching records
+    const records = await this.variableService.queryRecords(workflowId, config.records);
+
+    if (records.length === 0) {
+      console.log(`[ITERATE] No records found matching: ${config.records}`);
+      return { processed: 0, total: 0, results: [], errors: [] };
+    }
+
+    console.log(`[ITERATE] Processing ${records.length} records matching: ${config.records}`);
     
     // If preview mode, return iteration structure without executing
     if (options.previewOnly !== false) {  // Default to preview mode
@@ -4338,7 +4369,6 @@ Use get_workflow_data() to inspect all stored variables.`);
       
       // Get body node information for display
       let bodyNodes = [];
-      // Use pre-resolved positions if available, fall back to body
       const bodyPositions = config.body_positions || config.body;
       
       if (Array.isArray(bodyPositions) && bodyPositions.length > 0 && typeof bodyPositions[0] === 'number') {
@@ -4353,242 +4383,193 @@ Use get_workflow_data() to inspect all stored variables.`);
         bodyNodes = nodes || [];
       }
       
-      const previewDuration = Date.now() - previewStart;
-      
       const result = {
-        iterationCount: collection.length,
-        items: collection.map((item, idx) => ({
+        iterationCount: records.length,
+        items: records.map((record, idx) => ({
           index: idx,
-          data: item,
+          record_id: record.record_id,
+          data: record.data,
           status: 'pending',
           results: []
         })),
-        variable: config.variable || 'item',
         bodyNodePositions: config.body,
         bodyNodes: bodyNodes,
         status: 'ready',
         processed: 0,
-        total: collection.length
+        total: records.length
       };
       
       return result;
     }
     
-    // Full execution mode (when explicitly requested)
-    
+    // Full execution mode - Clean iteration with only record context
     const results = [];
     const errors = [];
-    const variable = config.variable || 'item';
-    
-    // Validate variable name to prevent confusing names
-    if (variable.endsWith('Index')) {
-      throw new Error(
-        `Variable name "${variable}" ends with "Index" which creates confusing variable names (${variable}Index becomes ${variable}IndexIndex). ` +
-        `Use a simpler name like "${variable.replace(/Index$/, '')}" instead.`
-      );
-    }
-    
-    const indexVariable = config.index || `${variable}Index`;
-    
-    // Clean up any existing iteration variables for this iterate node
-    const cleanupPattern = `%@iter:${iterateNodePosition}:%`;
-    const { data: deletedVars, error: deleteError } = await supabase
-      .from('workflow_memory')
-      .delete()
-      .eq('workflow_id', workflowId)
-      .like('key', cleanupPattern)
-      .select();
-    
-    if (deleteError) {
-      console.error(`Failed to cleanup iteration variables:`, deleteError);
-    }
-    
-    // Process each item
-    for (let i = 0; i < collection.length; i++) {
+
+    for (let i = 0; i < records.length; i++) {
       if (config.limit && i >= config.limit) {
         console.log(`[ITERATE] Reached limit of ${config.limit} items`);
         break;
       }
       
-      const item = collection[i];
-      const itemMs = Date.now();
-      
-      // Push iteration context
-      this.pushIterationContext(iterateNodePosition, i, variable, collection.length);
-      
-      // Handle record-based iteration
-      let currentRecord = null;
-      if (isRecordIteration && records[i]) {
-        currentRecord = records[i];
-        this.pushRecordContext(currentRecord.record_id, currentRecord.data);
-        
+      const record = records[i];
+      console.log(`[ITERATE] Processing ${i + 1}/${records.length}: ${record.record_id}`);
+
+      // Push record context - enables {{current.*}}
+      this.pushRecordContext(record.record_id, record.data);
+
+      // Inject automatic variables
+      this.setContextVariable('index', i);           // {{index}}
+      this.setContextVariable('total', records.length); // {{total}}
+
+      try {
         // Update record status
-        await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
+        await this.variableService.updateRecord(workflowId, record.record_id, {
           status: 'processing'
         }, this.getCurrentRecord());
+
+        // Execute body nodes with automatic context
+        const bodyResults = await this.executeBody(config.body, workflowId);
+        results.push({ record_id: record.record_id, results: bodyResults });
+
+        // Mark record as complete
+        await this.variableService.updateRecord(workflowId, record.record_id, {
+          status: 'complete',
+          processed_at: new Date().toISOString()
+        }, this.getCurrentRecord());
+
+      } catch (error) {
+        console.error(`[ITERATE] Error processing ${record.record_id}:`, error.message);
+        errors.push({ record_id: record.record_id, error: error.message });
+
+        // Mark record as failed
+        await this.variableService.updateRecord(workflowId, record.record_id, {
+          status: 'failed',
+          error_message: error.message
+        }, this.getCurrentRecord());
+
+        // Handle error based on configuration
+        const errorHandling = config.on_error || 'continue';
+        if (errorHandling === 'stop') {
+          console.log(`[ITERATE] Stopping due to error (on_error: stop)`);
+          this.popRecordContext();
+          this.clearContextVariable('index');
+          this.clearContextVariable('total');
+          break;
+        }
+
+      } finally {
+        // Clean up context
+        this.popRecordContext();
+        this.clearContextVariable('index');
+        this.clearContextVariable('total');
       }
-      
-      try {
-        // For record iteration, skip global variable storage - use clean direct record access
-        if (!isRecordIteration) {
-          // Only store iteration variables for array iteration (not record iteration)
-          const varKey = this.getStorageKey(variable);
-          const indexKey = this.getStorageKey(indexVariable);
-          const totalKey = this.getStorageKey(`${variable}Total`);
-          
-          const storeStart = Date.now();
-          await supabase
-            .from('workflow_memory')
-            .upsert([
-              { workflow_id: workflowId, key: varKey, value: item },
-              { workflow_id: workflowId, key: indexKey, value: i },
-              { workflow_id: workflowId, key: totalKey, value: collection.length }
-            ]);
-          console.log(`[ITERATE] Stored iteration variables for array iteration in ${Date.now() - storeStart}ms`);
-        } else {
-          console.log(`[ITERATE] Skipping global storage for record iteration - using clean direct record access`);
-        }
+    }
+
+    console.log(`[ITERATE] Completed: ${results.length} success, ${errors.length} errors`);
+
+    return {
+      processed: results.length,
+      total: records.length,
+      results,
+      errors,
+      recordType: records[0]?.record_type || 'unknown',
+      recordsProcessed: results.length,
+      recordsFailed: errors.length,
+      isRecordIteration: true
+    };
+  }
+
+  // Helper method to execute body nodes
+  async executeBody(body, workflowId) {
+    if (!body) {
+      throw new Error('Iterate node missing "body" field');
+    }
+
+    let bodyToExecute = body;
+    let result = [];
         
-        // Execute body (single node or array of nodes)
-        let result;
+    // Parse string body positions to numbers
+    if (typeof bodyToExecute === 'string') {
+      // Handle comma-separated positions like "3,5,7"
+      if (bodyToExecute.includes(',')) {
+        bodyToExecute = bodyToExecute.split(',').map(pos => parseInt(pos.trim(), 10));
+      } else {
+        // Single position as string like "3"
+        bodyToExecute = parseInt(bodyToExecute, 10);
+      }
+      console.log(`[ITERATE] Parsed body positions:`, bodyToExecute);
+    }
+    
+    // Check if this is array of positions, single position, or node objects
+    if (Array.isArray(bodyToExecute)) {
+      if (bodyToExecute.length > 0 && typeof bodyToExecute[0] === 'number') {
+        // New format: array of node positions
+        console.log(`[ITERATE] Executing body with ${bodyToExecute.length} node positions: ${bodyToExecute.join(', ')}`);
         
-        // Use pre-resolved positions if available, fall back to body
-        let bodyToExecute = config.body_positions || config.body;
-        
-        // Parse string body positions to numbers
-        if (typeof bodyToExecute === 'string') {
-          // Handle comma-separated positions like "3,5,7"
-          if (bodyToExecute.includes(',')) {
-            bodyToExecute = bodyToExecute.split(',').map(pos => parseInt(pos.trim(), 10));
-          } else {
-            // Single position as string like "3"
-            bodyToExecute = parseInt(bodyToExecute, 10);
-          }
-          console.log(`🔧 [DEBUG_ITERATE] Parsed body positions:`, bodyToExecute);
-        }
-        
-        // Check if this is the new format (array of positions) or old format (array of node objects)
-        if (Array.isArray(bodyToExecute)) {
-          if (bodyToExecute.length > 0 && typeof bodyToExecute[0] === 'number') {
-            // New format: array of node positions
-            result = [];
-            console.log(`[ITERATE] Executing body with ${bodyToExecute.length} node positions: ${bodyToExecute.join(', ')}`);
-            
-            for (const nodePosition of bodyToExecute) {
-              // Fetch the node by position
-              const { data: node } = await supabase
-                .from('nodes')
-                .select('*')
-                .eq('workflow_id', workflowId)
-                .eq('position', nodePosition)
-                .single();
-                
-              if (node) {
-                console.log(`[ITERATE] Executing node at position ${nodePosition}: ${node.type} - ${node.description}`);
-                const nodeResult = await this.execute(node.id, workflowId);
-                result.push(nodeResult);
-              } else {
-                console.log(`[ITERATE] Warning: Could not find node at position ${nodePosition}`);
-              }
-            }
-          } else {
-            // Old format: array of node objects
-            result = [];
-            console.log(`[ITERATE] Executing body with ${config.body.length} inline nodes`);
-            
-            for (let j = 0; j < config.body.length; j++) {
-              const node = config.body[j];
-              console.log(`[ITERATE] Executing nested node: ${node.type}`);
-              const nodeResult = await this.executeNodeConfig(node, workflowId);
-              result.push(nodeResult);
-            }
-          }
-        } else if (typeof bodyToExecute === 'number') {
-          // New format: single node position
-          console.log(`[ITERATE] Executing single node at position ${bodyToExecute}`);
-          
+        for (const nodePosition of bodyToExecute) {
           // Fetch the node by position
           const { data: node } = await supabase
             .from('nodes')
             .select('*')
             .eq('workflow_id', workflowId)
-            .eq('position', bodyToExecute)
+            .eq('position', nodePosition)
             .single();
             
           if (node) {
-            result = await this.execute(node.id, workflowId);
+            console.log(`[ITERATE] Executing node at position ${nodePosition}: ${node.type} - ${node.description}`);
+            const nodeResult = await this.execute(node.id, workflowId);
+            result.push(nodeResult);
           } else {
-            console.log(`[ITERATE] Warning: Could not find node at position ${config.body}`);
-            result = null;
+            console.log(`[ITERATE] Warning: Could not find node at position ${nodePosition}`);
           }
-        } else if (config.body && typeof config.body === 'object') {
-          // Old format: single node object
-          console.log(`[ITERATE] Executing nested node: ${config.body.type}`);
-          result = await this.executeNodeConfig(config.body, workflowId);
         }
+      } else {
+        // Array of node aliases (e.g., ["navigate_to_article", "extract_summary"])
+        console.log(`[ITERATE] Executing body with ${bodyToExecute.length} node aliases: ${bodyToExecute.join(', ')}`);
         
-        results.push({ index: i, item, result });
-        
-        // Update record status on success
-        if (isRecordIteration && currentRecord) {
-          await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
-            status: 'complete',
-            processed_at: new Date().toISOString()
-          }, this.getCurrentRecord());
-        }
-        
-      } catch (error) {
-        console.error(`[ITERATE] Error processing item ${i}:`, error);
-        errors.push({ index: i, item, error: error.message });
-        
-        // Update record status on error
-        if (isRecordIteration && currentRecord) {
-          await this.variableService.updateRecord(workflowId, currentRecord.record_id, {
-            status: 'failed',
-            error_message: error.message,
-            retry_count: (currentRecord.retry_count || 0) + 1
-          }, this.getCurrentRecord());
-        }
-        
-        // Handle error based on configuration
-        const errorHandling = config.on_error || (config.continueOnError ? 'continue' : 'stop');
-        if (errorHandling === 'stop') {
-          console.log(`[ITERATE] Stopping due to error (on_error: stop)`);
-          // Pop contexts before breaking
-          if (isRecordIteration && currentRecord) {
-            this.popRecordContext();
+        for (const nodeAlias of bodyToExecute) {
+          // Fetch the node by alias
+          const { data: node } = await supabase
+            .from('nodes')
+            .select('*')
+            .eq('workflow_id', workflowId)
+            .eq('alias', nodeAlias)
+            .single();
+            
+          if (node) {
+            console.log(`[ITERATE] Executing node alias ${nodeAlias}: ${node.type} - ${node.description}`);
+            const nodeResult = await this.execute(node.id, workflowId);
+            result.push(nodeResult);
+          } else {
+            console.log(`[ITERATE] Warning: Could not find node with alias ${nodeAlias}`);
           }
-          this.popIterationContext();
-          break;
         }
-        // For 'continue' or 'mark_failed_continue', we continue to next item
-        
-      } finally {
-        // Always pop contexts
-        if (isRecordIteration && currentRecord) {
-          this.popRecordContext();
-        }
-        this.popIterationContext();
       }
-    }
-    
-    // Note: Iteration variables are cleaned up at the start of the next iteration
-    // to ensure they're available if needed after the loop completes
-    
-    // Build result object
-    const result = {
-      results,
-      errors,
-      processed: results.length,
-      total: collection.length
-    };
-    
-    // Add record information if this was a record-based iteration
-    if (isRecordIteration) {
-      result.recordType = records[0]?.record_type || 'unknown';
-      result.recordsProcessed = results.length;
-      result.recordsFailed = errors.length;
-      result.isRecordIteration = true;
+    } else if (typeof bodyToExecute === 'number') {
+      // Single node position
+      console.log(`[ITERATE] Executing single node at position ${bodyToExecute}`);
+      
+      // Fetch the node by position
+      const { data: node } = await supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .eq('position', bodyToExecute)
+        .single();
+        
+      if (node) {
+        const nodeResult = await this.execute(node.id, workflowId);
+        result = [nodeResult];
+      } else {
+        console.log(`[ITERATE] Warning: Could not find node at position ${bodyToExecute}`);
+        result = [];
+      }
+    } else if (bodyToExecute && typeof bodyToExecute === 'object') {
+      // Single node object (legacy support)
+      console.log(`[ITERATE] Executing nested node: ${bodyToExecute.type}`);
+      const nodeResult = await this.executeNodeConfig(bodyToExecute, workflowId);
+      result = [nodeResult];
     }
     
     return result;

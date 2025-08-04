@@ -1177,8 +1177,8 @@ export class DirectorService {
         if (!config.nodeRange) throw new Error('group requires "nodeRange" field (e.g., "1-25" or [1, 25])');
         break;
       case 'iterate':
-        if (!config.over && !config.over_records) throw new Error('iterate node requires either "over" field (for arrays) or "over_records" field (for record patterns) - e.g., "{{extract_emails.emails}}" or "email_*"');
-        if (!config.variable) throw new Error('iterate node requires "variable" field - the name for the current item in each iteration (e.g., "currentItem")');
+        if (!config.records) throw new Error('iterate node requires "records" field - a record pattern to iterate over (e.g., "email_*", "article_*")');
+        if (!config.body) throw new Error('iterate node requires "body" field - nodes to execute for each record');
         break;
       case 'context':
         if (!config.variables) throw new Error('context node requires "variables" field - an object containing the variables to store');

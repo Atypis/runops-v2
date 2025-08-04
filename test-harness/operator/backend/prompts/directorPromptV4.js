@@ -228,12 +228,20 @@ Your bread-and-butter approach for reliable automation:
 - \`dom_inspect\` - Detailed element info (when you have element IDs)
 - \`dom_check_portals\` - Detect modals/popups after interactions
 
-**List Processing Pattern (advanced):**
+**List Processing Pattern (Records-Based):**
 For processing multiple similar elements (emails, products, etc.):
 1. Screenshot → identify list structure visually
-2. Hit-test first item → get base selector
-3. Count total: \`browser_query\` with method: "count"  
-4. Iterate: Use \`browser_action\` with nth: "{{index}}" parameter
+2. Hit-test first item → get base selector  
+3. Extract list → create records automatically
+4. Iterate over records → use {{index}} for current position
+
+**Single-Threaded (Global Variables):**
+- Processing one item → store as {{emailData}}
+- Use any node type with store: {} configuration
+
+**Multi-Threaded (Records + Iterate):**  
+- Processing multiple items → create records, then iterate
+- Use {{current.*}} for record data, {{index}} for position
 
 **Selector Hardening Strategies:**
 - **Prefer stable attributes**: id > data-testid > aria-label > unique classes > text content
@@ -298,13 +306,13 @@ For processing multiple similar elements (emails, products, etc.):
      }
    }
    
-   // Click each email in iteration
+   // Click each record in iteration
    {
      type: 'browser_action',
      config: {
        action: 'click',
        selector: 'tr.zA',
-       nth: '{{emailIndex}}'
+       nth: '{{index}}'  // Automatic iteration variable
      }
    }
    \`\`\`
@@ -384,33 +392,31 @@ For processing multiple similar elements (emails, products, etc.):
 **Field modes:** CSS selector (\`".title"\`), attribute (\`"@href"\`), or current element (\`"."\`).
 
 **Control Layer:**
-5. **\`iterate\`** - Loop over arrays
-   - Execute nodes for each item in an array
-   - Variable naming creates automatic variables:
-     \`\`\`
-     variable: "email" creates:
-       {{email}} - current email object
-       {{emailIndex}} - current index (0, 1, 2...)
-       {{emailTotal}} - total count
-     \`\`\`
-   - **IMPORTANT**: Never use variable names ending with "Index"
-     - ❌ BAD: variable: "currentIndex" (creates currentIndexIndex)
-     - ✅ GOOD: variable: "current" (creates currentIndex)
+5. **\`iterate\`** - Process Multiple Records
+   - **Only works with records** (not arrays)
+   - Mental model: "14 emails" = records + iterate
+   - Automatic context switching and variable injection
    
-   **Body Configuration - Three Formats:**
    \`\`\`javascript
-   // 🔄 RECOMMENDED - Alias Range (stable across changes)
-   { body: "extract_data..save_result" }
-   
-   // Quick Testing - Position Range
-   { body: "3-20" }
-   
-   // Precise Control - Explicit List (can skip nodes)
-   { body: ["validate", "process", "save"] }  // Using aliases
-   { body: [3, 5, 9] }  // Using positions
+   {
+     type: 'iterate',
+     config: {
+       records: 'email_*',  // Required: record pattern
+       body: ["click_email", "extract_content", "classify"]
+     }
+   }
    \`\`\`
    
-   Use for: Processing lists, batch operations
+   **Inside Iteration - Automatic Variables:**
+   - \`{{current.fields.*}}\` - Original record data
+   - \`{{current.vars.*}}\` - Data added during processing
+   - \`{{index}}\` - Current position (0, 1, 2...)
+   - \`{{total}}\` - Total record count
+   - \`store_to_record: true\` - Routes to current record
+   
+   **Body Configuration:**
+   - Node list: \`body: ["extract", "classify", "save"]\`
+   - Alias range: \`body: "extract_data..save_result"\`
 
 6. **\`route\`** - Conditional branching
    - Evaluate conditions and branch execution
@@ -440,14 +446,23 @@ For processing multiple similar elements (emails, products, etc.):
    - Variables stored flat (not nested under alias)
    - Use for: Credentials, configuration, user input
 
-### D. Data Model: Variables & Records
+### D. Data Model: Single-Threaded vs Multi-Threaded
 
-**When You Need Records**
+**The Processing Decision:**
 
-Single entity workflow → Use global variables only  
-Multiple entities workflow → Use records
+**Single-Threaded (Global Variables):**
+- Processing one entity → Use global variables
+- ANY node type can store globally via \`store: {}\` 
+- Examples: "the email", "this user", "one result"
 
-That's it. If your workflow processes one thing, stay global. If it processes many things (14 emails, 5 employees, 20 invoices), use records.
+**Multi-Threaded (Records + Iterate):**
+- Processing multiple entities → Use records + iterate
+- Automatic record creation and context switching
+- Examples: "14 emails", "all users", "each product"
+
+**Mental Model Keywords:**
+- "multiple", "all", "each", "14 emails" → Records + Iterate
+- "the email", "this user", "single item" → Global Variables
 
 **The Two Buckets**
 
@@ -506,22 +521,19 @@ All variables use \`{{}}\` syntax. Here's every pattern:
 {{extract_emails.totalEmails}}          // Node result (via store: {})
 \`\`\`
 
-**2. Record Variables**
+**2. Record Variables (Multi-Threaded):**
 \`\`\`javascript
-{{current.extract_emails.subject}}      // Current record in iteration
+{{current.fields.subject}}              // Current record's original data
+{{current.vars.classification}}         // Current record's computed data
 {{email_001.classify_email.type}}       // Specific record
-{{get_all_records("classify_email.type")}} // Array from all records
+{{get_all_records("classify.type")}}    // Array from all records
 \`\`\`
 
-**3. Iteration Variables** (auto-created by iterate node)
+**3. Iteration Context (Auto-Created):**
 \`\`\`javascript
-// If variable="item":
-{{item}}         // Current item
-{{itemIndex}}    // Current index (0, 1, 2...)  
-{{itemTotal}}    // Total count
-
-// ⚠️ NEVER name your variable ending with "Index"
-// ❌ variable: "currentIndex" → creates "currentIndexIndex"
+{{index}}        // Current position (0, 1, 2...)
+{{total}}        // Total record count
+// No variable naming needed - context is automatic
 \`\`\`
 
 **4. Environment Variables**
@@ -574,8 +586,8 @@ schema: { type: "object", properties: { type: {...}, confidence: {...} } }
 
 **When You Need Schema:**
 1. Route conditions checking properties
-2. Iterate over arrays (must return actual array)
-3. Any property access (\`{{result.items[0].name}}\`)
+2. Any property access (\`{{result.items[0].name}}\`)
+3. Records processing (ensures structured data flow)
 
 **Common Schemas:**
 - Text: \`{type: "string"}\`
@@ -619,15 +631,16 @@ get_workflow_data({ bucket: "email_001" })       // Specific record
 get_workflow_data({ pattern: "email_*" })        // All email records
 \`\`\`
 
-**Common Pattern: Extract → Process → Aggregate**
+**Common Pattern: Extract → Iterate → Aggregate**
 
 \`\`\`javascript
-// 1. Extract and create records
+// 1. Extract and create records automatically
 {
   alias: 'find_emails',
   config: {
-    create_records: 'email',
-    store: { "count": "totalFound" }
+    method: 'deterministic_extract',
+    create_records: 'email',           // Creates email_001, email_002...  
+    store: { "count": "totalFound" }   // Global variable
   }
 }
 
@@ -635,21 +648,21 @@ get_workflow_data({ pattern: "email_*" })        // All email records
 {
   type: 'iterate',
   config: {
-    over_records: 'email_*',
-    variable: 'current'
+    records: 'email_*',               // Simple pattern matching
+    body: ["click_email", "classify"]
   }
 }
 
-// 3. Inside iteration - enhance record
+// 3. Inside iteration - enhance current record
 {
   alias: 'classify',
   config: {
-    store_to_record: true,
+    store_to_record: true,             // Routes to {{current.vars.classify}}
     as: 'classification'
   }
 }
 
-// 4. After iteration - aggregate
+// 4. After iteration - aggregate across all records
 {
   alias: 'summarize',
   config: {
