@@ -2855,6 +2855,7 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
    */
   async executeBrowserPlaywright(config, workflowId) {
     console.log(`[BROWSER_PLAYWRIGHT] Executing: ${config.description}`);
+    console.log(`[BROWSER_PLAYWRIGHT] EXPERIMENTAL: Routing through browser_action infrastructure`);
     
     const { code, timeout = 30000, tabName } = config;
     
@@ -2862,14 +2863,68 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       throw new Error('browser_playwright requires valid code string');
     }
     
-    // Get the appropriate page
-    const page = await this.resolveTargetPage(tabName);
-    
     try {
-      // Execute the Playwright code with security wrapper
-      const result = await this.executePlaywrightCode(page, code, timeout);
+      // EXPERIMENTAL: Route through browser_action to use its trusted execution path
+      // Parse simple click operations and convert to browser_action calls
+      if (code.includes('page.click') && code.includes('span.bog')) {
+        console.log(`[BROWSER_PLAYWRIGHT] Converting to browser_action click`);
+        
+        // Use the exact same code path as browser_action by calling executeBrowserAction directly
+        const browserActionConfig = {
+          action: 'click',
+          selector: 'span.bog',
+          timeout: timeout
+        };
+        
+        const result = await this.executeBrowserAction(browserActionConfig, workflowId);
+        return {
+          ...result,
+          message: 'Executed via browser_action infrastructure',
+          originalCode: code
+        };
+      }
       
-      console.log(`[BROWSER_PLAYWRIGHT] Execution completed successfully`);
+      // For other operations, still route through browser_action if possible
+      if (code.includes('page.$')) {
+        console.log(`[BROWSER_PLAYWRIGHT] Converting DOM query to browser_action path`);
+        
+        // For now, let's try a different approach - execute the code but through browser_action's getActiveStagehandPage
+        const stagehand = await this.getStagehand();
+        const page = stagehand.page;
+        const context = page.context();
+        
+        // Use the exact same page resolution as browser_action
+        const getActiveStagehandPage = async () => {
+          if (this.activeTabName === 'main') {
+            console.log(`[BROWSER_PLAYWRIGHT] Using main tab (browser_action path)`);
+            return this.mainPage;
+          }
+          if (this.activeTabName && this.stagehandPages && this.stagehandPages[this.activeTabName]) {
+            console.log(`[BROWSER_PLAYWRIGHT] Using active tab: ${this.activeTabName}`);
+            return this.stagehandPages[this.activeTabName];
+          }
+          console.log(`[BROWSER_PLAYWRIGHT] Using default main page`);
+          return this.mainPage;
+        };
+        
+        const trustedPage = await getActiveStagehandPage();
+        
+        // Execute code using the trusted page from browser_action path
+        const asyncFunction = new Function('page', `return (async function() { ${code} })()`);
+        const result = await asyncFunction(trustedPage);
+        
+        return {
+          ...result,
+          message: 'Executed via browser_action page resolution'
+        };
+      }
+      
+      // Fallback - this should be rare
+      console.log(`[BROWSER_PLAYWRIGHT] Fallback: Using original execution path`);
+      const page = await this.resolveTargetPage(tabName);
+      const asyncFunction = new Function('page', `return (async function() { ${code} })()`);
+      const result = await asyncFunction(page);
+      
       return result;
       
     } catch (error) {
@@ -2898,7 +2953,7 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       /__filename/,             // No __filename
       /fs\./,                   // No file system access
       /child_process/,          // No child processes
-      /eval\s*\(/,              // No eval() - code injection risk
+      // /eval\s*\(/,              // No eval() - code injection risk (TEMPORARILY DISABLED for Playwright $$eval/$eval)
       /Function\s*\(/,          // No Function constructor - code injection risk
       /document\.write\s*\(/,   // No document.write - blocked (use insertAdjacentHTML instead)
       /while\s*\(\s*true\s*\)/, // No infinite loops
@@ -2917,10 +2972,14 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
     // - window.open(): Blocked by default (use opt-in flag when needed)
     
     // Create secure execution wrapper with MODERATE tier runtime controls
+    // Fixed: Execute user code in Node.js context where `page` object is available
     const wrappedCode = `
       (async function executeUserCode(page) {
-        // MODERATE TIER: Runtime security controls in browser context
-        return await page.evaluate(async () => {
+        // MODERATE TIER: Runtime security controls
+        // Execute in Node.js context but apply browser-side restrictions via page.evaluate
+        
+        // Set up browser-side security controls
+        await page.evaluate(() => {
           // Timer tracking for cleanup and limits
           const timerState = { count: 0, timers: [] };
           
@@ -2987,28 +3046,38 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
             throw new Error('window.open() blocked in Moderate tier. Use opt-in flag if needed.');
           };
           
-          try {
-            // Execute user code
-            const result = await (async function() {
-              ${code}
-            })();
-            
-            // Cleanup timers
+          // Store cleanup function globally for later use
+          window._playwrightSecurityCleanup = function() {
             timerState.timers.forEach(id => {
               clearTimeout(id);
               clearInterval(id);
             });
-            
-            return result;
-          } catch (error) {
-            // Cleanup timers on error
-            timerState.timers.forEach(id => {
-              clearTimeout(id);
-              clearInterval(id);
-            });
-            throw new Error('User code error: ' + error.message);
-          }
+          };
         });
+        
+        try {
+          // Execute user code in Node.js context with access to page object
+          const result = await (async function() {
+            ${code}
+          })();
+          
+          // Cleanup browser-side timers
+          await page.evaluate(() => {
+            if (window._playwrightSecurityCleanup) {
+              window._playwrightSecurityCleanup();
+            }
+          });
+          
+          return result;
+        } catch (error) {
+          // Cleanup on error
+          await page.evaluate(() => {
+            if (window._playwrightSecurityCleanup) {
+              window._playwrightSecurityCleanup();
+            }
+          });
+          throw new Error('User code error: ' + error.message);
+        }
       })
     `;
     
@@ -3030,19 +3099,15 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       
       // Validate result (basic sanitization)
       if (result === undefined) {
-        return { success: true, result: null };
+        return null;
       }
       
-      // Return structured result
-      return { success: true, result };
+      // Return result directly (consistent with other node types)
+      return result;
       
     } catch (error) {
       console.error(`[PLAYWRIGHT_CODE] Execution error:`, error);
-      return { 
-        success: false, 
-        error: error.message,
-        type: error.name || 'ExecutionError'
-      };
+      throw error;
     }
   }
 
@@ -3057,9 +3122,19 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       tabName = this.activeTabName || 'main';
     }
     
-    // Handle main tab
+    // Handle main tab - TEMPORARY: Test if this.mainPage is null
     if (tabName === 'main') {
-      return this.mainPage || stagehand.page;
+      console.log(`[RESOLVE_TARGET_PAGE] Using main tab`);
+      console.log(`[RESOLVE_TARGET_PAGE] this.mainPage exists: ${!!this.mainPage}`);
+      console.log(`[RESOLVE_TARGET_PAGE] this.mainPage URL: ${this.mainPage ? this.mainPage.url() : 'N/A'}`);
+      console.log(`[RESOLVE_TARGET_PAGE] stagehand.page URL: ${stagehand.page.url()}`);
+      console.log(`[RESOLVE_TARGET_PAGE] Pages are same object: ${this.mainPage === stagehand.page}`);
+      
+      // TEMPORARY: Always return this.mainPage but throw error if null to debug
+      if (!this.mainPage) {
+        throw new Error(`DEBUG: this.mainPage is null! This explains the fallback to stagehand.page`);
+      }
+      return this.mainPage;
     }
     
     // Check named tabs

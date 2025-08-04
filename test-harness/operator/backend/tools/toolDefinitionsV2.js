@@ -687,6 +687,19 @@ Quick Testing - Position:
               description: 'Map specific fields from the result to variables. Example: {"links": "allLinks", "count": "linkCount"} stores result.links as {{alias.allLinks}} and result.count as {{alias.linkCount}}',
               additionalProperties: { type: 'string' }
             },
+            create_records: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string' },
+                    id_pattern: { type: 'string' }
+                  }
+                }
+              ],
+              description: 'Create records from extracted data. Simple string creates records with type and auto-generated IDs (e.g., "email" creates email_001, email_002). Object allows custom ID patterns (e.g., {type: "email", id_pattern: "email_{{sender}}"}).'
+            },
             store_to_record: {
               type: 'boolean',
               description: 'Store result to current record instead of global variable (only works inside record iteration)'

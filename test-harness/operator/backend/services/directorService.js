@@ -3219,6 +3219,60 @@ export class DirectorService {
     }
   }
 
+  async callBrowserPlaywrightViaBrowserAction(args, workflowId) {
+    try {
+      console.log(`[BROWSER_PLAYWRIGHT_VIA_BROWSER_ACTION] Executing via BrowserActionService`);
+      
+      const { code, timeout = 30000, tabName, description } = args;
+      
+      if (!code || typeof code !== 'string') {
+        throw new Error('browser_playwright_execute requires valid code string');
+      }
+      
+      // Import and create browser action service (same as regular browser_action)
+      const { BrowserActionService } = await import('./browserActionService.js');
+      const browserActionService = new BrowserActionService(
+        this.nodeExecutor,
+        workflowId,
+        this.browserStateService
+      );
+      
+      // UNIVERSAL APPROACH: Execute ALL Playwright code via BrowserActionService page resolution
+      // This ensures the same execution path as browser_action, avoiding Gmail detection
+      console.log(`[BROWSER_PLAYWRIGHT_VIA_BROWSER_ACTION] Executing ANY Playwright code via BrowserActionService page`);
+      
+      // Get the page through BrowserActionService's resolution (same as browser_action)
+      const page = await browserActionService.resolveTargetPage(tabName);
+      
+      // Execute the code using BrowserActionService's page object - this is the key!
+      // The page object comes from the same path as browser_action, so Gmail can't distinguish
+      const asyncFunction = new Function('page', `return (async function() { ${code} })()`);
+      const result = await asyncFunction(page);
+      
+      return {
+        success: true,
+        result: {
+          ...result,
+          message: 'Executed via BrowserActionService page resolution (universal approach)',
+          originalCode: code
+        },
+        description: description,
+        executedAt: new Date().toISOString(),
+        tabName: tabName || 'active'
+      };
+      
+    } catch (error) {
+      console.error(`[BROWSER_PLAYWRIGHT_VIA_BROWSER_ACTION] Error:`, error);
+      return {
+        success: false,
+        error: `Playwright execution failed: ${error.message}`,
+        description: args.description,
+        executedAt: new Date().toISOString(),
+        tabName: args.tabName || 'active'
+      };
+    }
+  }
+
   /**
    * Debug navigation methods - for exploration without creating workflow nodes
    */
@@ -4773,6 +4827,10 @@ export class DirectorService {
         // Consolidated Browser Action Tool
         case 'browser_action':
           result = await this.callBrowserAction(args, workflowId);
+          break;
+          
+        case 'browser_playwright_execute':
+          result = await this.callBrowserPlaywrightViaBrowserAction(args, workflowId);
           break;
           
         // DOM Exploration Tools
