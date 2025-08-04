@@ -2648,9 +2648,14 @@ Field selectors must use ONE of three modes:
       }
       
       try {
+        // Enhanced defaults: Smart visibility filtering for deterministic extraction
+        const visibleOnly = config.visibleOnly !== false;        // Default: true
+        const includeScrollable = config.includeScrollable !== false; // Default: true  
+        const inViewportOnly = config.inViewportOnly === true;   // Default: false
+        
         // Use page.evaluate for deterministic extraction - wrap arguments in single object
         const extractedData = await activePage.evaluate((args) => {
-          const { selector, fields, limit, useShadowDOM, visibleOnly, inViewportOnly } = args;
+          const { selector, fields, limit, useShadowDOM, visibleOnly, includeScrollable, inViewportOnly } = args;
           const items = [];
           
           // Helper function to query with shadow DOM support
@@ -2677,10 +2682,10 @@ Field selectors must use ONE of three modes:
           
           let elements = queryElements(selector);
           
-          // Apply viewport-based filtering if requested
-          if (visibleOnly || inViewportOnly) {
+          // Enhanced visibility filtering with smart defaults
+          if (visibleOnly || includeScrollable || inViewportOnly) {
             elements = Array.from(elements).filter(el => {
-              // Check if element is visible (not hidden by CSS)
+              // Skip CSS hidden elements (can't be scrolled into existence)
               if (visibleOnly) {
                 const styles = window.getComputedStyle(el);
                 if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
@@ -2688,7 +2693,7 @@ Field selectors must use ONE of three modes:
                 }
               }
               
-              // Check if element is in viewport
+              // For viewport-only mode, check current viewport
               if (inViewportOnly) {
                 const rect = el.getBoundingClientRect();
                 const isInViewport = (
@@ -2700,6 +2705,14 @@ Field selectors must use ONE of three modes:
                   rect.height > 0
                 );
                 if (!isInViewport) {
+                  return false;
+                }
+              }
+              
+              // Include elements that can be scrolled to (have dimensions)
+              if (includeScrollable || inViewportOnly) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) {
                   return false;
                 }
               }
@@ -2758,11 +2771,32 @@ Field selectors must use ONE of three modes:
           }
           
           return { items, count };
-        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null, useShadowDOM: config.useShadowDOM || false, visibleOnly: config.visibleOnly || false, inViewportOnly: config.inViewportOnly || false });
+        }, { selector: config.selector, fields: config.fields || null, limit: config.limit || null, useShadowDOM: config.useShadowDOM || false, visibleOnly, includeScrollable, inViewportOnly });
         
         console.log(`[BROWSER_QUERY] Extracted ${extractedData.items.length} items (total found: ${extractedData.count})`);
         
-        return extractedData;
+        // Enhanced result reporting with filtering information
+        const result = {
+          items: extractedData.items,
+          count: extractedData.count
+        };
+        
+        // Add filtering diagnostics when smart defaults are applied
+        if (visibleOnly || includeScrollable || inViewportOnly) {
+          result.filteredBy = [];
+          if (visibleOnly) result.filteredBy.push('visible');
+          if (inViewportOnly) result.filteredBy.push('inViewport');
+          if (includeScrollable) result.filteredBy.push('scrollable');
+          
+          // Calculate how many elements were filtered out
+          const totalElements = await activePage.locator(config.selector).count();
+          result.totalElements = totalElements;
+          result.filteredElements = extractedData.count;
+          
+          console.log(`[BROWSER_QUERY] Filtering applied: ${result.filteredBy.join(', ')} - ${totalElements} total -> ${extractedData.count} actionable`);
+        }
+        
+        return result;
       } catch (error) {
         console.error(`[BROWSER_QUERY] Extraction error:`, error);
         throw new Error(`Failed to extract elements: ${error.message}`);
