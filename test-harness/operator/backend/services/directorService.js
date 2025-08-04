@@ -3244,9 +3244,17 @@ export class DirectorService {
       // Get the page through BrowserActionService's resolution (same as browser_action)
       const page = await browserActionService.resolveTargetPage(tabName);
       
+      // 🔧 FIX: Resolve template variables in code before execution (fixes {{}} interpolation)
+      let resolvedCode = code;
+      if (typeof code === 'string') {
+        console.log(`[BROWSER_PLAYWRIGHT_VIA_BROWSER_ACTION] Resolving template variables in code`);
+        resolvedCode = await this.nodeExecutor.resolveTemplateVariables(code, workflowId);
+        console.log(`[BROWSER_PLAYWRIGHT_VIA_BROWSER_ACTION] Variables resolved successfully`);
+      }
+      
       // Execute the code using BrowserActionService's page object - this is the key!
       // The page object comes from the same path as browser_action, so Gmail can't distinguish
-      const asyncFunction = new Function('page', `return (async function() { ${code} })()`);
+      const asyncFunction = new Function('page', `return (async function() { ${resolvedCode} })()`);
       const result = await asyncFunction(page);
       
       return {
