@@ -193,6 +193,10 @@ export class NodeExecutor {
       // Handle browser_query results that return {items: [...], count: N}
       itemsArray = result.items;
       console.log(`[RECORD_CREATION] Found browser_query result with ${result.items.length} items (count: ${result.count})`);
+    } else if (result && typeof result === 'object' && Array.isArray(result.emails)) {
+      // Handle browser_playwright results that return {emails: [...], count: N}
+      itemsArray = result.emails;
+      console.log(`[RECORD_CREATION] Found browser_playwright result with ${result.emails.length} emails (count: ${result.count || result.emails.length})`);
     }
     
     if (itemsArray) {
@@ -1632,19 +1636,107 @@ export class NodeExecutor {
         
         const clickPage = await getActiveStagehandPage();
         
-        // If nth is specified, handle element selection by index
+        // If nth is specified, handle element selection with enhanced visibility filtering
         if (config.nth !== undefined) {
-          const elements = await clickPage.$$(config.selector);
-          const index = this.resolveIndex(config.nth, elements.length);
+          // Enhanced defaults: Smart visibility filtering + auto-scrolling
+          const visibleOnly = config.visibleOnly !== false;        // Default: true
+          const includeScrollable = config.includeScrollable !== false; // Default: true  
+          const autoScroll = config.autoScroll !== false;          // Default: true
+          const inViewportOnly = config.inViewportOnly === true;   // Default: false
           
-          if (!elements[index]) {
+          // Phase 1: Get actionable elements (skip CSS hidden, include scrollable)
+          const actionableIndexes = await clickPage.evaluate(({ selector, filters }) => {
+            const { visibleOnly, includeScrollable, inViewportOnly } = filters;
+            const allElements = document.querySelectorAll(selector);
+            const actionable = [];
+            
+            allElements.forEach((el, originalIndex) => {
+              // Skip CSS hidden elements (can't be scrolled into existence)
+              if (visibleOnly) {
+                const styles = window.getComputedStyle(el);
+                if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+                  return;
+                }
+              }
+              
+              // For viewport-only mode, check current viewport
+              if (inViewportOnly) {
+                const rect = el.getBoundingClientRect();
+                const isInViewport = (
+                  rect.top >= 0 &&
+                  rect.left >= 0 &&
+                  rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                  rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+                if (!isInViewport) return;
+              }
+              
+              // Include elements that can be scrolled to (have dimensions)
+              if (includeScrollable || inViewportOnly) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  actionable.push(originalIndex);
+                }
+              } else {
+                actionable.push(originalIndex);
+              }
+            });
+            
+            return actionable;
+          }, { selector: config.selector, filters: { visibleOnly, includeScrollable, inViewportOnly } });
+          
+          // Validate nth index against actionable elements
+          const index = this.resolveIndex(config.nth, actionableIndexes.length);
+          
+          if (actionableIndexes.length === 0) {
             throw new Error(
-              `No element at index ${config.nth} for selector: ${config.selector}. Found ${elements.length} elements.`
+              `No actionable elements found for selector: ${config.selector}. ` +
+              `All elements are either CSS hidden or have zero dimensions.`
             );
           }
           
-          await elements[index].click();
-          return { clicked: config.selector, nth: index };
+          if (index >= actionableIndexes.length) {
+            const filterText = (visibleOnly || inViewportOnly) ? 
+              ` (after filtering for ${visibleOnly ? 'visible' : ''}${visibleOnly && inViewportOnly ? ' and ' : ''}${inViewportOnly ? 'in-viewport' : ''} elements)` : '';
+            throw new Error(
+              `No element at index ${config.nth} for selector: ${config.selector}. Found ${actionableIndexes.length} actionable elements${filterText}.`
+            );
+          }
+          
+          // Phase 2: Get the target element and make it accessible
+          const targetDomIndex = actionableIndexes[index];
+          const targetElement = await clickPage.locator(config.selector).nth(targetDomIndex);
+          
+          // Auto-scroll if element is not in viewport and auto-scroll is enabled
+          if (autoScroll) {
+            await targetElement.scrollIntoViewIfNeeded();
+            // Brief wait for scroll to complete
+            await clickPage.waitForTimeout(100);
+          }
+          
+          // Perform the click
+          await targetElement.click();
+          
+          // Enhanced result with filtering information
+          const result = { 
+            clicked: config.selector, 
+            nth: index,
+            targetDomIndex: targetDomIndex,
+            totalElements: await clickPage.locator(config.selector).count(),
+            actionableElements: actionableIndexes.length
+          };
+          
+          if (visibleOnly || inViewportOnly || includeScrollable) {
+            result.filteredBy = [];
+            if (visibleOnly) result.filteredBy.push('visible');
+            if (inViewportOnly) result.filteredBy.push('inViewport');
+            if (includeScrollable) result.filteredBy.push('scrollable');
+            if (autoScroll) result.scrolled = true;
+          }
+          
+          return result;
         }
         
         await clickPage.waitForSelector(config.selector, { 
@@ -1673,20 +1765,108 @@ export class NodeExecutor {
         
         const typePage = await getActiveStagehandPage();
         
-        // If nth is specified, handle element selection by index
+        // If nth is specified, handle element selection with enhanced visibility filtering
         if (config.nth !== undefined) {
-          const elements = await typePage.$$(config.selector);
-          const index = this.resolveIndex(config.nth, elements.length);
+          // Enhanced defaults: Smart visibility filtering + auto-scrolling
+          const visibleOnly = config.visibleOnly !== false;        // Default: true
+          const includeScrollable = config.includeScrollable !== false; // Default: true  
+          const autoScroll = config.autoScroll !== false;          // Default: true
+          const inViewportOnly = config.inViewportOnly === true;   // Default: false
           
-          if (!elements[index]) {
+          // Phase 1: Get actionable elements (skip CSS hidden, include scrollable)
+          const actionableIndexes = await typePage.evaluate(({ selector, filters }) => {
+            const { visibleOnly, includeScrollable, inViewportOnly } = filters;
+            const allElements = document.querySelectorAll(selector);
+            const actionable = [];
+            
+            allElements.forEach((el, originalIndex) => {
+              // Skip CSS hidden elements (can't be scrolled into existence)
+              if (visibleOnly) {
+                const styles = window.getComputedStyle(el);
+                if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
+                  return;
+                }
+              }
+              
+              // For viewport-only mode, check current viewport
+              if (inViewportOnly) {
+                const rect = el.getBoundingClientRect();
+                const isInViewport = (
+                  rect.top >= 0 &&
+                  rect.left >= 0 &&
+                  rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                  rect.right <= (window.innerWidth || document.documentElement.clientWidth) &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                );
+                if (!isInViewport) return;
+              }
+              
+              // Include elements that can be scrolled to (have dimensions)
+              if (includeScrollable || inViewportOnly) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  actionable.push(originalIndex);
+                }
+              } else {
+                actionable.push(originalIndex);
+              }
+            });
+            
+            return actionable;
+          }, { selector: config.selector, filters: { visibleOnly, includeScrollable, inViewportOnly } });
+          
+          // Validate nth index against actionable elements
+          const index = this.resolveIndex(config.nth, actionableIndexes.length);
+          
+          if (actionableIndexes.length === 0) {
             throw new Error(
-              `No element at index ${config.nth} for selector: ${config.selector}. Found ${elements.length} elements.`
+              `No actionable elements found for selector: ${config.selector}. ` +
+              `All elements are either CSS hidden or have zero dimensions.`
             );
           }
           
+          if (index >= actionableIndexes.length) {
+            const filterText = (visibleOnly || inViewportOnly) ? 
+              ` (after filtering for ${visibleOnly ? 'visible' : ''}${visibleOnly && inViewportOnly ? ' and ' : ''}${inViewportOnly ? 'in-viewport' : ''} elements)` : '';
+            throw new Error(
+              `No element at index ${config.nth} for selector: ${config.selector}. Found ${actionableIndexes.length} actionable elements${filterText}.`
+            );
+          }
+          
+          // Phase 2: Get the target element and make it accessible
+          const targetDomIndex = actionableIndexes[index];
+          const targetElement = await typePage.locator(config.selector).nth(targetDomIndex);
+          
+          // Auto-scroll if element is not in viewport and auto-scroll is enabled
+          if (autoScroll) {
+            await targetElement.scrollIntoViewIfNeeded();
+            // Brief wait for scroll to complete
+            await typePage.waitForTimeout(100);
+          }
+          
           // Clear existing value and type new text
-          await elements[index].fill(config.text);
-          return { typed: config.text, selector: config.selector, nth: index };
+          await targetElement.fill(config.text);
+          
+          // Enhanced result with filtering information
+          const result = { 
+            typed: config.text, 
+            selector: config.selector, 
+            nth: index,
+            targetDomIndex: targetDomIndex,
+            totalElements: await typePage.locator(config.selector).count(),
+            actionableElements: actionableIndexes.length
+          };
+          
+          if (visibleOnly || inViewportOnly || includeScrollable) {
+            result.filteredBy = [];
+            if (visibleOnly) result.filteredBy.push('visible');
+            if (inViewportOnly) result.filteredBy.push('inViewport');
+            if (includeScrollable) result.filteredBy.push('scrollable');
+            if (autoScroll) result.scrolled = true;
+          }
+          
+          return result;
         }
         
         await typePage.waitForSelector(config.selector, { 
