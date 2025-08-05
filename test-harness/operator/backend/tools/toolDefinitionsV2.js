@@ -80,7 +80,7 @@ export function createToolDefinitions() {
           properties: {
             action: {
               type: 'string',
-              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type', 'scrollIntoView', 'scrollToRow'],
+              enum: ['navigate', 'wait', 'openNewTab', 'switchTab', 'closeTab', 'back', 'forward', 'refresh', 'listTabs', 'getCurrentTab', 'keypress', 'loadProfile', 'click', 'type', 'scrollIntoView', 'scrollToRow', 'extractPdf'],
               description: 'The deterministic browser action to perform. Use click/type with CSS selectors for reliable interactions. scrollIntoView progressively scrolls until element exists (handles virtualized content, auto-detects containers). scrollToRow scrolls to specific row index with multi-framework support - provide rowHeight for precise scrolling. loadProfile intelligently loads from local or cloud.'
             },
             url: {
