@@ -274,6 +274,10 @@ export class BrowserActionService {
         case 'loadProfile':
           return await this.loadProfile(config);
           
+        // PDF extraction
+        case 'extractPdf':
+          return await this.extractPdf(config);
+          
         default:
           throw new Error(`Unknown browser action: ${action}`);
       }
@@ -2444,6 +2448,92 @@ export class BrowserActionService {
         // Profile doesn't exist locally or in cloud
         throw new Error(`Profile "${profileName}" not found locally or in cloud. Create it first with setProfile.`);
       }
+    }
+  }
+
+  /**
+   * Extract PDF content by clicking a selector, navigating to PDF, and using AI extraction
+   * This is a hybrid action combining browser interaction with AI-powered content extraction
+   */
+  async extractPdf(config) {
+    const { 
+      selector, 
+      nth = 0,
+      instruction = 'Extract all text content from this document.',
+      schema = { type: 'string' },
+      navigationStrategy = 'direct',
+      tabName 
+    } = config;
+
+    console.log('[BrowserActionService] Starting extractPdf with config:', config);
+
+    if (!selector) {
+      throw new Error('extractPdf requires a selector to click');
+    }
+
+    const page = await this.getPage(tabName);
+    
+    // Step 1: Store original URL for navigation back
+    const originalUrl = page.url();
+    console.log('[BrowserActionService] Original URL:', originalUrl);
+
+    try {
+      // Step 2: Click the PDF element (browser_action part)
+      console.log('[BrowserActionService] Clicking PDF selector:', selector);
+      
+      // Use existing click logic with nth support
+      const clickResult = await this.click({ selector, nth, tabName });
+      
+      // Step 3: Wait for navigation to PDF
+      await page.waitForLoadState('networkidle');
+      const pdfUrl = page.url();
+      console.log('[BrowserActionService] Navigated to PDF URL:', pdfUrl);
+
+      // Verify we actually navigated to a different page
+      if (pdfUrl === originalUrl) {
+        throw new Error('PDF click did not result in navigation - PDF may not be available');
+      }
+
+      // Step 4: Use browser_ai_extract equivalent for PDF content
+      console.log('[BrowserActionService] Extracting PDF content with AI...');
+      
+      // Call the existing AI extraction service
+      const aiResult = await this.nodeExecutor.executeBrowserAIExtract({
+        instruction,
+        schema,
+        targetElement: null // Extract from entire PDF page
+      });
+
+      // Step 5: Navigate back to original page
+      if (navigationStrategy === 'direct') {
+        console.log('[BrowserActionService] Navigating back to original page...');
+        await page.goto(originalUrl);
+        await page.waitForLoadState('networkidle');
+      }
+
+      // Step 6: Return comprehensive result
+      return {
+        success: true,
+        originalUrl,
+        pdfUrl,
+        extractedContent: aiResult,
+        clickResult,
+        message: 'PDF extraction completed successfully'
+      };
+
+    } catch (error) {
+      // Error recovery: try to navigate back to original page
+      try {
+        if (page.url() !== originalUrl) {
+          console.log('[BrowserActionService] Error occurred, attempting to navigate back...');
+          await page.goto(originalUrl);
+          await page.waitForLoadState('networkidle');
+        }
+      } catch (recoveryError) {
+        console.error('[BrowserActionService] Failed to recover navigation:', recoveryError);
+      }
+      
+      throw new Error(`PDF extraction failed: ${error.message}`);
     }
   }
 }
