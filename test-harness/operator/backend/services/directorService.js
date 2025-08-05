@@ -3741,7 +3741,7 @@ export class DirectorService {
    */
   async executeNodes(args, workflowId) {
     try {
-      const { nodeSelection, resetBrowserFirst = false, mode = 'isolated' } = args;
+      const { nodeSelection, resetBrowserFirst = false, mode = 'isolated', recordContext = null } = args;
       
       console.log(`[EXECUTE_NODES] Starting execution of: ${nodeSelection}`);
       console.log(`[EXECUTE_NODES] Reset browser first: ${resetBrowserFirst}`);
@@ -3791,6 +3791,54 @@ export class DirectorService {
         console.log(`[EXECUTE_NODES] Resetting browser session`);
         await this.nodeExecutor.cleanup();
         await this.nodeExecutor.getStagehand(); // This will create a fresh browser
+      }
+      
+      // Setup record context if provided
+      let recordContextData = null;
+      if (recordContext) {
+        console.log(`[EXECUTE_NODES] Setting up record context: ${recordContext}`);
+        
+        // Parse record ID to extract index (e.g., "email_003" -> index 2)
+        const recordIdMatch = recordContext.match(/^(.+)_(\d+)$/);
+        if (!recordIdMatch) {
+          throw new Error(`Invalid recordContext format: ${recordContext}. Expected format: "prefix_number" (e.g., "email_003")`);
+        }
+        
+        const [, recordType, recordNumber] = recordIdMatch;
+        const recordIndex = parseInt(recordNumber) - 1; // Convert 1-based to 0-based
+        
+        // Get the record data
+        const record = await this.variableManagementService.getRecord(workflowId, recordContext);
+        if (!record) {
+          throw new Error(`Record not found: ${recordContext}`);
+        }
+        
+        // Count total records with same pattern
+        const pattern = `${recordType}_*`;
+        const allRecords = await this.variableManagementService.queryRecords(workflowId, pattern);
+        const totalRecords = allRecords.length;
+        
+        // Set up iteration context variables
+        const isFirst = recordIndex === 0;
+        const isLast = recordIndex === totalRecords - 1;
+        
+        recordContextData = {
+          recordId: recordContext,
+          recordData: record.data,
+          index: recordIndex,
+          total: totalRecords,
+          isFirst: isFirst,
+          isLast: isLast
+        };
+        
+        // Push record context to node executor
+        this.nodeExecutor.pushRecordContext(recordContext, record.data);
+        this.nodeExecutor.setContextVariable('index', recordIndex);
+        this.nodeExecutor.setContextVariable('total', totalRecords);
+        this.nodeExecutor.setContextVariable('isFirst', isFirst);
+        this.nodeExecutor.setContextVariable('isLast', isLast);
+        
+        console.log(`[EXECUTE_NODES] Record context setup complete:`, recordContextData);
       }
       
       // Execute each node
@@ -3898,6 +3946,16 @@ export class DirectorService {
       
       console.log(`[EXECUTE_NODES] Execution complete: ${successCount} success, ${failCount} failed, ${skippedCount} skipped, ${totalTime}s total`);
       
+      // Cleanup record context if it was set
+      if (recordContext) {
+        console.log(`[EXECUTE_NODES] Cleaning up record context: ${recordContext}`);
+        this.nodeExecutor.popRecordContext();
+        this.nodeExecutor.clearContextVariable('index');
+        this.nodeExecutor.clearContextVariable('total');
+        this.nodeExecutor.clearContextVariable('isFirst');
+        this.nodeExecutor.clearContextVariable('isLast');
+      }
+      
       return {
         execution_results: results,
         summary: {
@@ -3906,7 +3964,8 @@ export class DirectorService {
           failed: failCount,
           skipped: skippedCount,
           execution_time: `${totalTime}s`
-        }
+        },
+        recordContext: recordContextData // Include context data in response for debugging
       };
       
     } catch (error) {

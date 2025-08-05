@@ -500,7 +500,7 @@ Precise Control - Explicit List:
             },
             schema: {
               type: 'object',
-              description: 'Required JSON Schema defining the output format. Must include at least a "type" property. Common examples: {type: "string"}, {type: "boolean"}, {type: "object", properties: {...}}, {type: "array", items: {...}}. AI outputs are automatically validated and coerced to match this schema (e.g., object→array conversion, string→number, case correction).',
+              description: '🚨 REQUIRED: JSON Schema defining the exact output structure. This prevents prompt engineering issues by enforcing strict format compliance. Without a schema, you get unparseable strings that break property access. Examples: {type: "string"} for text, {type: "boolean"} for yes/no, {type: "object", properties: {category: {type: "string"}, score: {type: "number"}}} for structured data. Schema guarantees reliable output regardless of instruction phrasing.',
               additionalProperties: true
             },
             store: {
@@ -815,6 +815,10 @@ Quick Testing - Position:
               type: 'boolean',
               default: false,
               description: 'Reset browser state before execution. Useful for clean test runs.'
+            },
+            recordContext: {
+              type: 'string',
+              description: 'Execute node(s) within the context of a specific record (e.g., "email_003"). Automatically injects iteration variables: {{index}}, {{total}}, {{isFirst}}, {{isLast}}, and {{current.*}} for testing iteration nodes in isolation.'
             }
           },
           required: ['nodeSelection'],

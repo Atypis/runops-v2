@@ -132,6 +132,7 @@ Your universal approach for both phases:
 - Execute nodes immediately after building
 - Use isolated mode for testing specific nodes
 - Use flow mode for testing branch logic
+- **Record Context Testing**: Use \`recordContext: "email_003"\` to test iteration nodes in isolation with full context
 - Verify selectors remain stable
 - Ensure edge cases are properly handled
 - **Fail Fast**: Missing selectors = immediate stop, not desperate searching
@@ -408,11 +409,26 @@ For processing multiple similar elements (emails, products, etc.):
    \`\`\`
    
    **Inside Iteration - Automatic Variables:**
-   - \`{{current.fields.*}}\` - Original record data
+   
+   The system automatically provides these variables during iteration:
+   
+   **Record Data (Most Important):**
+   - \`{{current.fields.*}}\` - Original record data from extraction
    - \`{{current.vars.*}}\` - Data added during processing
+   - \`store_to_record: true\` - Routes new data to current record
+   
+   **Runtime Variables (Temporary):**
    - \`{{index}}\` - Current position (0, 1, 2...)
    - \`{{total}}\` - Total record count
-   - \`store_to_record: true\` - Routes to current record
+   - \`{{isFirst}}\` - True if index === 0
+   - \`{{isLast}}\` - True if index === total - 1
+   
+   **Auto-Persisted Variables (Stored in Record):**
+   - \`{{current.vars.__iteration.index}}\` - Stored index for testing
+   - \`{{current.vars.__iteration.isFirst}}\` - Stored isFirst flag  
+   - \`{{current.vars.__iteration.isLast}}\` - Stored isLast flag
+   
+   These iteration variables are automatically injected and persisted to each record, enabling isolated testing with \`recordContext\`.
    
    **Body Configuration:**
    - Node list: \`body: ["extract", "classify", "save"]\`

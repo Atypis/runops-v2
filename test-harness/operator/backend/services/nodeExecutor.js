@@ -3445,13 +3445,16 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
   }
 
   async executeCognition(config, inputData) {
-    // Add validation at execution time as safety net
+    // Enforce mandatory schema requirement - prevents prompt engineering issues
     if (!config.schema) {
       throw new Error(
-        `Cognition node missing required schema. ` +
-        `This node would return a string, making property access impossible. ` +
-        `Add a schema like: {type: "string"} for simple text, or ` +
-        `{type: "object", properties: {...}} for structured data.`
+        `🚨 COGNITION SCHEMA REQUIRED: Schema is mandatory to prevent prompt engineering issues. ` +
+        `Without a schema, you get unparseable strings that break {{property}} access. ` +
+        `Examples:\n` +
+        `• {type: "string"} - for simple text\n` +
+        `• {type: "boolean"} - for yes/no answers\n` +
+        `• {type: "object", properties: {category: {type: "string"}, score: {type: "number"}}} - for structured data\n` +
+        `Schema guarantees reliable output regardless of instruction phrasing.`
       );
     }
     
@@ -3501,47 +3504,89 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       safePrompt += `\n\nReturn your answer in this JSON format: {"value": your_answer_here}`;
     }
 
-    const completion = await this.openai.chat.completions.create({
-      model: 'o4-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant that processes data according to instructions.' },
-        { role: 'user', content: safePrompt }
-      ],
-      temperature: 1,
-      response_format: config.schema ? { type: 'json_object' } : undefined
-    });
-
-    const response = completion.choices[0].message.content;
+    // Use Responses API with structured outputs
+    let response;
+    if (config.schema) {
+      console.log(`[COGNITION] Using Responses API with structured outputs`);
+      
+      // Convert JSON Schema to OpenAI structured output format
+      const structuredSchema = {
+        name: 'cognition_response',
+        schema: {
+          ...effectiveSchema, // Use effectiveSchema (may be wrapped for primitives)
+          additionalProperties: false // Prevent extra fields
+        },
+        strict: true
+      };
+      
+      const completion = await this.openai.responses.create({
+        model: 'o4-mini',
+        input: safePrompt,
+        text: {
+          format: {
+            type: 'json_schema',
+            name: structuredSchema.name || "cognition_response", // name at format level
+            schema: structuredSchema.schema,                      // schema at format level
+            strict: structuredSchema.strict ?? true
+          }
+        },
+        reasoning: { 
+          effort: 'low',  // Use low effort for simple cognition tasks
+          summary: 'detailed'  // o4-mini only supports 'detailed'
+        },
+        store: false,
+        stream: false
+      });
+      
+      response = completion.output_text;
+    } else {
+      // Fallback to responses API for non-schema requests
+      console.log(`[COGNITION] Using Responses API (no schema)`);
+      const completion = await this.openai.responses.create({
+        model: 'o4-mini',
+        input: safePrompt,
+        reasoning: { 
+          effort: 'low',
+          summary: 'detailed'
+        },
+        store: false,
+        stream: false
+      });
+      
+      response = completion.output_text;
+    }
     
     // Parse JSON response if schema is provided
     let parsedResponse = response;
     if (config.schema) {
       try {
         parsedResponse = JSON.parse(response);
+        console.log(`[COGNITION] Successfully parsed structured output from Responses API`);
+        
+        // With strict: true, the response should be guaranteed valid
+        // But we can still do light validation as a safety net
+        if (effectiveSchema !== config.schema) {
+          // We wrapped the schema, so validate against the effective schema
+          const validation = SchemaValidator.validateAndCoerce(
+            parsedResponse,
+            effectiveSchema,
+            {
+              nodeType: 'COGNITION',
+              nodeAlias: config.alias,
+              position: this.currentNodePosition
+            }
+          );
+          
+          if (!validation.success) {
+            console.warn(`[COGNITION] Structured output validation failed (unexpected): ${validation.error}`);
+            // Don't throw - let's see what we got
+          } else {
+            parsedResponse = validation.data;
+          }
+        }
       } catch (error) {
         throw new Error(`Failed to parse JSON response from cognition: ${error.message}`);
       }
-      
-      // Validate and coerce using the effective schema (may be wrapped)
-      const validation = SchemaValidator.validateAndCoerce(
-        parsedResponse,
-        effectiveSchema, // Use effectiveSchema since we may have wrapped it
-        {
-          nodeType: 'COGNITION',
-          nodeAlias: config.alias,
-          position: this.currentNodePosition
-        }
-      );
-      
-      if (!validation.success) {
-        throw new Error(validation.error);
-      }
-      
-      if (validation.coerced) {
-        console.log(`[COGNITION] Type coercion applied for ${config.alias || `node${this.currentNodePosition}`}`);
-      }
-      
-      parsedResponse = validation.data;
       
       // If we wrapped a primitive or array schema, unwrap the result
       if (isPrimitiveOrArraySchema && parsedResponse && typeof parsedResponse === 'object' && 'value' in parsedResponse) {
@@ -4470,9 +4515,31 @@ Use get_workflow_data() to inspect all stored variables.`);
       // Push record context - enables {{current.*}}
       this.pushRecordContext(record.record_id, record.data);
 
-      // Inject automatic variables
+      // Inject automatic iteration variables
+      const isFirst = i === 0;
+      const isLast = i === records.length - 1;
+      
       this.setContextVariable('index', i);           // {{index}}
       this.setContextVariable('total', records.length); // {{total}}
+      this.setContextVariable('isFirst', isFirst);   // {{isFirst}}
+      this.setContextVariable('isLast', isLast);     // {{isLast}}
+      
+      // Store iteration variables to record for persistence and testing
+      const iterationVars = {
+        __iteration: {
+          index: i,
+          isFirst: isFirst,
+          isLast: isLast
+        }
+      };
+      
+      // Update record with iteration variables
+      await this.variableService.updateRecord(workflowId, record.record_id, {
+        vars: {
+          ...record.data.vars || {},
+          ...iterationVars
+        }
+      }, this.getCurrentRecord());
 
       // Debug logging for iteration context
       console.log(`[ITERATE_DEBUG] Processing record ${i + 1}/${records.length}:`, {
@@ -4532,6 +4599,8 @@ Use get_workflow_data() to inspect all stored variables.`);
           this.popRecordContext();
           this.clearContextVariable('index');
           this.clearContextVariable('total');
+          this.clearContextVariable('isFirst');
+          this.clearContextVariable('isLast');
           throw error; // Always re-throw schema validation errors
         }
         
@@ -4541,6 +4610,8 @@ Use get_workflow_data() to inspect all stored variables.`);
           this.popRecordContext();
           this.clearContextVariable('index');
           this.clearContextVariable('total');
+          this.clearContextVariable('isFirst');
+          this.clearContextVariable('isLast');
           break;
         } else {
           console.log(`[ITERATE] Continuing despite non-schema error (on_error: continue): ${error.message}`);
@@ -4551,6 +4622,8 @@ Use get_workflow_data() to inspect all stored variables.`);
         this.popRecordContext();
         this.clearContextVariable('index');
         this.clearContextVariable('total');
+        this.clearContextVariable('isFirst');
+        this.clearContextVariable('isLast');
       }
     }
 
