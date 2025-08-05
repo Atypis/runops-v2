@@ -628,7 +628,8 @@ export class NodeExecutor {
       globals: {}, // Global variables (could be populated from workflow_memory)
       locals: {},  // Local variables
       current: this.getCurrentRecord()?.data || {},  // Current record data
-      records: records  // All fetched records indexed by ID
+      records: records,  // All fetched records indexed by ID
+      contextVars: Object.fromEntries(this.contextVariables || new Map())  // Iteration variables like {{index}}, {{total}}
     };
 
     // Single-pass resolution
@@ -655,6 +656,11 @@ export class NodeExecutor {
           if (records[recordId]) {
             return this.getNestedValue(records[recordId].data, fieldPath) || value;
           }
+        }
+        
+        // Handle context variables (e.g., {{index}}, {{total}})
+        if (context.contextVars && context.contextVars.hasOwnProperty(path)) {
+          return context.contextVars[path];
         }
         
         // Handle iteration context variables (e.g., current_email.field.value)
@@ -716,6 +722,12 @@ export class NodeExecutor {
             const val = this.getNestedValue(records[recordId].data, fieldPath);
             return val !== undefined ? String(val) : match;
           }
+        }
+        
+        // Handle context variables (e.g., {{index}}, {{total}})
+        if (context.contextVars && context.contextVars.hasOwnProperty(path)) {
+          const val = context.contextVars[path];
+          return val !== undefined ? String(val) : match;
         }
         
         // Handle iteration context variables (e.g., current_email.field.value)
@@ -1544,7 +1556,11 @@ export class NodeExecutor {
               this.variableService = new VariableManagementService();
             }
             
-            const fieldName = resolvedConfig.as || node.alias;
+            // Ensure we have a valid field name with robust fallback
+            const fieldName = resolvedConfig.as || node.alias || `node_${node.position}` || 'result';
+            if (!fieldName) {
+              throw new Error('Cannot determine field name for store_to_record - missing both "as" config and node alias');
+            }
             const updateData = {
               [`vars.${fieldName}`]: result
             };
@@ -1559,9 +1575,39 @@ export class NodeExecutor {
             );
             
             console.log(`[EXECUTE] Successfully stored to record as vars.${fieldName}`);
+            
+            // CRITICAL FIX: Refresh in-memory context after store_to_record to prevent stale data
+            // This ensures subsequent nodes in iteration can access the just-stored data
+            try {
+              const freshRecord = await this.variableService.getRecord(workflowId, currentRecord.recordId);
+              if (freshRecord && freshRecord.data) {
+                // Update in-memory context with fresh database data
+                Object.assign(currentRecord.data, freshRecord.data);
+                console.log(`[EXECUTE] Refreshed in-memory context for record ${currentRecord.recordId} after store_to_record`);
+              }
+            } catch (refreshError) {
+              console.error(`[EXECUTE] Failed to refresh record context after store_to_record:`, refreshError);
+              // Non-fatal error - continue execution but log the issue
+            }
           } catch (storeError) {
             console.error(`[EXECUTE] Failed to store to record:`, storeError);
-            // Don't fail execution
+            // Add detailed error information for debugging
+            console.error(`[EXECUTE] Store-to-record context:`, {
+              recordId: currentRecord.recordId,
+              fieldName: fieldName,
+              resultType: typeof result,
+              updateData: updateData
+            });
+            
+            // Optional strict mode - fail execution if store fails
+            if (resolvedConfig.strict_store === true) {
+              throw new Error(`Store-to-record failed: ${storeError.message}`);
+            }
+            
+            // Lenient mode - add warning to result but continue
+            if (typeof result === 'object' && result !== null) {
+              result._storeWarning = `Failed to store to record: ${storeError.message}`;
+            }
           }
         } else {
           console.warn(`[EXECUTE] store_to_record requested but no current record context`);
@@ -3430,10 +3476,16 @@ CRITICAL: You must ONLY extract data that is actually visible on the page. DO NO
       };
     }
     
-    // Build the prompt - either use instruction directly or replace {{input}} placeholder
+    // Build the prompt - use config.input as primary source, inputData as fallback
     let prompt = config.instruction || config.prompt || '';
-    if (inputData && prompt.includes('{{input}}')) {
-      prompt = prompt.replace('{{input}}', JSON.stringify(inputData));
+    let actualInputData = config.input || inputData;  // Use config.input first (modern design)
+    
+    if (actualInputData && prompt.includes('{{input}}')) {
+      // Legacy pattern: replace {{input}} placeholder in instruction text
+      prompt = prompt.replace('{{input}}', JSON.stringify(actualInputData));
+    } else if (actualInputData) {
+      // Modern pattern: include input data in prompt even without {{input}} placeholder
+      prompt = `${prompt}\n\nInput data: ${JSON.stringify(actualInputData)}`;
     }
     
     // OpenAI requires the word "JSON" to appear in the messages when using
@@ -4422,6 +4474,13 @@ Use get_workflow_data() to inspect all stored variables.`);
       this.setContextVariable('index', i);           // {{index}}
       this.setContextVariable('total', records.length); // {{total}}
 
+      // Debug logging for iteration context
+      console.log(`[ITERATE_DEBUG] Processing record ${i + 1}/${records.length}:`, {
+        recordId: record.record_id,
+        contextVars: Object.fromEntries(this.contextVariables || new Map()),
+        recordData: record.data
+      });
+
       try {
         // Update record status
         await this.variableService.updateRecord(workflowId, record.record_id, {
@@ -4429,8 +4488,23 @@ Use get_workflow_data() to inspect all stored variables.`);
         }, this.getCurrentRecord());
 
         // Execute body nodes with automatic context
-        const bodyResults = await this.executeBody(config.body, workflowId);
+        // Use resolved body_positions if available, otherwise fall back to original body
+        const bodyToExecute = config.body_positions || config.body;
+        const bodyResults = await this.executeBody(bodyToExecute, workflowId);
         results.push({ record_id: record.record_id, results: bodyResults });
+
+        // Validate store-to-record operations (debug)
+        try {
+          const updatedRecord = await this.variableService.getRecord(workflowId, record.record_id);
+          const hasNewData = Object.keys(updatedRecord.data.vars || {}).length > 0;
+          console.log(`[ITERATE_VALIDATION] Record ${record.record_id} after execution:`, {
+            hasNewVars: hasNewData,
+            varsKeys: Object.keys(updatedRecord.data.vars || {}),
+            bodyResultsCount: bodyResults.length
+          });
+        } catch (validationError) {
+          console.warn(`[ITERATE_VALIDATION] Could not validate record ${record.record_id}:`, validationError.message);
+        }
 
         // Mark record as complete
         await this.variableService.updateRecord(workflowId, record.record_id, {
@@ -4449,6 +4523,18 @@ Use get_workflow_data() to inspect all stored variables.`);
         }, this.getCurrentRecord());
 
         // Handle error based on configuration
+        // CRITICAL FIX: Schema validation errors must ALWAYS be re-thrown
+        // regardless of iteration error handling settings
+        if (error.message && error.message.includes('Schema validation failed')) {
+          console.error(`[ITERATE] CRITICAL: Schema validation failure detected - this cannot be continued`);
+          console.error(`[ITERATE] Schema error details:`, error.message);
+          console.error(`[ITERATE] Re-throwing schema validation error to prevent data corruption`);
+          this.popRecordContext();
+          this.clearContextVariable('index');
+          this.clearContextVariable('total');
+          throw error; // Always re-throw schema validation errors
+        }
+        
         const errorHandling = config.on_error || 'continue';
         if (errorHandling === 'stop') {
           console.log(`[ITERATE] Stopping due to error (on_error: stop)`);
@@ -4456,6 +4542,8 @@ Use get_workflow_data() to inspect all stored variables.`);
           this.clearContextVariable('index');
           this.clearContextVariable('total');
           break;
+        } else {
+          console.log(`[ITERATE] Continuing despite non-schema error (on_error: continue): ${error.message}`);
         }
 
       } finally {

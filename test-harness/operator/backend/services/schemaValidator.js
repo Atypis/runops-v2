@@ -59,7 +59,22 @@ export class SchemaValidator {
           return z.coerce.string();
           
         case 'number':
-          return z.coerce.number();
+          // Enhanced number coercion to handle formatted numbers and prevent NaN
+          return z.preprocess((val) => {
+            if (typeof val === 'string') {
+              // Handle formatted numbers like "$1,234.56", "1.5K", etc.
+              const cleaned = val.replace(/[$,\s%]/g, '');
+              const num = parseFloat(cleaned);
+              if (!isNaN(num) && isFinite(num)) return num;
+              // Return original value to let Zod handle the error gracefully
+              return val;
+            }
+            if (typeof val === 'number' && (isNaN(val) || !isFinite(val))) {
+              // Convert NaN/Infinity to a string so Zod can provide a clear error
+              return val.toString();
+            }
+            return val;
+          }, z.number());
           
         case 'boolean':
           // Custom boolean coercion to handle "true"/"false" strings
@@ -181,9 +196,16 @@ export class SchemaValidator {
   }
 
   static describeType(value) {
-    if (Array.isArray(value)) return 'array';
+    if (Array.isArray(value)) return `array[${value.length}]`;
     if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
     if (this.isObjectWithNumericKeys(value)) return 'object-with-numeric-keys';
+    if (typeof value === 'object') {
+      const keys = Object.keys(value);
+      return `object{${keys.slice(0, 3).join(', ')}${keys.length > 3 ? '...' : ''}}`;
+    }
+    if (typeof value === 'string') return `string("${value.slice(0, 50)}${value.length > 50 ? '...' : ''}")`;
+    if (typeof value === 'number') return `number(${value})`;
     return typeof value;
   }
 
@@ -192,9 +214,15 @@ export class SchemaValidator {
     const receivedType = this.describeType(received);
     const expectedType = expected.type || 'object';
     
+    // Show actual data snippet for debugging
+    const receivedSample = JSON.stringify(received, null, 2).slice(0, 200);
+    const expectedSample = JSON.stringify(expected, null, 2).slice(0, 150);
+    
     return `Schema validation failed for ${context.nodeType} node "${context.nodeAlias || context.position}": ` +
-           `Expected ${expectedType}, received ${receivedType}. ` +
-           `Validation errors: ${issues}. ` +
+           `Expected ${expectedType}, received ${receivedType}.\n` +
+           `Validation errors: ${issues}\n` +
+           `Received data: ${receivedSample}${receivedSample.length >= 200 ? '...' : ''}\n` +
+           `Expected schema: ${expectedSample}${expectedSample.length >= 150 ? '...' : ''}\n` +
            `Automatic coercion was attempted but failed.`;
   }
 }
