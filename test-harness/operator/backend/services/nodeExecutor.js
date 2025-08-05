@@ -170,6 +170,31 @@ export class NodeExecutor {
     return current;
   }
 
+  // Helper to replace templates asynchronously
+  async replaceTemplesAsync(str, replacer) {
+    const templatePattern = /\{\{([^}]+)\}\}/g;
+    const matches = [];
+    
+    let match;
+    while ((match = templatePattern.exec(str)) !== null) {
+      matches.push({
+        match: match[0],
+        path: match[1],
+        index: match.index,
+        length: match[0].length
+      });
+    }
+    
+    // Process matches in reverse order to maintain indices
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const { match, path, index, length } = matches[i];
+      const replacement = await replacer(match, path);
+      str = str.substring(0, index) + replacement + str.substring(index + length);
+    }
+    
+    return str;
+  }
+
   // Helper to resolve template string with additional context
   async resolveTemplateString(template, workflowId, additionalContext = {}) {
     if (typeof template !== 'string') {
@@ -702,7 +727,7 @@ export class NodeExecutor {
       }
 
       // Multiple templates - replace inline
-      return value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+      return await this.replaceTemplesAsync(value, async (match, path) => {
         path = path.trim();
         
         // Handle current record
@@ -759,7 +784,10 @@ export class NodeExecutor {
           }
         }
         
-        return match; // Keep unresolved for fallback
+        // ✅ FIX: Fall back to legacy resolver for unmatched patterns
+        console.log(`[TEMPLATE_ENHANCED] Falling back to legacy resolver for: ${match}`);
+        const resolved = await this.resolveTemplateVariables(match, workflowId);
+        return resolved !== match ? resolved : match;
       });
     };
 
