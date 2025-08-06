@@ -2452,89 +2452,452 @@ export class BrowserActionService {
   }
 
   /**
-   * Extract PDF content by clicking a selector, navigating to PDF, and using AI extraction
-   * This is a hybrid action combining browser interaction with AI-powered content extraction
+   * Extract PDF content using PDF.js library
+   * Supports multiple sources and strategies for maximum flexibility
    */
   async extractPdf(config) {
+    // Map from schema parameter names to internal names
     const { 
-      selector, 
-      nth = 0,
-      instruction = 'Extract all text content from this document.',
-      schema = { type: 'string' },
-      navigationStrategy = 'direct',
+      source = config.pdfSource || 'current', // 'current', 'url', 'selector'
+      url = config.pdfUrl, // Direct PDF URL for source='url'
+      selector = config.pdfSelector, // Element selector for source='selector'
+      nth = config.nth || 0, // For source='selector' - which element to target
+      includeMetadata = config.includeMetadata !== false, // Include PDF metadata
+      pageRange = config.pdfPageRange || null, // null = all pages, or {start: 1, end: 5}
       tabName 
     } = config;
+    
+    // Strategy can be overridden based on URL detection
+    let strategy = config.pdfStrategy || 'fetch';
 
     console.log('[BrowserActionService] Starting extractPdf with config:', config);
 
-    if (!selector) {
-      throw new Error('extractPdf requires a selector to click');
-    }
-
-    const page = await this.getPage(tabName);
-    
-    // Step 1: Store original URL for navigation back
-    const originalUrl = page.url();
-    console.log('[BrowserActionService] Original URL:', originalUrl);
+    const page = await this.resolveTargetPage(tabName);
+    let pdfUrl = null;
+    let originalUrl = null;
+    let newTabName = null;
 
     try {
-      // Step 2: Click the PDF element (browser_action part)
-      console.log('[BrowserActionService] Clicking PDF selector:', selector);
-      
-      // Use existing click logic with nth support
-      const clickResult = await this.click({ selector, nth, tabName });
-      
-      // Step 3: Wait for navigation to PDF
-      await page.waitForLoadState('networkidle');
-      const pdfUrl = page.url();
-      console.log('[BrowserActionService] Navigated to PDF URL:', pdfUrl);
+      // Step 1: Determine PDF URL based on source
+      switch (source) {
+        case 'current':
+          // Already on a PDF page
+          pdfUrl = page.url();
+          console.log('[BrowserActionService] Using current page as PDF:', pdfUrl);
+          break;
 
-      // Verify we actually navigated to a different page
-      if (pdfUrl === originalUrl) {
-        throw new Error('PDF click did not result in navigation - PDF may not be available');
+        case 'url':
+          // Direct URL provided
+          if (!url) {
+            throw new Error('extractPdf with source="url" requires a url parameter');
+          }
+          pdfUrl = url;
+          console.log('[BrowserActionService] Using provided URL:', pdfUrl);
+          break;
+
+        case 'selector':
+          // Extract URL from element
+          if (!selector) {
+            throw new Error('extractPdf with source="selector" requires a selector parameter');
+          }
+          
+          console.log('[BrowserActionService] Extracting URL from selector:', selector);
+          
+          // Get URL from element (href, onclick, data attributes, etc.)
+          const extractResult = await page.evaluate(({ selector, nth }) => {
+            const elements = document.querySelectorAll(selector);
+            const element = elements[nth] || elements[0];
+            
+            if (!element) {
+              throw new Error(`No element found matching selector: ${selector}`);
+            }
+            
+            // Debug info
+            const debugInfo = {
+              tagName: element.tagName,
+              type: element.type,
+              value: element.value,
+              onclick: element.getAttribute('onclick'),
+              href: element.href,
+              formAction: element.form?.action
+            };
+            
+            // Try various ways to get PDF URL
+            // 1. Direct href attribute
+            if (element.href) {
+              return { url: element.href, method: 'href', debug: debugInfo };
+            }
+            
+            // 2. onclick attribute - Look for PDFAnzeigen or similar functions
+            const onclick = element.getAttribute('onclick');
+            if (onclick) {
+              console.log('Found onclick:', onclick);
+              
+              // Look for PDFAnzeigen('vo020.asp?VOLFDNR=11234') pattern
+              const pdfAnzeigenMatch = onclick.match(/PDFAnzeigen\(['"]([^'"]+)['"]\)/);
+              if (pdfAnzeigenMatch) {
+                // This likely navigates to a page that triggers PDF download
+                // We need to handle this differently - it's not a direct PDF URL
+                const relativeUrl = pdfAnzeigenMatch[1];
+                const fullUrl = new URL(relativeUrl, window.location.href).href;
+                return { 
+                  url: fullUrl, 
+                  method: 'PDFAnzeigen', 
+                  needsNavigation: true,
+                  debug: debugInfo 
+                };
+              }
+              
+              // Look for direct PDF URLs in onclick
+              const urlMatch = onclick.match(/(?:window\.open\(|location\.href=|navigate\()?['"]([^'"]+\.pdf[^'"]*)['"]/i);
+              if (urlMatch) {
+                return { 
+                  url: new URL(urlMatch[1], window.location.href).href, 
+                  method: 'onclick_pdf',
+                  debug: debugInfo 
+                };
+              }
+            }
+            
+            // 3. Data attributes
+            const dataUrl = element.dataset.pdfUrl || element.dataset.url || element.dataset.href;
+            if (dataUrl) {
+              return { 
+                url: new URL(dataUrl, window.location.href).href, 
+                method: 'data_attribute',
+                debug: debugInfo 
+              };
+            }
+            
+            // 4. Form action (for submit buttons)
+            if (element.form && element.form.action) {
+              return { 
+                url: element.form.action, 
+                method: 'form_action',
+                needsSubmit: true,
+                debug: debugInfo 
+              };
+            }
+            
+            // 5. Parent link
+            const parentLink = element.closest('a[href]');
+            if (parentLink) {
+              return { 
+                url: parentLink.href, 
+                method: 'parent_link',
+                debug: debugInfo 
+              };
+            }
+            
+            throw new Error('Could not extract PDF URL from element. Debug: ' + JSON.stringify(debugInfo));
+          }, { selector, nth });
+          
+          console.log('[BrowserActionService] Extraction result:', extractResult);
+          
+          // Handle special cases
+          if (extractResult.needsNavigation) {
+            console.log('[BrowserActionService] URL requires navigation to trigger PDF download, switching to navigate strategy');
+            // Override strategy if the URL needs navigation
+            strategy = 'navigate';
+          }
+          
+          pdfUrl = extractResult.url;
+          console.log('[BrowserActionService] Extracted PDF URL:', pdfUrl, 'via method:', extractResult.method);
+          break;
+
+        default:
+          throw new Error(`Unknown source: ${source}. Use 'current', 'url', or 'selector'`);
       }
 
-      // Step 4: Use browser_ai_extract equivalent for PDF content
-      console.log('[BrowserActionService] Extracting PDF content with AI...');
-      
-      // Call the existing AI extraction service
-      const aiResult = await this.nodeExecutor.executeBrowserAIExtract({
-        instruction,
-        schema,
-        targetElement: null // Extract from entire PDF page
-      });
-
-      // Step 5: Navigate back to original page
-      if (navigationStrategy === 'direct') {
-        console.log('[BrowserActionService] Navigating back to original page...');
-        await page.goto(originalUrl);
-        await page.waitForLoadState('networkidle');
+      // Validate PDF URL
+      if (!pdfUrl) {
+        throw new Error('No PDF URL could be determined');
       }
 
-      // Step 6: Return comprehensive result
-      return {
+      // Step 2: Extract PDF based on strategy
+      let extractionResult = null;
+
+      switch (strategy) {
+        case 'fetch':
+          // Fetch PDF directly without navigation
+          console.log('[BrowserActionService] Fetching PDF directly (no navigation)...');
+          
+          extractionResult = await page.evaluate(async ({ pdfUrl, includeMetadata, pageRange }) => {
+            try {
+              // Dynamic import of PDF.js if not already loaded
+              if (typeof pdfjsLib === 'undefined') {
+                await new Promise((resolve, reject) => {
+                  const script = document.createElement('script');
+                  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                  script.onload = resolve;
+                  script.onerror = reject;
+                  document.head.appendChild(script);
+                });
+                
+                // Small delay to ensure full initialization
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+
+              if (typeof pdfjsLib === 'undefined') {
+                throw new Error('Failed to load PDF.js library');
+              }
+
+              // Configure worker
+              pdfjsLib.GlobalWorkerOptions.workerSrc = 
+                'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+              // Load PDF from URL
+              console.log('Fetching PDF from:', pdfUrl);
+              const loadingTask = pdfjsLib.getDocument(pdfUrl);
+              const pdf = await loadingTask.promise;
+
+              let metadata = {};
+              if (includeMetadata) {
+                const pdfMetadata = await pdf.getMetadata();
+                metadata = {
+                  title: pdfMetadata.info?.Title || '',
+                  author: pdfMetadata.info?.Author || '',
+                  subject: pdfMetadata.info?.Subject || '',
+                  keywords: pdfMetadata.info?.Keywords || '',
+                  creator: pdfMetadata.info?.Creator || '',
+                  producer: pdfMetadata.info?.Producer || '',
+                  creationDate: pdfMetadata.info?.CreationDate || '',
+                  modDate: pdfMetadata.info?.ModDate || ''
+                };
+              }
+
+              // Extract pages
+              const startPage = pageRange?.start || 1;
+              const endPage = Math.min(pageRange?.end || pdf.numPages, pdf.numPages);
+              
+              let fullText = '';
+              const pageTexts = [];
+
+              for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                
+                const pageText = textContent.items
+                  .map(item => item.str)
+                  .join(' ')
+                  .replace(/\s+/g, ' ')
+                  .trim();
+                
+                pageTexts.push({
+                  pageNumber: pageNum,
+                  text: pageText
+                });
+                
+                if (pageTexts.length > 1) {
+                  fullText += '\n\n';
+                }
+                fullText += `--- Page ${pageNum} ---\n${pageText}`;
+              }
+
+              return {
+                success: true,
+                totalPages: pdf.numPages,
+                extractedPages: endPage - startPage + 1,
+                fullText: fullText.trim(),
+                pageTexts,
+                metadata,
+                url: pdfUrl,
+                extractionMethod: 'fetch'
+              };
+
+            } catch (error) {
+              return {
+                success: false,
+                error: error.message,
+                url: pdfUrl,
+                extractionMethod: 'fetch_failed'
+              };
+            }
+          }, { pdfUrl, includeMetadata, pageRange });
+          break;
+
+        case 'newTab':
+          // Open PDF in new tab, extract, then close tab
+          console.log('[BrowserActionService] Opening PDF in new tab...');
+          originalUrl = page.url();
+          
+          // Generate unique tab name
+          newTabName = `pdf_extract_${Date.now()}`;
+          
+          // Open new tab with PDF
+          await this.openTab({ name: newTabName, url: pdfUrl });
+          
+          // Switch to new tab
+          await this.switchTab({ tabName: newTabName });
+          
+          // Wait for PDF to load
+          await page.waitForLoadState('networkidle');
+          
+          // Extract using current page method
+          extractionResult = await this.extractPdfFromCurrentPage(page, { includeMetadata, pageRange });
+          
+          // Close the PDF tab
+          await this.closeTab({ tabName: newTabName });
+          
+          // Switch back to original tab
+          if (tabName) {
+            await this.switchTab({ tabName });
+          }
+          break;
+
+        case 'navigate':
+          // Navigate current tab to PDF and back (legacy mode)
+          console.log('[BrowserActionService] Navigating to PDF...');
+          originalUrl = page.url();
+          
+          // Navigate to PDF
+          await page.goto(pdfUrl);
+          await page.waitForLoadState('networkidle');
+          
+          // Extract from current page
+          extractionResult = await this.extractPdfFromCurrentPage(page, { includeMetadata, pageRange });
+          
+          // Navigate back
+          if (originalUrl) {
+            console.log('[BrowserActionService] Navigating back to original page...');
+            await page.goto(originalUrl);
+            await page.waitForLoadState('networkidle');
+          }
+          break;
+
+        default:
+          throw new Error(`Unknown strategy: ${strategy}. Use 'fetch', 'newTab', or 'navigate'`);
+      }
+
+      // Handle extraction failure
+      if (!extractionResult.success) {
+        throw new Error(`PDF extraction failed: ${extractionResult.error}`);
+      }
+
+      // Build final result
+      const result = {
         success: true,
-        originalUrl,
-        pdfUrl,
-        extractedContent: aiResult,
-        clickResult,
-        message: 'PDF extraction completed successfully'
+        text: extractionResult.fullText,
+        pages: extractionResult.pageTexts,
+        totalPages: extractionResult.totalPages,
+        extractedPages: extractionResult.extractedPages,
+        pdfUrl: extractionResult.url,
+        extractionMethod: extractionResult.extractionMethod
       };
 
+      // Add metadata if requested
+      if (includeMetadata && extractionResult.metadata) {
+        result.metadata = extractionResult.metadata;
+      }
+
+      console.log('[BrowserActionService] PDF extraction completed successfully');
+      return result;
+
     } catch (error) {
-      // Error recovery: try to navigate back to original page
-      try {
-        if (page.url() !== originalUrl) {
-          console.log('[BrowserActionService] Error occurred, attempting to navigate back...');
-          await page.goto(originalUrl);
-          await page.waitForLoadState('networkidle');
+      // Clean up new tab if it was created
+      if (newTabName) {
+        try {
+          await this.closeTab({ tabName: newTabName });
+        } catch (cleanupError) {
+          console.error('[BrowserActionService] Failed to close PDF tab:', cleanupError);
         }
-      } catch (recoveryError) {
-        console.error('[BrowserActionService] Failed to recover navigation:', recoveryError);
       }
       
       throw new Error(`PDF extraction failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Helper method to extract PDF from current page
+   * Used by newTab and navigate strategies
+   */
+  async extractPdfFromCurrentPage(page, { includeMetadata, pageRange }) {
+    // Inject PDF.js if needed
+    await page.addScriptTag({ 
+      url: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js' 
+    });
+    
+    await page.waitForTimeout(500);
+    
+    // Extract PDF content
+    return await page.evaluate(async ({ url, includeMetadata, pageRange }) => {
+      try {
+        if (typeof pdfjsLib === 'undefined') {
+          throw new Error('PDF.js library failed to load');
+        }
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const loadingTask = pdfjsLib.getDocument(url);
+        const pdf = await loadingTask.promise;
+
+        let metadata = {};
+        if (includeMetadata) {
+          const pdfMetadata = await pdf.getMetadata();
+          metadata = {
+            title: pdfMetadata.info?.Title || '',
+            author: pdfMetadata.info?.Author || '',
+            subject: pdfMetadata.info?.Subject || '',
+            keywords: pdfMetadata.info?.Keywords || '',
+            creator: pdfMetadata.info?.Creator || '',
+            producer: pdfMetadata.info?.Producer || '',
+            creationDate: pdfMetadata.info?.CreationDate || '',
+            modDate: pdfMetadata.info?.ModDate || ''
+          };
+        }
+
+        const startPage = pageRange?.start || 1;
+        const endPage = Math.min(pageRange?.end || pdf.numPages, pdf.numPages);
+        
+        let fullText = '';
+        const pageTexts = [];
+
+        for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          
+          const pageText = textContent.items
+            .map(item => item.str)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          pageTexts.push({
+            pageNumber: pageNum,
+            text: pageText
+          });
+          
+          if (pageTexts.length > 1) {
+            fullText += '\n\n';
+          }
+          fullText += `--- Page ${pageNum} ---\n${pageText}`;
+        }
+
+        return {
+          success: true,
+          totalPages: pdf.numPages,
+          extractedPages: endPage - startPage + 1,
+          fullText: fullText.trim(),
+          pageTexts,
+          metadata,
+          url,
+          extractionMethod: 'current_page'
+        };
+
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+          url,
+          extractionMethod: 'current_page_failed'
+        };
+      }
+    }, { 
+      url: page.url(), 
+      includeMetadata, 
+      pageRange 
+    });
   }
 }
 

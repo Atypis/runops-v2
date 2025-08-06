@@ -2426,6 +2426,12 @@ export class NodeExecutor {
         const browserActionServiceForRow = new BAS(this, workflowId, this.browserStateService);
         return await browserActionServiceForRow.scrollToRow(config);
         
+      case 'extractPdf':
+        // Import BrowserActionService to delegate PDF extraction
+        const { BrowserActionService: BASPDF } = await import('./browserActionService.js');
+        const browserActionServiceForPDF = new BASPDF(this, workflowId, this.browserStateService);
+        return await browserActionServiceForPDF.extractPdf(config);
+        
       default:
         throw new Error(`Unknown browser action: ${config.action}`);
     }

@@ -192,6 +192,41 @@ export function createToolDefinitions() {
             inViewportOnly: {
               type: 'boolean',
               description: 'For click/type: When using nth parameter, only consider elements that are currently in the viewport (visible on screen). Perfect for targeting visible search results or list items.'
+            },
+            
+            // PDF extraction parameters
+            pdfSource: {
+              type: 'string',
+              enum: ['current', 'url', 'selector'],
+              description: 'For extractPdf: Source of PDF - "current" (already on PDF page), "url" (direct PDF URL), "selector" (extract URL from element)',
+              default: 'current'
+            },
+            pdfUrl: {
+              type: 'string',
+              description: 'For extractPdf with source="url": Direct PDF URL to extract text from'
+            },
+            pdfSelector: {
+              type: 'string',
+              description: 'For extractPdf with source="selector": CSS selector to find element containing PDF URL (href, onclick, data attributes, etc.)'
+            },
+            pdfStrategy: {
+              type: 'string',
+              enum: ['fetch', 'newTab', 'navigate'],
+              description: 'For extractPdf: Extraction strategy - "fetch" (no navigation, fastest), "newTab" (open in new tab), "navigate" (navigate current tab)',
+              default: 'fetch'
+            },
+            pdfPageRange: {
+              type: 'object',
+              properties: {
+                start: { type: 'number', minimum: 1 },
+                end: { type: 'number', minimum: 1 }
+              },
+              description: 'For extractPdf: Optional page range to extract (e.g., {start: 1, end: 5}). Omit to extract all pages.'
+            },
+            includeMetadata: {
+              type: 'boolean',
+              description: 'For extractPdf: Include PDF metadata (title, author, dates, etc.) in result',
+              default: true
             }
           },
           required: ['action'],
