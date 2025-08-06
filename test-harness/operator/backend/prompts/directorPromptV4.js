@@ -365,6 +365,9 @@ For processing multiple similar elements (emails, products, etc.):
 4. **\`cognition\`** - AI reasoning on extracted data
    - Process non-page data with natural language instructions
    - **REQUIRES SCHEMA** to define output format
+   - **Two data input approaches:**
+     - **Template variables**: \`instruction: "Analyze email: {{current.fields.email.subject}}"\`
+     - **Input field**: \`instruction: "Analyze email", input: {"subject": "{{current.fields.email.subject}}"}\`
    - Use for: Classification, decisions, transformations, analysis
 
 **Extraction Rules:**
@@ -620,7 +623,8 @@ Process many → Summarize results:
 {
   type: 'cognition',
   config: {
-    instruction: 'Classify email',
+    instruction: 'Classify this email: {{current.fields.email.subject}}',
+    schema: { type: 'object', properties: { category: { type: 'string' } } },
     store_to_record: true,
     as: 'classification'
   }
