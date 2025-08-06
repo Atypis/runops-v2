@@ -899,6 +899,23 @@ export class NodeExecutor {
             console.log(`[TEMPLATE] Single template - extracting path "${path}" from record data`);
             resolvedValue = this.getNestedProperty(currentRecord.data, path);
             console.log(`[TEMPLATE] Single template - resolved to:`, resolvedValue);
+            
+            // Enhanced error message for failed record field resolution
+            if (resolvedValue === undefined) {
+              const availableFields = this.getAvailableRecordFields(currentRecord.data);
+              const suggestions = this.suggestFieldPath(path, availableFields);
+              
+              throw new Error(`Template variable not found: {{${expression}}}
+
+Record: ${currentRecord.recordId}
+Available fields in current record:
+${availableFields.map(field => `  • {{current.${field}}}`).join('\n')}
+
+${suggestions ? `Did you mean: {{current.${suggestions}}}?` : ''}
+
+Note: Record fields are namespaced by the node that created them.
+If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_forms.pdfUrl}}`);
+            }
           } else {
             console.warn(`[TEMPLATE] Single template - no current record context for: ${expression}`);
             resolvedValue = undefined;
@@ -917,7 +934,14 @@ export class NodeExecutor {
         return resolvedValue; // Return the actual value, not stringified
       } catch (error) {
         console.error(`Template resolution error: ${error.message}`);
-        return value; // Return original on error
+        
+        // For enhanced errors (current.* field resolution failures), propagate the error
+        // instead of falling back to literal template strings
+        if (error.message.includes('Template variable not found') && error.message.includes('current.')) {
+          throw error; // Let enhanced errors propagate to fail node execution
+        }
+        
+        return value; // Return original on error for other cases
       }
     }
     
@@ -963,6 +987,23 @@ export class NodeExecutor {
             console.log(`[TEMPLATE] Extracting path "${path}" from record data`);
             replacementValue = this.getNestedProperty(currentRecord.data, path);
             console.log(`[TEMPLATE] Resolved to:`, replacementValue);
+            
+            // Enhanced error message for failed record field resolution (batch flow)
+            if (replacementValue === undefined) {
+              const availableFields = this.getAvailableRecordFields(currentRecord.data);
+              const suggestions = this.suggestFieldPath(path, availableFields);
+              
+              throw new Error(`Template variable not found: {{${expression}}}
+
+Record: ${currentRecord.recordId}
+Available fields in current record:
+${availableFields.map(field => `  • {{current.${field}}}`).join('\n')}
+
+${suggestions ? `Did you mean: {{current.${suggestions}}}?` : ''}
+
+Note: Record fields are namespaced by the node that created them.
+If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_forms.pdfUrl}}`);
+            }
           } else {
             console.warn(`[TEMPLATE] No current record context for: ${expression}`);
             replacementValue = match[0]; // Keep original
@@ -1104,6 +1145,12 @@ export class NodeExecutor {
         resolved = resolved.replace(match[0], replacementValue);
       } catch (error) {
         console.error(`Template variable error: ${error.message}`);
+        
+        // For enhanced errors (current.* field resolution failures), propagate the error
+        // instead of continuing with batch resolution
+        if (error.message.includes('Template variable not found') && error.message.includes('current.')) {
+          throw error; // Let enhanced errors propagate to fail node execution
+        }
       }
     }
     
@@ -1126,6 +1173,45 @@ export class NodeExecutor {
     return result;
   }
 
+  // Helper to get all available field paths from record data
+  getAvailableRecordFields(recordData) {
+    const fields = [];
+    
+    const traverse = (obj, prefix = '') => {
+      if (obj && typeof obj === 'object') {
+        for (const [key, value] of Object.entries(obj)) {
+          const fullPath = prefix ? `${prefix}.${key}` : key;
+          fields.push(fullPath);
+          
+          // Recursively traverse objects (but limit depth to avoid noise)
+          if (typeof value === 'object' && value !== null && !Array.isArray(value) && prefix.split('.').length < 3) {
+            traverse(value, fullPath);
+          }
+        }
+      }
+    };
+    
+    traverse(recordData);
+    return fields.sort();
+  }
+
+  // Helper to suggest similar field names using basic string matching
+  suggestFieldPath(requestedPath, availableFields) {
+    if (!availableFields.length) return null;
+    
+    // Try exact suffix match first (e.g., "pdfUrl" matches "extract_forms.pdfUrl")
+    const exactSuffix = availableFields.find(field => field.endsWith(`.${requestedPath}`));
+    if (exactSuffix) return exactSuffix;
+    
+    // Try partial matches
+    const partialMatches = availableFields.filter(field => 
+      field.toLowerCase().includes(requestedPath.toLowerCase()) ||
+      requestedPath.toLowerCase().includes(field.split('.').pop().toLowerCase())
+    );
+    
+    return partialMatches.length > 0 ? partialMatches[0] : null;
+  }
+
   // Resolve all template variables in node params
   async resolveNodeParams(params, workflowId) {
     if (!params) return params;
@@ -1145,63 +1231,11 @@ export class NodeExecutor {
       }
     }
     
-    // Use enhanced resolver if available
-    if (this.variableService) {
-      console.log(`🔍 [DEBUG_RESOLVE] Using enhanced resolver (resolveTemplatesWithRecords)`);
-      const result = await this.resolveTemplatesWithRecords(params, workflowId);
-      console.log(`🔍 [DEBUG_RESOLVE] Enhanced resolver result:`, JSON.stringify(result, null, 2));
-      return result;
-    }
-    
-    console.log(`🔍 [DEBUG_RESOLVE] Using legacy resolver (resolveTemplateVariables)`);
-    // Fall back to old resolver
-    // Handle array params (like route node configs)
-    if (Array.isArray(params)) {
-      return Promise.all(
-        params.map(async item => {
-          if (item === null || item === undefined) {
-            return item;
-          } else if (typeof item === 'string') {
-            return this.resolveTemplateVariables(item, workflowId);
-          } else if (typeof item === 'object') {
-            return this.resolveNodeParams(item, workflowId);
-          } else {
-            return item;
-          }
-        })
-      );
-    }
-    
-    // Handle object params (most node types)
-    const resolved = {};
-    
-    for (const [key, value] of Object.entries(params)) {
-      if (typeof value === 'string') {
-        resolved[key] = await this.resolveTemplateVariables(value, workflowId);
-      } else if (Array.isArray(value)) {
-        resolved[key] = await Promise.all(
-          value.map(async item => {
-            // Skip null/undefined items in arrays
-            if (item === null || item === undefined) {
-              return item;
-            } else if (typeof item === 'string') {
-              return this.resolveTemplateVariables(item, workflowId);
-            } else if (typeof item === 'object') {
-              // Recursively resolve objects within arrays
-              return this.resolveNodeParams(item, workflowId);
-            } else {
-              return item;
-            }
-          })
-        );
-      } else if (typeof value === 'object' && value !== null) {
-        resolved[key] = await this.resolveNodeParams(value, workflowId);
-      } else {
-        resolved[key] = value;
-      }
-    }
-    
-    return resolved;
+    // Use UNIFIED resolver for all template resolution
+    console.log(`🔍 [DEBUG_RESOLVE] Using UNIFIED resolver (resolveTemplatesUnified)`);
+    const result = await this.resolveTemplatesUnified(params, workflowId);
+    console.log(`🔍 [DEBUG_RESOLVE] Unified resolver result:`, JSON.stringify(result, null, 2));
+    return result;
   }
 
   async getStagehand(options = {}) {
@@ -5777,4 +5811,254 @@ Use get_workflow_data() to inspect all stored variables.`);
         return `Execute ${type} node`;
     }
   }
+
+  /**
+   * UNIFIED TEMPLATE RESOLVER
+   * Combines the best of both enhanced and legacy resolvers
+   * Provides intelligent mode selection and comprehensive error handling
+   */
+  
+  /**
+   * Main unified template resolution entry point
+   * Automatically selects optimal resolution mode based on context and availability
+   */
+  async resolveTemplatesUnified(obj, workflowId, options = {}) {
+    console.log(`\n🔧 [UNIFIED_RESOLVER] Starting resolution with mode: ${options.mode || 'auto'}`);
+    
+    const mode = options.mode || this.detectOptimalResolutionMode(obj, workflowId);
+    console.log(`🔧 [UNIFIED_RESOLVER] Selected mode: ${mode}`);
+    
+    try {
+      if (mode === 'performance' && this.variableService) {
+        return await this.performanceResolve(obj, workflowId);
+      }
+      
+      return await this.compatibilityResolve(obj, workflowId);
+    } catch (error) {
+      console.error(`🔧 [UNIFIED_RESOLVER] Error in ${mode} mode:`, error.message);
+      
+      // Fallback: if performance mode fails, try compatibility mode
+      if (mode === 'performance') {
+        console.log(`🔧 [UNIFIED_RESOLVER] Falling back to compatibility mode`);
+        return await this.compatibilityResolve(obj, workflowId);
+      }
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * Intelligent mode detection based on workflow characteristics
+   */
+  detectOptimalResolutionMode(obj, workflowId) {
+    // Force compatibility mode if no variable service
+    if (!this.variableService) {
+      return 'compatibility';
+    }
+    
+    // Detect patterns that require compatibility mode
+    const objStr = JSON.stringify(obj);
+    const compatibilityPatterns = [
+      /get_all_records\(/,           // Function calls
+      /\{\{param\./,                // Parameter references
+      /===|!==|contains|startsWith/, // Expression contexts
+    ];
+    
+    for (const pattern of compatibilityPatterns) {
+      if (pattern.test(objStr)) {
+        console.log(`🔧 [UNIFIED_RESOLVER] Compatibility pattern detected: ${pattern.source}`);
+        return 'compatibility';
+      }
+    }
+    
+    // Detect patterns that benefit from performance mode
+    const performancePatterns = [
+      /\{\{current\./,               // Current record access
+      /\{\{records\./,               // Specific record access
+    ];
+    
+    const recordPatternCount = (objStr.match(/\{\{current\.|records\./g) || []).length;
+    if (recordPatternCount > 5) {
+      console.log(`🔧 [UNIFIED_RESOLVER] Performance beneficial: ${recordPatternCount} record references`);
+      return 'performance';
+    }
+    
+    // Default to compatibility for safety
+    return 'compatibility';
+  }
+  
+  /**
+   * Performance-optimized resolver (enhanced resolver + error handling)
+   * Single-pass with batch record prefetch + enhanced error messages
+   */
+  async performanceResolve(obj, workflowId) {
+    console.log(`🚀 [PERFORMANCE_RESOLVE] Starting batch resolution`);
+    
+    // Collect all record IDs needed
+    const recordIds = this.collectRecordIds(obj);
+    
+    // Batch fetch all records
+    const records = {};
+    if (recordIds.length > 0) {
+      const fetchedRecords = await this.variableService.getRecordsByIds(workflowId, recordIds);
+      fetchedRecords.forEach(record => {
+        records[record.record_id] = record;
+      });
+      console.log(`🚀 [PERFORMANCE_RESOLVE] Prefetched ${Object.keys(records).length} records`);
+    }
+
+    // Build unified context
+    const context = {
+      globals: {}, 
+      locals: {},  
+      current: this.getCurrentRecord()?.data || {}, 
+      records: records,  
+      contextVars: Object.fromEntries(this.contextVariables || new Map())
+    };
+
+    // Single-pass resolution with enhanced error handling
+    const resolve = async (value) => {
+      if (typeof value !== 'string') return value;
+
+      // Check for single template pattern
+      const singleMatch = value.match(/^\{\{([^}]+)\}\}$/);
+      if (singleMatch) {
+        const path = singleMatch[1].trim();
+        
+        // Handle current record with enhanced error handling
+        if (path.startsWith('current.')) {
+          const fieldPath = path.substring(8);
+          const resolvedValue = this.getNestedValue(context.current, fieldPath);
+          
+          // ENHANCED ERROR HANDLING - check for undefined AND non-existent paths
+          if (resolvedValue === undefined && this.getCurrentRecord()) {
+            const currentRecord = this.getCurrentRecord();
+            const availableFields = this.getAvailableRecordFields(currentRecord.data);
+            const suggestions = this.suggestFieldPath(fieldPath, availableFields);
+            
+            throw new Error(`Template variable not found: {{${path}}}
+
+Record: ${currentRecord.recordId}
+Available fields in current record:
+${availableFields.map(field => `  • {{current.${field}}}`).join('\n')}
+
+${suggestions ? `Did you mean: {{current.${suggestions}}}?` : ''}
+
+Note: Record fields are namespaced by the node that created them.
+If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_forms.pdfUrl}}`);
+          }
+          
+          // Return resolved value or original template if undefined
+          return resolvedValue !== undefined ? resolvedValue : value;
+        }
+        
+        // Handle specific records
+        if (path.startsWith('records.')) {
+          const parts = path.substring(8).split('.');
+          const recordId = parts[0];
+          const fieldPath = parts.slice(1).join('.');
+          
+          if (records[recordId]) {
+            const resolvedValue = this.getNestedValue(records[recordId].data, fieldPath);
+            if (resolvedValue === undefined) {
+              // Enhanced error for record access
+              const availableFields = this.getAvailableRecordFields(records[recordId].data);
+              const suggestions = this.suggestFieldPath(fieldPath, availableFields);
+              
+              throw new Error(`Template variable not found: {{${path}}}
+
+Record: ${recordId}
+Available fields in record:
+${availableFields.map(field => `  • {{records.${recordId}.${field}}}`).join('\n')}
+
+${suggestions ? `Did you mean: {{records.${recordId}.${suggestions}}}?` : ''}`);
+            }
+            return resolvedValue;
+          }
+          return value;
+        }
+        
+        // Handle context variables
+        if (context.contextVars[path]) {
+          return context.contextVars[path];
+        }
+        
+        // Fall back to legacy resolver for other patterns
+        return await this.getStateValue(path, workflowId) || value;
+      }
+
+      // Handle multiple templates in string
+      return value.replace(/\{\{([^}]+)\}\}/g, (match, expression) => {
+        const path = expression.trim();
+        
+        if (path.startsWith('current.')) {
+          const fieldPath = path.substring(8);
+          return this.getNestedValue(context.current, fieldPath) || match;
+        }
+        
+        if (path.startsWith('records.')) {
+          const parts = path.substring(8).split('.');
+          const recordId = parts[0];
+          const fieldPath = parts.slice(1).join('.');
+          if (records[recordId]) {
+            return this.getNestedValue(records[recordId].data, fieldPath) || match;
+          }
+        }
+        
+        return context.contextVars[path] || match;
+      });
+    };
+
+    return await this.replaceTemplesAsync(obj, resolve);
+  }
+  
+  /**
+   * Compatibility resolver (legacy resolver with minor optimizations)
+   * Multi-pass with full feature support and comprehensive error handling
+   */
+  async compatibilityResolve(obj, workflowId) {
+    console.log(`🛡️ [COMPATIBILITY_RESOLVE] Starting comprehensive resolution`);
+    console.log(`🛡️ [COMPATIBILITY_RESOLVE] Current record available:`, this.getCurrentRecord()?.recordId || 'none');
+    console.log(`🛡️ [COMPATIBILITY_RESOLVE] Record context stack length:`, this.recordContext?.length || 0);
+    
+    // Handle recursive resolution for objects and arrays (the missing logic!)
+    if (Array.isArray(obj)) {
+      return Promise.all(
+        obj.map(async item => {
+          if (item === null || item === undefined) {
+            return item;
+          } else if (typeof item === 'string') {
+            return this.resolveTemplateVariables(item, workflowId);
+          } else if (typeof item === 'object') {
+            return this.compatibilityResolve(item, workflowId);
+          } else {
+            return item;
+          }
+        })
+      );
+    }
+    
+    // Handle object params (most node types)
+    if (typeof obj === 'object' && obj !== null) {
+      const resolved = {};
+      
+      for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'string') {
+          resolved[key] = await this.resolveTemplateVariables(value, workflowId);
+        } else if (Array.isArray(value)) {
+          resolved[key] = await this.compatibilityResolve(value, workflowId);
+        } else if (typeof value === 'object' && value !== null) {
+          resolved[key] = await this.compatibilityResolve(value, workflowId);
+        } else {
+          resolved[key] = value;
+        }
+      }
+      
+      return resolved;
+    }
+    
+    // Handle string values
+    return await this.resolveTemplateVariables(obj, workflowId);
+  }
+
 }
