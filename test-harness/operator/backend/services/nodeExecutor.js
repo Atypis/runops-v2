@@ -1443,6 +1443,9 @@ If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_for
         case 'agent':
           result = await this.executeAgent(resolvedConfig);
           break;
+        case 'pipedream_connect':
+          result = await this.executePipedreamConnect(resolvedConfig, workflowId);
+          break;
         default:
           throw new Error(`Unsupported node type: ${node.type}`);
       }
@@ -5768,6 +5771,188 @@ Use get_workflow_data() to inspect all stored variables.`);
     console.log(`[AGENT] ensure() with task:`, JSON.stringify(config, null, 2));
     const ok = await agent.ensure(config);
     return { ok };
+  }
+
+  async executePipedreamConnect(config, workflowId) {
+    console.log(`[PIPEDREAM_CONNECT] Executing with config:`, JSON.stringify(config, null, 2));
+    
+    const { component_id, auth_config, params = {} } = config;
+    
+    // Check if Pipedream is enabled
+    if (process.env.PIPEDREAM_ENABLED === 'false') {
+      throw new Error('Pipedream integration is disabled. Set PIPEDREAM_ENABLED=true to enable API automation.');
+    }
+    
+    // Authentication resolution chain
+    const token = await this.resolvePipedreamToken(workflowId, auth_config);
+    
+    try {
+      return await this.executeAPIComponent(token, component_id, auth_config, params);
+    } catch (error) {
+      console.error(`[PIPEDREAM_CONNECT] Component execution failed:`, error);
+      throw new Error(`Pipedream component '${component_id}' failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Resolve Pipedream authentication token with fallback chain
+   * Priority: auth_config → workflow variables → environment variables
+   */
+  async resolvePipedreamToken(workflowId, authConfig) {
+    // 1. Explicit auth config (future OAuth)
+    if (authConfig?.token) {
+      console.log(`[PIPEDREAM_AUTH] Using token from auth_config`);
+      return authConfig.token;
+    }
+    
+    // 2. Workflow context variables - retrieve from memory
+    try {
+      const memoryConfig = {
+        operation: 'get',
+        key: 'pipedream_token'
+      };
+      const workflowToken = await this.executeMemory(memoryConfig, workflowId);
+      if (workflowToken) {
+        console.log(`[PIPEDREAM_AUTH] Using token from workflow variables: ${workflowToken === 'pd_dev_your_token_here' ? '(dev mode)' : '(real token)'}`);
+        return workflowToken;
+      }
+    } catch (error) {
+      console.log(`[PIPEDREAM_AUTH] No workflow variable found: ${error.message}`);
+    }
+    
+    // 3. Environment variable fallback
+    const envToken = process.env.PIPEDREAM_API_TOKEN;
+    if (envToken) {
+      console.log(`[PIPEDREAM_AUTH] Using token from environment variable: ${envToken === 'pd_dev_your_token_here' ? '(dev mode)' : '(real token)'}`);
+      return envToken;
+    }
+    
+    throw new Error(`
+      Pipedream authentication required. Choose one option:
+      
+      1. Set environment variable: PIPEDREAM_API_TOKEN=your_token
+      2. Add context node with token:
+         {
+           type: 'context',
+           config: { variables: { pipedream_token: 'your_token' } }
+         }
+      3. Use auth_config in node:
+         config: { auth_config: { token: 'your_token' } }
+    `);
+  }
+
+  /**
+   * Execute Pipedream component via Connect API
+   */
+  async executeAPIComponent(token, componentId, authConfig, params) {
+    console.log(`[PIPEDREAM_CONNECT] Calling component: ${componentId}`);
+    console.log(`[PIPEDREAM_CONNECT] Parameters:`, JSON.stringify(params, null, 2));
+    
+    // For v0, we'll simulate API calls until we have a real Pipedream token
+    // This allows testing the integration flow
+    if (token === 'pd_dev_your_token_here') {
+      console.warn(`[PIPEDREAM_CONNECT] Using development mode - simulating API response`);
+      
+      // Simulate different component responses for testing
+      const mockResponses = {
+        'gmail-search-emails': {
+          emails: [
+            { id: 'mock_1', subject: 'Test Email 1', from: 'test1@example.com', snippet: 'This is a test email' },
+            { id: 'mock_2', subject: 'Test Email 2', from: 'test2@example.com', snippet: 'Another test email' }
+          ],
+          count: 2,
+          nextPageToken: null
+        },
+        'airtable-list-records': {
+          records: [
+            { id: 'rec1', fields: { Name: 'Test Record 1', Status: 'Active' } },
+            { id: 'rec2', fields: { Name: 'Test Record 2', Status: 'Pending' } }
+          ],
+          offset: null
+        },
+        'airtable-create-record': {
+          id: 'recNew',
+          fields: params.fields || {},
+          createdTime: new Date().toISOString()
+        },
+        'slack-send-message': {
+          ok: true,
+          channel: params.channel || 'general',
+          ts: Date.now().toString(),
+          message: { text: params.text || 'Message sent' }
+        }
+      };
+      
+      // Return mock response based on component ID
+      const baseComponent = componentId.split('-').slice(0, -1).join('-');
+      for (const [key, value] of Object.entries(mockResponses)) {
+        if (componentId.startsWith(key.split('-')[0])) {
+          console.log(`[PIPEDREAM_CONNECT] Returning mock response for ${componentId}`);
+          return value;
+        }
+      }
+      
+      // Default mock response
+      return {
+        success: true,
+        component: componentId,
+        params: params,
+        timestamp: new Date().toISOString(),
+        message: `Mock execution of ${componentId} completed`
+      };
+    }
+    
+    // Real API call (when we have a valid token)
+    try {
+      const response = await fetch(`https://api.pipedream.com/v1/components/${componentId}/execute`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          auth: authConfig?.service_auth || {},
+          params: params
+        })
+      });
+      
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let errorMessage = `Pipedream API error ${response.status}`;
+        
+        try {
+          const errorJson = JSON.parse(errorBody);
+          errorMessage += `: ${errorJson.message || errorJson.error || errorBody}`;
+        } catch {
+          errorMessage += `: ${errorBody}`;
+        }
+        
+        // Provide actionable error messages
+        if (response.status === 401) {
+          errorMessage += '\n\nAuthentication failed. Check your Pipedream API token.';
+        } else if (response.status === 403) {
+          errorMessage += '\n\nPermission denied. Verify service authentication.';
+        } else if (response.status === 429) {
+          errorMessage += '\n\nRate limit exceeded. Wait before retrying.';
+        } else if (response.status === 404) {
+          errorMessage += `\n\nComponent '${componentId}' not found. Use pipedream_search_services and pipedream_get_components to find valid component IDs.`;
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      const result = await response.json();
+      console.log(`[PIPEDREAM_CONNECT] Component executed successfully:`, result);
+      return result;
+      
+    } catch (error) {
+      if (error.message.includes('fetch is not defined')) {
+        // Node.js doesn't have fetch by default in older versions
+        console.error(`[PIPEDREAM_CONNECT] Fetch not available, using axios fallback`);
+        throw new Error('Please update Node.js to v18+ for native fetch support, or we can add axios as a dependency');
+      }
+      throw error;
+    }
   }
 
   // Helper to generate human-readable node description for visual observation

@@ -531,7 +531,12 @@ Precise Control - Explicit List:
           properties: {
             instruction: {
               type: 'string',
-              description: 'Natural language instruction for the AI. Can include {{variable}} references.'
+              description: 'Natural language instruction for the AI. Two approaches: 1) Embed data directly: "Analyze this email: {{current.fields.email.subject}}" 2) Use with input field: "Analyze this email data"'
+            },
+            input: {
+              type: 'object',
+              description: 'Optional: Structured input data for the AI. Alternative to embedding variables in instruction. Example: {"subject": "{{current.fields.email.subject}}", "content": "{{current.fields.email.snippet}}"}. System automatically appends as JSON to instruction.',
+              additionalProperties: true
             },
             schema: {
               type: 'object',
@@ -712,6 +717,89 @@ Quick Testing - Position:
         description: {
           type: 'string',
           description: 'Human-readable description of what this node does'
+        },
+        alias: {
+          type: 'string',
+          description: 'Required unique identifier for the node. Must be unique across the workflow. Format: snake_case (lowercase letters, numbers, underscores).',
+          pattern: '^[a-z][a-z0-9_]*$'
+        }
+      },
+      required: ['type', 'config', 'alias'],
+      additionalProperties: false
+    },
+    // pipedream_connect - Execute API components via Pipedream Connect
+    // Purpose: Execute pre-built API components from Pipedream's 10,000+ library
+    // When to use: For API operations that are 100x faster than browser automation
+    // Common patterns:
+    //   - Gmail operations: Search emails, send messages, manage labels
+    //   - Airtable: Create/update/list records
+    //   - Slack: Send messages, manage channels
+    //   - 2,800+ other services
+    {
+      type: 'object',
+      properties: {
+        type: { const: 'pipedream_connect' },
+        config: {
+          type: 'object',
+          properties: {
+            component_id: {
+              type: 'string',
+              description: 'Pipedream component ID to execute (e.g., "gmail-search-emails", "airtable-list-records"). Use pipedream_search_services and pipedream_get_components tools to discover available components.'
+            },
+            auth_config: {
+              type: 'object',
+              description: 'Authentication configuration for the service. For development, use context variables or environment variables.',
+              properties: {
+                token: {
+                  type: 'string',
+                  description: 'Service-specific authentication token (supports variable references like {{gmail_token}})'
+                },
+                service_auth: {
+                  type: 'object',
+                  description: 'Service-specific authentication parameters',
+                  additionalProperties: true
+                }
+              },
+              additionalProperties: true
+            },
+            params: {
+              type: 'object',
+              description: 'Component-specific parameters (e.g., query, base_id, table_name). Refer to component documentation for required/optional parameters.',
+              additionalProperties: true
+            },
+            store: {
+              type: 'object',
+              description: 'Map result fields to workflow variables. Example: {"emails": "foundEmails", "count": "totalEmails"} stores result as {{alias.foundEmails}} and {{alias.totalEmails}}',
+              additionalProperties: { type: 'string' }
+            },
+            create_records: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string' },
+                    id_pattern: { type: 'string' }
+                  }
+                }
+              ],
+              description: 'Create records from API response data (e.g., "email" creates email_001, email_002). Object format allows custom ID patterns.'
+            },
+            store_to_record: {
+              type: 'boolean',
+              description: 'Store result to current record instead of global variable (iteration contexts only)'
+            },
+            as: {
+              type: 'string', 
+              description: 'Field name when using store_to_record (defaults to node alias)'
+            }
+          },
+          required: ['component_id'],
+          additionalProperties: false
+        },
+        description: {
+          type: 'string',
+          description: 'Human-readable description of what this API call does'
         },
         alias: {
           type: 'string',
@@ -1328,6 +1416,44 @@ Quick Testing - Position:
         parameters: {
           type: 'object',
           properties: {},
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'pipedream_search_services',
+        description: 'Search for available API services and integrations by name. Use this to discover what services Pipedream supports before building API workflow nodes. Returns service metadata that can be used with pipedream_get_components. NOTE: Requires EXACT service names (e.g., "gmail" not "email", "airtable" not "database"). Does not support fuzzy/category search.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'EXACT service name to search for (e.g., "gmail", "airtable", "slack", "stripe", "github"). Must use precise service names - fuzzy search not supported. Use "gmail" not "email", "airtable" not "database", etc.'
+            }
+          },
+          required: ['query'],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'pipedream_get_components',
+        description: 'Get available actions/components for a specific API service. Use this after searching services to discover what operations are available. Returns component IDs that can be used in pipedream_connect workflow nodes.',
+        parameters: {
+          type: 'object',
+          properties: {
+            app_slug: {
+              type: 'string',
+              description: 'Service identifier from search results (e.g., "gmail", "airtable", "slack"). Use the app_slug value returned by pipedream_search_services.'
+            }
+          },
+          required: ['app_slug'],
           additionalProperties: false
         },
         strict: true

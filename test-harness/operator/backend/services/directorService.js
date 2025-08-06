@@ -5019,6 +5019,16 @@ export class DirectorService {
           result = await this.browserStateService.getBrowserStateContext(workflowId);
           break;
         }
+        
+        case 'pipedream_search_services': {
+          result = await this.handlePipedreamSearchServices(args, workflowId);
+          break;
+        }
+        
+        case 'pipedream_get_components': {
+          result = await this.handlePipedreamGetComponents(args, workflowId);
+          break;
+        }
           
         default:
           throw new Error(`Unknown tool: ${toolName}`);
@@ -5849,5 +5859,246 @@ export class DirectorService {
       return curr[prop];
     }, obj);
     target[last] = value;
+  }
+
+  /**
+   * Handle Pipedream service discovery tool call
+   * Returns available services matching query - does not create workflow nodes
+   */
+  async handlePipedreamSearchServices(args, workflowId) {
+    const { query } = args;
+    
+    console.log(`[PIPEDREAM_DISCOVERY] Searching services for query: "${query}"`);
+    
+    try {
+      // Check if Pipedream is enabled
+      if (process.env.PIPEDREAM_ENABLED === 'false') {
+        throw new Error('Pipedream integration is disabled. Set PIPEDREAM_ENABLED=true to enable API automation.');
+      }
+      
+      const token = process.env.PIPEDREAM_API_TOKEN;
+      if (!token || token === 'pd_dev_your_token_here') {
+        // Return mock data for development
+        console.warn(`[PIPEDREAM_DISCOVERY] Using development mode - returning mock services`);
+        
+        const mockServices = {
+          gmail: [
+            { app_slug: 'gmail', name: 'Gmail', description: 'Send and receive emails, manage labels, and more', categories: ['Email'] },
+          ],
+          airtable: [
+            { app_slug: 'airtable', name: 'Airtable', description: 'Flexible database and spreadsheet hybrid', categories: ['Database', 'Productivity'] },
+          ],
+          slack: [
+            { app_slug: 'slack', name: 'Slack', description: 'Team communication and collaboration', categories: ['Communication'] },
+          ],
+          stripe: [
+            { app_slug: 'stripe', name: 'Stripe', description: 'Online payment processing', categories: ['Payment'] },
+          ],
+          github: [
+            { app_slug: 'github', name: 'GitHub', description: 'Code repository and collaboration', categories: ['Development'] },
+          ]
+        };
+        
+        // Find matching services
+        const queryLower = query.toLowerCase();
+        const services = [];
+        
+        for (const [key, value] of Object.entries(mockServices)) {
+          if (key.includes(queryLower) || value[0].name.toLowerCase().includes(queryLower)) {
+            services.push(...value);
+          }
+        }
+        
+        return {
+          query,
+          services,
+          total_found: services.length,
+          message: services.length > 0 
+            ? `Found ${services.length} services matching "${query}". Use pipedream_get_components to see available actions.`
+            : `No services found for "${query}". Try broader terms like "email", "database", or "crm".`
+        };
+      }
+      
+      // Real API call
+      const response = await fetch(`https://api.pipedream.com/v1/apps?q=${encodeURIComponent(query)}&limit=20`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Pipedream API error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      const services = (data.data || []).map(app => ({
+        app_slug: app.name_slug,  // Changed from 'slug' to 'name_slug'
+        app_id: app.id,  // Added app_id for component lookups
+        name: app.name,
+        description: app.description || `${app.name} integration`,
+        logo_url: app.img_src,
+        categories: app.categories || []
+      }));
+      
+      console.log(`[PIPEDREAM_DISCOVERY] Found ${services.length} services for "${query}"`);
+      
+      return {
+        query,
+        services,
+        total_found: data.total_count || services.length,
+        message: services.length > 0 
+          ? `Found ${services.length} services matching "${query}". Use pipedream_get_components to see available actions.`
+          : `No services found for "${query}". Try broader terms like "email", "database", or "crm".`
+      };
+      
+    } catch (error) {
+      console.error(`[PIPEDREAM_DISCOVERY] Service search failed:`, error);
+      return {
+        query,
+        services: [],
+        error: error.message,
+        message: `Failed to search Pipedream services: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Handle Pipedream component discovery tool call  
+   * Returns available components for a service - does not create workflow nodes
+   */
+  async handlePipedreamGetComponents(args, workflowId) {
+    const { app_slug } = args;
+    
+    console.log(`[PIPEDREAM_DISCOVERY] Getting components for service: "${app_slug}"`);
+    
+    try {
+      // Check if Pipedream is enabled
+      if (process.env.PIPEDREAM_ENABLED === 'false') {
+        throw new Error('Pipedream integration is disabled. Set PIPEDREAM_ENABLED=true to enable API automation.');
+      }
+      
+      const token = process.env.PIPEDREAM_API_TOKEN;
+      if (!token || token === 'pd_dev_your_token_here') {
+        // Return mock data for development
+        console.warn(`[PIPEDREAM_DISCOVERY] Using development mode - returning mock components`);
+        
+        const mockComponents = {
+          gmail: [
+            { 
+              component_id: 'gmail_custom-search-messages', 
+              name: 'Search Messages', 
+              description: 'Search for Gmail messages matching a query',
+              parameters: { query: 'string', maxResults: 'number', labelIds: 'array' },
+              auth_required: true
+            },
+            {
+              component_id: 'gmail-send-email',
+              name: 'Send Email',
+              description: 'Send an email from your Gmail account',
+              parameters: { to: 'string', subject: 'string', body: 'string', attachments: 'array' },
+              auth_required: true
+            },
+            {
+              component_id: 'gmail-get-email',
+              name: 'Get Email',
+              description: 'Get a specific email by ID',
+              parameters: { emailId: 'string' },
+              auth_required: true
+            }
+          ],
+          airtable: [
+            {
+              component_id: 'airtable-create-single-record',
+              name: 'Create Single Record',
+              description: 'Create a new record in an Airtable base',
+              parameters: { base_id: 'string', table_id: 'string', record: 'object' },
+              auth_required: true
+            },
+            {
+              component_id: 'airtable-list-records',
+              name: 'List Records',
+              description: 'List records from an Airtable table',
+              parameters: { base_id: 'string', table_name: 'string', view: 'string', maxRecords: 'number' },
+              auth_required: true
+            },
+            {
+              component_id: 'airtable-update-record',
+              name: 'Update Record',
+              description: 'Update an existing record in Airtable',
+              parameters: { base_id: 'string', table_name: 'string', record_id: 'string', fields: 'object' },
+              auth_required: true
+            }
+          ],
+          slack: [
+            {
+              component_id: 'slack-send-message',
+              name: 'Send Message',
+              description: 'Send a message to a Slack channel',
+              parameters: { channel: 'string', text: 'string', blocks: 'array' },
+              auth_required: true
+            },
+            {
+              component_id: 'slack-list-channels',
+              name: 'List Channels',
+              description: 'List all channels in the workspace',
+              parameters: { types: 'string', exclude_archived: 'boolean' },
+              auth_required: true
+            }
+          ]
+        };
+        
+        const components = mockComponents[app_slug] || [];
+        
+        return {
+          app_slug,
+          service_name: app_slug,
+          components,
+          total_found: components.length,
+          message: components.length > 0
+            ? `Found ${components.length} actions for ${app_slug}. Use these component_ids in pipedream_connect nodes.`
+            : `No actions found for ${app_slug}. This service may not have pre-built components.`
+        };
+      }
+      
+      // Real API call
+      const response = await fetch(`https://api.pipedream.com/v1/components?app=${app_slug}&type=action&limit=50`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Pipedream API error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      const components = (data.data || []).map(component => ({
+        component_id: component.key,
+        name: component.name,
+        description: component.description || component.summary || `${component.name} action`,
+        version: component.version,
+        parameters: component.props || {},
+        auth_required: component.auth?.required || false
+      }));
+      
+      console.log(`[PIPEDREAM_DISCOVERY] Found ${components.length} components for "${app_slug}"`);
+      
+      return {
+        app_slug,
+        service_name: app_slug,
+        components,
+        total_found: components.length,
+        message: components.length > 0
+          ? `Found ${components.length} actions for ${app_slug}. Use these component_ids in pipedream_connect nodes.`
+          : `No actions found for ${app_slug}. This service may not have pre-built components.`
+      };
+      
+    } catch (error) {
+      console.error(`[PIPEDREAM_DISCOVERY] Component discovery failed:`, error);
+      return {
+        app_slug,
+        components: [],
+        error: error.message,
+        message: `Failed to get components for ${app_slug}: ${error.message}`
+      };
+    }
   }
 }
