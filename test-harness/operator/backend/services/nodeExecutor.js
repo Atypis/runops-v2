@@ -2781,6 +2781,54 @@ Field selectors must use ONE of three modes:
             return elements;
           };
           
+          // Helper function for form URL construction
+          const constructFormUrl = (element, mode) => {
+            try {
+              // Find the form (element itself or closest parent form)
+              const form = element.form || element.closest('form');
+              if (!form) return '';
+              
+              // Get form action (fallback to current page)
+              const baseUrl = form.action || window.location.href;
+              const method = (form.method || 'get').toLowerCase();
+              
+              // For @form-url: Return raw form action
+              if (mode === '@form-url') {
+                return baseUrl;
+              }
+              
+              // For @form-get-url: Convert to GET URL with parameters
+              if (mode === '@form-get-url') {
+                try {
+                  // Extract form data
+                  const formData = new FormData(form);
+                  const params = new URLSearchParams();
+                  
+                  // Add all form fields to URL parameters
+                  for (const [key, value] of formData.entries()) {
+                    if (key && value) {  // Skip empty keys/values
+                      params.append(key, value);
+                    }
+                  }
+                  
+                  // Construct final URL
+                  const separator = baseUrl.includes('?') ? '&' : '?';
+                  const paramString = params.toString();
+                  
+                  return paramString ? baseUrl + separator + paramString : baseUrl;
+                } catch (paramError) {
+                  console.warn('Form parameter extraction failed:', paramError);
+                  return baseUrl;  // Fallback to raw action
+                }
+              }
+              
+              return '';
+            } catch (error) {
+              console.warn('Form URL construction failed:', error);
+              return '';
+            }
+          };
+          
           let elements = queryElements(selector);
           
           // Enhanced visibility filtering with smart defaults
@@ -2836,16 +2884,21 @@ Field selectors must use ONE of three modes:
                   let value = '';
                   
                   if (fieldSelector.startsWith('@')) {
-                    // Attribute extraction
-                    const attrParts = fieldSelector.substring(1).split('~');
-                    const attrName = attrParts[0];
-                    const attrValue = element.getAttribute(attrName) || '';
-                    
-                    if (attrParts.length > 1) {
-                      // Contains check (e.g., @class~active)
-                      value = attrValue.includes(attrParts[1]);
+                    // Check for special form URL selectors first
+                    if (fieldSelector === '@form-url' || fieldSelector === '@form-get-url') {
+                      value = constructFormUrl(element, fieldSelector);
                     } else {
-                      value = attrValue;
+                      // Existing attribute extraction logic
+                      const attrParts = fieldSelector.substring(1).split('~');
+                      const attrName = attrParts[0];
+                      const attrValue = element.getAttribute(attrName) || '';
+                      
+                      if (attrParts.length > 1) {
+                        // Contains check (e.g., @class~active)
+                        value = attrValue.includes(attrParts[1]);
+                      } else {
+                        value = attrValue;
+                      }
                     }
                   } else if (fieldSelector === '.' || fieldSelector === '') {
                     // Current element's text

@@ -292,10 +292,10 @@ export function createToolDefinitions() {
             },
             fields: {
               type: 'object',
-              description: 'For deterministic_extract: Field mappings to extract from each element. Each field uses ONE of three modes:\n• CSS selector (e.g., ".title", "span.name") - finds sub-element and gets its text\n• Attribute extraction (e.g., "@href", "@class") - gets attribute from current element\n• Current element text (e.g., ".") - gets text from current element\nIMPORTANT: Cannot combine CSS selectors with @ attributes in one expression.',
+              description: 'For deterministic_extract: Field mappings to extract from each element. Each field uses ONE of four modes:\n• CSS selector (e.g., ".title", "span.name") - finds sub-element and gets its text\n• Attribute extraction (e.g., "@href", "@class") - gets attribute from current element\n• Form URL extraction (e.g., "@form-url", "@form-get-url") - constructs URLs from form submissions (ideal for PDF downloads, search forms)\n• Current element text (e.g., ".") - gets text from current element\nIMPORTANT: Cannot combine CSS selectors with @ attributes in one expression.',
               additionalProperties: {
                 type: 'string',
-                description: 'Field selector using one of three modes. Examples:\n• ".title" - gets text from sub-element\n• "@href" - gets href attribute from current element\n• "." - gets text from current element\n❌ WRONG: "a.title@href" (mixing modes)\n✅ RIGHT: Use selector="a.title" with field="@href"'
+                description: 'Field selector using one of four modes. Examples:\n• ".title" - gets text from sub-element\n• "@href" - gets href attribute from current element\n• "@form-url" - gets form action URL\n• "@form-get-url" - constructs GET URL with form parameters (e.g., PDF buttons: selector="input[value=\'PDF\']" field="@form-get-url")\n• "." - gets text from current element\n❌ WRONG: "a.title@href" (mixing modes)\n✅ RIGHT: Use selector="a.title" with field="@href"'
               }
             },
             limit: {
