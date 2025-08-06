@@ -1261,7 +1261,7 @@ If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_for
     if (!this.stagehandInstance) {
       console.log(`[GETSSTAGEHAND-${this.instanceId}] Creating new Stagehand instance`);
       const stagehandConfig = {
-        env: 'LOCAL',
+        env: process.env.BROWSER_MODE === 'cloud' ? 'BROWSERBASE' : 'LOCAL',
         headless: false,
         enableCaching: true,
         modelName: 'o4-mini', // Using o4-mini for browser actions (act, extract, observe)
@@ -1284,35 +1284,63 @@ If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_for
           console.log(`${timestamp}::[${logLine.category || 'stagehand'}] ${logLine.message}`);
         }
       };
-      
-      // Add profile directory support
-      if (profileName && persistStrategy === 'profileDir') {
-        const profilePath = path.join(
-          this.getBrowserProfilesBasePath(),
-          profileName
-        );
+
+      // BrowserBase-specific configuration
+      if (process.env.BROWSER_MODE === 'cloud') {
+        console.log(`[NodeExecutor] Using BrowserBase cloud browsers`);
         
-        console.log(`[NodeExecutor] Full profile path: ${profilePath}`);
+        // Set BrowserBase credentials
+        if (!process.env.BROWSERBASE_API_KEY || !process.env.BROWSERBASE_PROJECT_ID) {
+          throw new Error('BrowserBase credentials required: BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID');
+        }
         
-        stagehandConfig.localBrowserLaunchOptions = {
-          userDataDir: profilePath,
-          preserveUserDataDir: true,
-          args: [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-web-security",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--allow-file-access-from-files",
-            "--allow-file-access",
-            "--allow-cross-origin-auth-prompt"
-          ]
-        };
+        stagehandConfig.apiKey = process.env.BROWSERBASE_API_KEY;
+        stagehandConfig.projectId = process.env.BROWSERBASE_PROJECT_ID;
         
-        this.currentProfileName = profileName;
-        this.persistStrategy = 'profileDir';
-        console.log(`[NodeExecutor] Using profile directory: ${profilePath}`);
+        // Handle profile persistence for cloud browsers
+        if (profileName && persistStrategy === 'profileDir') {
+          stagehandConfig.browserbaseSessionCreateParams = {
+            projectId: process.env.BROWSERBASE_PROJECT_ID,
+            browserSettings: {
+              context: { id: profileName }, // Use profile name as context ID
+              viewport: { width: 1920, height: 1080 }
+            }
+          };
+          
+          this.currentProfileName = profileName;
+          this.persistStrategy = 'cloudSession';
+          console.log(`[NodeExecutor] Using BrowserBase context: ${profileName}`);
+        }
+      } else {
+        // Local browser configuration (existing logic)
+        if (profileName && persistStrategy === 'profileDir') {
+          const profilePath = path.join(
+            this.getBrowserProfilesBasePath(),
+            profileName
+          );
+          
+          console.log(`[NodeExecutor] Full profile path: ${profilePath}`);
+          
+          stagehandConfig.localBrowserLaunchOptions = {
+            userDataDir: profilePath,
+            preserveUserDataDir: true,
+            args: [
+              "--disable-blink-features=AutomationControlled",
+              "--no-sandbox",
+              "--disable-setuid-sandbox",
+              "--disable-dev-shm-usage",
+              "--disable-web-security",
+              "--disable-features=IsolateOrigins,site-per-process",
+              "--allow-file-access-from-files",
+              "--allow-file-access",
+              "--allow-cross-origin-auth-prompt"
+            ]
+          };
+          
+          this.currentProfileName = profileName;
+          this.persistStrategy = 'profileDir';
+          console.log(`[NodeExecutor] Using local profile directory: ${profilePath}`);
+        }
       }
       
       this.stagehandInstance = new Stagehand(stagehandConfig);
@@ -1326,6 +1354,43 @@ If you defined field "pdfUrl" in node "extract_forms", use {{current.extract_for
       this.mainPage = this.stagehandInstance.page;
       this.activeTabName = 'main';
       console.log(`[STAGEHAND INIT] StageHand initialized with main tab`);
+      
+      // Register session for live viewing (BrowserBase only)
+      if (process.env.BROWSER_MODE === 'cloud' && this.stagehandInstance) {
+        try {
+          console.log('[LiveView] Attempting session registration...');
+          console.log('[LiveView] Stagehand instance keys:', Object.keys(this.stagehandInstance));
+          
+          // Try multiple ways to get session ID
+          const sessionId = this.stagehandInstance.context?.sessionId || 
+                           this.stagehandInstance.session?.id ||
+                           this.stagehandInstance.browserbaseSessionId ||
+                           this.stagehandInstance._sessionId ||
+                           'unknown-session';
+          
+          console.log('[LiveView] Extracted session ID:', sessionId);
+          console.log('[LiveView] Workflow ID:', this.workflowId);
+          
+          if (sessionId !== 'unknown-session' && this.workflowId) {
+            console.log(`[LiveView] Registering session ${sessionId} for workflow ${this.workflowId}`);
+            const response = await fetch('http://localhost:3010/register-session/' + this.workflowId, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId })
+            });
+            
+            if (response.ok) {
+              console.log(`[LiveView] Session registered: http://localhost:3010/debug/${this.workflowId}`);
+            } else {
+              console.log('[LiveView] Session registration failed (debug server response error)');
+            }
+          } else {
+            console.log('[LiveView] Cannot register - missing session ID or workflow ID');
+          }
+        } catch (error) {
+          console.log('[LiveView] Registration failed:', error.message);
+        }
+      }
     }
     return this.stagehandInstance;
   }

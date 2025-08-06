@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node backend/server.js",
     "dev": "nodemon backend/server.js",
+    "debug": "node backend/debugServer.js",
+    "test:browserbase": "node test-browserbase-integration.js",
     "postinstall": "patch-package"
   },
   "dependencies": {

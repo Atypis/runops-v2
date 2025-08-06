@@ -185,7 +185,177 @@ if (process.env.BROWSER_MODE === 'cloud') {
 - `snapshotProfile` → Store context state in BrowserBase
 - Profile switching → Create new session with different context ID
 
-### 4. Error Handling & Fallbacks
+### 4. Live View Integration
+
+BrowserBase provides real-time browser session streaming with interactive control capabilities. This is perfect for debugging workflows and demonstrating cloud browser functionality.
+
+#### **Live View Debug Server**
+
+**File: `backend/debugServer.js`** (New)
+```javascript
+import express from 'express';
+import Browserbase from '@browserbasehq/sdk';
+
+const app = express();
+const PORT = 3010;
+
+// Store active sessions for live view access
+const activeSessions = new Map();
+
+// Endpoint to register a session for live viewing
+app.post('/register-session/:workflowId', async (req, res) => {
+  const { workflowId } = req.params;
+  const { sessionId } = req.body;
+  
+  activeSessions.set(workflowId, sessionId);
+  res.json({ success: true, message: `Session registered for workflow ${workflowId}` });
+});
+
+// Live view page for watching workflow execution
+app.get('/debug/:workflowId', async (req, res) => {
+  const { workflowId } = req.params;
+  const sessionId = activeSessions.get(workflowId);
+  
+  if (process.env.BROWSER_MODE === 'cloud' && sessionId) {
+    try {
+      const bb = new Browserbase({ 
+        apiKey: process.env.BROWSERBASE_API_KEY 
+      });
+      
+      const liveViewLinks = await bb.sessions.debug(sessionId);
+      const debugUrl = liveViewLinks.debuggerFullscreenUrl;
+      
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Director Live View - ${workflowId}</title>
+            <style>
+              body { margin: 0; font-family: Arial, sans-serif; background: #f5f5f5; }
+              .header { background: #2563eb; color: white; padding: 12px; text-align: center; }
+              .container { display: flex; height: calc(100vh - 60px); }
+              .sidebar { width: 300px; background: white; padding: 20px; border-right: 1px solid #ddd; }
+              .main { flex: 1; }
+              iframe { width: 100%; height: 100%; border: none; }
+              .status { padding: 10px; background: #dcfce7; border-radius: 6px; margin-bottom: 15px; }
+              .info { margin-bottom: 15px; }
+              .refresh-btn { background: #2563eb; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h2>🎯 Director Live View - Workflow: ${workflowId}</h2>
+            </div>
+            <div class="container">
+              <div class="sidebar">
+                <div class="status">
+                  <strong>✅ Live Session Active</strong>
+                </div>
+                <div class="info">
+                  <h4>Session Details</h4>
+                  <p><strong>Workflow ID:</strong> ${workflowId}</p>
+                  <p><strong>Session ID:</strong> ${sessionId}</p>
+                  <p><strong>Mode:</strong> BrowserBase Cloud</p>
+                </div>
+                <button class="refresh-btn" onclick="location.reload()">
+                  🔄 Refresh View
+                </button>
+                <div style="margin-top: 20px; font-size: 14px; color: #666;">
+                  <h4>Controls</h4>
+                  <p>• Click and interact directly in the browser</p>
+                  <p>• Scroll to follow automation</p>
+                  <p>• Take control when needed</p>
+                </div>
+              </div>
+              <div class="main">
+                <iframe src="${debugUrl}&navbar=false" 
+                        sandbox="allow-same-origin allow-scripts allow-forms allow-pointer-lock" 
+                        allow="clipboard-read; clipboard-write">
+                </iframe>
+              </div>
+            </div>
+            
+            <script>
+              // Auto-refresh session info every 30 seconds
+              setInterval(() => {
+                console.log('Live view active for workflow: ${workflowId}');
+              }, 30000);
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      res.send(`
+        <h3 style="color: red;">❌ Live View Error</h3>
+        <p>Failed to get live view for session: ${sessionId}</p>
+        <p>Error: ${error.message}</p>
+        <p><a href="/debug/${workflowId}">Try again</a></p>
+      `);
+    }
+  } else if (process.env.BROWSER_MODE !== 'cloud') {
+    res.send(`
+      <div style="padding: 40px; text-align: center; font-family: Arial;">
+        <h3>🔧 Local Mode Active</h3>
+        <p>Live view is only available in cloud mode.</p>
+        <p>Set <code>BROWSER_MODE=cloud</code> to enable live browser streaming.</p>
+        <a href="/debug/${workflowId}" style="color: #2563eb;">Refresh</a>
+      </div>
+    `);
+  } else {
+    res.send(`
+      <div style="padding: 40px; text-align: center; font-family: Arial;">
+        <h3>⏳ No Active Session</h3>
+        <p>No browser session found for workflow: <strong>${workflowId}</strong></p>
+        <p>Start a workflow to begin live viewing.</p>
+        <button onclick="location.reload()" style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          🔄 Check Again
+        </button>
+      </div>
+    `);
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    activeSessions: Array.from(activeSessions.keys()),
+    mode: process.env.BROWSER_MODE || 'local'
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🎯 Director Live View Server running on http://localhost:${PORT}`);
+  console.log(`📺 Debug URL format: http://localhost:${PORT}/debug/{workflowId}`);
+});
+```
+
+#### **Session Registration in NodeExecutor**
+
+**File: `backend/services/nodeExecutor.js`** (Enhancement)
+Add session registration after Stagehand initialization:
+
+```javascript
+// After successful Stagehand initialization
+if (process.env.BROWSER_MODE === 'cloud' && this.stagehandInstance) {
+  // Register session for live viewing
+  const sessionId = this.stagehandInstance.context?.sessionId;
+  if (sessionId && this.workflowId) {
+    try {
+      await fetch('http://localhost:3010/register-session/' + this.workflowId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      console.log(`[LiveView] Session registered: http://localhost:3010/debug/${this.workflowId}`);
+    } catch (error) {
+      console.log('[LiveView] Registration failed (debug server not running)');
+    }
+  }
+}
+```
+
+### 5. Error Handling & Fallbacks
 
 ```javascript
 // Add to nodeExecutor.js initialization
@@ -380,6 +550,8 @@ if (process.env.BROWSER_MODE === 'cloud') {
 - [ ] Add cloud/local mode detection logic  
 - [ ] Implement BrowserBase session creation parameters
 - [ ] Add error handling and fallback mechanisms
+- [ ] Create `backend/debugServer.js` for live view functionality
+- [ ] Add session registration in NodeExecutor
 
 ### Profile Management
 - [ ] Adapt profile loading for cloud sessions
