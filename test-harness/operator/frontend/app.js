@@ -261,7 +261,7 @@ function App() {
   const [mockMode, setMockMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
     const savedModel = localStorage.getItem('director-selected-model');
-    return (savedModel && ['o4-mini', 'o3', 'kimi-k2'].includes(savedModel)) ? savedModel : 'o4-mini';
+    return (savedModel && ['o4-mini', 'o3', 'kimi-k2', 'gpt-5'].includes(savedModel)) ? savedModel : 'o4-mini';
   });
   const [nodeValues, setNodeValues] = useState({}); // Storage key -> value mapping
   const [expandedNodes, setExpandedNodes] = useState(new Set()); // Track expanded iterate nodes
@@ -5005,6 +5005,21 @@ function App() {
               >
                 KIMI K2
               </button>
+              <button
+                onClick={() => {
+                  setSelectedModel('gpt-5');
+                  localStorage.setItem('director-selected-model', 'gpt-5');
+                  console.log('[UI] Model switched to: gpt-5');
+                }}
+                className={`px-3 py-1 text-sm rounded transition-all ${
+                  selectedModel === 'gpt-5'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+                title="Use GPT-5 model (latest OpenAI model)"
+              >
+                GPT-5
+              </button>
             </div>
           )}
           <select
@@ -5145,7 +5160,7 @@ function App() {
                 {message.role === 'assistant' && message.model && (
                   <div className="text-xs text-gray-500 mb-1">
                     <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100">
-                      {message.model === 'o3' ? '🟢' : message.model === 'kimi-k2' ? '🟣' : '🔵'} {message.model}
+                      {message.model === 'o3' ? '🟢' : message.model === 'kimi-k2' ? '🟣' : message.model === 'gpt-5' ? '🟡' : '🔵'} {message.model}
                     </span>
                   </div>
                 )}

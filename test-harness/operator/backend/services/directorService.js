@@ -349,13 +349,20 @@ export class DirectorService {
         completion = await this.processWithResponsesAPI(model, messages, workflowId);
       } else {
         console.log(`[DIRECTOR] Using Chat Completions API for model: ${model}`);
-        completion = await this.openai.chat.completions.create({
+        const params = {
           model,
           messages,
           tools: createToolDefinitions(),
           tool_choice: 'auto',
           temperature: 1
-        });
+        };
+        
+        // GPT-5 uses max_completion_tokens instead of max_tokens
+        if (this.isGPT5Model(model)) {
+          params.max_completion_tokens = 8192;
+        }
+        
+        completion = await this.openai.chat.completions.create(params);
       }
 
       const responseMessage = completion.choices[0].message;
@@ -4042,6 +4049,13 @@ export class DirectorService {
   }
 
   /**
+   * Check if a model is GPT-5 (uses max_completion_tokens instead of max_tokens)
+   */
+  isGPT5Model(model) {
+    return model && model.toLowerCase().startsWith('gpt-5');
+  }
+
+  /**
    * Get the selected model with validation and fallback logic
    */
   getSelectedModel(requestedModel) {
@@ -4051,6 +4065,7 @@ export class DirectorService {
       'gpt-4',
       'gpt-4-turbo',
       'gpt-3.5-turbo',
+      'gpt-5',
       'kimi-k2',
       'moonshotai/kimi-k2'
     ];
