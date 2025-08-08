@@ -1,0 +1,312 @@
+{
+  "meta": {
+    "id": "gmail-investor-crm",
+    "title": "Gmail Investor CRM Workflow",
+    "version": "1.0.0",
+    "goal": "Extract investor information from emails and add to CRM",
+    "purpose": "Automated workflow for processing investor inquiries from Gmail into Airtable CRM",
+    "owner": ["aef-dev-team"],
+    "created": "2025-01-02T00:00:00Z",
+    "updated": "2025-01-15T00:00:00Z",
+    "aiGenerated": false,
+    "tags": ["gmail", "airtable", "crm", "investor", "automation"]
+  },
+  "execution": {
+    "environment": {
+      "required_tabs": [
+        { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox" },
+        { "name": "Airtable CRM", "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
+      ]
+    },
+    "workflow": {
+      "nodes": [
+        {
+          "id": "gmail_login_flow",
+          "type": "compound_task",
+          "label": "Navigate and Log in to Gmail",
+          "intent": "Complete Gmail authentication process using stored credentials for email and password entry, including navigation and login confirmation.",
+          "context": "This compound task handles the complete Gmail login workflow using credentials from the credential management system. The system will automatically substitute {{gmail_email}} and {{gmail_password}} placeholders with the user's stored credentials. Uses robust Stagehand .act() commands for reliable automation.",
+          "children": ["navigate_to_gmail", "enter_email", "click_next_email", "enter_password", "click_next_password", "verify_login_success"],
+          "canExecuteAsGroup": true,
+          "credentialsRequired": {
+            "gmail": ["email", "password"]
+          },
+          "preferredAuthMethods": {
+            "gmail": ["email_password", "google_sso"]
+          },
+          "actions": []
+        },
+        {
+          "id": "navigate_to_gmail",
+          "type": "atomic_task",
+          "label": "Navigate to Gmail Login",
+          "intent": "Navigate to the Gmail login page to begin authentication.",
+          "context": "Open Gmail in the browser. Direct navigation to the Google accounts login page for Gmail service.",
+          "parentId": "gmail_login_flow",
+          "actions": [
+            {
+              "type": "navigate",
+              "instruction": "Navigate to Gmail login page",
+              "target": { "url": "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com" }
+            },
+            {
+              "type": "wait",
+              "instruction": "Wait for login page to fully load",
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "id": "enter_email",
+          "type": "atomic_task", 
+          "label": "Enter Email Address",
+          "intent": "Input the Gmail email address into the login field.",
+          "context": "Type email address using credential substitution. Single atomic action for reliable execution.",
+          "parentId": "gmail_login_flow",
+          "credentialsRequired": {
+            "gmail": ["email"]
+          },
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Type {{gmail_email}} into the email address field",
+              "data": { "email": "{{gmail_email}}" },
+              "credentialField": "gmail_email",
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "click_next_email",
+          "type": "atomic_task",
+          "label": "Click Next After Email",
+          "intent": "Click the Next button to proceed to password step.",
+          "context": "Click Next button after email entry. Separate node ensures reliable sequential execution.",
+          "parentId": "gmail_login_flow",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the Next button",
+              "timeout": 8000
+            },
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for password screen to load",
+              "target": { "url_contains": "signin/v2/sl/pwd" },
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "enter_password",
+          "type": "atomic_task",
+          "label": "Enter Password", 
+          "intent": "Input the Gmail password into the password field.",
+          "context": "Type password using credential substitution. Single atomic action for reliable execution.",
+          "parentId": "gmail_login_flow",
+          "credentialsRequired": {
+            "gmail": ["password"]
+          },
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Type {{gmail_password}} into the password field",
+              "data": { "password": "{{gmail_password}}" },
+              "credentialField": "gmail_password",
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "click_next_password",
+          "type": "atomic_task",
+          "label": "Click Sign In Button",
+          "intent": "Click the Sign In button to complete the login process.",
+          "context": "Click Sign In button after password entry. Separate node ensures reliable sequential execution.",
+          "parentId": "gmail_login_flow",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the Next or Sign in button to complete login",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "verify_login_success",
+          "type": "atomic_task",
+          "label": "Verify Login Success",
+          "intent": "Confirm successful login and wait for Gmail inbox to load.",
+          "context": "Wait for successful authentication and redirect to Gmail inbox. Handle any additional verification steps if needed.",
+          "parentId": "gmail_login_flow", 
+          "actions": [
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for successful login and redirect to Gmail inbox",
+              "target": { "url_contains": "mail.google.com/mail" },
+              "timeout": 15000
+            },
+            {
+              "type": "act",
+              "instruction": "If prompted for additional verification or 2FA, handle it appropriately or wait for manual intervention",
+              "timeout": 5000
+            },
+            {
+              "type": "wait",
+              "instruction": "Wait for Gmail inbox to fully load",
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "scan_email_list",
+          "type": "atomic_task", 
+          "label": "Scan Email List",
+          "intent": "Visually scan the email list to identify potential investor-related emails.",
+          "context": "Look through the email list in the inbox to find emails that might contain investor information, inquiries, or business opportunities.",
+          "actions": [
+            {
+              "type": "visual_scan",
+              "instruction": "Scan the email list for subject lines and senders that might indicate investor-related content"
+            }
+          ]
+        },
+        {
+          "id": "email_processing_loop",
+          "type": "iterative_loop",
+          "label": "Process Each Investor Email",
+          "intent": "For each identified investor email, extract information and add to CRM.",
+          "context": "This loop processes each investor-related email found in the inbox.",
+          "children": [
+            "select_email",
+            "extract_investor_info", 
+            "open_airtable",
+            "add_to_crm",
+            "mark_processed"
+          ]
+        },
+        {
+          "id": "select_email",
+          "type": "atomic_task",
+          "label": "Select Investor Email",
+          "intent": "Click on an unprocessed investor email to open it.",
+          "context": "Select and open the next investor email that needs to be processed.",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "click",
+              "instruction": "Click on the first unprocessed investor email in the list",
+              "target": { "selector": "[data-thread-id]:not([data-processed='true'])" }
+            }
+          ]
+        },
+        {
+          "id": "extract_investor_info",
+          "type": "atomic_task",
+          "label": "Extract Investor Information", 
+          "intent": "Read and extract key investor details from the email content.",
+          "context": "Parse the email content to identify investor name, company, contact information, investment interests, and other relevant details.",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Extract investor information from email content",
+              "schema": {
+                "name": "string",
+                "company": "string", 
+                "email": "string",
+                "phone": "string",
+                "investment_focus": "string",
+                "message_summary": "string"
+              }
+            }
+          ]
+        },
+        {
+          "id": "open_airtable",
+          "type": "atomic_task",
+          "label": "Open Airtable CRM",
+          "intent": "Navigate to the Airtable CRM using stored base ID and authenticate with API key if needed.",
+          "context": "Access the Airtable database where investor information is stored and managed. Uses {{airtable_base_id}} from credentials to construct the correct URL and {{airtable_api_key}} for authentication if prompted.",
+          "parentId": "email_processing_loop",
+          "credentialsRequired": {
+            "airtable": ["api_key", "base_id"]
+          },
+          "preferredAuthMethods": {
+            "airtable": ["google_sso", "api_key"]
+          },
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Navigate to Airtable CRM using stored base ID",
+              "target": { "url": "https://airtable.com/{{airtable_base_id}}" },
+              "credentialField": "airtable_base_id"
+            },
+            {
+              "type": "wait",
+              "instruction": "Wait for Airtable base to load",
+              "timeout": 5000
+            },
+            {
+              "type": "conditional_auth",
+              "instruction": "If prompted for API authentication, use stored API key",
+              "data": { "api_key": "{{airtable_api_key}}" },
+              "credentialField": "airtable_api_key"
+            }
+          ]
+        },
+        {
+          "id": "add_to_crm",
+          "type": "atomic_task",
+          "label": "Add Investor to CRM",
+          "intent": "Create a new record in Airtable with the extracted investor information.",
+          "context": "Fill out the investor information form in Airtable with the details extracted from the email.",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "click", 
+              "instruction": "Click the 'Add Record' or '+' button to create a new investor entry",
+              "target": { "selector": "[data-testid='add-record-button']" }
+            }
+          ]
+        },
+        {
+          "id": "mark_processed",
+          "type": "atomic_task",
+          "label": "Mark Email as Processed",
+          "intent": "Return to Gmail and mark the email as processed to avoid reprocessing.",
+          "context": "Go back to Gmail and add a label or flag to indicate this email has been processed.",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Switch back to Gmail tab",
+              "target": { "url": "https://mail.google.com/mail/u/0/#inbox" }
+            }
+          ]
+        }
+      ],
+      "flow": [
+        { "from": "navigate_to_gmail", "to": "enter_email" },
+        { "from": "enter_email", "to": "click_next_email" },
+        { "from": "click_next_email", "to": "enter_password" },
+        { "from": "enter_password", "to": "click_next_password" },
+        { "from": "click_next_password", "to": "verify_login_success" },
+        { "from": "gmail_login_flow", "to": "scan_email_list" },
+        { "from": "scan_email_list", "to": "email_processing_loop" },
+        { "from": "email_processing_loop", "to": "select_email" },
+        { "from": "select_email", "to": "extract_investor_info" },
+        { "from": "extract_investor_info", "to": "open_airtable" },
+        { "from": "open_airtable", "to": "add_to_crm" },
+        { "from": "add_to_crm", "to": "mark_processed" },
+        { "from": "mark_processed", "to": "email_processing_loop", "condition": "more_emails_to_process" }
+      ]
+    }
+  },
+  "config": {
+    "executionTimeout": 1800,
+    "retryAttempts": 3,
+    "hybridMode": true,
+    "pauseOnErrors": true
+  }
+} 

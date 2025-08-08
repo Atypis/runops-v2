@@ -1,0 +1,32 @@
+{
+  "weights": {
+    "interactiveTag": 10,
+    "ariaRole": 8,
+    "clickListener": 4,
+    "textLength": 3,
+    "tableCellTextBoost": 15,
+    "giantWrapperPenalty": -50,
+    "frameworkAttrs": 12,
+    "tabIndex": 8,
+    "draggable": 5,
+    "contentEditable": 10,
+    "ariaState": 8,
+    "clickableClasses": 10,
+    "decorativeElementPenalty": -5
+  },
+  "rules": {
+    "tableSelectorRegex": "dataRow|rowSelectionEnabled|ag-row|tbody|tr|table|grid",
+    "maxAncestorDepth": 5,
+    "parentChildScoreDelta": 5,
+    "maxContainerAreaRatio": 0.15,
+    "minSignificantTextLength": 1,
+    "maxSignificantTextLength": 100,
+    "minElementArea": 144
+  },
+  "features": {
+    "enableTableCellBoost": true,
+    "enableContainerPenalty": false,
+    "enableEventDelegation": true,
+    "enablePointerEventsCheck": false
+  }
+}
