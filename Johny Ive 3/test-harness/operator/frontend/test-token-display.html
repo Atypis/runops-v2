@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Display Test</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .message-container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        // Token usage component for Director messages
+        function TokenUsageComponent({ tokenUsage }) {
+          if (!tokenUsage || (!tokenUsage.input_tokens && !tokenUsage.output_tokens)) {
+            return null;
+          }
+          
+          const totalTokens = tokenUsage.input_tokens + tokenUsage.output_tokens;
+          const formatNumber = (num) => {
+            if (num > 1000) return `${(num / 1000).toFixed(1)}K`;
+            return num.toLocaleString();
+          };
+          
+          return (
+            <div className="mt-2 text-xs text-gray-500 border-t border-gray-300 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center">
+                  <span className="mr-1">📊</span>
+                  <span>Token Usage:</span>
+                </span>
+                <span className="font-mono">
+                  {formatNumber(tokenUsage.input_tokens)} in • {formatNumber(tokenUsage.output_tokens)} out • {formatNumber(totalTokens)} total
+                </span>
+              </div>
+            </div>
+          );
+        }
+        
+        function TestApp() {
+          const testMessages = [
+            {
+              role: 'user',
+              content: 'Create a workflow to process emails'
+            },
+            {
+              role: 'assistant',
+              content: 'I\'ll help you create a workflow to process emails. Let me analyze your requirements and create the appropriate workflow nodes.',
+              tokenUsage: {
+                input_tokens: 125,
+                output_tokens: 89
+              }
+            },
+            {
+              role: 'assistant',
+              content: 'Here\'s a more complex workflow with multiple nodes for email processing, including filtering, categorization, and response generation.',
+              tokenUsage: {
+                input_tokens: 2150,
+                output_tokens: 1834
+              }
+            }
+          ];
+          
+          return (
+            <div>
+              <h1>Token Display Test</h1>
+              {testMessages.map((message, index) => (
+                <div key={index} className="message-container">
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    backgroundColor: message.role === 'user' ? '#3b82f6' : '#e5e7eb',
+                    color: message.role === 'user' ? 'white' : '#1f2937',
+                    marginBottom: '10px'
+                  }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                      {message.role === 'user' ? 'You' : 'Director'}
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>
+                      {message.content}
+                    </div>
+                    {message.role === 'assistant' && message.tokenUsage && (
+                      <TokenUsageComponent tokenUsage={message.tokenUsage} />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        
+        ReactDOM.render(<TestApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>

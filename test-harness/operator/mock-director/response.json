@@ -1,0 +1,954 @@
+{
+  "message": "I'll add group nodes that define ranges of the workflow for easy execution of logical sections.",
+  "groupDefinitions": {
+    "gmail_login": {
+      "groupId": "gmail_login",
+      "name": "Gmail Login Flow",
+      "description": "Handles Gmail authentication including 2FA check",
+      "parameters": ["email", "password"],
+      "nodes": [
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "type",
+            "selector": ["input[type='email']", "input[name='identifier']", "#identifierId"],
+            "text": "{{param.email}}"
+          },
+          "description": "Enter email address"
+        },
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "click",
+            "selector": ["#identifierNext", "text=/Next/i", "text=Next", "act:click the Next button"]
+          },
+          "description": "Click Next after email"
+        },
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "wait",
+            "duration": 2000
+          },
+          "description": "Wait for password page"
+        },
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "type",
+            "selector": ["input[type='password']", "input[name='password']", "#password input"],
+            "text": "{{param.password}}"
+          },
+          "description": "Enter password"
+        },
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "click",
+            "selector": ["#passwordNext", "text=/Next/i", "text=Next", "act:click the Next button"]
+          },
+          "description": "Click Next after password"
+        },
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "wait",
+            "duration": 3000
+          },
+          "description": "Wait for login to complete"
+        }
+      ]
+    },
+"airtable_google_auth": {
+      "groupId": "airtable_google_auth",
+      "name": "Airtable Google OAuth",
+      "description": "Handle Airtable login via Google OAuth",
+      "parameters": ["accountEmail"],
+      "nodes": [
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "click",
+            "selector": ["button[data-provider='google']", "div[data-provider='google'] button", "text=/Sign in with Google/i", "text=/Continue with Google/i", "act:click the Google sign-in button"]
+          },
+          "description": "Click Continue with Google"
+        },
+        {
+          "type": "browser_action",
+          "config": {
+            "action": "wait",
+            "duration": 2000
+          },
+          "description": "Wait for Google account chooser"
+        },
+        {
+          "type": "browser_query",
+          "config": {
+            "method": "extract",
+            "instruction": "Check if Google account chooser is shown",
+            "schema": {
+              "accountChooserVisible": "boolean"
+            }
+          },
+          "description": "Check for account chooser"
+        },
+        {
+          "type": "route",
+          "config": {
+            "value": "node93.accountChooserVisible",
+            "paths": {
+              "true": [
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "click",
+                    "selector": [
+                      "[data-identifier='{{param.accountEmail}}']",
+                      "text={{param.accountEmail}}",
+                      "act:click on the Gmail account for {{param.accountEmail}}"
+                    ]
+                  },
+                  "description": "Select Gmail account"
+                }
+              ],
+              "false": []
+            }
+          },
+          "description": "Handle account selection if needed"
+        }
+      ]
+    }
+  },
+  "toolCalls": [
+    {
+      "toolCallId": "mock_workflow_5",
+      "toolName": "create_workflow_sequence",
+      "result": {
+        "nodes": [
+          {
+            "type": "context",
+            "config": {
+              "operation": "set",
+              "key": "gmail_creds",
+              "value": {
+                "email": "michaelburner595@gmail.com",
+                "password": "dCdWqhgPzJev6Jz"
+              }
+            },
+            "description": "Store Gmail credentials securely"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "navigate",
+              "url": "https://mail.google.com"
+            },
+            "description": "Navigate to Gmail"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 2000
+            },
+            "description": "Wait for Gmail to load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Check if Gmail inbox is visible (user is already logged in) by looking for compose button or inbox messages",
+              "schema": {
+                "inboxVisible": "boolean"
+              }
+            },
+            "description": "Check if already logged into Gmail"
+          },
+          {
+            "type": "route",
+            "config": {
+              "value": "node4.inboxVisible",
+              "paths": {
+                "false": [
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "type",
+                      "selector": ["input[type='email']", "input[name='identifier']", "#identifierId"],
+                      "text": "{{gmail_creds.email}}"
+                    },
+                    "description": "Enter email address"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["#identifierNext", "text=/Next/i", "text=Next", "act:click the Next button"]
+                    },
+                    "description": "Click Next after email"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 2000
+                    },
+                    "description": "Wait for password page"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "type",
+                      "selector": ["input[type='password']", "input[name='password']", "#password input"],
+                      "text": "{{gmail_creds.password}}"
+                    },
+                    "description": "Enter password"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["#passwordNext", "text=/Next/i", "text=Next", "act:click the Next button"]
+                    },
+                    "description": "Click Next after password"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 3000
+                    },
+                    "description": "Wait for login to complete"
+                  }
+                ],
+                "true": []
+              }
+            },
+            "description": "Route based on Gmail login status"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Verify Gmail inbox is now visible and loaded",
+              "schema": {
+                "loginSuccess": "boolean"
+              }
+            },
+            "description": "Verify Gmail login success"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "openNewTab",
+              "url": "https://airtable.com/appTnT68Rt8yHIGV3",
+              "name": "airtable"
+            },
+            "description": "Open Airtable in new tab"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 3000
+            },
+            "description": "Wait for Airtable to load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Check if Airtable is showing a login screen with 'Continue with Google' button or if user is already logged in",
+              "schema": {
+                "needsLogin": "boolean"
+              }
+            },
+            "description": "Check Airtable login status"
+          },
+          {
+            "type": "route",
+            "config": {
+              "value": "node15.needsLogin",
+              "paths": {
+                "true": [
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["button[data-provider='google']", "div[data-provider='google'] button", "text=/Sign in with Google/i", "text=/Continue with Google/i", "act:click the Google sign-in button"]
+                    },
+                    "description": "Click Continue with Google"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 2000
+                    },
+                    "description": "Wait for Google account chooser"
+                  },
+                  {
+                    "type": "browser_query",
+                    "config": {
+                      "method": "extract",
+                      "instruction": "Check if Google account chooser is shown",
+                      "schema": {
+                        "accountChooserVisible": "boolean"
+                      }
+                    },
+                    "description": "Check for account chooser"
+                  },
+                  {
+                    "type": "route",
+                    "config": {
+                      "value": "node19.accountChooserVisible",
+                      "paths": {
+                        "true": [
+                          {
+                            "type": "browser_action",
+                            "config": {
+                              "action": "click",
+                              "selector": [
+                                "[data-identifier='michaelburner595@gmail.com']",
+                                "text=michaelburner595@gmail.com",
+                                "act:click on the Gmail account for michaelburner595@gmail.com"
+                              ]
+                            },
+                            "description": "Select Gmail account"
+                          }
+                        ],
+                        "false": []
+                      }
+                    },
+                    "description": "Handle account selection if needed"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "wait",
+                      "duration": 4000
+                    },
+                    "description": "Wait for Airtable to load after login"
+                  }
+                ],
+                "false": []
+              }
+            },
+            "description": "Route based on Airtable login status"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Extract all visible investor records from the Airtable grid. For each row, get the Name, Company, Email, Stage, Last Contact date, and any CSS selector to click on the record. Only extract actual data visible on screen.",
+              "schema": {
+                "investors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": "string",
+                      "company": "string",
+                      "email": "string",
+                      "stage": "string",
+                      "lastContact": "string",
+                      "selector": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Extract all visible investor records"
+          },
+          {
+            "type": "context",
+            "config": {
+              "operation": "set",
+              "key": "airtable_investors",
+              "value": "{{node23.investors}}"
+            },
+            "description": "Store Airtable investors in context"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "switchTab",
+              "tabName": "main"
+            },
+            "description": "Switch back to Gmail tab"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "act",
+              "instruction": "Click on the search bar and type 'after:2025/06/02 before:2025/06/03' to filter emails from June 2nd, 2025, then press Enter"
+            },
+            "description": "Filter emails to show only June 2nd"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 2000
+            },
+            "description": "Wait for search results to load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Extract all emails shown (filtered for June 2nd). For each email, get the sender name, sender email, subject, snippet of content, and a CSS selector to click on it. IMPORTANT: For Gmail email selectors, DO NOT use dynamic IDs with colons (like #:b5). Instead, use 'text:' prefix with the subject line (e.g., 'text:Re: Pitch Deck') or 'act:' prefix with natural language (e.g., 'act:click on email from Ben Thompson'). Only extract emails actually visible on the page.",
+              "schema": {
+                "emails": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "senderName": "string",
+                      "senderEmail": "string",
+                      "subject": "string",
+                      "snippet": "string",
+                      "date": "string",
+                      "selector": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Extract all emails from June 2nd"
+          },
+          {
+            "type": "iterate",
+            "config": {
+              "over": "node28.emails",
+              "variable": "email",
+              "body": [
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "click",
+                    "selector": "{{email.selector}}",
+                    "fallback": "click on the email with subject '{{email.subject}}' from {{email.senderName}}"
+                  },
+                  "description": "Click on email thread to open it"
+                },
+                {
+                  "type": "browser_action",
+                  "config": {
+                    "action": "wait",
+                    "duration": 3000
+                  },
+                  "description": "Wait for email content to fully load"
+                },
+                {
+                  "type": "browser_query",
+                  "config": {
+                    "method": "extract",
+                    "instruction": "Extract the full email content including sender name, sender email address, subject line, and complete body text. Also analyze if this email is investor-related (from VCs, funds, angels, or mentions investment/funding)",
+                    "schema": {
+                      "senderName": "string",
+                      "senderEmail": "string",
+                      "subject": "string",
+                      "bodyText": "string",
+                      "isInvestorRelated": "boolean",
+                      "investorCompany": "string",
+                      "investmentStage": "string"
+                    }
+                  },
+                  "description": "Extract email details and classify"
+                },
+                {
+                  "type": "route",
+                  "config": {
+                    "value": "node32.isInvestorRelated",
+                    "paths": {
+                      "false": [
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "back"
+                          },
+                          "description": "Use browser back to return to inbox"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "wait",
+                            "duration": 1500
+                          },
+                          "description": "Wait for inbox to reload"
+                        }
+                      ],
+                      "true": [
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "switchTab",
+                            "tabName": "airtable"
+                          },
+                          "description": "Switch to Airtable tab"
+                        },
+                        {
+                          "type": "cognition",
+                          "config": {
+                            "prompt": "Check if this investor exists in our Airtable records. Search by email ({{node32.senderEmail}}), company ({{node32.investorCompany}}), or name ({{node32.senderName}}). Return your answer ONLY as valid JSON matching this schema: {\"found\": boolean, \"matchField\": string, \"matchedInvestor\": object}.\n\nAirtable investors: {{airtable_investors}}",
+                            "output": "investorMatch",
+                            "schema": {
+                              "found": "boolean",
+                              "matchedInvestor": "object",
+                              "matchField": "string"
+                            }
+                          },
+                          "description": "Check if investor exists in Airtable"
+                        },
+                        {
+                          "type": "route",
+                          "config": {
+                            "value": "state.investorMatch.found",
+                            "paths": {
+                              "true": [
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "click",
+                                    "selector": "div[aria-label='Filter rows']",
+                                  "fallback": "click the Filter button in the toolbar"
+                                  },
+                                  "description": "Open filter panel"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 1500},
+                                  "description": "Wait for panel animation to complete"
+                                },
+                                {
+                                  "type": "browser_query",
+                                  "config": {
+                                    "method": "extract",
+                                    "instruction": "Check if the Airtable filter panel is open by verifying the presence of the 'Add condition' button (div[role='button']:has-text('Add condition')). Count how many 'Remove item' buttons are present and return their individual selectors. Only include buttons actually visible on screen.",
+                                    "schema": {
+                                      "panelOpen": "boolean",
+                                      "existingFilterCount": "number",
+                                      "removeButtons": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "description": "Check panel state and existing filters"
+                                },
+                                {
+                                  "type": "route",
+                                  "config": {
+                                    "value": "node41.existingFilterCount",
+                                    "paths": {
+                                      "0": [],
+                                      "default": [
+                                        {
+                                          "type": "iterate",
+                                          "config": {
+                                            "over": "node41.removeButtons",
+                                            "variable": "btnSelector",
+                                            "body": {
+                                              "type": "browser_action",
+                                              "config": {
+                                                "action": "click",
+                                                "selector": "{{btnSelector}}",
+                                                "fallback": "click on the filter remove button"
+                                              },
+                                              "description": "Remove existing filter"
+                                            }
+                                          },
+                                          "description": "Clear all existing filters individually using exact selectors"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 1200},
+                                          "description": "Wait for filters to clear"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "description": "Clear existing filters if present"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "click",
+                                    "selector": ["div[role='button'][aria-label='Add condition']", "text=Add condition", "act:click the Add condition button"]
+                                  },
+                                  "description": "Click Add condition button"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 1000},
+                                  "description": "Wait for condition form"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "click",
+                                    "selector": "div[role='button'][aria-haspopup='menu']"
+                                  },
+                                  "description": "Click field dropdown"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 1000},
+                                  "description": "Wait for dropdown"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "click",
+                                    "selector": ["div[role='button'][aria-label='Email']", "text=Email", "act:click on Email option in the dropdown"]
+                                  },
+                                  "description": "Select Email field"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 1000},
+                                  "description": "Wait for field selection"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "type",
+                                    "selector": "input[aria-label='Filter comparison value']",
+                                    "text": "{{node32.senderEmail}}"
+                                  },
+                                  "description": "Type email value (scout-verified selector)"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 3000},
+                                  "description": "Wait for filter to apply and grid to refresh"
+                                },
+                                {
+                                  "type": "browser_query",
+                                  "config": {
+                                    "method": "extract",
+                                    "instruction": "Extract a CSS selector for the first visible record row in the grid view. Use 'text:' prefix with the investor name or 'act:' prefix. Only extract data actually visible. Return empty string if no rows are visible.",
+                                    "schema": {
+                                      "rowSelector": "string",
+                                      "rowCount": "number"
+                                    }
+                                  },
+                                  "description": "Get selector for filtered investor row"
+                                },
+                                {
+                                  "type": "route",
+                                  "config": {
+                                    "value": "node51.rowCount",
+                                    "paths": {
+                                      "0": [
+                                        {
+                                          "type": "agent",
+                                          "config": {
+                                            "task": "The Email filter for '{{node32.senderEmail}}' didn't return any results. Clear any existing filters and apply a new filter with Email contains '{{node32.senderEmail}}'. Ensure exactly one filter is active and the grid shows the matching investor record."
+                                          },
+                                          "description": "Agent fallback to fix filtering"
+                                        }
+                                      ],
+                                      "default": [
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "div[data-rowindex='0']",
+                                            "fallback": "click the first filtered record"
+                                          },
+                                          "description": "Click on investor record"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 3500},
+                                          "description": "Wait for modal to fully load"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "//div[text()='Last Contact']/following-sibling::div//input",
+                                            "fallback": "click on the Last Contact date field"
+                                          },
+                                          "description": "Click to open date picker"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 1500},
+                                          "description": "Wait for date picker to open"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": ["button:has-text('Today')", "text=Today", "act:click the Today button in the date picker"]
+                                          },
+                                          "description": "Click Today button in date picker"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 2000},
+                                          "description": "Wait for date to be set"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "//div[text()='Notes']/following-sibling::div//div[@contenteditable='true']",
+                                            "fallback": "click on the Notes rich text field"
+                                          },
+                                          "description": "Click into Notes field"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "keypress",
+                                            "key": "End"
+                                          },
+                                          "description": "Move cursor to end of existing notes"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "type",
+                                            "text": "\n\n[2025-06-02] Email: {{node32.subject}}"
+                                          },
+                                          "description": "Type new note entry"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "div[role='dialog']",
+                                            "fallback": "click somewhere in the modal to trigger save"
+                                          },
+                                          "description": "Click outside field to trigger auto-save"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 3000},
+                                          "description": "Wait for auto-save to complete"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "div[aria-label='Close']",
+                                            "fallback": "click the X button to close the modal"
+                                          },
+                                          "description": "Close record modal (scout-verified selector)"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 2000},
+                                          "description": "Wait for modal to close"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "div[aria-label='Filter rows']"
+                                          },
+                                          "description": "Reopen filter panel for cleanup"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 1500},
+                                          "description": "Wait for panel"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "click",
+                                            "selector": "div[role='button'][aria-label^='Remove item']"
+                                          },
+                                          "description": "Remove the email filter"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {"action": "wait", "duration": 2000},
+                                          "description": "Wait for filter removal"
+                                        },
+                                        {
+                                          "type": "browser_action",
+                                          "config": {
+                                            "action": "keypress",
+                                            "key": "Escape"
+                                          },
+                                          "description": "Close filter panel"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "description": "Route based on filter results"
+                                }
+                              ],
+                              "false": [
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "click",
+                                    "selector": ["button[aria-label='Add record']", "[data-tutorial-selector-id='gridView-addRecordButton']", ".addRecordButton"]
+                                  },
+                                  "description": "Click + to add record"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 1500},
+                                  "description": "Wait for new record form"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "type",
+                                    "selector": ["input[placeholder='Name']", ".cell-edit input"],
+                                    "text": "{{node32.senderName}}"
+                                  },
+                                  "description": "Enter name"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "keypress", "key": "Tab"},
+                                  "description": "Tab to company"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "type", "text": "{{node32.investorCompany}}"},
+                                  "description": "Enter company"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "keypress", "key": "Tab"},
+                                  "description": "Tab to email"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "type", "text": "{{node32.senderEmail}}"},
+                                  "description": "Enter email"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "keypress", "key": "Tab"},
+                                  "description": "Tab to stage"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "type", "text": "Lead"},
+                                  "description": "Set stage"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "keypress", "key": "Tab"},
+                                  "description": "Tab to last contact"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "type", "text": "06/02/2025"},
+                                  "description": "Enter date"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "keypress", "key": "Tab"},
+                                  "description": "Tab to notes"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {
+                                    "action": "type",
+                                    "text": "[2025-06-02] Initial contact: {{node32.subject}}"
+                                  },
+                                  "description": "Enter notes"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "keypress", "key": "Enter"},
+                                  "description": "Save record"
+                                },
+                                {
+                                  "type": "browser_action",
+                                  "config": {"action": "wait", "duration": 1500},
+                                  "description": "Wait for save"
+                                }
+                              ]
+                            }
+                          },
+                          "description": "Update or create investor record"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "switchTab",
+                            "tabName": "main"
+                          },
+                          "description": "Switch back to Gmail"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "back"
+                          },
+                          "description": "Return to inbox"
+                        },
+                        {
+                          "type": "browser_action",
+                          "config": {
+                            "action": "wait",
+                            "duration": 1500
+                          },
+                          "description": "Wait for inbox"
+                        }
+                      ]
+                    }
+                  },
+                  "description": "Route based on investor classification"
+                }
+              ],
+              "continueOnError": true
+            },
+            "description": "Process each email from June 2nd"
+          },
+          {
+            "type": "context",
+            "config": {
+              "operation": "set",
+              "key": "workflow_complete",
+              "value": true
+            },
+            "description": "Mark workflow as complete"
+          },
+          {
+            "type": "group",
+            "config": {
+              "nodeRange": "1-28",
+              "name": "Setup Phase",
+              "continueOnError": true
+            },
+            "description": "Gmail & Airtable setup and email extraction"
+          },
+          {
+            "type": "group",
+            "config": {
+              "nodeRange": "29-29",
+              "name": "Email Processing",
+              "continueOnError": true
+            },
+            "description": "Process each email and update Airtable"
+          },
+          {
+            "type": "group",
+            "config": {
+              "nodeRange": "1-10",
+              "name": "Gmail Login Only",
+              "continueOnError": false
+            },
+            "description": "Just the Gmail login portion"
+          }
+        ]
+      }
+    }
+  ]
+}

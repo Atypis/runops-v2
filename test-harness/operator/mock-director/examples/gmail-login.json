@@ -1,0 +1,81 @@
+{
+  "message": "I'll create a Gmail login workflow for you. Let me set up the credentials storage and navigation steps.",
+  "toolCalls": [
+    {
+      "toolCallId": "mock_gmail_1",
+      "toolName": "create_workflow_sequence",
+      "result": {
+        "nodes": [
+          {
+            "type": "context",
+            "config": {
+              "operation": "set",
+              "key": "gmail_creds",
+              "value": {
+                "email": "{{GMAIL_EMAIL}}",
+                "password": "{{GMAIL_PASSWORD}}"
+              }
+            },
+            "description": "Store Gmail credentials"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "navigate",
+              "url": "https://mail.google.com"
+            },
+            "description": "Navigate to Gmail"
+          },
+          {
+            "type": "browser_action",
+            "config": {
+              "action": "wait",
+              "duration": 2000
+            },
+            "description": "Wait for page load"
+          },
+          {
+            "type": "browser_query",
+            "config": {
+              "method": "extract",
+              "instruction": "Check if the Gmail inbox is visible (user is already logged in)",
+              "schema": {
+                "inboxVisible": "boolean"
+              }
+            },
+            "description": "Check if already logged in"
+          },
+          {
+            "type": "route",
+            "config": {
+              "value": "node4.inboxVisible",
+              "paths": {
+                "false": [
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "type",
+                      "selector": "input[type='email']",
+                      "text": "{{gmail_creds.email}}"
+                    },
+                    "description": "Enter email"
+                  },
+                  {
+                    "type": "browser_action",
+                    "config": {
+                      "action": "click",
+                      "selector": ["#identifierNext", "button:contains('Next')"]
+                    },
+                    "description": "Click Next"
+                  }
+                ],
+                "true": []
+              }
+            },
+            "description": "Route based on login status"
+          }
+        ]
+      }
+    }
+  ]
+}

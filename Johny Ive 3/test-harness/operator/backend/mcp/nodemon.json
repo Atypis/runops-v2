@@ -1,0 +1,24 @@
+{
+  "watch": [
+    "../services/",
+    "../tools/",
+    "../config/",
+    "../prompts/"
+  ],
+  "ext": "js,json",
+  "ignore": [
+    "*.test.js",
+    "temp/",
+    "logs/"
+  ],
+  "exec": "node server.js",
+  "env": {
+    "NODE_ENV": "development",
+    "HOT_RELOAD": "true"
+  },
+  "signal": "SIGUSR2",
+  "stdout": true,
+  "events": {
+    "restart": "echo 'MCP Server restarting due to changes...'"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "watch": ["backend/**"],
+  "ext": "js,mjs,json",
+  "ignore": ["backend/services/stagehand/**", "mock-director/**", "frontend/**", "tmp/**", "node_modules/**"],
+  "signal": "SIGUSR2"
+}

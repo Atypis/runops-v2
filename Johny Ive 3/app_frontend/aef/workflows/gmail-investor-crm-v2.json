@@ -1,0 +1,813 @@
+{
+  "meta": {
+    "id": "gmail-investor-crm-v2",
+    "title": "Gmail Investor CRM Workflow (Bulletproof v2.0)",
+    "version": "2.0.0",
+    "goal": "Extract investor information from emails and add to CRM with 90%+ reliability",
+    "purpose": "Bulletproof automated workflow for processing investor inquiries from Gmail into Airtable CRM with comprehensive error handling, idempotency, and decision branching",
+    "owner": ["aef-dev-team"],
+    "created": "2025-01-15T00:00:00Z",
+    "updated": "2025-01-15T00:00:00Z",
+    "aiGenerated": false,
+    "tags": ["gmail", "airtable", "crm", "investor", "automation", "bulletproof"]
+  },
+  "execution": {
+    "environment": {
+      "required_tabs": [
+        { "name": "Gmail", "url": "https://mail.google.com/mail/u/0/#inbox" },
+        { "name": "Airtable CRM", "url": "https://airtable.com/appXXX/tblYYY/viwZZZ" }
+      ]
+    },
+    "workflow": {
+      "nodes": [
+        {
+          "id": "gmail_auth_flow",
+          "type": "compound_task",
+          "label": "Gmail Authentication Flow",
+          "intent": "Complete Gmail authentication with 2FA and account chooser handling",
+          "context": "Bulletproof authentication flow with decision branches for various login scenarios",
+          "children": ["navigate_to_gmail", "check_account_chooser", "enter_email", "click_next_email", "check_2fa", "enter_password", "click_next_password", "verify_login_success"],
+          "canExecuteAsGroup": true,
+          "credentialsRequired": {
+            "gmail": ["email", "password"]
+          },
+          "preferredAuthMethods": {
+            "gmail": ["email_password", "google_sso"]
+          },
+          "actions": [],
+          "retryPolicy": {
+            "max": 2,
+            "backoffMs": [0, 5000],
+            "circuitBreaker": true
+          }
+        },
+        {
+          "id": "navigate_to_gmail",
+          "type": "atomic_task",
+          "label": "Navigate to Gmail Login",
+          "intent": "Navigate to the Gmail login page",
+          "context": "Direct navigation to Google accounts login page for Gmail service",
+          "parentId": "gmail_auth_flow",
+          "actions": [
+            {
+              "type": "navigate",
+              "instruction": "Navigate to Gmail login page",
+              "target": { "url": "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com" },
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "check_account_chooser",
+          "type": "decision",
+          "label": "Check Account Chooser Present",
+          "intent": "Determine if Google account chooser is displayed",
+          "context": "Decision node to handle multi-account scenarios",
+          "parentId": "gmail_auth_flow",
+          "conditionSchema": {
+            "type": "object",
+            "properties": {
+              "accountChooserPresent": { "type": "boolean" }
+            }
+          },
+          "outboundEdges": {
+            "Y": "handle_account_chooser",
+            "N": "enter_email"
+          },
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Check if account chooser is present on the page",
+              "schema": {
+                "accountChooserPresent": "boolean"
+              },
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "id": "handle_account_chooser",
+          "type": "atomic_task",
+          "label": "Handle Account Chooser",
+          "intent": "Select the correct account from chooser",
+          "context": "Click on the target Gmail account or 'Use another account'",
+          "parentId": "gmail_auth_flow",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click on the account {{gmail_email}} or 'Use another account' if not visible",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "enter_email",
+          "type": "atomic_task",
+          "label": "Enter Email Address",
+          "intent": "Input the Gmail email address",
+          "context": "Type email address using credential substitution",
+          "parentId": "gmail_auth_flow",
+          "credentialsRequired": {
+            "gmail": ["email"]
+          },
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Type {{gmail_email}} into the email address field",
+              "data": { "email": "{{gmail_email}}" },
+              "credentialField": "gmail_email",
+              "useVision": "fallback",
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "click_next_email",
+          "type": "atomic_task",
+          "label": "Click Next After Email",
+          "intent": "Click Next button to proceed to password step",
+          "context": "Click Next button with navigation wait",
+          "parentId": "gmail_auth_flow",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the Next button",
+              "useVision": "fallback",
+              "timeout": 8000
+            },
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for password screen to load",
+              "target": { "url_contains": "signin/v2/sl/pwd" },
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "check_2fa",
+          "type": "decision",
+          "label": "Check 2FA Required",
+          "intent": "Determine if 2FA verification is required",
+          "context": "Decision node to handle 2FA scenarios",
+          "parentId": "gmail_auth_flow",
+          "conditionSchema": {
+            "type": "object",
+            "properties": {
+              "twoFactorRequired": { "type": "boolean" }
+            }
+          },
+          "outboundEdges": {
+            "Y": "handle_2fa",
+            "N": "enter_password"
+          },
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Check if 2FA verification is required (OTP, SMS, authenticator prompts)",
+              "schema": {
+                "twoFactorRequired": "boolean"
+              },
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "id": "handle_2fa",
+          "type": "error_handler",
+          "label": "Handle 2FA Verification",
+          "intent": "Handle 2FA verification or escalate to human",
+          "context": "Pause execution and notify human for 2FA completion",
+          "parentId": "gmail_auth_flow",
+          "humanEscalate": true,
+          "fallbackAction": "pause_for_human_2fa",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Wait for human to complete 2FA verification or handle automatically if possible",
+              "timeout": 60000
+            }
+          ]
+        },
+        {
+          "id": "enter_password",
+          "type": "atomic_task",
+          "label": "Enter Password",
+          "intent": "Input the Gmail password",
+          "context": "Type password using credential substitution",
+          "parentId": "gmail_auth_flow",
+          "credentialsRequired": {
+            "gmail": ["password"]
+          },
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Type {{gmail_password}} into the password field",
+              "data": { "password": "{{gmail_password}}" },
+              "credentialField": "gmail_password",
+              "useVision": "fallback",
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "click_next_password",
+          "type": "atomic_task",
+          "label": "Click Sign In Button",
+          "intent": "Click Sign In button to complete login",
+          "context": "Click Sign In button to complete authentication",
+          "parentId": "gmail_auth_flow",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the Next or Sign in button to complete login",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "verify_login_success",
+          "type": "assert",
+          "label": "Verify Login Success",
+          "intent": "Assert successful login to Gmail inbox",
+          "context": "Verify we reached Gmail inbox successfully",
+          "parentId": "gmail_auth_flow",
+          "assertConditions": [
+            {
+              "type": "urlMatch",
+              "value": "mail.google.com/mail"
+            }
+          ],
+          "actions": [
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for Gmail inbox to load",
+              "target": { "url_contains": "mail.google.com/mail" },
+              "timeout": 15000
+            }
+          ]
+        },
+        {
+          "id": "gmail_search_today",
+          "type": "atomic_task",
+          "label": "Search June 2nd Test Emails",
+          "intent": "Search for emails received on June 2nd (test dataset)",
+          "context": "Use Gmail search with date filter to find June 2nd test emails",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the Gmail search mail textbox",
+              "useVision": "fallback",
+              "timeout": 5000
+            },
+            {
+              "type": "type",
+              "instruction": "Enter date filter",
+              "target": { "selector": "input[aria-label='Search mail']" },
+              "data": { "text": "after:2025/06/01 before:2025/06/03" },
+              "timeout": 7000
+            },
+            {
+              "type": "act",
+              "instruction": "Press Enter to execute the search",
+              "useVision": "fallback",
+              "timeout": 5000
+            },
+            {
+              "type": "wait_for_navigation",
+              "instruction": "Wait for Gmail to load search results",
+              "target": { "url_contains": "#search" },
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "extract_email_candidates",
+          "type": "atomic_task", 
+          "label": "Extract Email Candidates",
+          "intent": "Extract list of email thread IDs and metadata for processing",
+          "context": "Use Stagehand extract to get structured list of emails from Gmail search results",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Extract all visible email threads from the Gmail search results. For each email, extract: threadId (if visible, otherwise empty string), subject, sender, snippet, and date. Return as a clean JSON array of email objects.",
+              "schema": {
+                "emails": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "threadId": {"type": "string"},
+                      "subject": {"type": "string"},
+                      "sender": {"type": "string"},
+                      "snippet": {"type": "string"},
+                      "date": {"type": "string"}
+                    }
+                  }
+                }
+              },
+              "timeout": 30000
+            }
+          ]
+        },
+        {
+          "id": "filter_investor_emails",
+          "type": "llm_call",
+          "label": "Filter Investor Emails",
+          "intent": "Filter email candidates to only investor-related emails",
+          "context": "Apply investor detection logic to filter relevant emails",
+          "inputKey": "extract_email_candidates.emails",
+          "outputKey": "investorQueueMask",
+          "outputSchema": { "type": "array", "items": { "type": "boolean" } },
+          "model": "gpt-4o-mini",
+          "promptTemplate": "You are an email classification system. I will provide you with an array of email objects. Each email has properties like 'subject', 'sender', and 'snippet'.\n\nYour task: Return a JSON boolean array of EXACTLY the same length as the input array. Each boolean indicates whether that email is investor-related.\n\nAn email is investor-related if it contains content about:\n- Investment, funding, capital, or venture activities\n- Business partnerships or collaboration opportunities\n- Due diligence, meetings, or discussions with financial stakeholders\n- Investment firms, VCs, funds, or financial institutions\n\nEXAMPLE:\nInput: [{\"subject\":\"Weekly Newsletter\",\"sender\":\"Company Updates\"},{\"subject\":\"Series A Discussion\",\"sender\":\"Venture Capital LLC\"}]\nOutput: [false, true]\n\nIMPORTANT:\n1. Return ONLY a JSON array of booleans\n2. Array length must EXACTLY match input length\n3. No explanations, just the array\n4. Format: [true, false, true, false]\n\nInput emails:\n{{input}}",
+          "settings": {
+            "temperature": 1
+          },
+          "actions": []
+        },
+        {
+          "id": "apply_filter_results",
+          "type": "data_transform",
+          "label": "Apply Filter Results",
+          "intent": "Filter the email array based on LLM boolean mask and output only investor emails",
+          "transformFunction": "function(data) { const emails = data.extract_email_candidates?.emails || []; const mask = data.investorQueueMask || []; if (!Array.isArray(emails) || !Array.isArray(mask) || emails.length !== mask.length) { return { filteredEmails: emails }; } return { filteredEmails: emails.filter((e, i) => mask[i] === true) }; }"
+        },
+        {
+          "id": "email_processing_loop",
+          "type": "list_iterator",
+          "label": "Process Each Investor Email",
+          "intent": "Process each filtered investor email with full error handling",
+          "context": "Main processing loop with circuit breaker and memory management",
+          "children": [
+            "assert_email_unprocessed",
+            "select_email",
+            "extract_investor_info",
+            "data_transform_normalize",
+            "open_airtable",
+            "search_existing_record",
+            "decide_record_exists",
+            "update_existing_record",
+            "create_new_record",
+            "label_email_processed",
+            "assert_processing_complete",
+            "clear_memory"
+          ],
+          "iteratorConfig": {
+            "listVariable": "apply_filter_results_transformed_data.filteredEmails",
+            "itemVariable": "currentItem",
+            "indexVariable": "emailIndex",
+            "continueOnError": true,
+            "maxIterations": 1000
+          },
+          "retryPolicy": {
+            "max": 5,
+            "backoffMs": [0, 2000, 5000, 10000, 20000],
+            "circuitBreaker": true
+          }
+        },
+        {
+          "id": "assert_email_unprocessed",
+          "type": "assert",
+          "label": "Assert Email Unprocessed",
+          "intent": "Verify email doesn't have AEF-Processed label",
+          "context": "Idempotency check to prevent double processing",
+          "parentId": "email_processing_loop",
+          "assertConditions": [
+            {
+              "type": "textPresent",
+              "value": "AEF-Processed"
+            }
+          ],
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Check if email has AEF-Processed label",
+              "schema": {
+                "hasProcessedLabel": "boolean"
+              }
+            }
+          ]
+        },
+        {
+          "id": "select_email",
+          "type": "atomic_task",
+          "label": "Select Email Thread",
+          "intent": "Click on email thread to open it",
+          "context": "Open email thread for content extraction",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click on the current email thread to open it",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "extract_investor_info",
+          "type": "atomic_task",
+          "label": "Extract Investor Information",
+          "intent": "Extract structured investor data from email content",
+          "context": "Parse email content for investor details with minimal schema",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Extract investor information from email content",
+              "schema": {
+                "name": "string",
+                "company": "string",
+                "email": "string",
+                "phone": "string",
+                "investment_focus": "string"
+              },
+              "useVision": "fallback",
+              "timeout": 15000
+            }
+          ]
+        },
+        {
+          "id": "data_transform_normalize",
+          "type": "data_transform",
+          "label": "Normalize Investor Data",
+          "intent": "Clean and normalize extracted investor data",
+          "context": "Apply data cleaning rules and generate deduplication hash",
+          "parentId": "email_processing_loop",
+          "transformFunction": "data => { const extracted = data.extract_investor_info || {}; return { ...data, normalized_investor: { name: extracted.name, company: extracted.company, email: extracted.email?.toLowerCase(), phone: extracted.phone?.replace(/[^0-9]/g, ''), investment_focus: extracted.investment_focus, hash: btoa((extracted.name || '') + (extracted.email || '')).slice(0, 16) } }; }",
+          "actions": []
+        },
+        {
+          "id": "open_airtable",
+          "type": "atomic_task",
+          "label": "Open Airtable CRM",
+          "intent": "Navigate to Airtable CRM base",
+          "context": "Switch to or open Airtable CRM with authentication handling",
+          "parentId": "email_processing_loop",
+          "credentialsRequired": {
+            "airtable": ["api_key", "base_id"]
+          },
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Navigate to Airtable CRM base",
+              "target": { "url": "https://airtable.com/{{airtable_base_id}}" },
+              "credentialField": "airtable_base_id",
+              "timeout": 10000
+            },
+            {
+              "type": "act",
+              "instruction": "Handle Airtable authentication if prompted",
+              "data": { "api_key": "{{airtable_api_key}}" },
+              "credentialField": "airtable_api_key"
+            }
+          ]
+        },
+        {
+          "id": "search_existing_record",
+          "type": "atomic_task",
+          "label": "Search Existing Record",
+          "intent": "Search for existing investor record in Airtable",
+          "context": "Use Airtable search to find existing records by name or email",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Search for existing investor record by name or email",
+              "data": {
+                "searchFields": ["name", "email"],
+                "searchValue": "{{normalized_investor.name}}"
+              },
+              "timeout": 10000
+            }
+          ]
+        },
+        {
+          "id": "decide_record_exists",
+          "type": "decision",
+          "label": "Record Exists Decision",
+          "intent": "Determine if investor record already exists",
+          "context": "Branch execution based on search results",
+          "parentId": "email_processing_loop",
+          "conditionSchema": {
+            "type": "object",
+            "properties": {
+              "recordExists": { "type": "boolean" }
+            }
+          },
+          "outboundEdges": {
+            "Y": "update_existing_record",
+            "N": "create_new_record"
+          },
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Check if search returned any matching records",
+              "schema": {
+                "recordExists": "boolean"
+              }
+            }
+          ]
+        },
+        {
+          "id": "update_existing_record",
+          "type": "compound_task",
+          "label": "Update Existing Record",
+          "intent": "Update existing investor record with new interaction",
+          "context": "Update last interaction date and notes",
+          "parentId": "email_processing_loop",
+          "children": ["open_record_modal", "update_interaction_date", "generate_thread_summary", "update_notes", "close_record_modal"],
+          "actions": []
+        },
+        {
+          "id": "create_new_record",
+          "type": "compound_task",
+          "label": "Create New Record",
+          "intent": "Create new investor record in Airtable",
+          "context": "Populate all fields for new investor",
+          "parentId": "email_processing_loop",
+          "children": ["open_new_record_modal", "populate_investor_fields", "generate_thread_summary", "set_follow_up", "close_record_modal"],
+          "actions": []
+        },
+        {
+          "id": "open_record_modal",
+          "type": "atomic_task",
+          "label": "Open Record Modal",
+          "intent": "Open existing record for editing",
+          "context": "Click expand icon on existing record",
+          "parentId": "update_existing_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the expand icon on the existing investor record",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "update_interaction_date",
+          "type": "atomic_task",
+          "label": "Update Last Interaction Date",
+          "intent": "Set last interaction date to today",
+          "context": "Update the last interaction date field",
+          "parentId": "update_existing_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click on Last Interaction date field and set to today's date",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "generate_thread_summary",
+          "type": "generator",
+          "label": "Generate Thread Summary",
+          "intent": "Generate concise summary of email thread",
+          "context": "Use LLM to create 2-line summary for notes field",
+          "parentId": "update_existing_record",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Generate a concise 2-line summary of the email thread for CRM notes",
+              "schema": {
+                "threadSummary": "string"
+              }
+            }
+          ]
+        },
+        {
+          "id": "update_notes",
+          "type": "atomic_task",
+          "label": "Update Thread Notes",
+          "intent": "Add generated summary to notes field",
+          "context": "Append new summary to existing notes",
+          "parentId": "update_existing_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Add the generated thread summary to the Thread Summary / Notes field",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "close_record_modal",
+          "type": "atomic_task",
+          "label": "Close Record Modal",
+          "intent": "Save and close the record modal",
+          "context": "Click X to close modal and save changes",
+          "parentId": "update_existing_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the X button to close the record modal",
+              "useVision": "fallback",
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "id": "open_new_record_modal",
+          "type": "atomic_task",
+          "label": "Open New Record Modal",
+          "intent": "Open modal to create new record",
+          "context": "Click add record button or empty row",
+          "parentId": "create_new_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Click the Add Record button or expand icon on empty row",
+              "useVision": "fallback",
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "populate_investor_fields",
+          "type": "atomic_task",
+          "label": "Populate Investor Fields",
+          "intent": "Fill in all investor information fields",
+          "context": "Enter normalized investor data into form fields",
+          "parentId": "create_new_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Fill in Investor Name field with {{normalized_investor.name}}",
+              "useVision": "fallback",
+              "timeout": 5000
+            },
+            {
+              "type": "act",
+              "instruction": "Fill in Email field with {{normalized_investor.email}}",
+              "useVision": "fallback",
+              "timeout": 5000
+            },
+            {
+              "type": "act",
+              "instruction": "Fill in Company field with {{normalized_investor.company}}",
+              "useVision": "fallback",
+              "timeout": 5000
+            },
+            {
+              "type": "act",
+              "instruction": "Fill in Phone field with {{normalized_investor.phone}}",
+              "useVision": "fallback",
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "id": "set_follow_up",
+          "type": "atomic_task",
+          "label": "Set Follow-up Required",
+          "intent": "Check follow-up needed checkbox",
+          "context": "Mark record as requiring follow-up",
+          "parentId": "create_new_record",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Check the Follow-up Needed checkbox",
+              "useVision": "fallback",
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "id": "label_email_processed",
+          "type": "atomic_task",
+          "label": "Label Email as Processed",
+          "intent": "Add AEF-Processed label to email for idempotency",
+          "context": "Return to Gmail and add processing label",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "navigate_or_switch_tab",
+              "instruction": "Switch back to Gmail tab",
+              "target": { "url": "https://mail.google.com" },
+              "timeout": 5000
+            },
+            {
+              "type": "act",
+              "instruction": "Add AEF-Processed label to current email",
+              "data": { "label": "AEF-Processed" },
+              "timeout": 8000
+            }
+          ]
+        },
+        {
+          "id": "assert_processing_complete",
+          "type": "assert",
+          "label": "Assert Processing Complete",
+          "intent": "Verify email was successfully labeled",
+          "context": "Final verification that processing completed",
+          "parentId": "email_processing_loop",
+          "assertConditions": [
+            {
+              "type": "textPresent",
+              "value": "AEF-Processed"
+            }
+          ],
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Verify AEF-Processed label is present on email",
+              "schema": {
+                "labelPresent": "boolean"
+              }
+            }
+          ]
+        },
+        {
+          "id": "clear_memory",
+          "type": "atomic_task",
+          "label": "Clear Stagehand Memory",
+          "intent": "Clear LLM conversation memory for next iteration",
+          "context": "Reset memory to prevent token bloat",
+          "parentId": "email_processing_loop",
+          "actions": [
+            {
+              "type": "clear_memory",
+              "instruction": "Clear Stagehand conversation memory",
+              "timeout": 1000
+            }
+          ]
+        },
+
+        {
+          "id": "final_summary",
+          "type": "generator",
+          "label": "Generate Final Summary",
+          "intent": "Generate execution summary report",
+          "context": "Create summary of processing results",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Generate summary of emails processed, records created/updated, and any errors",
+              "schema": {
+                "emailsProcessed": "number",
+                "recordsCreated": "number",
+                "recordsUpdated": "number",
+                "errors": "array"
+              }
+            }
+          ]
+        }
+      ],
+      "flow": [
+        { "from": "gmail_auth_flow", "to": "gmail_search_today" },
+        { "from": "navigate_to_gmail", "to": "check_account_chooser" },
+        { "from": "check_account_chooser", "to": "handle_account_chooser", "condition": "Y" },
+        { "from": "check_account_chooser", "to": "enter_email", "condition": "N" },
+        { "from": "handle_account_chooser", "to": "enter_email" },
+        { "from": "enter_email", "to": "click_next_email" },
+        { "from": "click_next_email", "to": "check_2fa" },
+        { "from": "check_2fa", "to": "handle_2fa", "condition": "Y" },
+        { "from": "check_2fa", "to": "enter_password", "condition": "N" },
+        { "from": "handle_2fa", "to": "enter_password" },
+        { "from": "enter_password", "to": "click_next_password" },
+        { "from": "click_next_password", "to": "verify_login_success" },
+        { "from": "gmail_search_today", "to": "extract_email_candidates" },
+        { "from": "extract_email_candidates", "to": "filter_investor_emails" },
+        { "from": "filter_investor_emails", "to": "apply_filter_results" },
+        { "from": "apply_filter_results", "to": "email_processing_loop" },
+        { "from": "email_processing_loop", "to": "assert_email_unprocessed" },
+        { "from": "assert_email_unprocessed", "to": "select_email" },
+        { "from": "select_email", "to": "extract_investor_info" },
+        { "from": "extract_investor_info", "to": "data_transform_normalize" },
+        { "from": "data_transform_normalize", "to": "open_airtable" },
+        { "from": "open_airtable", "to": "search_existing_record" },
+        { "from": "search_existing_record", "to": "decide_record_exists" },
+        { "from": "decide_record_exists", "to": "update_existing_record", "condition": "Y" },
+        { "from": "decide_record_exists", "to": "create_new_record", "condition": "N" },
+        { "from": "update_existing_record", "to": "label_email_processed" },
+        { "from": "create_new_record", "to": "label_email_processed" },
+        { "from": "open_record_modal", "to": "update_interaction_date" },
+        { "from": "update_interaction_date", "to": "generate_thread_summary" },
+        { "from": "generate_thread_summary", "to": "update_notes" },
+        { "from": "update_notes", "to": "close_record_modal" },
+        { "from": "open_new_record_modal", "to": "populate_investor_fields" },
+        { "from": "populate_investor_fields", "to": "generate_thread_summary" },
+        { "from": "generate_thread_summary", "to": "set_follow_up" },
+        { "from": "set_follow_up", "to": "close_record_modal" },
+        { "from": "label_email_processed", "to": "assert_processing_complete" },
+        { "from": "assert_processing_complete", "to": "clear_memory" },
+        { "from": "email_processing_loop", "to": "final_summary" }
+      ]
+    }
+  },
+  "config": {
+    "executionTimeout": 3600,
+    "retryAttempts": 3,
+    "hybridMode": true,
+    "pauseOnErrors": false,
+    "circuitBreakerThreshold": 5,
+    "memoryManagement": true,
+    "idempotencyEnabled": true
+  }
+} 

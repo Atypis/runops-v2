@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TigerVNC Dynamic Resolution Test</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .vnc-container {
+            border: 2px solid #333;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 20px 0;
+            position: relative;
+        }
+        .vnc-frame {
+            width: 100%;
+            height: 800px;
+            border: none;
+            display: block;
+        }
+        .info {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .test-controls {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+        .controls button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #4caf50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .controls button:hover {
+            background: #45a049;
+        }
+        .status {
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 TigerVNC Dynamic Resolution Test</h1>
+        
+        <div class="info">
+            <h3>✨ Testing TigerVNC + noVNC Remote Resize</h3>
+            <p><strong>Container:</strong> aef-browser-tigervnc-test</p>
+            <p><strong>Expected Behavior:</strong> VNC content should automatically resize to match the browser window without mouse coordinate issues!</p>
+            <p><strong>Technology:</strong> TigerVNC ExtendedDesktopSize + noVNC remote resize mode</p>
+        </div>
+
+        <div class="test-controls">
+            <h3>🧪 Test Scenarios</h3>
+            <div class="controls">
+                <button onclick="resizeFrame(800, 600)">📱 Small (800x600)</button>
+                <button onclick="resizeFrame(1024, 768)">💻 Medium (1024x768)</button>
+                <button onclick="resizeFrame(1280, 720)">🖥️ Large (1280x720)</button>
+                <button onclick="resizeFrame(1920, 1080)">📺 XL (1920x1080)</button>
+                <button onclick="toggleFullscreen()">🔍 Toggle Fullscreen</button>
+            </div>
+            <div class="status" id="status">
+                Ready to test! Try resizing the browser window or use the buttons above.
+            </div>
+        </div>
+
+        <div class="vnc-container" id="vnc-container">
+            <iframe 
+                id="vnc-frame"
+                src="http://localhost:16085/vnc.html?autoconnect=true&resize=remote&quality=6&compression=2"
+                class="vnc-frame"
+                title="TigerVNC Dynamic Resolution Test"
+                allow="clipboard-read; clipboard-write; fullscreen">
+            </iframe>
+        </div>
+
+        <div class="info">
+            <h3>🎯 What to Test:</h3>
+            <ol>
+                <li><strong>Resize Browser Window:</strong> The VNC desktop should automatically adjust to match!</li>
+                <li><strong>Mouse Interaction:</strong> Click, drag, and resize windows inside VNC - should work perfectly</li>
+                <li><strong>Different Sizes:</strong> Use the buttons above to test preset sizes</li>
+                <li><strong>Compare:</strong> Notice how this behaves differently from the old x11vnc approach</li>
+            </ol>
+            
+            <h3>🔍 Technical Details:</h3>
+            <ul>
+                <li><strong>VNC Server:</strong> TigerVNC with ExtendedDesktopSize support</li>
+                <li><strong>Client:</strong> noVNC with <code>resize=remote</code> parameter</li>
+                <li><strong>Resolution Mode:</strong> Dynamic (server adapts to client)</li>
+                <li><strong>Mouse Handling:</strong> Native 1:1 mapping (no coordinate translation needed)</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const vncFrame = document.getElementById('vnc-frame');
+        const vncContainer = document.getElementById('vnc-container');
+        const status = document.getElementById('status');
+
+        // Resize the VNC frame container
+        function resizeFrame(width, height) {
+            vncContainer.style.width = width + 'px';
+            vncContainer.style.height = height + 'px';
+            vncContainer.style.margin = '20px auto';
+            
+            status.textContent = `Resized to ${width}x${height} - VNC server should adapt automatically!`;
+            
+            console.log(`📐 Resized VNC container to ${width}x${height}`);
+            console.log('🎯 With TigerVNC remote resize, the server should change its framebuffer to match this size');
+        }
+
+        // Toggle fullscreen mode
+        function toggleFullscreen() {
+            if (vncContainer.style.position === 'fixed') {
+                // Exit fullscreen
+                vncContainer.style.position = '';
+                vncContainer.style.top = '';
+                vncContainer.style.left = '';
+                vncContainer.style.width = '';
+                vncContainer.style.height = '';
+                vncContainer.style.zIndex = '';
+                vncContainer.style.margin = '20px 0';
+                
+                status.textContent = 'Exited fullscreen mode';
+            } else {
+                // Enter fullscreen
+                vncContainer.style.position = 'fixed';
+                vncContainer.style.top = '0';
+                vncContainer.style.left = '0';
+                vncContainer.style.width = '100vw';
+                vncContainer.style.height = '100vh';
+                vncContainer.style.zIndex = '9999';
+                vncContainer.style.margin = '0';
+                
+                status.textContent = 'Entered fullscreen mode - VNC should adapt to full screen size!';
+            }
+        }
+
+        // Monitor window resize events
+        window.addEventListener('resize', () => {
+            const rect = vncContainer.getBoundingClientRect();
+            status.textContent = `Window resized! Container is now ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+            
+            console.log('🪟 Browser window resized');
+            console.log('🎯 TigerVNC should automatically adjust its resolution');
+        });
+
+        // Log when VNC iframe loads
+        vncFrame.addEventListener('load', () => {
+            console.log('✅ noVNC client loaded with remote resize mode');
+            status.textContent = 'VNC connected! Try resizing the window or using the test buttons.';
+        });
+
+        // Initial setup
+        console.log('🚀 TigerVNC Dynamic Resolution Test initialized');
+        console.log('📋 This tests the research recommendation: TigerVNC + noVNC remote resize');
+        console.log('🎯 Expected: No mouse coordinate issues + responsive scaling');
+    </script>
+</body>
+</html> 

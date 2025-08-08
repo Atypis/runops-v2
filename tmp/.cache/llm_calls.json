@@ -1,0 +1,21 @@
+{
+  "f286d284a80469de264883c67b0e91479bd11d1edb4233fc7c838a89edd3ae48": {
+    "data": {
+      "body": "Neue Anmeldung auf Mac\n\nmichaelburner595@gmail.com\n\nWir haben festgestellt, dass sich jemand auf einem Mac-Gerät in Ihrem Google-Konto angemeldet hat. Falls Sie das waren, müssen Sie nichts weiter unternehmen. Andernfalls unterstützen wir Sie gern dabei, die Sicherheit Ihres Kontos zu verbessern.\n\nAktivität prüfen\n\nSie können sich sicherheitsrelevante Aktivitäten auch hier ansehen: https://myaccount.google.com/notifications\n\nWir haben Ihnen diese E-Mail gesendet, um Sie über wichtige Änderungen zu Ihrem Google-Konto und den Diensten von Google zu informieren.",
+      "subject": "Sicherheitswarnung",
+      "sender_name": "Google",
+      "sender_email": "no-reply@accounts.google.com",
+      "sender_company": "Google"
+    },
+    "timestamp": 1753438875662,
+    "requestId": "9v0zvw6uatl"
+  },
+  "a358a52b6ab7d34bcedf31a55598b3e8685dd66ac03dee47e72201cb59259c14": {
+    "data": {
+      "progress": "All fields extracted",
+      "completed": true
+    },
+    "timestamp": 1753438879744,
+    "requestId": "9v0zvw6uatl"
+  }
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Director - Workflow Designer</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+    <div id="error-display" style="display: none; background: #fee; color: #c00; padding: 20px; margin: 20px; border-radius: 8px;">
+        <h3>Error Loading Application</h3>
+        <pre id="error-message"></pre>
+    </div>
+    <script>
+        // Error handler
+        window.addEventListener('error', function(event) {
+            console.error('Global error:', event);
+            const errorDisplay = document.getElementById('error-display');
+            const errorMessage = document.getElementById('error-message');
+            if (errorDisplay && errorMessage) {
+                errorDisplay.style.display = 'block';
+                errorMessage.textContent = event.message + '\n' + (event.filename || '') + ':' + (event.lineno || '') + ':' + (event.colno || '');
+            }
+        });
+        
+        // Promise rejection handler
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+        });
+    </script>
+    <script type="text/babel" src="app.js"></script>
+</body>
+</html>

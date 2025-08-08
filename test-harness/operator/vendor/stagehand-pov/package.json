@@ -1,0 +1,11 @@
+{
+  "name": "@vendor/stagehand-pov",
+  "version": "1.0.0",
+  "description": "Enhanced POV generation extracted from Stagehand for Director 2.0 (JavaScript only)",
+  "main": "dist/index.js",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

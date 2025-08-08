@@ -1,0 +1,107 @@
+{
+  "meta": {
+    "id": "list-iterator-minimal",
+    "title": "Minimal List Iterator Example",
+    "version": "1.0.0",
+    "goal": "Demonstrate list_iterator functionality with a simple example",
+    "purpose": "Educational workflow showing how to use list_iterator to process arrays",
+    "owner": ["aef-dev-team"],
+    "created": "2025-01-15T00:00:00Z",
+    "updated": "2025-01-15T00:00:00Z",
+    "aiGenerated": false,
+    "tags": ["example", "list_iterator", "demo"]
+  },
+  "execution": {
+    "workflow": {
+      "nodes": [
+        {
+          "id": "setup_data",
+          "type": "data_transform",
+          "label": "Setup Test Data",
+          "intent": "Create a test array for iteration",
+          "context": "Initialize sample data for demonstration",
+          "transformFunction": "() => ({ testItems: [{ name: 'Item 1', value: 'A' }, { name: 'Item 2', value: 'B' }, { name: 'Item 3', value: 'C' }] })",
+          "actions": []
+        },
+        {
+          "id": "process_items",
+          "type": "list_iterator",
+          "label": "Process Each Item",
+          "intent": "Iterate through test items and process each one",
+          "context": "Demonstrates list_iterator with currentItem and currentIndex variables",
+          "children": ["log_current_item", "extract_item_data"],
+          "iteratorConfig": {
+            "listVariable": "testItems",
+            "itemVariable": "currentItem",
+            "indexVariable": "currentIndex",
+            "continueOnError": true,
+            "maxIterations": 10
+          }
+        },
+        {
+          "id": "log_current_item",
+          "type": "atomic_task",
+          "label": "Log Current Item",
+          "intent": "Log the current item being processed",
+          "context": "Child node that demonstrates variable injection",
+          "parentId": "process_items",
+          "actions": [
+            {
+              "type": "act",
+              "instruction": "Log processing item {{currentIndex}}: {{currentItem.name}} with value {{currentItem.value}}"
+            }
+          ]
+        },
+        {
+          "id": "extract_item_data",
+          "type": "atomic_task",
+          "label": "Extract Item Data",
+          "intent": "Extract data from current item",
+          "context": "Demonstrates data extraction within iterator",
+          "parentId": "process_items",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Extract item details for {{currentItem.name}}",
+              "schema": {
+                "itemName": "string",
+                "itemValue": "string",
+                "processedAt": "string"
+              }
+            }
+          ]
+        },
+        {
+          "id": "summary",
+          "type": "generator",
+          "label": "Generate Summary",
+          "intent": "Generate a summary of processed items",
+          "context": "Final step to summarize the iteration results",
+          "actions": [
+            {
+              "type": "extract",
+              "instruction": "Generate summary of list processing results",
+              "schema": {
+                "totalProcessed": "number",
+                "processingComplete": "boolean",
+                "summary": "string"
+              }
+            }
+          ]
+        }
+      ],
+      "flow": [
+        { "from": "setup_data", "to": "process_items" },
+        { "from": "process_items", "to": "log_current_item" },
+        { "from": "log_current_item", "to": "extract_item_data" },
+        { "from": "process_items", "to": "summary" }
+      ]
+    }
+  },
+  "config": {
+    "executionTimeout": 300,
+    "retryAttempts": 2,
+    "hybridMode": true,
+    "pauseOnErrors": false
+  }
+} 

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNC WebSocket Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.connecting { background: #fff3cd; color: #856404; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .vnc-container {
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            height: 600px;
+            background: #f8f9fa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .vnc-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 6px;
+        }
+        .placeholder {
+            text-align: center;
+            color: #6c757d;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px;
+        }
+        .log-entry.info { color: #007bff; }
+        .log-entry.success { color: #28a745; }
+        .log-entry.error { color: #dc3545; }
+        .log-entry.warning { color: #ffc107; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖥️ VNC WebSocket Connection Test</h1>
+        
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+        
+        <div class="controls">
+            <button id="connect" class="btn-primary">Connect WebSocket</button>
+            <button id="disconnect" class="btn-secondary" disabled>Disconnect</button>
+            <button id="testVnc" class="btn-success" disabled>Test VNC Connection</button>
+            <button id="testScreenshot" class="btn-warning" disabled>Request Screenshot</button>
+        </div>
+        
+        <div class="vnc-container" id="vncContainer">
+            <div class="placeholder">
+                <h3>VNC Display Area</h3>
+                <p>Connect and request VNC to see live browser session here</p>
+            </div>
+        </div>
+        
+        <h3>WebSocket Log</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isVncMode = false;
+        
+        const status = document.getElementById('status');
+        const connectBtn = document.getElementById('connect');
+        const disconnectBtn = document.getElementById('disconnect');
+        const testVncBtn = document.getElementById('testVnc');
+        const testScreenshotBtn = document.getElementById('testScreenshot');
+        const vncContainer = document.getElementById('vncContainer');
+        const log = document.getElementById('log');
+        
+        function addLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function updateStatus(text, className) {
+            status.textContent = text;
+            status.className = `status ${className}`;
+        }
+        
+        function enableControls(connected) {
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+            testVncBtn.disabled = !connected;
+            testScreenshotBtn.disabled = !connected;
+        }
+        
+        function connect() {
+            if (ws) return;
+            
+            const executionId = 'test-vnc-' + Date.now();
+            const wsUrl = `ws://localhost:3004/ws?executionId=${executionId}`;
+            
+            addLog(`Connecting to ${wsUrl}`, 'info');
+            updateStatus('Connecting...', 'connecting');
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                addLog('WebSocket connected successfully!', 'success');
+                updateStatus('Connected', 'connected');
+                enableControls(true);
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    addLog(`Received: ${message.type}`, 'info');
+                    
+                    switch (message.type) {
+                        case 'connection_established':
+                            addLog(`Session established: ${message.data.executionId}`, 'success');
+                            break;
+                            
+                        case 'vnc_ready':
+                            addLog('VNC connection ready!', 'success');
+                            addLog(`VNC URL: ${message.data.vncUrl}`, 'info');
+                            isVncMode = true;
+                            showVncInterface(message.data.vncUrl);
+                            break;
+                            
+                        case 'vnc_fallback':
+                            addLog('VNC not available, using screenshot mode', 'warning');
+                            isVncMode = false;
+                            break;
+                            
+                        case 'browser_update':
+                            if (!isVncMode) {
+                                addLog('Screenshot received', 'success');
+                                showScreenshot(message.data.screenshot);
+                            }
+                            break;
+                            
+                        case 'error':
+                            addLog(`Error: ${message.data.error}`, 'error');
+                            break;
+                            
+                        default:
+                            addLog(`Unknown message: ${message.type}`, 'warning');
+                    }
+                } catch (error) {
+                    addLog(`Failed to parse message: ${error.message}`, 'error');
+                }
+            };
+            
+            ws.onclose = () => {
+                addLog('WebSocket connection closed', 'warning');
+                updateStatus('Disconnected', 'disconnected');
+                enableControls(false);
+                ws = null;
+                resetDisplay();
+            };
+            
+            ws.onerror = (error) => {
+                addLog(`WebSocket error: ${error}`, 'error');
+                updateStatus('Error', 'disconnected');
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+        
+        function testVnc() {
+            if (!ws) return;
+            
+            addLog('Requesting VNC connection...', 'info');
+            ws.send(JSON.stringify({
+                type: 'vnc_connect',
+                timestamp: Date.now()
+            }));
+        }
+        
+        function testScreenshot() {
+            if (!ws) return;
+            
+            addLog('Requesting screenshot...', 'info');
+            ws.send(JSON.stringify({
+                type: 'request_screenshot',
+                timestamp: Date.now()
+            }));
+        }
+        
+        function showVncInterface(vncUrl) {
+            vncContainer.innerHTML = `
+                <iframe src="${vncUrl}" title="VNC Display"></iframe>
+            `;
+        }
+        
+        function showScreenshot(screenshotData) {
+            vncContainer.innerHTML = `
+                <img src="${screenshotData}" alt="Browser Screenshot" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            `;
+        }
+        
+        function resetDisplay() {
+            vncContainer.innerHTML = `
+                <div class="placeholder">
+                    <h3>VNC Display Area</h3>
+                    <p>Connect and request VNC to see live browser session here</p>
+                </div>
+            `;
+            isVncMode = false;
+        }
+        
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        testVncBtn.addEventListener('click', testVnc);
+        testScreenshotBtn.addEventListener('click', testScreenshot);
+        
+        // Initial log entry
+        addLog('VNC WebSocket Test Page Ready', 'info');
+        addLog('Click "Connect WebSocket" to start testing', 'info');
+    </script>
+</body>
+</html> 
