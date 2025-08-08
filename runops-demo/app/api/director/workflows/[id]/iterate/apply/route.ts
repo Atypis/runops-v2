@@ -37,7 +37,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     const paramsUpdate = { ...(node.params || {}) };
-    paramsUpdate.body_spec = applyIterateSpecPatch(paramsUpdate.body_spec, op, spec, reorder_spec);
+    paramsUpdate.body_spec = applyIterateSpecPatch(paramsUpdate.body_spec, op, spec);
 
     // Persist spec now
     const { error: upErr1 } = await sb
